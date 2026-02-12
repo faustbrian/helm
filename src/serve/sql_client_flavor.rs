@@ -1,0 +1,66 @@
+use std::collections::HashMap;
+
+pub(crate) const SQL_CLIENT_FLAVOR_ENV: &str = "HELM_SQL_CLIENT_FLAVOR";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SqlClientFlavor {
+    Mysql,
+    Mariadb,
+}
+
+impl SqlClientFlavor {
+    #[must_use]
+    pub(crate) fn apt_package(self) -> &'static str {
+        match self {
+            Self::Mysql => "default-mysql-client",
+            Self::Mariadb => "mariadb-client",
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mysql => "mysql",
+            Self::Mariadb => "mariadb",
+        }
+    }
+}
+
+#[must_use]
+pub(crate) fn sql_client_flavor_from_injected_env(
+    injected_env: &HashMap<String, String>,
+) -> SqlClientFlavor {
+    match injected_env
+        .get(SQL_CLIENT_FLAVOR_ENV)
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("mariadb") => SqlClientFlavor::Mariadb,
+        _ => SqlClientFlavor::Mysql,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SqlClientFlavor, sql_client_flavor_from_injected_env};
+    use std::collections::HashMap;
+
+    #[test]
+    fn defaults_to_mysql() {
+        let injected = HashMap::new();
+        assert_eq!(
+            sql_client_flavor_from_injected_env(&injected),
+            SqlClientFlavor::Mysql
+        );
+    }
+
+    #[test]
+    fn parses_mariadb() {
+        let mut injected = HashMap::new();
+        injected.insert("HELM_SQL_CLIENT_FLAVOR".to_owned(), "mariadb".to_owned());
+        assert_eq!(
+            sql_client_flavor_from_injected_env(&injected),
+            SqlClientFlavor::Mariadb
+        );
+    }
+}

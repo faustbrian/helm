@@ -1,0 +1,77 @@
+use crate::cli::args::PortStrategyArg;
+
+pub(super) fn swarm_child_args(
+    target: &super::super::targets::ResolvedSwarmTarget,
+    command: &[String],
+    port_strategy: PortStrategyArg,
+    port_seed: Option<&str>,
+    env_output: bool,
+    quiet: bool,
+    no_color: bool,
+    dry_run: bool,
+    repro: bool,
+    runtime_env: Option<&str>,
+) -> Vec<String> {
+    let mut args = Vec::new();
+    if quiet {
+        args.push("--quiet".to_owned());
+    }
+    if no_color {
+        args.push("--no-color".to_owned());
+    }
+    if dry_run {
+        args.push("--dry-run".to_owned());
+    }
+    if let Some(env_name) = runtime_env {
+        args.push("--env".to_owned());
+        args.push(env_name.to_owned());
+    }
+    args.push("--project-root".to_owned());
+    args.push(target.root.display().to_string());
+    let mut child_command = command.to_vec();
+    if should_enable_publish_all(&child_command) {
+        child_command.push("--publish-all".to_owned());
+    }
+    if should_set_port_strategy(&child_command, port_strategy, repro) {
+        child_command.push("--port-strategy".to_owned());
+        child_command.push("stable".to_owned());
+    }
+    if should_set_port_seed(&child_command, port_seed, repro) {
+        child_command.push("--port-seed".to_owned());
+        child_command.push(port_seed.unwrap_or_default().to_owned());
+    }
+    if should_env_output(&child_command, env_output) {
+        child_command.push("--env-output".to_owned());
+    }
+    args.extend(child_command);
+    args
+}
+
+fn should_enable_publish_all(command: &[String]) -> bool {
+    command
+        .first()
+        .is_some_and(|subcommand| matches!(subcommand.as_str(), "up" | "recreate"))
+        && !command.iter().any(|arg| arg == "--publish-all")
+}
+
+fn should_set_port_strategy(
+    command: &[String],
+    port_strategy: PortStrategyArg,
+    _repro: bool,
+) -> bool {
+    port_strategy == PortStrategyArg::Stable
+        && command.first().is_some_and(|subcommand| subcommand == "up")
+        && !command.iter().any(|arg| arg == "--port-strategy")
+}
+
+fn should_set_port_seed(command: &[String], port_seed: Option<&str>, _repro: bool) -> bool {
+    port_seed.is_some()
+        && command.first().is_some_and(|subcommand| subcommand == "up")
+        && !command.iter().any(|arg| arg == "--port-seed")
+}
+
+fn should_env_output(command: &[String], env_output: bool) -> bool {
+    env_output
+        && command.first().is_some_and(|subcommand| subcommand == "up")
+        && !command.iter().any(|arg| arg == "--env-output")
+}
