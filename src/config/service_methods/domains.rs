@@ -1,0 +1,37 @@
+use std::collections::HashSet;
+
+use super::ServiceConfig;
+
+impl ServiceConfig {
+    #[must_use]
+    pub fn resolved_domains(&self) -> Vec<&str> {
+        let mut domains = Vec::new();
+        let mut seen = HashSet::new();
+
+        if let Some(primary) = self.domain.as_deref() {
+            let trimmed = primary.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed.to_ascii_lowercase()) {
+                domains.push(trimmed);
+            }
+        }
+
+        if let Some(additional) = &self.domains {
+            for domain in additional {
+                let trimmed = domain.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if seen.insert(trimmed.to_ascii_lowercase()) {
+                    domains.push(trimmed);
+                }
+            }
+        }
+
+        domains
+    }
+
+    #[must_use]
+    pub fn primary_domain(&self) -> Option<&str> {
+        self.resolved_domains().into_iter().next()
+    }
+}

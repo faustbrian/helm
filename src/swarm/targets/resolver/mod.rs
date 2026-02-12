@@ -1,0 +1,49 @@
+use anyhow::Result;
+use std::path::{Path, PathBuf};
+
+use super::ResolvedSwarmTarget;
+use ordering::order_target_names;
+use selection::select_targets;
+
+mod ordering;
+mod selection;
+
+pub(super) fn resolve_swarm_targets(
+    config: &crate::config::Config,
+    workspace_root: &Path,
+    only: &[String],
+    include_deps: bool,
+) -> Result<Vec<ResolvedSwarmTarget>> {
+    if config.swarm.is_empty() {
+        anyhow::bail!(
+            "no swarm targets configured. Add [[swarm]] entries to .helm.toml in {}",
+            workspace_root.display()
+        );
+    }
+
+    let (by_name, selected_roots) = select_targets(config, only)?;
+    let ordered_names = order_target_names(&by_name, selected_roots, include_deps)?;
+
+    let targets: Vec<ResolvedSwarmTarget> = ordered_names
+        .iter()
+        .map(|name| {
+            let target = by_name
+                .get(name.as_str())
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("swarm target '{name}' missing"))?;
+            Ok(ResolvedSwarmTarget {
+                name: target.name.clone(),
+                root: resolve_swarm_root(workspace_root, &target.root),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(targets)
+}
+
+pub(super) fn resolve_swarm_root(workspace_root: &Path, swarm_root: &Path) -> PathBuf {
+    if swarm_root.is_absolute() {
+        return swarm_root.to_path_buf();
+    }
+    workspace_root.join(swarm_root)
+}

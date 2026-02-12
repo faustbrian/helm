@@ -1,0 +1,25 @@
+use anyhow::Result;
+
+use crate::output::{self, LogLevel, Persistence};
+use crate::{cli, config, docker};
+
+pub(crate) fn handle_rm(
+    config: &config::Config,
+    service: Option<&str>,
+    kind: Option<config::Kind>,
+    force: bool,
+    parallel: usize,
+    quiet: bool,
+) -> Result<()> {
+    cli::support::for_each_service(config, service, kind, None, parallel, |svc| {
+        if !quiet {
+            output::event(
+                &svc.name,
+                LogLevel::Info,
+                "Removing service container",
+                Persistence::Persistent,
+            );
+        }
+        docker::rm(svc, force)
+    })
+}
