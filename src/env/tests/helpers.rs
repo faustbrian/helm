@@ -1,0 +1,54 @@
+use crate::config::{Driver, Kind, ServiceConfig};
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub(super) fn svc(name: &str, kind: Kind, driver: Driver, port: u16) -> ServiceConfig {
+    ServiceConfig {
+        name: name.to_owned(),
+        kind,
+        driver,
+        image: "x".to_owned(),
+        host: "127.0.0.1".to_owned(),
+        port,
+        database: None,
+        username: None,
+        password: None,
+        bucket: None,
+        access_key: None,
+        secret_key: None,
+        api_key: None,
+        region: None,
+        scheme: None,
+        domain: None,
+        domains: None,
+        container_port: None,
+        smtp_port: None,
+        volumes: None,
+        env: None,
+        command: None,
+        depends_on: None,
+        seed_file: None,
+        hook: Vec::new(),
+        health_path: None,
+        health_statuses: None,
+        localhost_tls: false,
+        octane: false,
+        php_extensions: None,
+        trust_container_ca: false,
+        env_mapping: None,
+        container_name: None,
+        resolved_container_name: None,
+    }
+}
+
+pub(super) fn temp_env_file(name: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0_u128, |dur| dur.as_nanos());
+    std::env::temp_dir().join(format!(
+        "helm-env-tests-{}-{}-{}.env",
+        name,
+        std::process::id(),
+        stamp
+    ))
+}
