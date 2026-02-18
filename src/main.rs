@@ -1,0 +1,35 @@
+//! Data service container manager CLI.
+//!
+//! Helm is a command-line tool for managing local data services with Docker.
+
+#![allow(clippy::print_stdout)] // CLI tool needs to print to stdout
+#![allow(clippy::clone_on_ref_ptr)] // Arc clones are explicit at call sites for clarity
+#![allow(clippy::fn_params_excessive_bools)] // CLI options are represented directly as flags
+#![allow(clippy::items_after_statements)] // Local helper functions keep related logic together
+
+use anyhow::Result;
+use clap::Parser;
+
+mod cli;
+
+use cli::args::Cli;
+mod config;
+mod database;
+mod dependency_order;
+mod display;
+mod docker;
+mod env;
+mod output;
+mod parallel;
+mod serve;
+mod share;
+mod swarm;
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    cli::dispatch::run(cli)
+}
+
+#[cfg(test)]
+#[path = "main_tests/mod.rs"]
+mod tests;

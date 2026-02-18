@@ -1,0 +1,44 @@
+//! docker manage container ops stop module.
+//!
+//! Contains docker manage container ops stop logic used by Helm command workflows.
+
+use anyhow::Result;
+
+use crate::config::ServiceConfig;
+use crate::output::{self, LogLevel, Persistence};
+
+use super::super::super::{is_dry_run, print_docker_command};
+use super::docker_cmd::docker_output;
+
+/// Stops stop as part of the docker manage container ops stop workflow.
+pub(super) fn stop(service: &ServiceConfig) -> Result<()> {
+    let container_name = service.container_name()?;
+
+    if is_dry_run() {
+        print_docker_command(&["stop".to_owned(), container_name]);
+        return Ok(());
+    }
+
+    let output = docker_output(
+        &["stop", &container_name],
+        "Failed to execute docker stop command",
+    )?;
+
+    if output.status.success() {
+        output::event(
+            &service.name,
+            LogLevel::Success,
+            &format!("Stopped container {container_name}"),
+            Persistence::Persistent,
+        );
+    } else {
+        output::event(
+            &service.name,
+            LogLevel::Info,
+            &format!("Skipped stopping container {container_name} because it is not running"),
+            Persistence::Persistent,
+        );
+    }
+
+    Ok(())
+}
