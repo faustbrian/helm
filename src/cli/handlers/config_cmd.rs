@@ -1,0 +1,148 @@
+//! cli handlers config cmd module.
+//!
+//! Contains cli handlers config cmd logic used by Helm command workflows.
+
+use anyhow::Result;
+use std::path::Path;
+
+use crate::cli::handlers::{log, serialize};
+use crate::config;
+
+/// Handles the `config` CLI command.
+pub(crate) fn handle_config(config: &config::Config, format: &str) -> Result<()> {
+    serialize::print_pretty(config, format)
+}
+
+/// Handles the `config migrate` CLI command.
+pub(crate) fn handle_config_migrate(
+    quiet: bool,
+    config_path: Option<&Path>,
+    project_root: Option<&Path>,
+) -> Result<()> {
+    let path = config::migrate_config_with(config::MigrateConfigOptions {
+        config_path,
+        project_root,
+    })?;
+    log::info_if_not_quiet(quiet, "config", &format!("Migrated {}", path.display()));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::config::{Config, Driver, Kind, ServiceConfig};
+
+    use super::{handle_config, handle_config_migrate};
+
+    fn service(name: &str, kind: Kind, driver: Driver) -> ServiceConfig {
+        ServiceConfig {
+            name: name.to_owned(),
+            kind,
+            driver,
+            image: "service:latest".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 3306,
+            database: Some("app".to_owned()),
+            username: Some("root".to_owned()),
+            password: Some("secret".to_owned()),
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: None,
+            domains: None,
+            container_port: None,
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: false,
+            octane: false,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            container_name: Some(format!("{name}-container")),
+            resolved_container_name: None,
+        }
+    }
+
+    fn base_config() -> Config {
+        Config {
+            schema_version: 1,
+            container_prefix: Some("helm".to_owned()),
+            service: vec![service("app", Kind::App, Driver::Frankenphp)],
+            swarm: Vec::new(),
+        }
+    }
+
+    fn temp_root() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "helm-config-cmd-tests-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temp dir");
+        root
+    }
+
+    fn write_config(root: &std::path::Path, content: &str) -> std::path::PathBuf {
+        let path = root.join(".helm.toml");
+        fs::write(&path, content).expect("write config");
+        path
+    }
+
+    #[test]
+    fn handle_config_renders_supported_formats() -> Result<()> {
+        let cfg = base_config();
+        handle_config(&cfg, "json")?;
+        handle_config(&cfg, "toml")?;
+        Ok(())
+    }
+
+    #[test]
+    fn handle_config_rejects_unknown_format() {
+        let cfg = base_config();
+        assert!(handle_config(&cfg, "yaml").is_err());
+    }
+
+    #[test]
+    fn handle_config_migrate_writes_file_at_explicit_path() -> Result<()> {
+        let root = temp_root();
+        let config_path = write_config(
+            &root,
+            r#"
+schema_version = 1
+container_prefix = "helm"
+
+[[service]]
+name = "app"
+kind = "app"
+driver = "frankenphp"
+image = "nginx:1.29"
+"#,
+        );
+
+        handle_config_migrate(false, Some(&config_path), None)?;
+        assert!(config_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn handle_config_migrate_fails_without_config_path() {
+        let root = temp_root();
+        let result = handle_config_migrate(false, Some(&root.join("missing.toml")), None);
+        assert!(result.is_err());
+    }
+}

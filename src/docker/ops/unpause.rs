@@ -1,0 +1,17 @@
+//! docker ops unpause module.
+//!
+//! Contains docker unpause operation used by Helm command workflows.
+
+use anyhow::Result;
+
+use crate::config::ServiceConfig;
+
+use super::common::run_simple_container_command;
+
+pub(super) fn unpause(service: &ServiceConfig) -> Result<()> {
+    run_simple_container_command(
+        service,
+        "unpause",
+        "Failed to execute docker unpause command",
+    )
+}
