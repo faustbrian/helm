@@ -125,13 +125,21 @@ pub(crate) fn with_dry_run_state<R>(enabled: bool, test: impl FnOnce() -> R) -> 
 }
 
 pub(crate) fn print_docker_command(args: &[String]) {
-    let engine = active_engine_adapter().command_binary();
     output::event(
         "docker",
         LogLevel::Info,
-        &format!("[dry-run] {engine} {}", args.join(" ")),
+        &format!("[dry-run] {}", runtime_command_text(args)),
         Persistence::Transient,
     );
+}
+
+#[must_use]
+pub(crate) fn runtime_command_text(args: &[String]) -> String {
+    format!(
+        "{} {}",
+        active_engine_adapter().command_binary(),
+        args.join(" ")
+    )
 }
 
 #[cfg(test)]
@@ -258,6 +266,7 @@ mod tests {
             assert_eq!(super::container_engine(), ContainerEngine::Docker);
             assert_eq!(super::docker_command(), "docker");
             assert_eq!(host_gateway_alias(), "host.docker.internal");
+            assert_eq!(super::runtime_command_text(&["ps".to_owned()]), "docker ps");
             assert_eq!(super::runtime_diagnostic_checks().len(), 2);
             assert_eq!(
                 super::runtime_diagnostic_checks()[0].success_message,
@@ -272,6 +281,7 @@ mod tests {
             assert_eq!(super::container_engine(), ContainerEngine::Podman);
             assert_eq!(super::docker_command(), "podman");
             assert_eq!(host_gateway_alias(), "host.containers.internal");
+            assert_eq!(super::runtime_command_text(&["ps".to_owned()]), "podman ps");
             assert_eq!(super::runtime_diagnostic_checks().len(), 2);
             assert_eq!(
                 super::runtime_diagnostic_checks()[0].success_message,

@@ -40,16 +40,24 @@ pub(super) fn remove_container(target: &ServiceConfig) -> Result<()> {
 }
 
 fn log_remove_dry_run(service_name: &str, container_name: &str) {
+    let stop_args = vec!["stop".to_owned(), container_name.to_owned()];
+    let rm_args = vec!["rm".to_owned(), container_name.to_owned()];
     output::event(
         service_name,
         LogLevel::Info,
-        &format!("[dry-run] docker stop {container_name}"),
+        &format!(
+            "[dry-run] {}",
+            crate::docker::runtime_command_text(&stop_args)
+        ),
         Persistence::Transient,
     );
     output::event(
         service_name,
         LogLevel::Info,
-        &format!("[dry-run] docker rm {container_name}"),
+        &format!(
+            "[dry-run] {}",
+            crate::docker::runtime_command_text(&rm_args)
+        ),
         Persistence::Transient,
     );
 }

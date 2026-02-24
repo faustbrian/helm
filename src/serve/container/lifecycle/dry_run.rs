@@ -12,10 +12,14 @@ pub(super) fn print_dry_run_container_start(
     smtp_port: Option<u16>,
 ) {
     if recreate {
+        let remove_args = vec!["rm".to_owned(), "-f".to_owned(), container_name.to_owned()];
         output::event(
             &target.name,
             LogLevel::Info,
-            &format!("[dry-run] docker rm -f {container_name}"),
+            &format!(
+                "[dry-run] {}",
+                crate::docker::runtime_command_text(&remove_args)
+            ),
             Persistence::Transient,
         );
     }
@@ -30,10 +34,21 @@ pub(super) fn print_dry_run_container_start(
         mapping.push_str(&format!(" -p {}:{}:1025", target.host, smtp_port));
     }
 
+    let run_args = vec![
+        "run".to_owned(),
+        "-d".to_owned(),
+        "--name".to_owned(),
+        container_name.to_owned(),
+        mapping,
+        runtime_image.to_owned(),
+    ];
     output::event(
         &target.name,
         LogLevel::Info,
-        &format!("[dry-run] docker run -d --name {container_name} {mapping} {runtime_image}"),
+        &format!(
+            "[dry-run] {}",
+            crate::docker::runtime_command_text(&run_args)
+        ),
         Persistence::Transient,
     );
 }

@@ -35,10 +35,18 @@ pub(super) fn evaluate_trust_preconditions(
     let output_path = format!("/tmp/{container_name}-inner-caddy-root.crt");
 
     if crate::docker::is_dry_run() {
+        let cp_args = vec![
+            "cp".to_owned(),
+            "<container-ca-path>".to_owned(),
+            output_path.clone(),
+        ];
         output::event(
             &target.name,
             LogLevel::Info,
-            &format!("[dry-run] docker cp <container-ca-path> {output_path}"),
+            &format!(
+                "[dry-run] {}",
+                crate::docker::runtime_command_text(&cp_args)
+            ),
             Persistence::Transient,
         );
         output::event(
