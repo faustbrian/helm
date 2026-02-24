@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [4.0.0] - 2026-02-24
+
+### Added
+
+- Added container runtime engine selection via `.helm.toml` using
+  `container_engine = "docker"` or `container_engine = "podman"`.
+- Added global CLI override `--engine <docker|podman>` to select runtime
+  engine for the current invocation.
+
+### Changed
+
+- Changed runtime command execution to resolve the container CLI binary from
+  selected engine (`docker` or `podman`) through shared command runners.
+- Changed host-loopback alias resolution to be engine-aware:
+  Docker uses `host.docker.internal` and Podman uses
+  `host.containers.internal`.
+
+### Migration Notes
+
+- Existing configs remain valid. If `container_engine` is omitted, Helm
+  defaults to `docker`.
+- Podman support targets core Docker-compatible CLI flows. Some advanced
+  behavior may still differ across host/network/runtime setups.
+
 ## [3.6.0] - 2026-02-23
 
 ### Added

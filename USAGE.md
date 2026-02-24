@@ -25,10 +25,28 @@ These apply to all commands.
   - Resolve `.helm.toml` from a specific directory.
 - `--env <NAME>`
   - Runtime namespace (for example `testing` / `test`).
+- `--engine <docker|podman>`
+  - Override container runtime engine for this invocation.
+  - When omitted, Helm uses `container_engine` from config, then defaults to
+    `docker`.
 - `--repro`
   - Enable reproducibility mode (lockfile + deterministic checks).
 - `--non-interactive`
   - Disable interactive behavior (for example: browser auto-open and TTY usage).
+
+## Runtime Engine
+
+Set a project default engine in `.helm.toml`:
+
+```toml
+container_engine = "docker" # or "podman"
+```
+
+Notes:
+
+- Helm defaults to `docker` when `container_engine` is not set.
+- Podman support covers core Docker-compatible CLI flows.
+- Some advanced runtime/network behavior can differ by engine and host setup.
 
 ## Common Selectors
 
@@ -93,6 +111,11 @@ If `--service` is omitted, commands operate on all matching services.
 - `npm`
 - `pnpm`
 - `yarn`
+
+### Container Engine (`--engine`)
+
+- `docker` (default)
+- `podman`
 
 ## Top-Level Commands
 
@@ -443,7 +466,7 @@ Flags:
   - Repeatable: `--service app --service worker`
 - `--kind <KIND>`
 - `--profile <NAME>` (conflicts with `--service` and `--kind`)
-- Trailing `ARGS...` are passed to `docker top` (for example: `aux`).
+- Trailing `ARGS...` are passed to `<engine> top` (for example: `aux`).
 
 ### `helm stats`
 
