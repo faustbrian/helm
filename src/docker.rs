@@ -147,6 +147,14 @@ pub(crate) fn runtime_command_text(args: &[String]) -> String {
     )
 }
 
+#[must_use]
+pub(crate) fn runtime_command_error_context(action: &str) -> String {
+    format!(
+        "Failed to execute {} {action} command",
+        active_engine_adapter().command_binary()
+    )
+}
+
 #[cfg(test)]
 pub(crate) fn with_docker_command<F, T>(command: &str, test: F) -> T
 where
@@ -272,6 +280,10 @@ mod tests {
             assert_eq!(super::docker_command(), "docker");
             assert_eq!(host_gateway_alias(), "host.docker.internal");
             assert_eq!(super::runtime_command_text(&["ps".to_owned()]), "docker ps");
+            assert_eq!(
+                super::runtime_command_error_context("logs"),
+                "Failed to execute docker logs command"
+            );
             assert_eq!(super::runtime_diagnostic_checks().len(), 2);
             assert_eq!(
                 super::runtime_diagnostic_checks()[0].success_message,
@@ -288,6 +300,10 @@ mod tests {
             assert_eq!(super::docker_command(), "podman");
             assert_eq!(host_gateway_alias(), "host.containers.internal");
             assert_eq!(super::runtime_command_text(&["ps".to_owned()]), "podman ps");
+            assert_eq!(
+                super::runtime_command_error_context("logs"),
+                "Failed to execute podman logs command"
+            );
             assert_eq!(super::runtime_diagnostic_checks().len(), 2);
             assert_eq!(
                 super::runtime_diagnostic_checks()[0].success_message,

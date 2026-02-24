@@ -12,7 +12,8 @@ pub(super) fn stream_logs_with_prefix(
     service_name: &str,
     container_name: &str,
 ) -> Result<()> {
-    let mut child = spawn_docker_stream(args, "Failed to execute docker logs command")?;
+    let mut child =
+        spawn_docker_stream(args, &crate::docker::runtime_command_error_context("logs"))?;
 
     let stdout = child
         .stdout

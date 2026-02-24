@@ -26,7 +26,7 @@ pub fn exec_interactive(service: &ServiceConfig, tty: bool) -> Result<()> {
         return Ok(());
     }
 
-    let status = run_docker_status(&args, "Failed to execute docker exec command")?;
+    let status = run_docker_status(&args, &super::runtime_command_error_context("exec"))?;
 
     if !status.success() {
         anyhow::bail!("Interactive session failed");

@@ -35,7 +35,7 @@ pub fn logs(service: &ServiceConfig, options: LogsOptions) -> Result<()> {
         return Ok(());
     }
 
-    let status = run_docker_status(&args, "Failed to execute docker logs command")?;
+    let status = run_docker_status(&args, &super::runtime_command_error_context("logs"))?;
 
     if !status.success() {
         anyhow::bail!("Failed to get logs for container '{container_name}'");

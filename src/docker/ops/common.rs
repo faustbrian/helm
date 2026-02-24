@@ -8,12 +8,12 @@ use std::process::Output;
 use crate::config::ServiceConfig;
 use crate::docker::{is_dry_run, print_docker_command};
 
-pub(super) fn run_docker_status(args: &[String], context_message: &'static str) -> Result<()> {
+pub(super) fn run_docker_status(args: &[String], context_message: &str) -> Result<()> {
     run_docker_output(args, context_message)?;
     Ok(())
 }
 
-pub(super) fn run_docker_output(args: &[String], context_message: &'static str) -> Result<Output> {
+pub(super) fn run_docker_output(args: &[String], context_message: &str) -> Result<Output> {
     if is_dry_run() {
         print_docker_command(args);
         return Ok(Output {
@@ -26,7 +26,10 @@ pub(super) fn run_docker_output(args: &[String], context_message: &'static str) 
     let output = crate::docker::run_docker_output_owned(args, context_message)?;
 
     if !output.status.success() {
-        anyhow::bail!("docker command failed: docker {}", args.join(" "));
+        anyhow::bail!(
+            "runtime command failed: {}",
+            crate::docker::runtime_command_text(args)
+        );
     }
 
     Ok(output)
@@ -48,7 +51,7 @@ fn default_success_status() -> std::process::ExitStatus {
 pub(super) fn run_simple_container_command(
     service: &ServiceConfig,
     subcommand: &str,
-    context_message: &'static str,
+    context_message: &str,
 ) -> Result<()> {
     let container_name = service.container_name()?;
     let args = vec![subcommand.to_owned(), container_name];
@@ -60,7 +63,7 @@ pub(super) fn run_container_command_with_optional_flag(
     subcommand: &str,
     flag: &str,
     value: Option<&str>,
-    context_message: &'static str,
+    context_message: &str,
 ) -> Result<()> {
     let container_name = service.container_name()?;
     let mut args = vec![subcommand.to_owned()];
@@ -232,7 +235,7 @@ mod tests {
             with_fake_docker("exit 1", || {
                 let output = run_docker_output(&["fail".to_owned()], "fail").expect_err("failure");
                 assert!(output.to_string().contains("fail"));
-                assert!(output.to_string().contains("docker command failed"));
+                assert!(output.to_string().contains("runtime command failed"));
             });
         });
     }
