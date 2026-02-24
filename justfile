@@ -21,3 +21,6 @@ fmt:
 
 parity-smoke engine="docker":
     ./scripts/runtime-parity-smoke.sh {{engine}}
+
+parity-full engine="docker":
+    ./scripts/runtime-parity-full.sh {{engine}}
