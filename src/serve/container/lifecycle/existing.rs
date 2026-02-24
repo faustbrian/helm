@@ -33,7 +33,7 @@ pub(super) fn handle_existing_container(container_name: &str) -> Result<bool> {
 fn start_existing_container(container_name: &str) -> Result<()> {
     checked_output(
         &["start", container_name],
-        "failed to execute docker start",
+        &crate::docker::runtime_command_error_context("start"),
         "failed to start existing serve container",
     )
 }

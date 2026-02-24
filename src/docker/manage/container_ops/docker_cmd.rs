@@ -12,6 +12,6 @@ pub(super) fn docker_output(args: &[&str], error_context: &str) -> Result<Output
 pub(super) fn try_docker_output(args: &[&str]) {
     drop(crate::docker::run_docker_output(
         args,
-        "failed to execute docker cleanup command",
+        &crate::docker::runtime_command_error_context("cleanup"),
     ));
 }

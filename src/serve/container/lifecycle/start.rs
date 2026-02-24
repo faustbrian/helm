@@ -10,7 +10,7 @@ pub(super) fn start_new_container(target: &ServiceConfig, run_args: &[String]) -
     let args = crate::docker::docker_arg_refs(run_args);
     docker_cmd::checked_output(
         &args,
-        "failed to execute docker run for serve target",
+        &crate::docker::runtime_command_error_context("run"),
         "failed to run serve container",
     )?;
 

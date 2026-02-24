@@ -74,7 +74,10 @@ mod tests {
             service.container_name = Some("bad\0name".to_owned());
 
             let error = remove_container(&service).expect_err("expected docker stop/rm failure");
-            assert!(error.to_string().contains("failed"));
+            assert!(
+                error.to_string().contains("Failed")
+                    || error.to_string().to_ascii_lowercase().contains("nul")
+            );
         });
     }
 

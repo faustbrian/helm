@@ -53,7 +53,7 @@ pub(super) fn build_derived_image(tag: &str, dockerfile: &str) -> Result<()> {
         || {
             docker_status(
                 &["build", "-t", tag, "-f", &dockerfile_arg, &context_arg],
-                "failed to execute docker build for serve image",
+                &crate::docker::runtime_command_error_context("build"),
             )
         },
     )?;

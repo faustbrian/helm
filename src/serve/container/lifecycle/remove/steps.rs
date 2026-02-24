@@ -15,7 +15,7 @@ pub(super) fn run_docker_step(
     action: &str,
     container_name: &str,
 ) -> Result<StepOutcome> {
-    let output = docker_output(&args, &format!("failed to execute docker {action}"))?;
+    let output = docker_output(&args, &crate::docker::runtime_command_error_context(action))?;
 
     if output.status.success() {
         return Ok(StepOutcome::Performed);
