@@ -14,6 +14,6 @@ pub(super) fn kill(service: &ServiceConfig, signal: Option<&str>) -> Result<()> 
         "kill",
         "--signal",
         signal,
-        "Failed to execute docker kill command",
+        &crate::docker::runtime_command_error_context("kill"),
     )
 }

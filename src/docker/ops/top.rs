@@ -12,5 +12,5 @@ pub(super) fn top(service: &ServiceConfig, top_args: &[String]) -> Result<()> {
     let container_name = service.container_name()?;
     let mut args = vec!["top".to_owned(), container_name];
     args.extend(top_args.iter().cloned());
-    run_docker_status(&args, "Failed to execute docker top command")
+    run_docker_status(&args, &crate::docker::runtime_command_error_context("top"))
 }

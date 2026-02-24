@@ -14,6 +14,6 @@ pub(super) fn wait(service: &ServiceConfig, condition: Option<&str>) -> Result<(
         "wait",
         "--condition",
         condition,
-        "Failed to execute docker wait command",
+        &crate::docker::runtime_command_error_context("wait"),
     )
 }

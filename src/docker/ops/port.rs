@@ -11,7 +11,7 @@ use super::common::{run_docker_output, run_docker_status};
 
 pub(super) fn port(service: &ServiceConfig, private_port: Option<&str>) -> Result<()> {
     let args = build_port_args(service, private_port)?;
-    run_docker_status(&args, "Failed to execute docker port command")
+    run_docker_status(&args, &crate::docker::runtime_command_error_context("port"))
 }
 
 pub(super) fn port_output(service: &ServiceConfig, private_port: Option<&str>) -> Result<String> {
@@ -20,7 +20,7 @@ pub(super) fn port_output(service: &ServiceConfig, private_port: Option<&str>) -
         return Ok(String::new());
     }
 
-    let output = run_docker_output(&args, "Failed to execute docker port command")?;
+    let output = run_docker_output(&args, &crate::docker::runtime_command_error_context("port"))?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 

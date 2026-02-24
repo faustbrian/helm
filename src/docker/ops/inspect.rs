@@ -20,5 +20,8 @@ pub(super) fn inspect_container(
     push_flag(&mut args, size, "--size");
     push_option(&mut args, "--type", object_type);
     args.push(container_name);
-    run_docker_status(&args, "Failed to execute docker inspect command")
+    run_docker_status(
+        &args,
+        &crate::docker::runtime_command_error_context("inspect"),
+    )
 }

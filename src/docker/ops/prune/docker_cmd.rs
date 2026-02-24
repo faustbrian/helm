@@ -16,7 +16,7 @@ pub(super) fn ensure_success(output: Output, error_prefix: &str) -> Result<Outpu
     anyhow::bail!(
         "{error_prefix}: {}",
         if stderr.is_empty() {
-            "unknown docker error"
+            "unknown runtime error"
         } else {
             &stderr
         }

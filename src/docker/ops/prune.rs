@@ -32,7 +32,10 @@ pub(super) fn prune(options: PruneOptions<'_>) -> Result<()> {
     if is_dry_run() {
         preview_global_prune_candidates(options.filters)?;
     }
-    run_docker_status(&args, "Failed to execute docker container prune command")
+    run_docker_status(
+        &args,
+        &crate::docker::runtime_command_error_context("container prune"),
+    )
 }
 
 pub(super) fn prune_stopped_container(service: &ServiceConfig) -> Result<()> {
@@ -83,7 +86,7 @@ pub(super) fn prune_stopped_container(service: &ServiceConfig) -> Result<()> {
 
     let rm_output = docker_output(
         &["rm".to_owned(), container_name.clone()],
-        "Failed to execute docker rm command while pruning",
+        &crate::docker::runtime_command_error_context("rm"),
     )?;
     ensure_success(
         rm_output,

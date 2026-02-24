@@ -13,5 +13,5 @@ pub(super) fn cp(source: &str, destination: &str, options: CpOptions) -> Result<
     push_flag(&mut args, options.archive, "-a");
     args.push(source.to_owned());
     args.push(destination.to_owned());
-    run_docker_status(&args, "Failed to execute docker cp command")
+    run_docker_status(&args, &crate::docker::runtime_command_error_context("cp"))
 }

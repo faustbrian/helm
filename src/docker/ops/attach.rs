@@ -20,5 +20,8 @@ pub(super) fn attach(
     push_flag(&mut args, sig_proxy, "--sig-proxy=true");
     push_option(&mut args, "--detach-keys", detach_keys);
     args.push(container_name);
-    run_docker_status(&args, "Failed to execute docker attach command")
+    run_docker_status(
+        &args,
+        &crate::docker::runtime_command_error_context("attach"),
+    )
 }

@@ -15,5 +15,8 @@ pub(super) fn stats(service: &ServiceConfig, options: StatsOptions<'_>) -> Resul
     push_flag(&mut args, options.no_stream, "--no-stream");
     push_option(&mut args, "--format", options.format);
     args.push(container_name);
-    run_docker_status(&args, "Failed to execute docker stats command")
+    run_docker_status(
+        &args,
+        &crate::docker::runtime_command_error_context("stats"),
+    )
 }

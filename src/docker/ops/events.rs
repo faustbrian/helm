@@ -20,5 +20,8 @@ pub(super) fn events(
         args.push("--filter".to_owned());
         args.push(filter.clone());
     }
-    run_docker_status(&args, "Failed to execute docker events command")
+    run_docker_status(
+        &args,
+        &crate::docker::runtime_command_error_context("events"),
+    )
 }

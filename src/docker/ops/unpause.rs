@@ -12,6 +12,6 @@ pub(super) fn unpause(service: &ServiceConfig) -> Result<()> {
     run_simple_container_command(
         service,
         "unpause",
-        "Failed to execute docker unpause command",
+        &crate::docker::runtime_command_error_context("unpause"),
     )
 }
