@@ -50,7 +50,10 @@ pub(super) fn docker_image_exists(tag: &str) -> Result<bool> {
     if crate::docker::is_dry_run() {
         return Ok(false);
     }
-    crate::docker::docker_image_exists(tag, "failed to inspect docker image")
+    crate::docker::docker_image_exists(
+        tag,
+        &crate::docker::runtime_command_error_context("image inspect"),
+    )
 }
 
 fn lockfile_path(path: &std::path::Path) -> PathBuf {
