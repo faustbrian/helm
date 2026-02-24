@@ -16,6 +16,8 @@ static CONTAINER_ENGINE: OnceLock<Mutex<ContainerEngine>> = OnceLock::new();
 #[cfg(test)]
 static TEST_DOCKER_SCOPE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[cfg(test)]
+static TEST_ENGINE_SCOPE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+#[cfg(test)]
 static TEST_DOCKER_COMMAND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 #[cfg(test)]
 static TEST_DRY_RUN: OnceLock<Mutex<()>> = OnceLock::new();
@@ -44,6 +46,10 @@ fn container_engine_lock() -> &'static Mutex<ContainerEngine> {
     CONTAINER_ENGINE.get_or_init(|| Mutex::new(ContainerEngine::default()))
 }
 
+fn active_engine_adapter() -> &'static dyn engine::RuntimeEngineAdapter {
+    engine::adapter_for(container_engine())
+}
+
 pub(crate) fn set_container_engine(engine: ContainerEngine) {
     let mut guard = container_engine_lock()
         .lock()
@@ -60,12 +66,17 @@ pub(crate) fn container_engine() -> ContainerEngine {
 
 #[must_use]
 pub(crate) fn host_gateway_alias() -> &'static str {
-    container_engine().host_gateway_alias()
+    active_engine_adapter().host_gateway_alias()
 }
 
 #[must_use]
 pub(crate) fn host_gateway_mapping() -> Option<&'static str> {
-    container_engine().host_gateway_mapping()
+    active_engine_adapter().host_gateway_mapping()
+}
+
+#[must_use]
+pub(crate) fn runtime_diagnostic_checks() -> &'static [RuntimeDiagnosticCheck] {
+    active_engine_adapter().diagnostics()
 }
 
 #[cfg(test)]
@@ -75,7 +86,7 @@ pub(crate) fn with_dry_run_lock<R>(test: impl FnOnce() -> R) -> R {
 
 #[cfg(test)]
 pub(crate) fn with_container_engine<R>(engine: ContainerEngine, test: impl FnOnce() -> R) -> R {
-    let scope_lock = TEST_DOCKER_SCOPE_LOCK.get_or_init(Default::default).lock();
+    let scope_lock = TEST_ENGINE_SCOPE_LOCK.get_or_init(Default::default).lock();
     let _scope_lock = match scope_lock {
         Ok(lock) => lock,
         Err(err) => err.into_inner(),
@@ -114,7 +125,7 @@ pub(crate) fn with_dry_run_state<R>(enabled: bool, test: impl FnOnce() -> R) -> 
 }
 
 pub(crate) fn print_docker_command(args: &[String]) {
-    let engine = container_engine().command_binary();
+    let engine = active_engine_adapter().command_binary();
     output::event(
         "docker",
         LogLevel::Info,
@@ -173,10 +184,11 @@ pub(crate) fn docker_command() -> String {
             return command;
         }
     }
-    container_engine().command_binary().to_owned()
+    active_engine_adapter().command_binary().to_owned()
 }
 
 mod cmd;
+mod engine;
 mod exec;
 mod health;
 mod image_inspect;
@@ -195,6 +207,7 @@ pub(crate) use cmd::{
     run_docker_status, run_docker_status_owned, spawn_docker_stdin_stderr_piped,
     spawn_docker_stdout_stderr_piped,
 };
+pub(crate) use engine::RuntimeDiagnosticCheck;
 pub(crate) use exec::build_exec_args;
 pub use exec::{exec_command, exec_interactive, exec_piped};
 pub use health::wait_until_healthy;
@@ -245,6 +258,11 @@ mod tests {
             assert_eq!(super::container_engine(), ContainerEngine::Docker);
             assert_eq!(super::docker_command(), "docker");
             assert_eq!(host_gateway_alias(), "host.docker.internal");
+            assert_eq!(super::runtime_diagnostic_checks().len(), 2);
+            assert_eq!(
+                super::runtime_diagnostic_checks()[0].success_message,
+                "Docker CLI available"
+            );
         });
     }
 
@@ -254,6 +272,11 @@ mod tests {
             assert_eq!(super::container_engine(), ContainerEngine::Podman);
             assert_eq!(super::docker_command(), "podman");
             assert_eq!(host_gateway_alias(), "host.containers.internal");
+            assert_eq!(super::runtime_diagnostic_checks().len(), 2);
+            assert_eq!(
+                super::runtime_diagnostic_checks()[0].success_message,
+                "Podman CLI available"
+            );
         });
     }
 }
