@@ -7,6 +7,7 @@
 use anyhow::Result;
 
 use super::args::Cli;
+use crate::config;
 use crate::docker;
 use crate::output;
 
@@ -35,6 +36,15 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
     if bootstrap::handle_setup_commands(&cli, &dispatch_context)? {
         return Ok(());
     }
+
+    let configured_engine = config::load_container_engine_with(
+        config::LoadConfigPathOptions::new(
+            dispatch_context.config_path(),
+            dispatch_context.project_root(),
+        )
+        .with_runtime_env(dispatch_context.runtime_env()),
+    )?;
+    docker::set_container_engine(cli.engine.or(configured_engine).unwrap_or_default());
 
     let mut config = bootstrap::load_config_for_cli(&cli, &dispatch_context)?;
     if let Some(result) = primary::dispatch_primary(&cli, &mut config, &dispatch_context) {
@@ -108,5 +118,32 @@ mod tests {
         let cli = Cli::parse_from(args);
         let result = super::run(cli);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn run_applies_container_engine_from_config() {
+        let project_root = minimal_config_dir();
+        let config_path = project_root.join(".helm.toml");
+        fs::write(
+            &config_path,
+            "schema_version = 1\ncontainer_engine = \"podman\"\nservice = []\nswarm = []\n",
+        )
+        .expect("write podman config");
+
+        crate::docker::with_container_engine(crate::config::ContainerEngine::Docker, || {
+            let args = [
+                "helm",
+                "--project-root",
+                project_root.to_str().expect("project root is valid utf-8"),
+                "status",
+            ];
+            let cli = Cli::parse_from(args);
+            let result = super::run(cli);
+            assert!(result.is_ok());
+            assert_eq!(
+                crate::docker::container_engine(),
+                crate::config::ContainerEngine::Podman
+            );
+        });
     }
 }

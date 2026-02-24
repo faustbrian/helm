@@ -108,6 +108,18 @@ fn resolve_injected_env_value_maps_loopback_host_for_host_token() -> Result<()> 
 }
 
 #[test]
+fn resolve_injected_env_value_maps_loopback_host_for_host_token_with_podman() -> Result<()> {
+    crate::docker::with_container_engine(crate::config::ContainerEngine::Podman, || {
+        let mut service = crate::config::preset_preview("laravel").expect("laravel preset");
+        service.host = "127.0.0.1".to_owned();
+
+        let resolved = resolve_injected_env_value(":host", &service, None).expect("resolve host");
+        assert_eq!(resolved, "host.containers.internal");
+    });
+    Ok(())
+}
+
+#[test]
 fn resolve_injected_env_value_prefers_runtime_port_for_port_token() -> Result<()> {
     let mut service = crate::config::preset_preview("mysql")?;
     service.port = 33060;
@@ -125,6 +137,20 @@ fn resolve_injected_env_value_prefers_runtime_port_for_url_tokens() -> Result<()
 
     let resolved = resolve_injected_env_value(":url", &service, Some(49123))?;
     assert_eq!(resolved, "http://host.docker.internal:49123");
+    Ok(())
+}
+
+#[test]
+fn resolve_injected_env_value_prefers_runtime_port_for_url_tokens_with_podman() -> Result<()> {
+    crate::docker::with_container_engine(crate::config::ContainerEngine::Podman, || {
+        let mut service = crate::config::preset_preview("mysql").expect("mysql preset");
+        service.host = "127.0.0.1".to_owned();
+        service.port = 33060;
+
+        let resolved =
+            resolve_injected_env_value(":url", &service, Some(49123)).expect("resolve url");
+        assert_eq!(resolved, "http://host.containers.internal:49123");
+    });
     Ok(())
 }
 

@@ -4,6 +4,8 @@
 
 use serde::Deserialize;
 
+use super::ContainerEngine;
+
 mod service;
 mod service_hook;
 mod swarm;
@@ -18,6 +20,8 @@ pub(crate) use swarm_git::RawSwarmGit;
 pub(crate) struct RawConfig {
     #[serde(default)]
     pub schema_version: Option<u32>,
+    #[serde(default)]
+    pub container_engine: Option<ContainerEngine>,
     pub container_prefix: Option<String>,
     #[serde(default)]
     pub service: Vec<RawServiceConfig>,

@@ -24,16 +24,16 @@ pub use api::{
     LoadConfigPathOptions, LockfileDiff, MigrateConfigOptions, ProjectRootPathOptions,
     RawConfigPathOptions, SaveConfigPathOptions, apply_runtime_env, build_image_lock,
     default_env_file_name, find_service, init_config, load_config, load_config_with,
-    load_lockfile_with, lockfile_diff, migrate_config_with, preferred_sql_client_flavor,
-    preset_names, preset_preview, project_root, project_root_with, resolve_app_service,
-    resolve_service, save_config_with, save_lockfile_with, update_service_host_port,
-    update_service_port, verify_lockfile_with,
+    load_container_engine_with, load_lockfile_with, lockfile_diff, migrate_config_with,
+    preferred_sql_client_flavor, preset_names, preset_preview, project_root, project_root_with,
+    resolve_app_service, resolve_service, save_config_with, save_lockfile_with,
+    update_service_host_port, update_service_port, verify_lockfile_with,
 };
 pub(crate) use raw::{RawConfig, RawServiceConfig};
 pub(crate) use service_methods::network::{
     is_unspecified_port_allocation_host, normalize_host_for_port_allocation,
 };
 pub use types::{
-    Config, Driver, HookOnError, HookPhase, HookRun, Kind, LockedImage, Lockfile, ServiceConfig,
-    ServiceHook, SwarmGit, SwarmTarget,
+    Config, ContainerEngine, Driver, HookOnError, HookPhase, HookRun, Kind, LockedImage, Lockfile,
+    ServiceConfig, ServiceHook, SwarmGit, SwarmTarget,
 };

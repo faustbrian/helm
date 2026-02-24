@@ -6,6 +6,8 @@ use clap::Parser;
 use std::path::Path;
 use std::path::PathBuf;
 
+use crate::config::ContainerEngine;
+
 mod arg_enums;
 mod commands;
 mod config_commands;
@@ -57,6 +59,9 @@ pub(crate) struct Cli {
     /// Runtime environment namespace (for example: `test`)
     #[arg(global = true, long, value_name = "NAME")]
     pub(crate) env: Option<String>,
+    /// Container runtime engine (`docker` or `podman`)
+    #[arg(global = true, long, value_name = "ENGINE")]
+    pub(crate) engine: Option<ContainerEngine>,
     /// Max concurrent heavy Docker operations
     #[arg(global = true, long, value_name = "N")]
     pub(crate) docker_max_heavy_ops: Option<usize>,

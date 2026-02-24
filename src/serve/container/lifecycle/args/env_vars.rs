@@ -4,9 +4,6 @@ use std::collections::HashMap;
 
 use crate::config::ServiceConfig;
 
-const HOST_GATEWAY_ALIAS: &str = "host.docker.internal";
-const HOST_GATEWAY_MAPPING: &str = "host.docker.internal:host-gateway";
-
 pub(super) fn append_env_args(
     run_args: &mut Vec<String>,
     target: &ServiceConfig,
@@ -36,18 +33,21 @@ pub(super) fn append_host_gateway_mapping(
     target: &ServiceConfig,
     injected_env: &HashMap<String, String>,
 ) {
+    let host_gateway_alias = crate::docker::host_gateway_alias();
     let injected_requests_gateway = injected_env
         .values()
-        .any(|value| value.contains(HOST_GATEWAY_ALIAS));
+        .any(|value| value.contains(host_gateway_alias));
     let explicit_requests_gateway = target.env.as_ref().is_some_and(|values| {
         values
             .values()
-            .any(|value| value.contains(HOST_GATEWAY_ALIAS))
+            .any(|value| value.contains(host_gateway_alias))
     });
 
     if target.uses_host_gateway_alias() || injected_requests_gateway || explicit_requests_gateway {
-        run_args.push("--add-host".to_owned());
-        run_args.push(HOST_GATEWAY_MAPPING.to_owned());
+        if let Some(mapping) = crate::docker::host_gateway_mapping() {
+            run_args.push("--add-host".to_owned());
+            run_args.push(mapping.to_owned());
+        }
     }
 }
 

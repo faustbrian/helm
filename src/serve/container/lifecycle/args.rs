@@ -157,4 +157,21 @@ mod tests {
 
         assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
     }
+
+    #[test]
+    fn podman_skips_host_gateway_mapping_when_loopback_host_used() {
+        crate::docker::with_container_engine(crate::config::ContainerEngine::Podman, || {
+            let injected = HashMap::new();
+            let args = build_run_args(
+                &app_service(),
+                "runtime-image",
+                Path::new("."),
+                &injected,
+                false,
+            )
+            .expect("run args");
+            let rendered = args.join(" ");
+            assert!(!rendered.contains("--add-host"));
+        });
+    }
 }

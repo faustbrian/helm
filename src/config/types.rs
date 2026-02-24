@@ -11,7 +11,7 @@ mod swarm;
 mod swarm_git;
 
 pub use config_root::Config;
-pub use enums::{Driver, Kind};
+pub use enums::{ContainerEngine, Driver, Kind};
 pub use lockfile::{LockedImage, Lockfile};
 pub use service::ServiceConfig;
 pub use service_hook::{HookOnError, HookPhase, HookRun, ServiceHook};

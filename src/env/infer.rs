@@ -13,8 +13,8 @@ mod service_backends;
 
 /// Builds inferred runtime environment values for an app container from configured services.
 ///
-/// This map is intended for container runtime injection (e.g. `docker run -e ...`) so
-/// loopback hosts are rewritten to `host.docker.internal`.
+/// This map is intended for container runtime injection so loopback hosts use
+/// the selected runtime host-gateway alias.
 #[must_use]
 pub(crate) fn inferred_app_env(config: &Config) -> HashMap<String, String> {
     let mut vars = HashMap::new();
@@ -61,7 +61,7 @@ pub(crate) fn managed_app_env(config: &Config) -> HashMap<String, String> {
 /// Why: `localhost` inside a container points to itself, not the host machine.
 pub(super) fn runtime_host_for_app(service: &ServiceConfig) -> String {
     if service.uses_host_gateway_alias() {
-        return "host.docker.internal".to_owned();
+        return crate::docker::host_gateway_alias().to_owned();
     }
     service.host.clone()
 }

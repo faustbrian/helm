@@ -74,3 +74,46 @@ pub enum Driver {
     /// `Soketi` WebSocket server.
     Soketi,
 }
+
+/// Container runtime engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ContainerEngine {
+    /// Docker engine.
+    Docker,
+    /// Podman engine.
+    Podman,
+}
+
+impl Default for ContainerEngine {
+    fn default() -> Self {
+        Self::Docker
+    }
+}
+
+impl ContainerEngine {
+    #[must_use]
+    pub const fn command_binary(self) -> &'static str {
+        match self {
+            Self::Docker => "docker",
+            Self::Podman => "podman",
+        }
+    }
+
+    #[must_use]
+    pub const fn host_gateway_alias(self) -> &'static str {
+        match self {
+            Self::Docker => "host.docker.internal",
+            Self::Podman => "host.containers.internal",
+        }
+    }
+
+    #[must_use]
+    pub const fn host_gateway_mapping(self) -> Option<&'static str> {
+        match self {
+            Self::Docker => Some("host.docker.internal:host-gateway"),
+            Self::Podman => None,
+        }
+    }
+}

@@ -207,6 +207,13 @@ fn cli_parses_global_repro_flag() {
 }
 
 #[test]
+fn cli_parses_global_container_engine_flag() {
+    let cli =
+        Cli::try_parse_from(["helm", "--engine", "podman", "up"]).expect("parse global engine");
+    assert_eq!(cli.engine, Some(crate::config::ContainerEngine::Podman));
+}
+
+#[test]
 fn cli_parses_about_command() {
     let cli = Cli::try_parse_from(["helm", "about"]).expect("parse about");
     assert!(matches!(cli.command, Commands::About(_)));
@@ -520,8 +527,8 @@ fn app_commands_parse_service_flag() {
 
 #[test]
 fn app_artisan_cli_parses_browser_flag() {
-    let artisan = Cli::try_parse_from(["helm", "artisan", "--browser", "test"])
-        .expect("parse artisan");
+    let artisan =
+        Cli::try_parse_from(["helm", "artisan", "--browser", "test"]).expect("parse artisan");
     match artisan.command {
         Commands::Artisan(args) => {
             assert!(args.browser);

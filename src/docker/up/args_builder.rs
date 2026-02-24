@@ -12,9 +12,6 @@ use entrypoint::append_entrypoint_args;
 use env::append_run_options;
 use labels::append_labels;
 
-const HOST_GATEWAY_ALIAS: &str = "host.docker.internal";
-const HOST_GATEWAY_MAPPING: &str = "host.docker.internal:host-gateway";
-
 /// Builds run args for command execution.
 pub(super) fn build_run_args(service: &ServiceConfig, container_name: &str) -> Vec<String> {
     let mut args = vec![
@@ -40,14 +37,17 @@ pub(super) fn build_run_args(service: &ServiceConfig, container_name: &str) -> V
 }
 
 fn append_host_gateway_mapping(args: &mut Vec<String>, service: &ServiceConfig) {
+    let host_gateway_alias = crate::docker::host_gateway_alias();
     let env_requests_gateway = service.env.as_ref().is_some_and(|values| {
         values
             .values()
-            .any(|value| value.contains(HOST_GATEWAY_ALIAS))
+            .any(|value| value.contains(host_gateway_alias))
     });
     if service.uses_host_gateway_alias() || env_requests_gateway {
-        args.push("--add-host".to_owned());
-        args.push(HOST_GATEWAY_MAPPING.to_owned());
+        if let Some(mapping) = crate::docker::host_gateway_mapping() {
+            args.push("--add-host".to_owned());
+            args.push(mapping.to_owned());
+        }
     }
 }
 
@@ -117,5 +117,14 @@ mod tests {
         let rendered = args.join(" ");
 
         assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
+    }
+
+    #[test]
+    fn podman_does_not_force_add_host_gateway_mapping() {
+        crate::docker::with_container_engine(crate::config::ContainerEngine::Podman, || {
+            let args = build_run_args(&service(), "acme-db");
+            let rendered = args.join(" ");
+            assert!(!rendered.contains("--add-host"));
+        });
     }
 }

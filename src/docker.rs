@@ -5,19 +5,20 @@
 #![allow(clippy::match_same_arms)] // Explicit driver branches document intent
 #![allow(clippy::redundant_iter_cloned)] // Thread spawn paths need owned service values
 
-#[cfg(test)]
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
+use crate::config::ContainerEngine;
 use crate::output::{self, LogLevel, Persistence};
 
 static DRY_RUN: AtomicBool = AtomicBool::new(false);
+static CONTAINER_ENGINE: OnceLock<Mutex<ContainerEngine>> = OnceLock::new();
 #[cfg(test)]
-static TEST_DOCKER_SCOPE_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+static TEST_DOCKER_SCOPE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[cfg(test)]
-static TEST_DOCKER_COMMAND: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
+static TEST_DOCKER_COMMAND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 #[cfg(test)]
-static TEST_DRY_RUN: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+static TEST_DRY_RUN: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Pull behavior used by `up`.
 #[derive(Clone, Copy, Debug)]
@@ -39,9 +40,56 @@ pub fn is_dry_run() -> bool {
     DRY_RUN.load(Ordering::SeqCst)
 }
 
+fn container_engine_lock() -> &'static Mutex<ContainerEngine> {
+    CONTAINER_ENGINE.get_or_init(|| Mutex::new(ContainerEngine::default()))
+}
+
+pub(crate) fn set_container_engine(engine: ContainerEngine) {
+    let mut guard = container_engine_lock()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    *guard = engine;
+}
+
+#[must_use]
+pub(crate) fn container_engine() -> ContainerEngine {
+    *container_engine_lock()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
+
+#[must_use]
+pub(crate) fn host_gateway_alias() -> &'static str {
+    container_engine().host_gateway_alias()
+}
+
+#[must_use]
+pub(crate) fn host_gateway_mapping() -> Option<&'static str> {
+    container_engine().host_gateway_mapping()
+}
+
 #[cfg(test)]
 pub(crate) fn with_dry_run_lock<R>(test: impl FnOnce() -> R) -> R {
     with_dry_run_state(true, test)
+}
+
+#[cfg(test)]
+pub(crate) fn with_container_engine<R>(engine: ContainerEngine, test: impl FnOnce() -> R) -> R {
+    let scope_lock = TEST_DOCKER_SCOPE_LOCK.get_or_init(Default::default).lock();
+    let _scope_lock = match scope_lock {
+        Ok(lock) => lock,
+        Err(err) => err.into_inner(),
+    };
+
+    let previous = container_engine();
+    set_container_engine(engine);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(test));
+    set_container_engine(previous);
+
+    match result {
+        Ok(result) => result,
+        Err(err) => std::panic::resume_unwind(err),
+    }
 }
 
 #[cfg(test)]
@@ -66,10 +114,11 @@ pub(crate) fn with_dry_run_state<R>(enabled: bool, test: impl FnOnce() -> R) -> 
 }
 
 pub(crate) fn print_docker_command(args: &[String]) {
+    let engine = container_engine().command_binary();
     output::event(
         "docker",
         LogLevel::Info,
-        &format!("[dry-run] docker {}", args.join(" ")),
+        &format!("[dry-run] {engine} {}", args.join(" ")),
         Persistence::Transient,
     );
 }
@@ -124,7 +173,7 @@ pub(crate) fn docker_command() -> String {
             return command;
         }
     }
-    "docker".to_owned()
+    container_engine().command_binary().to_owned()
 }
 
 mod cmd;
@@ -169,7 +218,8 @@ pub use up::up;
 
 #[cfg(test)]
 mod tests {
-    use crate::docker::{is_dry_run, with_dry_run_lock};
+    use crate::config::ContainerEngine;
+    use crate::docker::{host_gateway_alias, is_dry_run, with_dry_run_lock};
 
     #[test]
     fn with_dry_run_lock_sets_dry_run_inside_closure() {
@@ -187,5 +237,23 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn default_container_engine_uses_docker_binary_and_alias() {
+        super::with_container_engine(ContainerEngine::Docker, || {
+            assert_eq!(super::container_engine(), ContainerEngine::Docker);
+            assert_eq!(super::docker_command(), "docker");
+            assert_eq!(host_gateway_alias(), "host.docker.internal");
+        });
+    }
+
+    #[test]
+    fn container_engine_switches_command_and_alias_to_podman() {
+        super::with_container_engine(ContainerEngine::Podman, || {
+            assert_eq!(super::container_engine(), ContainerEngine::Podman);
+            assert_eq!(super::docker_command(), "podman");
+            assert_eq!(host_gateway_alias(), "host.containers.internal");
+        });
     }
 }

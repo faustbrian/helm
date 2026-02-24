@@ -49,7 +49,7 @@ pub(crate) fn resolve_injected_env_value(
 /// Why: `localhost` inside a container points to itself, not the host machine.
 fn runtime_host_for_app(service: &crate::config::ServiceConfig) -> String {
     if service.uses_host_gateway_alias() {
-        return "host.docker.internal".to_owned();
+        return crate::docker::host_gateway_alias().to_owned();
     }
     service.host.clone()
 }

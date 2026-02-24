@@ -9,6 +9,7 @@ pub(super) fn default_config_template(project_name: &str) -> String {
     let domain = format!("{slug}.localhost");
     format!(
         r#"schema_version = 1
+container_engine = "docker"
 container_prefix = "{slug}"
 
 [[service]]
