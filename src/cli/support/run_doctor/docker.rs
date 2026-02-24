@@ -4,8 +4,8 @@
 
 use super::report;
 
-/// Checks docker availability and reports actionable failures.
-pub(super) fn check_docker_availability() -> bool {
+/// Checks selected container runtime availability and reports failures.
+pub(super) fn check_runtime_availability() -> bool {
     crate::docker::runtime_diagnostic_checks()
         .iter()
         .any(run_runtime_check)
@@ -32,7 +32,7 @@ fn run_runtime_check(check: &crate::docker::RuntimeDiagnosticCheck) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::check_docker_availability;
+    use super::check_runtime_availability;
     use std::env;
     use std::fs;
     use std::io::Write;
@@ -80,7 +80,7 @@ mod tests {
                 crate::docker::with_container_engine(
                     crate::config::ContainerEngine::Docker,
                     || {
-                        let failed = check_docker_availability();
+                        let failed = check_runtime_availability();
                         assert!(!failed);
                         let log = fs::read_to_string(log_path).expect("read log");
                         assert!(log.contains("--version"));
@@ -99,7 +99,7 @@ mod tests {
                 crate::docker::with_container_engine(
                     crate::config::ContainerEngine::Podman,
                     || {
-                        let failed = check_docker_availability();
+                        let failed = check_runtime_availability();
                         assert!(failed);
                         let log = fs::read_to_string(log_path).expect("read log");
                         assert!(log.contains("--version"));

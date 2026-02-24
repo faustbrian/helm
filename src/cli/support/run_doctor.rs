@@ -28,7 +28,7 @@ pub(crate) struct RunDoctorOptions<'a> {
 pub(crate) fn run_doctor(config: &config::Config, options: RunDoctorOptions<'_>) -> Result<()> {
     let mut has_error = false;
 
-    has_error |= docker::check_docker_availability();
+    has_error |= docker::check_runtime_availability();
     has_error |= ports::check_port_conflicts(config);
     has_error |= app::check_app_services(
         config,
