@@ -27,7 +27,7 @@ pub(super) fn down(service: &ServiceConfig, timeout: u64) -> Result<()> {
 
     let stop_output = docker_output(
         &["stop", "--time", &timeout.to_string(), &container_name],
-        "Failed to execute docker stop command",
+        &crate::docker::runtime_command_error_context("stop"),
     )?;
 
     if stop_output.status.success() {
@@ -48,7 +48,7 @@ pub(super) fn down(service: &ServiceConfig, timeout: u64) -> Result<()> {
 
     let rm_output = docker_output(
         &["rm", &container_name],
-        "Failed to execute docker rm command",
+        &crate::docker::runtime_command_error_context("rm"),
     )?;
 
     if rm_output.status.success() {

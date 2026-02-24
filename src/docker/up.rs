@@ -31,7 +31,7 @@ pub fn up(service: &ServiceConfig, pull: PullPolicy, recreate: bool) -> Result<(
     state::ensure_image_available(service, pull)?;
 
     let run_args = args_builder::build_run_args(service, &container_name);
-    let output = docker_output_owned(&run_args, "Failed to execute docker run command")?;
+    let output = docker_output_owned(&run_args, &super::runtime_command_error_context("run"))?;
     ensure_success(output, "Failed to start container")?;
 
     output::event(
@@ -70,7 +70,7 @@ pub(super) fn start_container(container_name: &str) -> Result<bool> {
         if status == "exited" || status == "created" {
             let start_output = docker_output(
                 &["start", container_name],
-                "Failed to execute docker start command",
+                &super::runtime_command_error_context("start"),
             )?;
             ensure_success(start_output, "Failed to start container")?;
 

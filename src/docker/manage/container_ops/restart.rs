@@ -25,7 +25,7 @@ pub(super) fn restart(service: &ServiceConfig) -> Result<()> {
 
     let output = docker_output(
         &["restart", &container_name],
-        "Failed to execute docker restart command",
+        &crate::docker::runtime_command_error_context("restart"),
     )?;
     crate::docker::ensure_docker_output_success(output, "Failed to restart container")?;
 

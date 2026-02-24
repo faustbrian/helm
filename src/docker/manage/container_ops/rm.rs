@@ -36,7 +36,7 @@ pub(super) fn rm(service: &ServiceConfig, force: bool) -> Result<()> {
 
     let output = docker_output(
         &["rm", &container_name],
-        "Failed to execute docker rm command",
+        &crate::docker::runtime_command_error_context("rm"),
     )?;
 
     if output.status.success() {

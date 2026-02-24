@@ -11,7 +11,10 @@ pub(super) fn run_docker_status(args: &[String], error_context: &str) -> Result<
 /// Spawns `docker` with piped stdin/stderr for stream forwarding.
 pub(super) fn spawn_docker_piped(args: &[String]) -> Result<Child> {
     let arg_refs = crate::docker::docker_arg_refs(args);
-    crate::docker::spawn_docker_stdin_stderr_piped(&arg_refs, "Failed to spawn docker exec command")
+    crate::docker::spawn_docker_stdin_stderr_piped(
+        &arg_refs,
+        &crate::docker::runtime_command_error_context("exec"),
+    )
 }
 
 /// Spawns a placeholder child process for dry-run piping workflows.

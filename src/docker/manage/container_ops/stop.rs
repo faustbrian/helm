@@ -26,7 +26,7 @@ pub(super) fn stop(service: &ServiceConfig, timeout: u64) -> Result<()> {
 
     let output = docker_output(
         &["stop", "--time", &timeout.to_string(), &container_name],
-        "Failed to execute docker stop command",
+        &crate::docker::runtime_command_error_context("stop"),
     )?;
 
     if output.status.success() {

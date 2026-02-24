@@ -26,7 +26,7 @@ pub(super) fn pull(service: &ServiceConfig) -> Result<()> {
 
     docker_pull(
         &service.image,
-        "Failed to execute docker pull command",
+        &super::super::runtime_command_error_context("pull"),
         &format!("Failed to pull image {}", service.image),
     )?;
 

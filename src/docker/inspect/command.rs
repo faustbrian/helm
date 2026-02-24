@@ -13,5 +13,9 @@ pub(super) fn docker_inspect(container_name: &str) -> Option<Output> {
 }
 
 fn docker_output(args: &[&str]) -> Option<Output> {
-    crate::docker::run_docker_output(args, "failed to inspect docker container").ok()
+    crate::docker::run_docker_output(
+        args,
+        &crate::docker::runtime_command_error_context("inspect"),
+    )
+    .ok()
 }

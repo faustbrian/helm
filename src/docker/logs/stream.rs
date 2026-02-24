@@ -40,7 +40,7 @@ pub(super) fn stream_logs_with_prefix(
         }
     });
 
-    let status = child.wait().context("Failed to wait on docker logs")?;
+    let status = child.wait().context("Failed to wait on runtime logs")?;
     drop(out_handle.join());
     drop(err_handle.join());
 
