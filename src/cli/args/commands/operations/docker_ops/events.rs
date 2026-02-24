@@ -20,7 +20,7 @@ pub(crate) struct EventsArgs {
     #[arg(long)]
     pub(crate) until: Option<String>,
     #[arg(long)]
-    /// Docker template passed to `docker events --format`
+    /// Runtime template passed to `<engine> events --format`
     pub(crate) format: Option<String>,
     /// Emit newline-delimited JSON objects (`--format {{json .}}`)
     #[arg(long, default_value_t = false, conflicts_with = "format")]

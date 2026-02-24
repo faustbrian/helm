@@ -23,6 +23,8 @@ pub(crate) trait RuntimeEngineAdapter {
     fn host_gateway_mapping(&self) -> Option<&'static str>;
     /// Returns diagnostic checks for `helm doctor`.
     fn diagnostics(&self) -> &'static [RuntimeDiagnosticCheck];
+    /// Returns user-facing event source label.
+    fn event_source_label(&self) -> &'static str;
 }
 
 pub(super) fn adapter_for(kind: ContainerEngine) -> &'static dyn RuntimeEngineAdapter {
@@ -85,6 +87,10 @@ impl RuntimeEngineAdapter for DockerEngineAdapter {
     fn diagnostics(&self) -> &'static [RuntimeDiagnosticCheck] {
         &DOCKER_DIAGNOSTICS
     }
+
+    fn event_source_label(&self) -> &'static str {
+        "Docker daemon"
+    }
 }
 
 impl RuntimeEngineAdapter for PodmanEngineAdapter {
@@ -107,6 +113,10 @@ impl RuntimeEngineAdapter for PodmanEngineAdapter {
     fn diagnostics(&self) -> &'static [RuntimeDiagnosticCheck] {
         &PODMAN_DIAGNOSTICS
     }
+
+    fn event_source_label(&self) -> &'static str {
+        "Podman runtime"
+    }
 }
 
 #[cfg(test)]
@@ -124,6 +134,7 @@ mod tests {
             Some("host.docker.internal:host-gateway")
         );
         assert_eq!(adapter.diagnostics().len(), 2);
+        assert_eq!(adapter.event_source_label(), "Docker daemon");
     }
 
     #[test]
@@ -133,5 +144,6 @@ mod tests {
         assert_eq!(adapter.host_gateway_alias(), "host.containers.internal");
         assert_eq!(adapter.host_gateway_mapping(), None);
         assert_eq!(adapter.diagnostics().len(), 2);
+        assert_eq!(adapter.event_source_label(), "Podman runtime");
     }
 }

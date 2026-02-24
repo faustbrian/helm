@@ -79,6 +79,11 @@ pub(crate) fn runtime_diagnostic_checks() -> &'static [RuntimeDiagnosticCheck] {
     active_engine_adapter().diagnostics()
 }
 
+#[must_use]
+pub(crate) fn runtime_event_source_label() -> &'static str {
+    active_engine_adapter().event_source_label()
+}
+
 #[cfg(test)]
 pub(crate) fn with_dry_run_lock<R>(test: impl FnOnce() -> R) -> R {
     with_dry_run_state(true, test)
@@ -272,6 +277,7 @@ mod tests {
                 super::runtime_diagnostic_checks()[0].success_message,
                 "Docker CLI available"
             );
+            assert_eq!(super::runtime_event_source_label(), "Docker daemon");
         });
     }
 
@@ -287,6 +293,7 @@ mod tests {
                 super::runtime_diagnostic_checks()[0].success_message,
                 "Podman CLI available"
             );
+            assert_eq!(super::runtime_event_source_label(), "Podman runtime");
         });
     }
 }

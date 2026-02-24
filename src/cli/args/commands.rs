@@ -102,7 +102,7 @@ pub(crate) enum Commands {
     Unpause(UnpauseArgs),
     /// Block until container(s) stop and print exit status
     Wait(WaitArgs),
-    /// Stream Docker daemon events (Helm container scope by default)
+    /// Stream container runtime events (Helm scope by default)
     Events(EventsArgs),
     /// List port mappings for container(s)
     Port(PortArgs),

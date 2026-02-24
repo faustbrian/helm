@@ -15,7 +15,7 @@ pub(crate) struct TopArgs {
     /// Select a service profile (full, infra, data, app, web, api)
     #[arg(long, conflicts_with_all = ["service", "kind"])]
     pub(crate) profile: Option<String>,
-    /// Optional ps args passed to `docker top`
+    /// Optional ps args passed to `<engine> top`
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub(crate) args: Vec<String>,
 }

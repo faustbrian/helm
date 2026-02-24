@@ -30,7 +30,10 @@ pub(crate) fn handle_events(
     };
 
     if options.all {
-        super::log::warn("Streaming global Docker daemon events via --all");
+        super::log::warn(&format!(
+            "Streaming global {} events via --all",
+            docker::runtime_event_source_label()
+        ));
         return docker::events(
             options.since,
             options.until,
@@ -53,7 +56,10 @@ pub(crate) fn handle_events(
         .map(|svc| svc.container_name())
         .collect::<Result<Vec<String>>>()?;
     let all_filters = build_scoped_event_filters(options.filter, &container_names);
-    super::log::info("Streaming Helm-scoped Docker daemon events");
+    super::log::info(&format!(
+        "Streaming Helm-scoped {} events",
+        docker::runtime_event_source_label()
+    ));
     docker::events(options.since, options.until, effective_format, &all_filters)
 }
 
