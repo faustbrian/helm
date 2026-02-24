@@ -86,7 +86,7 @@ fn acquire_slot(root: &Path, limit: usize, op_name: &str) -> Result<SlotGuard> {
     }
 
     anyhow::bail!(
-        "timed out waiting for docker operation slot for '{op_name}' after {} attempts",
+        "timed out waiting for runtime operation slot for '{op_name}' after {} attempts",
         max_attempts
     )
 }

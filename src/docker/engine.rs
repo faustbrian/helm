@@ -25,6 +25,8 @@ pub(crate) trait RuntimeEngineAdapter {
     fn diagnostics(&self) -> &'static [RuntimeDiagnosticCheck];
     /// Returns user-facing event source label.
     fn event_source_label(&self) -> &'static str;
+    /// Returns log source key used by output event channels.
+    fn log_source_key(&self) -> &'static str;
 }
 
 pub(super) fn adapter_for(kind: ContainerEngine) -> &'static dyn RuntimeEngineAdapter {
@@ -91,6 +93,10 @@ impl RuntimeEngineAdapter for DockerEngineAdapter {
     fn event_source_label(&self) -> &'static str {
         "Docker daemon"
     }
+
+    fn log_source_key(&self) -> &'static str {
+        "docker"
+    }
 }
 
 impl RuntimeEngineAdapter for PodmanEngineAdapter {
@@ -117,6 +123,10 @@ impl RuntimeEngineAdapter for PodmanEngineAdapter {
     fn event_source_label(&self) -> &'static str {
         "Podman runtime"
     }
+
+    fn log_source_key(&self) -> &'static str {
+        "podman"
+    }
 }
 
 #[cfg(test)]
@@ -135,6 +145,7 @@ mod tests {
         );
         assert_eq!(adapter.diagnostics().len(), 2);
         assert_eq!(adapter.event_source_label(), "Docker daemon");
+        assert_eq!(adapter.log_source_key(), "docker");
     }
 
     #[test]
@@ -145,5 +156,6 @@ mod tests {
         assert_eq!(adapter.host_gateway_mapping(), None);
         assert_eq!(adapter.diagnostics().len(), 2);
         assert_eq!(adapter.event_source_label(), "Podman runtime");
+        assert_eq!(adapter.log_source_key(), "podman");
     }
 }

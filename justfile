@@ -18,3 +18,6 @@ lint:
 
 fmt:
     rustup run nightly cargo fmt
+
+parity-smoke engine="docker":
+    ./scripts/runtime-parity-smoke.sh {{engine}}

@@ -26,10 +26,10 @@ pub(super) fn preview_global_prune_candidates(filters: &[String]) -> Result<()> 
         args.push(item.clone());
     }
 
-    let output = docker_output(&args, "Failed to preview docker prune candidates")?;
+    let output = docker_output(&args, &crate::docker::runtime_command_error_context("ps"))?;
     if !output.status.success() {
         output::event(
-            "docker",
+            crate::docker::runtime_log_source_key(),
             LogLevel::Warn,
             "Dry-run preview could not list global prune candidates",
             Persistence::Persistent,
@@ -45,7 +45,7 @@ pub(super) fn preview_global_prune_candidates(filters: &[String]) -> Result<()> 
         .collect();
     if names.is_empty() {
         output::event(
-            "docker",
+            crate::docker::runtime_log_source_key(),
             LogLevel::Info,
             "Global prune dry-run preview found no stopped containers",
             Persistence::Persistent,
@@ -54,7 +54,7 @@ pub(super) fn preview_global_prune_candidates(filters: &[String]) -> Result<()> 
     }
 
     output::event(
-        "docker",
+        crate::docker::runtime_log_source_key(),
         LogLevel::Info,
         &format!(
             "Global prune dry-run preview would remove {} stopped container(s): {}",

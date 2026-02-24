@@ -19,7 +19,10 @@ pub(crate) fn handle_prune(config: &config::Config, options: HandlePruneOptions<
     validate_prune_args(options.all, options.force, options.filter)?;
 
     if options.all {
-        super::log::warn("Pruning all stopped Docker containers via --all");
+        super::log::warn(&format!(
+            "Pruning all stopped {} containers via --all",
+            docker::runtime_log_source_key()
+        ));
         return docker::prune(docker::PruneOptions {
             force: options.force,
             filters: options.filter,

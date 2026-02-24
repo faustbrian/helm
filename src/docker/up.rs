@@ -44,7 +44,10 @@ pub fn up(service: &ServiceConfig, pull: PullPolicy, recreate: bool) -> Result<(
 }
 
 pub(super) fn inspect_image_exists(image: &str) -> Result<bool> {
-    docker_image_exists(image, "Failed to inspect docker image")
+    docker_image_exists(
+        image,
+        &super::runtime_command_error_context("image inspect"),
+    )
 }
 
 /// Removes container as part of the docker up workflow.

@@ -84,6 +84,11 @@ pub(crate) fn runtime_event_source_label() -> &'static str {
     active_engine_adapter().event_source_label()
 }
 
+#[must_use]
+pub(crate) fn runtime_log_source_key() -> &'static str {
+    active_engine_adapter().log_source_key()
+}
+
 #[cfg(test)]
 pub(crate) fn with_dry_run_lock<R>(test: impl FnOnce() -> R) -> R {
     with_dry_run_state(true, test)
@@ -131,7 +136,7 @@ pub(crate) fn with_dry_run_state<R>(enabled: bool, test: impl FnOnce() -> R) -> 
 
 pub(crate) fn print_docker_command(args: &[String]) {
     output::event(
-        "docker",
+        runtime_log_source_key(),
         LogLevel::Info,
         &format!("[dry-run] {}", runtime_command_text(args)),
         Persistence::Transient,
@@ -290,6 +295,7 @@ mod tests {
                 "Docker CLI available"
             );
             assert_eq!(super::runtime_event_source_label(), "Docker daemon");
+            assert_eq!(super::runtime_log_source_key(), "docker");
         });
     }
 
@@ -310,6 +316,7 @@ mod tests {
                 "Podman CLI available"
             );
             assert_eq!(super::runtime_event_source_label(), "Podman runtime");
+            assert_eq!(super::runtime_log_source_key(), "podman");
         });
     }
 }

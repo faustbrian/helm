@@ -3,11 +3,21 @@
 use crate::output::{self, LogLevel, Persistence};
 
 pub(super) fn info(message: &str) {
-    output::event("docker", LogLevel::Info, message, Persistence::Persistent);
+    output::event(
+        crate::docker::runtime_log_source_key(),
+        LogLevel::Info,
+        message,
+        Persistence::Persistent,
+    );
 }
 
 pub(super) fn warn(message: &str) {
-    output::event("docker", LogLevel::Warn, message, Persistence::Persistent);
+    output::event(
+        crate::docker::runtime_log_source_key(),
+        LogLevel::Warn,
+        message,
+        Persistence::Persistent,
+    );
 }
 
 #[cfg(test)]
