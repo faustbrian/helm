@@ -1,10 +1,13 @@
 //! Object-store bucket bootstrap for runtime startup.
 
 use anyhow::{Result, anyhow};
+use std::time::Duration;
 
 use crate::config::{Driver, ServiceConfig};
 
 const AWS_CLI_IMAGE: &str = "amazon/aws-cli:latest";
+const CONNECTIVITY_RETRY_ATTEMPTS: u32 = 8;
+const CONNECTIVITY_RETRY_DELAY_MS: u64 = 250;
 
 pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
     if !is_object_store_driver(service.driver) {
@@ -37,32 +40,56 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
         return Ok(());
     }
 
-    let head = crate::docker::run_docker_output_owned(
-        &head_args,
-        &crate::docker::runtime_command_error_context("run"),
-    )?;
-    if head.status.success() {
-        return Ok(());
-    }
+    for attempt in 1..=CONNECTIVITY_RETRY_ATTEMPTS {
+        let head = crate::docker::run_docker_output_owned(
+            &head_args,
+            &crate::docker::runtime_command_error_context("run"),
+        )?;
+        if head.status.success() {
+            return Ok(());
+        }
+        let head_stderr = String::from_utf8_lossy(&head.stderr).trim().to_owned();
 
-    let create = crate::docker::run_docker_output_owned(
-        &create_args,
-        &crate::docker::runtime_command_error_context("run"),
-    )?;
-    if create.status.success() {
-        return Ok(());
-    }
+        let create = crate::docker::run_docker_output_owned(
+            &create_args,
+            &crate::docker::runtime_command_error_context("run"),
+        )?;
+        if create.status.success() {
+            return Ok(());
+        }
 
-    let stderr = String::from_utf8_lossy(&create.stderr).trim().to_owned();
-    if stderr.contains("BucketAlreadyOwnedByYou") || stderr.contains("BucketAlreadyExists") {
-        return Ok(());
+        let create_stderr = String::from_utf8_lossy(&create.stderr).trim().to_owned();
+        if create_stderr.contains("BucketAlreadyOwnedByYou")
+            || create_stderr.contains("BucketAlreadyExists")
+        {
+            return Ok(());
+        }
+
+        let retryable =
+            is_connectivity_error(&head_stderr) || is_connectivity_error(&create_stderr);
+        if retryable && attempt < CONNECTIVITY_RETRY_ATTEMPTS {
+            std::thread::sleep(Duration::from_millis(CONNECTIVITY_RETRY_DELAY_MS));
+            continue;
+        }
+
+        let stderr = if create_stderr.is_empty() {
+            head_stderr
+        } else {
+            create_stderr
+        };
+        return Err(anyhow!(
+            "Failed to ensure object-store bucket '{}' for service '{}': {}",
+            bucket,
+            service.name,
+            stderr
+        ));
     }
 
     Err(anyhow!(
-        "Failed to ensure object-store bucket '{}' for service '{}': {}",
+        "Failed to ensure object-store bucket '{}' for service '{}': endpoint was unreachable after {} attempts",
         bucket,
         service.name,
-        stderr
+        CONNECTIVITY_RETRY_ATTEMPTS
     ))
 }
 
@@ -71,6 +98,11 @@ fn is_object_store_driver(driver: Driver) -> bool {
         driver,
         Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack
     )
+}
+
+fn is_connectivity_error(stderr: &str) -> bool {
+    stderr.contains("Could not connect to the endpoint URL")
+        || stderr.contains("Connect timeout on endpoint URL")
 }
 
 fn build_aws_cli_args(
@@ -131,11 +163,22 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::Path;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::config::{Driver, Kind, ServiceConfig};
 
     use super::ensure_bucket_exists;
+
+    static UNIQUE_SUFFIX_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_suffix() -> String {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0_u128, |dur| dur.as_nanos());
+        let nonce = UNIQUE_SUFFIX_COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("{stamp}-{nonce}")
+    }
 
     fn service(driver: Driver) -> ServiceConfig {
         ServiceConfig {
@@ -177,10 +220,7 @@ mod tests {
     }
 
     fn with_fake_runtime_command<T>(script: &str, test: impl FnOnce() -> T) -> T {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0_u128, |dur| dur.as_nanos());
-        let dir = std::env::temp_dir().join(format!("helm-fake-runtime-{stamp}"));
+        let dir = std::env::temp_dir().join(format!("helm-fake-runtime-{}", unique_suffix()));
         fs::create_dir_all(&dir).expect("create temp runtime dir");
         let binary = dir.join("docker");
         let mut file = fs::File::create(&binary).expect("create fake runtime binary");
@@ -252,10 +292,7 @@ exit 1
 
     #[test]
     fn ensure_bucket_exists_uses_host_gateway_alias_endpoint() {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0_u128, |dur| dur.as_nanos());
-        let log = std::env::temp_dir().join(format!("helm-bucket-args-{stamp}.log"));
+        let log = std::env::temp_dir().join(format!("helm-bucket-args-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
             &format!(
@@ -280,10 +317,8 @@ exit 1
 
     #[test]
     fn ensure_bucket_exists_adds_host_gateway_mapping_for_docker() {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0_u128, |dur| dur.as_nanos());
-        let log = std::env::temp_dir().join(format!("helm-bucket-host-map-{stamp}.log"));
+        let log =
+            std::env::temp_dir().join(format!("helm-bucket-host-map-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
             &format!(
@@ -304,5 +339,36 @@ exit 1
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
         assert!(content.contains("--add-host host.docker.internal:host-gateway"));
         fs::remove_file(log).ok();
+    }
+
+    #[test]
+    fn ensure_bucket_exists_retries_connectivity_failures() {
+        let counter =
+            std::env::temp_dir().join(format!("helm-bucket-connect-retry-{}.cnt", unique_suffix()));
+        let counter_path = counter.to_string_lossy().to_string();
+        with_fake_runtime_command(
+            &format!(
+                r#"
+count=$(cat "{}" 2>/dev/null || echo 0)
+count=$((count + 1))
+echo "$count" > "{}"
+if [ "$count" -lt 3 ]; then
+  echo "Connect timeout on endpoint URL: http://host.docker.internal:9000/media" 1>&2
+  exit 1
+fi
+if echo "$*" | grep -q "head-bucket"; then
+  exit 0
+fi
+exit 1
+"#,
+                counter_path, counter_path
+            ),
+            || {
+                ensure_bucket_exists(&service(Driver::Rustfs))
+                    .expect("transient connectivity should be retried");
+            },
+        );
+
+        fs::remove_file(counter).ok();
     }
 }
