@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::thread;
 use std::time::Duration;
 
-use crate::cli::support::run_curl_command;
+use crate::cli::support::run_curl_command_with_body;
 use crate::config::ServiceConfig;
 use crate::output::{self, LogLevel, Persistence};
 
@@ -41,7 +41,7 @@ pub(crate) fn wait_until_http_healthy(
     let started = std::time::Instant::now();
 
     loop {
-        let output = run_curl_command(&health_url);
+        let output = run_curl_command_with_body(&health_url);
 
         if let Some(result) = output
             && result.status.success()
@@ -159,6 +159,36 @@ mod tests {
         result
     }
 
+    fn with_fake_curl_script<F, T>(script: &str, test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let bin_dir = PathBuf::from("/tmp").join(format!(
+            "helm-serve-health-script-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&bin_dir).expect("temp dir");
+        let curl = bin_dir.join("curl");
+        let mut file = fs::File::create(&curl).expect("create fake curl");
+        writeln!(file, "#!/bin/sh\n{script}").expect("write script");
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&curl).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&curl, perms).expect("chmod");
+        }
+
+        let command = curl.to_string_lossy().to_string();
+        let result = with_curl_command(&command, || test());
+        fs::remove_dir_all(&bin_dir).ok();
+        result
+    }
+
     #[test]
     fn wait_until_http_healthy_succeeds_on_healthy_code() {
         with_fake_curl("body\n200", || {
@@ -196,5 +226,26 @@ mod tests {
                 .expect_err("gotenberg body rejected");
             assert!(error.to_string().contains("did not become healthy"));
         });
+    }
+
+    #[test]
+    fn wait_until_http_healthy_preserves_response_body_for_gotenberg() {
+        let mut target = make_target(Driver::Gotenberg);
+        target.health_path = Some("/health".to_owned());
+        with_fake_curl_script(
+            r#"
+for arg in "$@"; do
+  if [ "$arg" = "/dev/null" ]; then
+    printf '200'
+    exit 0
+  fi
+done
+printf '{"status":"up"}\n200'
+"#,
+            || {
+                wait_until_http_healthy(&target, 1, 1, Some("/health"))
+                    .expect("gotenberg body should be available");
+            },
+        );
     }
 }

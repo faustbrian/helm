@@ -72,7 +72,7 @@ pub(crate) use ports::{
 pub(crate) use ports::{is_port_available, random_free_port};
 pub(crate) use print_open_summary::print_open_summary;
 pub(crate) use probe_http_status::probe_http_status;
-pub(crate) use probe_http_status::run_curl_command;
+pub(crate) use probe_http_status::run_curl_command_with_body;
 #[cfg(test)]
 pub(crate) use probe_http_status::with_curl_command;
 pub(crate) use profile_names::profile_names;

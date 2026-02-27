@@ -42,6 +42,13 @@ pub(crate) fn run_curl_command(url: &str) -> Option<std::process::Output> {
         .ok()
 }
 
+pub(crate) fn run_curl_command_with_body(url: &str) -> Option<std::process::Output> {
+    Command::new(curl_command())
+        .args(["-k", "-sS", "-w", "\n%{http_code}", "--max-time", "5", url])
+        .output()
+        .ok()
+}
+
 #[cfg(test)]
 pub(crate) fn with_curl_command<F, T>(command: &str, test: F) -> T
 where
@@ -80,8 +87,8 @@ pub(crate) fn probe_http_status(url: &str) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
-    use super::probe_http_status;
     use super::with_curl_command;
+    use super::{probe_http_status, run_curl_command_with_body};
     use std::env;
     use std::fs;
     use std::io::Write;
@@ -114,6 +121,33 @@ mod tests {
         status
     }
 
+    fn with_fake_curl_output(script_body: &str, test_url: &str) -> Option<std::process::Output> {
+        let tmp = env::temp_dir().join(format!(
+            "helm-curl-output-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&tmp).expect("temp dir");
+        let curl = tmp.join("curl");
+        let mut file = fs::File::create(&curl).expect("curl script");
+        writeln!(file, "#!/bin/sh\n{}", script_body).expect("write script");
+        let mut perms = fs::metadata(&curl).expect("metadata").permissions();
+        drop(file);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o755);
+            fs::set_permissions(&curl, perms).expect("executable script");
+        }
+
+        let command = curl.to_string_lossy().to_string();
+        let output = with_curl_command(&command, || run_curl_command_with_body(test_url));
+        fs::remove_dir_all(&tmp).ok();
+        output
+    }
+
     #[test]
     fn probe_http_status_returns_status_code_on_success() {
         assert_eq!(
@@ -133,5 +167,17 @@ mod tests {
             with_fake_curl("printf '%s' 'not-a-code'", "https://app.helm"),
             None
         );
+    }
+
+    #[test]
+    fn run_curl_command_with_body_keeps_body_and_status() {
+        let response =
+            with_fake_curl_output("printf '{\"status\":\"up\"}\n200'", "https://app.helm")
+                .expect("curl output");
+        assert!(response.status.success());
+
+        let stdout = String::from_utf8_lossy(&response.stdout).to_string();
+        assert!(stdout.contains("{\"status\":\"up\"}"));
+        assert!(stdout.trim_end().ends_with("200"));
     }
 }
