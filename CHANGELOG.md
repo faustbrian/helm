@@ -13,6 +13,31 @@ All notable changes to this project are documented in this file.
 - Fixed object-store startup reliability by automatically ensuring configured
   buckets exist during `up` flows for object-store services.
 
+## [4.1.0] - 2026-02-27
+
+### Changed
+
+- Changed `recreate` default behavior to wait for healthy services before
+  finishing, with explicit opt-out available via `--no-wait`.
+
+### Fixed
+
+- Fixed object-store bucket bootstrap on Linux by adding host-gateway mapping
+  for bootstrap helper containers.
+- Fixed object-store startup flakiness by improving readiness handling around
+  bucket bootstrap timing and service health dependencies.
+- Fixed Linux `/etc/hosts` update reliability by hardening privileged append
+  escalation paths (`sudo`/`pkexec`) and retry behavior for permission-related
+  failures including read-only filesystem edge cases.
+- Fixed app runtime env defaults to always provide `APP_NAME` when absent, to
+  prevent runtime metadata and health regressions in app services that require
+  it.
+- Fixed serve health checks for Gotenberg by preserving and validating
+  response body content instead of status-only probes.
+- Fixed serve app container local networking by mapping configured local
+  domains and injected local peer domains to host-gateway, preventing
+  container-local loopback resolution failures for self and swarm calls.
+
 ## [4.0.0] - 2026-02-24
 
 ### Added
