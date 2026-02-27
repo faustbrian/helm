@@ -20,6 +20,10 @@ mod soketi;
 /// Variables are only inserted when absent so explicit user env settings keep
 /// precedence.
 pub(super) fn apply_app_target_env(vars: &mut HashMap<String, String>, service: &ServiceConfig) {
+    // Some app stacks (e.g. JSON-RPC server metadata) require APP_NAME to be
+    // present explicitly and do not fall back to config('app.name').
+    insert_if_absent(vars, "APP_NAME", "Laravel".to_owned());
+
     if is_app_driver(service, Driver::Frankenphp)
         && let Some(url) = inferred_app_public_url(service)
     {

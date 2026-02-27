@@ -77,3 +77,19 @@ fn inferred_app_env_uses_primary_domain_from_domains_list() {
         Some(&"https://primary.helm".to_owned())
     );
 }
+
+#[test]
+fn inferred_app_env_sets_default_app_name_for_app_targets() {
+    let app = svc("app", Kind::App, Driver::Frankenphp, 8080);
+
+    let config = Config {
+        schema_version: 1,
+        container_prefix: Some("app".to_owned()),
+        service: vec![app],
+        swarm: vec![],
+    };
+
+    let vars = inferred_app_env(&config);
+
+    assert_eq!(vars.get("APP_NAME"), Some(&"Laravel".to_owned()));
+}
