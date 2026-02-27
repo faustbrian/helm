@@ -81,9 +81,12 @@ fn build_aws_cli_args(
     secret_key: &str,
     region: &str,
 ) -> Vec<String> {
-    vec![
-        "run".to_owned(),
-        "--rm".to_owned(),
+    let mut args = vec!["run".to_owned(), "--rm".to_owned()];
+    if let Some(mapping) = crate::docker::host_gateway_mapping() {
+        args.push("--add-host".to_owned());
+        args.push(mapping.to_owned());
+    }
+    args.extend([
         "-e".to_owned(),
         format!("AWS_ACCESS_KEY_ID={access_key}"),
         "-e".to_owned(),
@@ -97,7 +100,8 @@ fn build_aws_cli_args(
         bucket.to_owned(),
         "--endpoint-url".to_owned(),
         endpoint.to_owned(),
-    ]
+    ]);
+    args
 }
 
 fn build_aws_cli_create_args(
@@ -271,6 +275,34 @@ exit 1
 
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
         assert!(content.contains("--endpoint-url http://host.docker.internal:9000"));
+        fs::remove_file(log).ok();
+    }
+
+    #[test]
+    fn ensure_bucket_exists_adds_host_gateway_mapping_for_docker() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0_u128, |dur| dur.as_nanos());
+        let log = std::env::temp_dir().join(format!("helm-bucket-host-map-{stamp}.log"));
+        let log_path = log.to_string_lossy().to_string();
+        with_fake_runtime_command(
+            &format!(
+                r#"
+echo "$*" >> "{}"
+if echo "$*" | grep -q "head-bucket"; then
+  exit 0
+fi
+exit 1
+"#,
+                log_path
+            ),
+            || {
+                ensure_bucket_exists(&service(Driver::Rustfs)).expect("bucket check should pass");
+            },
+        );
+
+        let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
+        assert!(content.contains("--add-host host.docker.internal:host-gateway"));
         fs::remove_file(log).ok();
     }
 }
