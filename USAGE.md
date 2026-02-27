@@ -310,7 +310,8 @@ Flags:
   - Repeatable: `--service db --service cache`
 - `--kind <KIND>`
 - `--profile <NAME>` (conflicts with `--service` and `--kind`)
-- `--wait`
+- `--wait` (default behavior)
+- `--no-wait` (conflicts with `--wait`)
 - `--wait-timeout <SECONDS>` (default: `30`)
 - `-P, --publish-all`
 - `--save-ports` (requires `--publish-all`)

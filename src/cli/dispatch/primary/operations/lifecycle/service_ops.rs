@@ -79,7 +79,7 @@ pub(super) fn dispatch(
                 services: args.services(),
                 kind: args.kind(),
                 profile: args.profile(),
-                healthy: args.wait,
+                healthy: args.should_wait(),
                 timeout: args.wait_timeout,
                 random_ports: args.publish_all,
                 save_ports: args.save_ports,

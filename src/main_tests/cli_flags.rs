@@ -510,6 +510,28 @@ fn start_cli_parses_core_flags() {
 }
 
 #[test]
+fn recreate_cli_defaults_to_wait_and_allows_no_wait_override() {
+    let recreate = Cli::try_parse_from(["helm", "recreate"]).expect("parse recreate");
+    match recreate.command {
+        Commands::Recreate(args) => {
+            assert!(args.should_wait());
+            assert!(!args.no_wait);
+        }
+        _ => panic!("expected recreate command"),
+    }
+
+    let recreate_no_wait =
+        Cli::try_parse_from(["helm", "recreate", "--no-wait"]).expect("parse recreate no-wait");
+    match recreate_no_wait.command {
+        Commands::Recreate(args) => {
+            assert!(!args.should_wait());
+            assert!(args.no_wait);
+        }
+        _ => panic!("expected recreate command"),
+    }
+}
+
+#[test]
 fn app_commands_parse_service_flag() {
     let serve = Cli::try_parse_from(["helm", "serve", "--service", "app"]).expect("parse serve");
     match serve.command {

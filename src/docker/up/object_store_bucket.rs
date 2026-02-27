@@ -1,13 +1,10 @@
 //! Object-store bucket bootstrap for runtime startup.
 
 use anyhow::{Result, anyhow};
-use std::time::Duration;
 
 use crate::config::{Driver, ServiceConfig};
 
 const AWS_CLI_IMAGE: &str = "amazon/aws-cli:latest";
-const CONNECTIVITY_RETRY_ATTEMPTS: u32 = 8;
-const CONNECTIVITY_RETRY_DELAY_MS: u64 = 250;
 
 pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
     if !is_object_store_driver(service.driver) {
@@ -40,56 +37,32 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
         return Ok(());
     }
 
-    for attempt in 1..=CONNECTIVITY_RETRY_ATTEMPTS {
-        let head = crate::docker::run_docker_output_owned(
-            &head_args,
-            &crate::docker::runtime_command_error_context("run"),
-        )?;
-        if head.status.success() {
-            return Ok(());
-        }
-        let head_stderr = String::from_utf8_lossy(&head.stderr).trim().to_owned();
+    let head = crate::docker::run_docker_output_owned(
+        &head_args,
+        &crate::docker::runtime_command_error_context("run"),
+    )?;
+    if head.status.success() {
+        return Ok(());
+    }
 
-        let create = crate::docker::run_docker_output_owned(
-            &create_args,
-            &crate::docker::runtime_command_error_context("run"),
-        )?;
-        if create.status.success() {
-            return Ok(());
-        }
+    let create = crate::docker::run_docker_output_owned(
+        &create_args,
+        &crate::docker::runtime_command_error_context("run"),
+    )?;
+    if create.status.success() {
+        return Ok(());
+    }
 
-        let create_stderr = String::from_utf8_lossy(&create.stderr).trim().to_owned();
-        if create_stderr.contains("BucketAlreadyOwnedByYou")
-            || create_stderr.contains("BucketAlreadyExists")
-        {
-            return Ok(());
-        }
-
-        let retryable =
-            is_connectivity_error(&head_stderr) || is_connectivity_error(&create_stderr);
-        if retryable && attempt < CONNECTIVITY_RETRY_ATTEMPTS {
-            std::thread::sleep(Duration::from_millis(CONNECTIVITY_RETRY_DELAY_MS));
-            continue;
-        }
-
-        let stderr = if create_stderr.is_empty() {
-            head_stderr
-        } else {
-            create_stderr
-        };
-        return Err(anyhow!(
-            "Failed to ensure object-store bucket '{}' for service '{}': {}",
-            bucket,
-            service.name,
-            stderr
-        ));
+    let stderr = String::from_utf8_lossy(&create.stderr).trim().to_owned();
+    if stderr.contains("BucketAlreadyOwnedByYou") || stderr.contains("BucketAlreadyExists") {
+        return Ok(());
     }
 
     Err(anyhow!(
-        "Failed to ensure object-store bucket '{}' for service '{}': endpoint was unreachable after {} attempts",
+        "Failed to ensure object-store bucket '{}' for service '{}': {}",
         bucket,
         service.name,
-        CONNECTIVITY_RETRY_ATTEMPTS
+        stderr
     ))
 }
 
@@ -98,11 +71,6 @@ fn is_object_store_driver(driver: Driver) -> bool {
         driver,
         Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack
     )
-}
-
-fn is_connectivity_error(stderr: &str) -> bool {
-    stderr.contains("Could not connect to the endpoint URL")
-        || stderr.contains("Connect timeout on endpoint URL")
 }
 
 fn build_aws_cli_args(
@@ -339,36 +307,5 @@ exit 1
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
         assert!(content.contains("--add-host host.docker.internal:host-gateway"));
         fs::remove_file(log).ok();
-    }
-
-    #[test]
-    fn ensure_bucket_exists_retries_connectivity_failures() {
-        let counter =
-            std::env::temp_dir().join(format!("helm-bucket-connect-retry-{}.cnt", unique_suffix()));
-        let counter_path = counter.to_string_lossy().to_string();
-        with_fake_runtime_command(
-            &format!(
-                r#"
-count=$(cat "{}" 2>/dev/null || echo 0)
-count=$((count + 1))
-echo "$count" > "{}"
-if [ "$count" -lt 3 ]; then
-  echo "Connect timeout on endpoint URL: http://host.docker.internal:9000/media" 1>&2
-  exit 1
-fi
-if echo "$*" | grep -q "head-bucket"; then
-  exit 0
-fi
-exit 1
-"#,
-                counter_path, counter_path
-            ),
-            || {
-                ensure_bucket_exists(&service(Driver::Rustfs))
-                    .expect("transient connectivity should be retried");
-            },
-        );
-
-        fs::remove_file(counter).ok();
     }
 }

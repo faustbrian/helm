@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 
-use crate::config::ServiceConfig;
+use crate::config::{Kind, ServiceConfig};
 use crate::docker::docker_image_exists;
 use crate::output::{self, LogLevel, Persistence};
 
@@ -26,7 +26,7 @@ pub fn up(service: &ServiceConfig, pull: PullPolicy, recreate: bool) -> Result<(
     }
 
     if state::ensure_or_start_existing(&container_name, recreate)? {
-        object_store_bucket::ensure_bucket_exists(service)?;
+        ensure_object_store_bucket_ready(service)?;
         return Ok(());
     }
 
@@ -35,7 +35,7 @@ pub fn up(service: &ServiceConfig, pull: PullPolicy, recreate: bool) -> Result<(
     let run_args = args_builder::build_run_args(service, &container_name);
     let output = docker_output_owned(&run_args, &super::runtime_command_error_context("run"))?;
     ensure_success(output, "Failed to start container")?;
-    object_store_bucket::ensure_bucket_exists(service)?;
+    ensure_object_store_bucket_ready(service)?;
 
     output::event(
         &service.name,
@@ -44,6 +44,13 @@ pub fn up(service: &ServiceConfig, pull: PullPolicy, recreate: bool) -> Result<(
         Persistence::Persistent,
     );
     Ok(())
+}
+
+fn ensure_object_store_bucket_ready(service: &ServiceConfig) -> Result<()> {
+    if service.kind == Kind::ObjectStore {
+        super::wait_until_healthy(service, 30, 2, None)?;
+    }
+    object_store_bucket::ensure_bucket_exists(service)
 }
 
 pub(super) fn inspect_image_exists(image: &str) -> Result<bool> {

@@ -124,8 +124,12 @@ pub(crate) struct RecreateArgs {
     #[arg(long, conflicts_with_all = ["service", "kind"])]
     pub(crate) profile: Option<String>,
     /// Wait for service(s) to accept connections after recreating
+    /// (enabled by default)
     #[arg(long, default_value_t = false)]
     pub(crate) wait: bool,
+    /// Skip health waits during recreate
+    #[arg(long, default_value_t = false, conflicts_with = "wait")]
+    pub(crate) no_wait: bool,
     /// Timeout in seconds for --wait
     #[arg(long, default_value_t = 30)]
     pub(crate) wait_timeout: u64,
@@ -157,6 +161,10 @@ impl RecreateArgs {
 
     pub(crate) fn profile(&self) -> Option<&str> {
         self.profile.as_deref()
+    }
+
+    pub(crate) const fn should_wait(&self) -> bool {
+        !self.no_wait
     }
 }
 
@@ -288,6 +296,7 @@ mod tests {
             kind: Some(Kind::Database),
             profile: None,
             wait: true,
+            no_wait: false,
             wait_timeout: 5,
             publish_all: false,
             save_ports: false,
@@ -295,7 +304,7 @@ mod tests {
             parallel: 1,
         };
         assert_eq!(recreate.service(), Some("db"));
-        assert!(recreate.wait);
+        assert!(recreate.should_wait());
         assert_eq!(recreate.wait_timeout, 5);
 
         let restart = RestartArgs {
