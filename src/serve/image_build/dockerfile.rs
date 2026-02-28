@@ -21,7 +21,7 @@ pub(super) fn render_derived_dockerfile(
     if include_js_tooling {
         dockerfile.push_str(
             &format!(
-                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip {sql_client_package} postgresql-client \\\n    && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \\\n    && apt-get install -y --no-install-recommends nodejs \\\n    && corepack enable \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && curl -fsSL https://bun.sh/install | bash \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \\\n    && rm -rf /var/lib/apt/lists/*\n"
+                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \\\n    && apt-get install -y --no-install-recommends nodejs \\\n    && corepack enable \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && curl -fsSL https://bun.sh/install | bash \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \\\n    && rm -rf /var/lib/apt/lists/*\n"
             ),
         );
     }

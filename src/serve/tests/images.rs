@@ -40,6 +40,7 @@ fn derived_dockerfile_can_include_js_tooling() {
     assert!(rendered.contains("corepack enable"));
     assert!(rendered.contains("getcomposer.org/installer"));
     assert!(rendered.contains("default-mysql-client"));
+    assert!(rendered.contains("ghostscript"));
     assert!(rendered.contains("/usr/local/bin/mysqldump"));
     assert!(rendered.contains("/usr/local/bin/mysql"));
     assert!(rendered.contains("--column-statistics=0|--set-gtid-purged=OFF"));
