@@ -26,6 +26,8 @@ All notable changes to this project are documented in this file.
   for bootstrap helper containers.
 - Fixed object-store startup flakiness by improving readiness handling around
   bucket bootstrap timing and service health dependencies.
+- Fixed `helm artisan test` ZPL conversion runtime dependencies by installing
+  `ghostscript` (`gs`) in default derived app images.
 - Fixed Linux `/etc/hosts` update reliability by hardening privileged append
   escalation paths (`sudo`/`pkexec`) and retry behavior for permission-related
   failures including read-only filesystem edge cases.
