@@ -28,7 +28,9 @@ pub(super) fn derive_image_signature(
     extensions: &[String],
 ) -> String {
     format!(
-        "v=6;base={base_image};js={include_js_tooling};sql={sql_client_flavor};exts={}",
+        // Bump when derived image defaults/template semantics change so cached
+        // signatures rebuild with the new runtime dependency set.
+        "v=7;base={base_image};js={include_js_tooling};sql={sql_client_flavor};exts={}",
         extensions.join(",")
     )
 }
