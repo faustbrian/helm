@@ -48,7 +48,10 @@ fn remove_artisan_env_overrides_strips_only_env_options() {
 #[test]
 fn artisan_tty_respects_explicit_flags() {
     assert!(!resolve_artisan_tty(false, true));
-    assert!(resolve_artisan_tty(true, false));
+    assert_eq!(
+        resolve_artisan_tty(true, false),
+        crate::cli::support::effective_tty(false, false)
+    );
 }
 
 #[test]

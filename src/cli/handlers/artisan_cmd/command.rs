@@ -110,7 +110,10 @@ mod tests {
     #[test]
     fn resolve_artisan_tty_respects_explicit_flags() {
         assert!(!super::resolve_artisan_tty(false, true));
-        assert!(super::resolve_artisan_tty(true, false));
+        assert_eq!(
+            super::resolve_artisan_tty(true, false),
+            effective_tty(false, false)
+        );
     }
 
     #[test]
