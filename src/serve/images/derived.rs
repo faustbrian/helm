@@ -49,12 +49,13 @@ pub(super) fn resolve_runtime_image(
     }
 
     let container_name = target.container_name()?;
-    let signature = derive_image_signature(
+    let dockerfile = render_derived_dockerfile(
         &target.image,
-        include_js_tooling,
-        sql_client_flavor.as_str(),
         &installable_extensions,
+        include_js_tooling,
+        sql_client_flavor,
     );
+    let signature = derive_image_signature(&dockerfile);
     if let Some(tag) = read_derived_image_lock()?.entries.get(&signature).cloned()
         && docker_image_exists(&tag)?
     {
@@ -80,13 +81,6 @@ pub(super) fn resolve_runtime_image(
     }
 
     let derived_tag = derived_image_tag(&container_name, &signature);
-    let dockerfile = render_derived_dockerfile(
-        &target.image,
-        &installable_extensions,
-        include_js_tooling,
-        sql_client_flavor,
-    );
-
     if crate::docker::is_dry_run() {
         emit_derived_event(
             target,

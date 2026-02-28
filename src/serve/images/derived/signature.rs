@@ -21,16 +21,41 @@ pub(super) fn derived_image_tag(container_name: &str, signature: &str) -> String
 }
 
 /// Derives the cache signature describing derived image contents.
-pub(super) fn derive_image_signature(
-    base_image: &str,
-    include_js_tooling: bool,
-    sql_client_flavor: &str,
-    extensions: &[String],
-) -> String {
+pub(super) fn derive_image_signature(dockerfile: &str) -> String {
     format!(
-        // Bump when derived image defaults/template semantics change so cached
-        // signatures rebuild with the new runtime dependency set.
-        "v=7;base={base_image};js={include_js_tooling};sql={sql_client_flavor};exts={}",
-        extensions.join(",")
+        "dockerfile-fnv1a64-v1:{:016x}",
+        fnv1a64(dockerfile.as_bytes())
     )
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = OFFSET_BASIS;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_image_signature;
+
+    #[test]
+    fn image_signature_is_stable_for_identical_dockerfile_content() {
+        let dockerfile = "FROM base\nRUN echo hello\n";
+        let first = derive_image_signature(dockerfile);
+        let second = derive_image_signature(dockerfile);
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn image_signature_changes_when_dockerfile_content_changes() {
+        let first = derive_image_signature("FROM base\nRUN echo hello\n");
+        let second = derive_image_signature("FROM base\nRUN echo world\n");
+        assert_ne!(first, second);
+    }
 }
