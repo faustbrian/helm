@@ -1,0 +1,287 @@
+//! docker exec args module.
+//!
+//! Contains docker exec args logic used by Helm command workflows.
+
+use anyhow::Result;
+
+use crate::config::{Driver, ServiceConfig};
+
+/// Builds exec args for command execution.
+pub(crate) fn build_exec_args(container_name: &str, command: &[String], tty: bool) -> Vec<String> {
+    let mut args = vec![
+        "exec".to_owned(),
+        if tty { "-it" } else { "-i" }.to_owned(),
+        container_name.to_owned(),
+    ];
+    args.extend(command.iter().cloned());
+    args
+}
+
+pub(super) fn interactive_client_args(service: &ServiceConfig) -> Vec<String> {
+    match service.driver {
+        Driver::Postgres => vec![
+            "psql".to_owned(),
+            "-U".to_owned(),
+            service
+                .username
+                .clone()
+                .unwrap_or_else(|| "postgres".to_owned()),
+            service.database.clone().unwrap_or_else(|| "app".to_owned()),
+        ],
+        Driver::Mysql => vec![
+            "mysql".to_owned(),
+            "-u".to_owned(),
+            service
+                .username
+                .clone()
+                .unwrap_or_else(|| "root".to_owned()),
+            format!("-p{}", service.password.as_deref().unwrap_or("secret")),
+            service.database.clone().unwrap_or_else(|| "app".to_owned()),
+        ],
+        Driver::Redis | Driver::Valkey | Driver::Dragonfly => vec![
+            "redis-cli".to_owned(),
+            "-h".to_owned(),
+            "127.0.0.1".to_owned(),
+            "-p".to_owned(),
+            service.default_port().to_string(),
+        ],
+        Driver::Sqlserver => vec![
+            "sqlcmd".to_owned(),
+            "-S".to_owned(),
+            "localhost".to_owned(),
+            "-U".to_owned(),
+            service.username.clone().unwrap_or_else(|| "sa".to_owned()),
+            "-P".to_owned(),
+            service
+                .password
+                .clone()
+                .unwrap_or_else(|| "HelmSqlServerPassw0rd!".to_owned()),
+        ],
+        Driver::Mongodb
+        | Driver::Memcached
+        | Driver::Minio
+        | Driver::Garage
+        | Driver::Rustfs
+        | Driver::Localstack
+        | Driver::Meilisearch
+        | Driver::Typesense
+        | Driver::Frankenphp
+        | Driver::Reverb
+        | Driver::Horizon
+        | Driver::Scheduler
+        | Driver::Dusk
+        | Driver::Gotenberg
+        | Driver::Mailhog
+        | Driver::Rabbitmq
+        | Driver::Soketi => {
+            vec!["sh".to_owned()]
+        }
+    }
+}
+
+pub(super) fn piped_client_args(service: &ServiceConfig) -> Result<Vec<String>> {
+    match service.driver {
+        Driver::Postgres => Ok(vec![
+            "psql".to_owned(),
+            "-U".to_owned(),
+            service
+                .username
+                .clone()
+                .unwrap_or_else(|| "postgres".to_owned()),
+            service.database.clone().unwrap_or_else(|| "app".to_owned()),
+        ]),
+        Driver::Mysql => Ok(vec![
+            "mysql".to_owned(),
+            "-u".to_owned(),
+            service
+                .username
+                .clone()
+                .unwrap_or_else(|| "root".to_owned()),
+            format!("-p{}", service.password.as_deref().unwrap_or("secret")),
+            service.database.clone().unwrap_or_else(|| "app".to_owned()),
+        ]),
+        Driver::Sqlserver => Ok(vec![
+            "sqlcmd".to_owned(),
+            "-S".to_owned(),
+            "localhost".to_owned(),
+            "-U".to_owned(),
+            service.username.clone().unwrap_or_else(|| "sa".to_owned()),
+            "-P".to_owned(),
+            service
+                .password
+                .clone()
+                .unwrap_or_else(|| "HelmSqlServerPassw0rd!".to_owned()),
+            "-d".to_owned(),
+            service
+                .database
+                .clone()
+                .unwrap_or_else(|| "master".to_owned()),
+        ]),
+        Driver::Mongodb
+        | Driver::Memcached
+        | Driver::Redis
+        | Driver::Valkey
+        | Driver::Dragonfly
+        | Driver::Minio
+        | Driver::Garage
+        | Driver::Rustfs
+        | Driver::Localstack
+        | Driver::Meilisearch
+        | Driver::Typesense
+        | Driver::Frankenphp
+        | Driver::Reverb
+        | Driver::Horizon
+        | Driver::Scheduler
+        | Driver::Dusk
+        | Driver::Gotenberg
+        | Driver::Mailhog
+        | Driver::Rabbitmq
+        | Driver::Soketi => {
+            anyhow::bail!("piped exec is supported for SQL services only")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::{Driver, ServiceConfig};
+
+    use super::{build_exec_args, interactive_client_args, piped_client_args};
+
+    fn service(
+        name: &str,
+        driver: Driver,
+        username: Option<&str>,
+        password: Option<&str>,
+        database: Option<&str>,
+    ) -> ServiceConfig {
+        ServiceConfig {
+            name: name.to_owned(),
+            kind: crate::config::Kind::App,
+            driver,
+            image: "app".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 9000,
+            database: database.map(ToOwned::to_owned),
+            username: username.map(ToOwned::to_owned),
+            password: password.map(ToOwned::to_owned),
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: None,
+            domains: None,
+            container_port: None,
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: false,
+            octane: false,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            container_name: None,
+            resolved_container_name: None,
+        }
+    }
+
+    #[test]
+    fn build_exec_args_includes_tty_option() {
+        let args = build_exec_args("container", &["echo".to_owned(), "hi".to_owned()], true);
+        assert_eq!(args, vec!["exec", "-it", "container", "echo", "hi"]);
+    }
+
+    #[test]
+    fn interactive_client_args_uses_defaults() {
+        let postgres = service("db", Driver::Postgres, None, None, None);
+        assert_eq!(
+            interactive_client_args(&postgres),
+            vec![
+                "psql".to_owned(),
+                "-U".to_owned(),
+                "postgres".to_owned(),
+                "app".to_owned()
+            ]
+        );
+
+        let mysql = service(
+            "db",
+            Driver::Mysql,
+            Some("root"),
+            Some("secret"),
+            Some("db"),
+        );
+        assert_eq!(
+            interactive_client_args(&mysql),
+            vec![
+                "mysql".to_owned(),
+                "-u".to_owned(),
+                "root".to_owned(),
+                "-psecret".to_owned(),
+                "db".to_owned()
+            ]
+        );
+
+        let redis = service("cache", Driver::Redis, None, None, None);
+        assert_eq!(
+            interactive_client_args(&redis),
+            vec![
+                "redis-cli".to_owned(),
+                "-h".to_owned(),
+                "127.0.0.1".to_owned(),
+                "-p".to_owned(),
+                "6379".to_owned()
+            ]
+        );
+
+        let web = service("app", Driver::Frankenphp, None, None, None);
+        assert_eq!(interactive_client_args(&web), vec!["sh".to_owned()]);
+    }
+
+    #[test]
+    fn piped_client_args_supports_only_sql_backends() {
+        let redis = service("cache", Driver::Redis, None, None, None);
+        assert!(piped_client_args(&redis).is_err());
+
+        let postgres = service("db", Driver::Postgres, None, None, Some("database"));
+        assert_eq!(
+            piped_client_args(&postgres).expect("postgres args"),
+            vec![
+                "psql".to_owned(),
+                "-U".to_owned(),
+                "postgres".to_owned(),
+                "database".to_owned()
+            ]
+        );
+
+        let sqlserver = service(
+            "mssql",
+            Driver::Sqlserver,
+            Some("sa"),
+            Some("password"),
+            Some("master"),
+        );
+        assert_eq!(
+            piped_client_args(&sqlserver).expect("sqlserver args"),
+            vec![
+                "sqlcmd".to_owned(),
+                "-S".to_owned(),
+                "localhost".to_owned(),
+                "-U".to_owned(),
+                "sa".to_owned(),
+                "-P".to_owned(),
+                "password".to_owned(),
+                "-d".to_owned(),
+                "master".to_owned()
+            ]
+        );
+    }
+}

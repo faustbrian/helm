@@ -1,0 +1,157 @@
+//! Shared app runtime context resolution for CLI handlers.
+
+use anyhow::Result;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use crate::{config, env};
+
+/// Immutable app runtime data needed by service command handlers.
+pub(crate) struct AppRuntimeContext<'a> {
+    pub(crate) target: &'a config::ServiceConfig,
+    pub(crate) workspace_root: PathBuf,
+    pub(crate) app_env: HashMap<String, String>,
+}
+
+impl AppRuntimeContext<'_> {
+    pub(crate) fn service_start_context(&self) -> super::ServiceStartContext<'_> {
+        super::ServiceStartContext::new(&self.workspace_root, &self.app_env)
+    }
+}
+
+/// Resolves app target, workspace root, and inferred env for handlers.
+pub(crate) fn resolve_app_runtime_context<'a>(
+    config: &'a config::Config,
+    service: Option<&str>,
+    config_path: Option<&Path>,
+    project_root: Option<&Path>,
+) -> Result<AppRuntimeContext<'a>> {
+    resolve_app_runtime_context_with_workspace_root(
+        config,
+        service,
+        super::workspace_root(config_path, project_root)?,
+    )
+}
+
+/// Resolves app target with caller-provided workspace root.
+///
+/// Use this when workspace root was already resolved upstream to avoid duplicate
+/// path resolution and potential drift across adjacent runtime steps.
+pub(crate) fn resolve_app_runtime_context_with_workspace_root<'a>(
+    config: &'a config::Config,
+    service: Option<&str>,
+    workspace_root: PathBuf,
+) -> Result<AppRuntimeContext<'a>> {
+    Ok(AppRuntimeContext {
+        target: config::resolve_app_service(config, service)?,
+        workspace_root,
+        app_env: env::inferred_app_env(config),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{resolve_app_runtime_context, resolve_app_runtime_context_with_workspace_root};
+    use crate::config::{Config, Driver, Kind, ServiceConfig};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn app_service() -> ServiceConfig {
+        ServiceConfig {
+            name: "app".to_owned(),
+            kind: Kind::App,
+            driver: Driver::Frankenphp,
+            image: "php:8.4".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 8080,
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: Some("app.test".to_owned()),
+            domains: None,
+            container_port: None,
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: false,
+            octane: false,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            container_name: Some("app".to_owned()),
+            resolved_container_name: Some("app".to_owned()),
+        }
+    }
+
+    fn config() -> Config {
+        Config {
+            schema_version: 1,
+            container_prefix: None,
+            service: vec![app_service()],
+            swarm: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn resolve_app_runtime_context_with_workspace_root_builds_context() {
+        let cfg = config();
+        let workspace_root = PathBuf::from("/tmp/helm-workspace");
+        let context = resolve_app_runtime_context_with_workspace_root(
+            &cfg,
+            Some("app"),
+            workspace_root.clone(),
+        )
+        .expect("runtime context");
+
+        assert_eq!(context.target.name, "app");
+        assert_eq!(context.workspace_root, workspace_root);
+        assert_eq!(
+            context.app_env.get("HELM_SQL_CLIENT_FLAVOR"),
+            Some(&"mysql".to_owned())
+        );
+    }
+
+    #[test]
+    fn resolve_app_runtime_context_uses_config_path() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!(
+            "helm-app-runtime-context-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        drop(fs::remove_dir_all(&dir));
+        fs::create_dir_all(&dir).expect("create temp workspace");
+        let path = dir.join(".helm.toml");
+        fs::write(&path, "schema_version = 1\n").expect("write config");
+
+        let cfg = config();
+        let context = resolve_app_runtime_context(&cfg, None, Some(&path), None)
+            .expect("resolve app context");
+
+        assert_eq!(context.target.name, "app");
+        assert_eq!(context.workspace_root, dir);
+        assert_eq!(
+            context.service_start_context().workspace_root,
+            Path::new(&dir)
+        );
+        assert_eq!(
+            context.app_env.get("HELM_SQL_CLIENT_FLAVOR"),
+            Some(&"mysql".to_owned())
+        );
+        Ok(())
+    }
+}
