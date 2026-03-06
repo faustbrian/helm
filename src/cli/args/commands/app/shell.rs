@@ -128,3 +128,33 @@ impl NodeArgs {
         self.profile.as_deref()
     }
 }
+
+#[derive(Args)]
+pub(crate) struct DenoArgs {
+    #[arg(long)]
+    pub(crate) service: Option<String>,
+    #[arg(long, value_enum)]
+    pub(crate) kind: Option<config::Kind>,
+    /// Select a service profile (full, infra, data, app, web, api)
+    #[arg(long, conflicts_with_all = ["service", "kind"])]
+    pub(crate) profile: Option<String>,
+    #[arg(long = "deno-version")]
+    pub(crate) deno_version: Option<String>,
+    #[arg(long, default_value_t = true, conflicts_with = "no_tty")]
+    pub(crate) tty: bool,
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_tty: bool,
+    /// Deno command and arguments
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub(crate) command: Vec<String>,
+}
+
+impl DenoArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.service.as_deref()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.profile.as_deref()
+    }
+}

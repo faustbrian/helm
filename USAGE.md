@@ -119,6 +119,11 @@ If `--service` is omitted, commands operate on all matching services.
 - `nvm`
 - `volta`
 
+### JS Runtime (`[service.node].runtime`)
+
+- `node` (default)
+- `deno`
+
 ### Container Engine (`--engine`)
 
 - `docker` (default)
@@ -721,9 +726,43 @@ preset = "laravel"
 name = "app"
 
 [service.node]
+runtime = "node"
 package_manager = "pnpm"
 version_manager = "fnm"
 version = "22"
+```
+
+### `helm deno -- <COMMAND...>`
+
+Run Deno inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--deno-version <VERSION>` (optional override)
+- `--tty`
+- `--no-tty`
+- Trailing Deno command/args.
+
+Deno resolution order:
+
+- CLI `--deno-version`
+- `[service.node]` in `.helm.toml`
+- Project files: `deno.json`, `deno.jsonc`, or `deno.lock`
+- Helm default Deno installer version
+
+Config example:
+
+```toml
+[[service]]
+preset = "laravel"
+name = "app"
+
+[service.node]
+runtime = "deno"
+version = "2.2.3"
 ```
 
 ### `helm task deps bump`

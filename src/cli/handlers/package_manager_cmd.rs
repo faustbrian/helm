@@ -7,8 +7,8 @@ use std::path::Path;
 
 use super::service_scope::selected_services_in_scope;
 use crate::node::{
-    BuildNodeCommandOptions, PackageManager, ResolveNodeRuntimeOptions, VersionManager,
-    build_node_command, resolve_node_runtime,
+    BuildNodeCommandOptions, JsRuntime, NodeToolchain, PackageManager, ResolveNodeRuntimeOptions,
+    VersionManager, build_node_command, resolve_node_runtime,
 };
 use crate::{cli, config};
 
@@ -17,6 +17,7 @@ pub(crate) struct HandlePackageManagerCommandOptions<'a> {
     pub(crate) kind: Option<config::Kind>,
     pub(crate) profile: Option<&'a str>,
     pub(crate) command_bin: Option<&'a str>,
+    pub(crate) runtime: Option<JsRuntime>,
     pub(crate) package_manager: Option<PackageManager>,
     pub(crate) version_manager: Option<VersionManager>,
     pub(crate) node_version: Option<&'a str>,
@@ -42,19 +43,27 @@ pub(crate) fn handle_package_manager_command(
         options.project_root,
     )?;
     let command = resolve_package_manager_command(options.command, options.default_command);
+    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+        configured: runtime.target.node.as_ref(),
+        workspace_root: runtime.workspace_root.as_path(),
+        runtime: options.runtime,
+        package_manager: options.package_manager,
+        version_manager: options.version_manager,
+        node_version: options.node_version,
+        require_package_manager: options.command_bin.is_none(),
+    })?;
+    let mut target = runtime.target.clone();
+    target.node = Some(NodeToolchain {
+        runtime: Some(node_runtime.runtime),
+        package_manager: node_runtime.package_manager,
+        version_manager: Some(node_runtime.version_manager),
+        version: node_runtime.node_version.clone(),
+    });
     let full_command = if let Some(command_bin) = options.command_bin {
         let mut full_command = vec![command_bin.to_owned()];
         full_command.extend(command);
         full_command
     } else {
-        let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
-            configured: runtime.target.node.as_ref(),
-            workspace_root: runtime.workspace_root.as_path(),
-            package_manager: options.package_manager,
-            version_manager: options.version_manager,
-            node_version: options.node_version,
-            require_package_manager: true,
-        })?;
         let mut base_command = node_runtime
             .package_manager
             .expect("node package manager required")
@@ -73,7 +82,7 @@ pub(crate) fn handle_package_manager_command(
     };
     let start_context = runtime.service_start_context();
 
-    cli::support::run_service_command_with_tty(runtime.target, &full_command, tty, &start_context)
+    cli::support::run_service_command_with_tty(&target, &full_command, tty, &start_context)
 }
 
 fn resolve_package_manager_command(command: &[String], default_command: &[&str]) -> Vec<String> {

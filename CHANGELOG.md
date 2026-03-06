@@ -9,13 +9,14 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added service-level Node toolchain configuration via `[service.node]`
-  with `package_manager`, `version_manager`, and `version` fields so app
-  runtimes can resolve Node execution through `system`, `fnm`, `nvm`, or
-  `volta`.
+  with `runtime`, `package_manager`, `version_manager`, and `version`
+  fields so app runtimes can resolve Node or Deno execution explicitly.
 - Added `helm node --package-manager`, `--version-manager`, and
   `--node-version`, plus matching overrides for `helm task deps bump`,
   so callers can choose package-manager and version-manager behavior per
   invocation.
+- Added `helm deno` with `--deno-version`, plus Deno runtime detection
+  from `deno.json`, `deno.jsonc`, and `deno.lock`.
 - Added project-file Node inference for `package.json.packageManager`,
   `package.json.volta.node`, `.nvmrc`, `.node-version`, and
   `package.json.engines.node` so Node workflows can derive toolchain
@@ -24,8 +25,8 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Changed app runtime image generation to install the selected Node
-  version-manager instead of always installing a hardcoded NodeSource
-  LTS toolchain under the hood.
+  version-manager or Deno runtime instead of always installing a
+  hardcoded NodeSource LTS toolchain under the hood.
 - Changed Node package-manager execution to resolve from config and
   project metadata instead of defaulting `helm node` to `bun`.
 - Changed Node-related CLI flags by removing `--manager` in favor of the

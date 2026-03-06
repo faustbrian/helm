@@ -1,7 +1,24 @@
 use std::path::Path;
 
 use super::package_json::read_package_json;
-use super::{PackageManager, VersionManager};
+use super::{JsRuntime, PackageManager, VersionManager};
+
+pub(crate) fn detect_js_runtime(workspace_root: &Path) -> Option<JsRuntime> {
+    if [
+        workspace_root.join("deno.json"),
+        workspace_root.join("deno.jsonc"),
+        workspace_root.join("deno.lock"),
+    ]
+    .into_iter()
+    .any(|path| path.is_file())
+    {
+        return Some(JsRuntime::Deno);
+    }
+
+    detect_node_package_manager(workspace_root)
+        .is_some()
+        .then_some(JsRuntime::Node)
+}
 
 pub(crate) fn detect_node_package_manager(workspace_root: &Path) -> Option<PackageManager> {
     detect_package_json_package_manager(workspace_root)

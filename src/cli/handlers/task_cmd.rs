@@ -195,6 +195,7 @@ fn run_node_bump(
     let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
         configured: target.node.as_ref(),
         workspace_root,
+        runtime: None,
         package_manager: requested_package_manager,
         version_manager: requested_version_manager,
         node_version: requested_node_version,

@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::config::ServiceConfig;
-use crate::node::VersionManager;
+use crate::node::{JsRuntime, VersionManager};
 use crate::serve::sql_client_flavor::SqlClientFlavor;
 
 mod build;
@@ -39,6 +39,7 @@ pub(super) fn render_derived_dockerfile(
     base_image: &str,
     extensions: &[String],
     include_js_tooling: bool,
+    runtime: JsRuntime,
     version_manager: VersionManager,
     node_version: Option<&str>,
     sql_client_flavor: SqlClientFlavor,
@@ -47,6 +48,7 @@ pub(super) fn render_derived_dockerfile(
         base_image,
         extensions,
         include_js_tooling,
+        runtime,
         version_manager,
         node_version,
         sql_client_flavor,

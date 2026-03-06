@@ -4,6 +4,7 @@ use super::super::images::{
 };
 use super::super::sql_client_flavor::SqlClientFlavor;
 use super::helpers::app_service;
+use crate::node::JsRuntime;
 use crate::node::VersionManager;
 use std::collections::HashMap;
 
@@ -22,6 +23,7 @@ fn extension_dockerfile_contains_install_step() {
         "dunglas/frankenphp:php8.5",
         &["pdo_mysql".to_owned(), "intl".to_owned()],
         false,
+        JsRuntime::Node,
         VersionManager::System,
         None,
         SqlClientFlavor::Mysql,
@@ -37,6 +39,7 @@ fn derived_dockerfile_can_include_js_tooling() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
+        JsRuntime::Node,
         VersionManager::System,
         Some("22"),
         SqlClientFlavor::Mysql,
@@ -61,6 +64,7 @@ fn derived_dockerfile_uses_mariadb_client_when_requested() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
+        JsRuntime::Node,
         VersionManager::System,
         None,
         SqlClientFlavor::Mariadb,
@@ -75,6 +79,7 @@ fn derived_dockerfile_can_install_fnm_managed_node() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
+        JsRuntime::Node,
         VersionManager::Fnm,
         Some("22"),
         SqlClientFlavor::Mysql,
@@ -84,6 +89,25 @@ fn derived_dockerfile_can_install_fnm_managed_node() {
     assert!(rendered.contains("fnm install 22"));
     assert!(rendered.contains("npm install -g pnpm yarn"));
     assert!(!rendered.contains("corepack"));
+}
+
+#[test]
+fn derived_dockerfile_can_install_deno_runtime() {
+    let rendered = render_derived_dockerfile(
+        "dunglas/frankenphp:php8.5",
+        &Vec::new(),
+        true,
+        JsRuntime::Deno,
+        VersionManager::System,
+        Some("2.2.3"),
+        SqlClientFlavor::Mysql,
+    );
+
+    assert!(rendered.contains("https://deno.land/install.sh"));
+    assert!(rendered.contains("--version 2.2.3"));
+    assert!(rendered.contains("/usr/local/bin/deno"));
+    assert!(!rendered.contains("https://bun.sh/install"));
+    assert!(!rendered.contains("deb.nodesource.com"));
 }
 
 #[test]

@@ -2,12 +2,14 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use super::{
-    NodeToolchain, PackageManager, VersionManager, detect_node_package_manager, detect_node_version,
+    JsRuntime, NodeToolchain, PackageManager, VersionManager, detect_js_runtime,
+    detect_node_package_manager, detect_node_version,
 };
 
 pub(crate) struct ResolveNodeRuntimeOptions<'a> {
     pub(crate) configured: Option<&'a NodeToolchain>,
     pub(crate) workspace_root: &'a Path,
+    pub(crate) runtime: Option<JsRuntime>,
     pub(crate) package_manager: Option<PackageManager>,
     pub(crate) version_manager: Option<VersionManager>,
     pub(crate) node_version: Option<&'a str>,
@@ -16,6 +18,7 @@ pub(crate) struct ResolveNodeRuntimeOptions<'a> {
 
 #[derive(Debug)]
 pub(crate) struct ResolvedNodeRuntime {
+    pub(crate) runtime: JsRuntime,
     pub(crate) package_manager: Option<PackageManager>,
     pub(crate) version_manager: VersionManager,
     pub(crate) node_version: Option<String>,
@@ -24,10 +27,21 @@ pub(crate) struct ResolvedNodeRuntime {
 pub(crate) fn resolve_node_runtime(
     options: ResolveNodeRuntimeOptions<'_>,
 ) -> Result<ResolvedNodeRuntime> {
+    let runtime = options
+        .runtime
+        .or_else(|| options.configured.and_then(|config| config.runtime))
+        .or_else(|| detect_js_runtime(options.workspace_root))
+        .unwrap_or(JsRuntime::Node);
     let package_manager = options
         .package_manager
         .or_else(|| options.configured.and_then(|config| config.package_manager))
-        .or_else(|| detect_node_package_manager(options.workspace_root));
+        .or_else(|| {
+            if runtime == JsRuntime::Node {
+                detect_node_package_manager(options.workspace_root)
+            } else {
+                None
+            }
+        });
     let version_manager = options
         .version_manager
         .or_else(|| options.configured.and_then(|config| config.version_manager))
@@ -38,20 +52,30 @@ pub(crate) fn resolve_node_runtime(
         .or_else(|| options.configured.and_then(|config| config.version.clone()))
         .or_else(|| detect_node_version(options.workspace_root));
 
-    if options.require_package_manager {
+    if runtime == JsRuntime::Node && options.require_package_manager {
         package_manager.context(
             "could not infer JS package manager; pass --package-manager <bun|npm|pnpm|yarn> or set [service.node].package_manager",
         )?;
     }
 
-    if version_manager != VersionManager::System && node_version.is_none() {
+    if runtime == JsRuntime::Node
+        && version_manager != VersionManager::System
+        && node_version.is_none()
+    {
         anyhow::bail!(
             "node version manager '{}' requires a Node version; pass --node-version or set [service.node].version",
             version_manager.as_str()
         );
     }
 
+    if runtime == JsRuntime::Deno && options.require_package_manager {
+        anyhow::bail!(
+            "configured JS runtime is deno; use `helm deno` instead of Node package-manager workflows"
+        );
+    }
+
     Ok(ResolvedNodeRuntime {
+        runtime,
         package_manager,
         version_manager,
         node_version,
@@ -61,7 +85,7 @@ pub(crate) fn resolve_node_runtime(
 #[cfg(test)]
 mod tests {
     use super::{ResolveNodeRuntimeOptions, resolve_node_runtime};
-    use crate::node::{NodeToolchain, PackageManager, VersionManager};
+    use crate::node::{JsRuntime, NodeToolchain, PackageManager, VersionManager};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -86,11 +110,13 @@ mod tests {
 
         let runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
             configured: Some(&NodeToolchain {
+                runtime: Some(JsRuntime::Node),
                 package_manager: Some(PackageManager::Npm),
                 version_manager: Some(VersionManager::Fnm),
                 version: None,
             }),
             workspace_root: &root,
+            runtime: None,
             package_manager: None,
             version_manager: None,
             node_version: None,
@@ -108,11 +134,13 @@ mod tests {
 
         let error = resolve_node_runtime(ResolveNodeRuntimeOptions {
             configured: Some(&NodeToolchain {
+                runtime: Some(JsRuntime::Node),
                 package_manager: Some(PackageManager::Npm),
                 version_manager: Some(VersionManager::Volta),
                 version: None,
             }),
             workspace_root: &root,
+            runtime: None,
             package_manager: None,
             version_manager: None,
             node_version: None,
@@ -121,6 +149,26 @@ mod tests {
         .expect_err("missing version should fail");
 
         assert!(error.to_string().contains("requires a Node version"));
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_node_runtime_detects_deno_workspace() {
+        let root = temp_root("helm-js-runtime-deno");
+        fs::write(root.join("deno.json"), "{\"tasks\":{}}").expect("write deno config");
+
+        let runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+            configured: None,
+            workspace_root: &root,
+            runtime: None,
+            package_manager: None,
+            version_manager: None,
+            node_version: None,
+            require_package_manager: false,
+        })
+        .expect("resolve deno runtime");
+
+        assert_eq!(runtime.runtime, JsRuntime::Deno);
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

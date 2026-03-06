@@ -701,6 +701,28 @@ fn node_cli_parses_package_manager_and_version_manager_flags() {
 }
 
 #[test]
+fn deno_cli_parses_deno_version_flag() {
+    let cli = Cli::try_parse_from([
+        "helm",
+        "deno",
+        "--deno-version",
+        "2.2.3",
+        "--",
+        "task",
+        "dev",
+    ])
+    .expect("parse deno");
+
+    match cli.command {
+        Commands::Deno(args) => {
+            assert_eq!(args.deno_version.as_deref(), Some("2.2.3"));
+            assert_eq!(args.command, vec!["task".to_owned(), "dev".to_owned()]);
+        }
+        _ => panic!("expected deno command"),
+    }
+}
+
+#[test]
 fn app_runtime_commands_allow_disabling_tty_with_no_tty() {
     let artisan =
         Cli::try_parse_from(["helm", "artisan", "--no-tty", "test"]).expect("parse artisan no-tty");

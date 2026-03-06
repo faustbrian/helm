@@ -135,6 +135,17 @@ fn app_action_argument_methods() {
         command: vec!["run".to_owned(), "dev".to_owned()],
     };
     assert_eq!(args.service(), Some("node"));
+
+    let args = commands::DenoArgs {
+        service: Some("app".to_owned()),
+        kind: None,
+        profile: None,
+        deno_version: Some("2.2.3".to_owned()),
+        tty: true,
+        no_tty: false,
+        command: vec!["task".to_owned(), "dev".to_owned()],
+    };
+    assert_eq!(args.service(), Some("app"));
 }
 
 #[test]

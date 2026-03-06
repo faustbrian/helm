@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 /// Service-level Node toolchain preferences.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct NodeToolchain {
+    /// Preferred JS runtime for app workflows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<JsRuntime>,
     /// Preferred package manager for `helm node` and Node task workflows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_manager: Option<PackageManager>,
@@ -14,6 +17,16 @@ pub struct NodeToolchain {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
+
+/// Supported JS runtimes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum JsRuntime {
+    Node,
+    Deno,
+}
+
+impl JsRuntime {}
 
 /// Supported JS package managers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]

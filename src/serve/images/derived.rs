@@ -37,6 +37,7 @@ pub(super) fn resolve_runtime_image(
     let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
         configured: target.node.as_ref(),
         workspace_root,
+        runtime: None,
         package_manager: None,
         version_manager: None,
         node_version: None,
@@ -64,6 +65,7 @@ pub(super) fn resolve_runtime_image(
         &target.image,
         &installable_extensions,
         include_js_tooling,
+        node_runtime.runtime,
         node_runtime.version_manager,
         node_runtime.node_version.as_deref(),
         sql_client_flavor,
