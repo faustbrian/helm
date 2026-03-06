@@ -1,6 +1,6 @@
 //! Dockerfile generator for serve derived images.
 
-use crate::node::{JsRuntime, VersionManager};
+use crate::node::{JavaScriptRuntime, VersionManager};
 use crate::serve::sql_client_flavor::SqlClientFlavor;
 
 /// Renders a complete Dockerfile for a derived serve image.
@@ -13,7 +13,7 @@ pub(super) fn render_derived_dockerfile(
     base_image: &str,
     extensions: &[String],
     include_js_tooling: bool,
-    runtime: JsRuntime,
+    runtime: JavaScriptRuntime,
     version_manager: VersionManager,
     node_version: Option<&str>,
     sql_client_flavor: SqlClientFlavor,
@@ -25,9 +25,8 @@ pub(super) fn render_derived_dockerfile(
     if include_js_tooling {
         dockerfile.push_str(
             &format!(
-                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends bash curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && {} \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer{} \\\n    && rm -rf /var/lib/apt/lists/*\n",
+                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends bash curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && {} \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && rm -rf /var/lib/apt/lists/*\n",
                 render_js_tooling_install(runtime, version_manager, node_version),
-                render_optional_bun_install(runtime),
             ),
         );
     }
@@ -60,23 +59,14 @@ pub(super) fn render_derived_dockerfile(
 }
 
 fn render_js_tooling_install(
-    runtime: JsRuntime,
+    runtime: JavaScriptRuntime,
     version_manager: VersionManager,
     node_version: Option<&str>,
 ) -> String {
-    if runtime == JsRuntime::Deno {
-        return render_deno_install(node_version);
-    }
-
-    render_node_tooling_install(version_manager, node_version)
-}
-
-fn render_optional_bun_install(runtime: JsRuntime) -> &'static str {
     match runtime {
-        JsRuntime::Node => {
-            " \\\n    && curl -fsSL https://bun.sh/install | bash \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun"
-        }
-        JsRuntime::Deno => "",
+        JavaScriptRuntime::Node => render_node_tooling_install(version_manager, node_version),
+        JavaScriptRuntime::Bun => render_bun_install(node_version),
+        JavaScriptRuntime::Deno => render_deno_install(node_version),
     }
 }
 
@@ -99,6 +89,16 @@ fn render_deno_install(version: Option<&str>) -> String {
 
     format!(
         "curl -fsSL https://deno.land/install.sh | sh -s --{version_arg} \\\n    && ln -sf /root/.deno/bin/deno /usr/local/bin/deno"
+    )
+}
+
+fn render_bun_install(version: Option<&str>) -> String {
+    let version_arg = version
+        .map(|value| format!("bun-v{value}"))
+        .unwrap_or_else(|| "latest".to_owned());
+
+    format!(
+        "curl -fsSL https://bun.sh/install | bash -s -- {version_arg} \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun"
     )
 }
 

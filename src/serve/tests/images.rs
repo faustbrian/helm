@@ -4,7 +4,7 @@ use super::super::images::{
 };
 use super::super::sql_client_flavor::SqlClientFlavor;
 use super::helpers::app_service;
-use crate::node::JsRuntime;
+use crate::node::JavaScriptRuntime;
 use crate::node::VersionManager;
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ fn extension_dockerfile_contains_install_step() {
         "dunglas/frankenphp:php8.5",
         &["pdo_mysql".to_owned(), "intl".to_owned()],
         false,
-        JsRuntime::Node,
+        JavaScriptRuntime::Node,
         VersionManager::System,
         None,
         SqlClientFlavor::Mysql,
@@ -39,12 +39,11 @@ fn derived_dockerfile_can_include_js_tooling() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
-        JsRuntime::Node,
+        JavaScriptRuntime::Node,
         VersionManager::System,
         Some("22"),
         SqlClientFlavor::Mysql,
     );
-    assert!(rendered.contains("https://bun.sh/install"));
     assert!(rendered.contains("npm install -g pnpm yarn"));
     assert!(!rendered.contains("corepack"));
     assert!(rendered.contains("getcomposer.org/installer"));
@@ -64,7 +63,7 @@ fn derived_dockerfile_uses_mariadb_client_when_requested() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
-        JsRuntime::Node,
+        JavaScriptRuntime::Node,
         VersionManager::System,
         None,
         SqlClientFlavor::Mariadb,
@@ -79,7 +78,7 @@ fn derived_dockerfile_can_install_fnm_managed_node() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
-        JsRuntime::Node,
+        JavaScriptRuntime::Node,
         VersionManager::Fnm,
         Some("22"),
         SqlClientFlavor::Mysql,
@@ -97,7 +96,7 @@ fn derived_dockerfile_can_install_deno_runtime() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
-        JsRuntime::Deno,
+        JavaScriptRuntime::Deno,
         VersionManager::System,
         Some("2.2.3"),
         SqlClientFlavor::Mysql,
@@ -108,6 +107,25 @@ fn derived_dockerfile_can_install_deno_runtime() {
     assert!(rendered.contains("/usr/local/bin/deno"));
     assert!(!rendered.contains("https://bun.sh/install"));
     assert!(!rendered.contains("deb.nodesource.com"));
+}
+
+#[test]
+fn derived_dockerfile_can_install_bun_runtime() {
+    let rendered = render_derived_dockerfile(
+        "dunglas/frankenphp:php8.5",
+        &Vec::new(),
+        true,
+        JavaScriptRuntime::Bun,
+        VersionManager::System,
+        Some("1.2.5"),
+        SqlClientFlavor::Mysql,
+    );
+
+    assert!(rendered.contains("https://bun.sh/install"));
+    assert!(rendered.contains("bun-v1.2.5"));
+    assert!(rendered.contains("/usr/local/bin/bun"));
+    assert!(!rendered.contains("deb.nodesource.com"));
+    assert!(!rendered.contains("deno.land/install.sh"));
 }
 
 #[test]

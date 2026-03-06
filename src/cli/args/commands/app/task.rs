@@ -64,7 +64,7 @@ pub(crate) struct TaskDepsBumpArgs {
         required_unless_present_any = ["composer", "node"]
     )]
     pub(crate) all: bool,
-    /// Override inferred JS package manager
+    /// Override inferred Node package manager
     #[arg(long = "package-manager", value_enum)]
     pub(crate) package_manager: Option<PackageManagerArg>,
     /// Override the Node version manager used for Node workflows

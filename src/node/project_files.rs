@@ -1,9 +1,9 @@
 use std::path::Path;
 
 use super::package_json::read_package_json;
-use super::{JsRuntime, PackageManager, VersionManager};
+use super::{JavaScriptRuntime, PackageManager, VersionManager};
 
-pub(crate) fn detect_js_runtime(workspace_root: &Path) -> Option<JsRuntime> {
+pub(crate) fn detect_js_runtime(workspace_root: &Path) -> Option<JavaScriptRuntime> {
     if [
         workspace_root.join("deno.json"),
         workspace_root.join("deno.jsonc"),
@@ -12,17 +12,39 @@ pub(crate) fn detect_js_runtime(workspace_root: &Path) -> Option<JsRuntime> {
     .into_iter()
     .any(|path| path.is_file())
     {
-        return Some(JsRuntime::Deno);
+        return Some(JavaScriptRuntime::Deno);
+    }
+
+    if detect_bun_runtime(workspace_root) {
+        return Some(JavaScriptRuntime::Bun);
     }
 
     detect_node_package_manager(workspace_root)
         .is_some()
-        .then_some(JsRuntime::Node)
+        .then_some(JavaScriptRuntime::Node)
 }
 
 pub(crate) fn detect_node_package_manager(workspace_root: &Path) -> Option<PackageManager> {
     detect_package_json_package_manager(workspace_root)
         .or_else(|| detect_lockfile_package_manager(workspace_root))
+}
+
+fn detect_bun_runtime(workspace_root: &Path) -> bool {
+    workspace_root.join("bun.lock").is_file()
+        || workspace_root.join("bun.lockb").is_file()
+        || package_json_declares_bun(workspace_root)
+}
+
+fn package_json_declares_bun(workspace_root: &Path) -> bool {
+    read_package_json(workspace_root)
+        .and_then(|package_json| {
+            package_json
+                .get("packageManager")?
+                .as_str()
+                .map(str::to_owned)
+        })
+        .map(|package_manager| package_manager_name(&package_manager) == "bun")
+        .unwrap_or(false)
 }
 
 pub(crate) fn detect_package_json_package_manager(workspace_root: &Path) -> Option<PackageManager> {
@@ -62,8 +84,6 @@ fn detect_package_json_engines_node_version(workspace_root: &Path) -> Option<Str
 
 fn detect_lockfile_package_manager(workspace_root: &Path) -> Option<PackageManager> {
     [
-        ("bun.lock", PackageManager::Bun),
-        ("bun.lockb", PackageManager::Bun),
         ("pnpm-lock.yaml", PackageManager::Pnpm),
         ("yarn.lock", PackageManager::Yarn),
         ("package-lock.json", PackageManager::Npm),
@@ -80,14 +100,16 @@ fn read_version_file(path: &Path) -> Option<String> {
 }
 
 fn parse_package_manager_name(value: &str) -> Option<PackageManager> {
-    let name = value.split('@').next().unwrap_or(value);
-    match name {
-        "bun" => Some(PackageManager::Bun),
+    match package_manager_name(value) {
         "npm" => Some(PackageManager::Npm),
         "pnpm" => Some(PackageManager::Pnpm),
         "yarn" => Some(PackageManager::Yarn),
         _ => None,
     }
+}
+
+fn package_manager_name(value: &str) -> &str {
+    value.split('@').next().unwrap_or(value)
 }
 
 #[allow(dead_code)]

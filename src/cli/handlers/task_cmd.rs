@@ -10,7 +10,8 @@ use crate::cli;
 use crate::cli::args::{PackageManagerArg, VersionManagerArg};
 use crate::config;
 use crate::node::{
-    BuildNodeCommandOptions, ResolveNodeRuntimeOptions, build_node_command, resolve_node_runtime,
+    BuildNodeCommandOptions, JavaScriptRuntime, ResolveNodeRuntimeOptions, build_node_command,
+    resolve_node_runtime,
 };
 use crate::output::{self, LogLevel, Persistence::Persistent};
 
@@ -201,25 +202,27 @@ fn run_node_bump(
         node_version: requested_node_version,
         require_package_manager: true,
     })?;
-    let manager = node_runtime
-        .package_manager
-        .expect("node package manager required");
+    let bump_workflow = resolve_bump_workflow(node_runtime.runtime, node_runtime.package_manager)?;
 
     super::log::info_if_not_quiet(
         quiet,
         "task",
         &format!(
             "Bumping {} dependencies for {package_name}",
-            node_manager_name(manager)
+            bump_workflow.display_name()
         ),
     );
 
-    for command in node_bump_commands(manager) {
-        let wrapped = build_node_command(BuildNodeCommandOptions {
-            version_manager: node_runtime.version_manager,
-            node_version: node_runtime.node_version.as_deref(),
-            command: &command,
-        })?;
+    for command in bump_workflow.commands() {
+        let wrapped = if bump_workflow.wrap_with_node_manager() {
+            build_node_command(BuildNodeCommandOptions {
+                version_manager: node_runtime.version_manager,
+                node_version: node_runtime.node_version.as_deref(),
+                command: &command,
+            })?
+        } else {
+            command
+        };
         let display = wrapped.join(" ");
         cli::support::run_service_command_with_tty(target, &wrapped, tty, start_context)
             .with_context(|| format!("Node bump step failed for {package_name}: {display}"))?;
@@ -230,7 +233,7 @@ fn run_node_bump(
         "task",
         &format!(
             "{} dependencies updated for {package_name}",
-            node_manager_name(manager)
+            bump_workflow.display_name()
         ),
     );
 
@@ -270,37 +273,72 @@ fn composer_bump_commands() -> Vec<Vec<String>> {
     ]
 }
 
-fn node_bump_commands(manager: PackageManagerArg) -> Vec<Vec<String>> {
-    match manager {
-        PackageManagerArg::Bun => vec![vec![
-            "bun".to_owned(),
-            "update".to_owned(),
-            "--latest".to_owned(),
-        ]],
-        PackageManagerArg::Npm => vec![
-            vec![
-                "npx".to_owned(),
-                "--yes".to_owned(),
-                "npm-check-updates".to_owned(),
-                "-u".to_owned(),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DependencyBumpWorkflow {
+    Bun,
+    Npm,
+    Pnpm,
+    Yarn,
+}
+
+impl DependencyBumpWorkflow {
+    fn commands(self) -> Vec<Vec<String>> {
+        match self {
+            Self::Bun => vec![vec![
+                "bun".to_owned(),
+                "update".to_owned(),
+                "--latest".to_owned(),
+            ]],
+            Self::Npm => vec![
+                vec![
+                    "npx".to_owned(),
+                    "--yes".to_owned(),
+                    "npm-check-updates".to_owned(),
+                    "-u".to_owned(),
+                ],
+                vec!["npm".to_owned(), "install".to_owned()],
             ],
-            vec!["npm".to_owned(), "install".to_owned()],
-        ],
-        PackageManagerArg::Pnpm => vec![vec![
-            "pnpm".to_owned(),
-            "update".to_owned(),
-            "--latest".to_owned(),
-        ]],
-        PackageManagerArg::Yarn => vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]],
+            Self::Pnpm => vec![vec![
+                "pnpm".to_owned(),
+                "update".to_owned(),
+                "--latest".to_owned(),
+            ]],
+            Self::Yarn => vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]],
+        }
+    }
+
+    const fn display_name(self) -> &'static str {
+        match self {
+            Self::Bun => "bun",
+            Self::Npm => "npm",
+            Self::Pnpm => "pnpm",
+            Self::Yarn => "yarn",
+        }
+    }
+
+    const fn wrap_with_node_manager(self) -> bool {
+        !matches!(self, Self::Bun)
     }
 }
 
-fn node_manager_name(manager: PackageManagerArg) -> &'static str {
-    match manager {
-        PackageManagerArg::Bun => "bun",
-        PackageManagerArg::Npm => "npm",
-        PackageManagerArg::Pnpm => "pnpm",
-        PackageManagerArg::Yarn => "yarn",
+fn resolve_bump_workflow(
+    runtime: JavaScriptRuntime,
+    package_manager: Option<PackageManagerArg>,
+) -> Result<DependencyBumpWorkflow> {
+    match runtime {
+        JavaScriptRuntime::Bun => Ok(DependencyBumpWorkflow::Bun),
+        JavaScriptRuntime::Node => package_manager
+            .map(|manager| match manager {
+                PackageManagerArg::Npm => DependencyBumpWorkflow::Npm,
+                PackageManagerArg::Pnpm => DependencyBumpWorkflow::Pnpm,
+                PackageManagerArg::Yarn => DependencyBumpWorkflow::Yarn,
+            })
+            .context("node package manager required"),
+        JavaScriptRuntime::Deno => {
+            anyhow::bail!(
+                "configured JS runtime is deno; use `helm deno` instead of Node dependency bump workflows"
+            );
+        }
     }
 }
 
@@ -322,10 +360,11 @@ fn resolve_bump_targets(composer: bool, node: bool, all: bool) -> Result<TaskBum
 #[cfg(test)]
 mod tests {
     use super::{
-        composer_bump_commands, node_bump_commands, read_package_name, resolve_bump_targets,
+        DependencyBumpWorkflow, composer_bump_commands, read_package_name, resolve_bump_targets,
+        resolve_bump_workflow,
     };
     use crate::cli::args::PackageManagerArg;
-    use crate::node::detect_node_package_manager;
+    use crate::node::{JavaScriptRuntime, detect_node_package_manager};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -430,15 +469,7 @@ mod tests {
     #[test]
     fn node_bump_commands_match_supported_managers() {
         assert_eq!(
-            node_bump_commands(PackageManagerArg::Bun),
-            vec![vec![
-                "bun".to_owned(),
-                "update".to_owned(),
-                "--latest".to_owned(),
-            ]]
-        );
-        assert_eq!(
-            node_bump_commands(PackageManagerArg::Npm),
+            DependencyBumpWorkflow::Npm.commands(),
             vec![
                 vec![
                     "npx".to_owned(),
@@ -449,5 +480,30 @@ mod tests {
                 vec!["npm".to_owned(), "install".to_owned()],
             ]
         );
+        assert_eq!(
+            DependencyBumpWorkflow::Pnpm.commands(),
+            vec![vec![
+                "pnpm".to_owned(),
+                "update".to_owned(),
+                "--latest".to_owned(),
+            ]]
+        );
+        assert_eq!(
+            DependencyBumpWorkflow::Yarn.commands(),
+            vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]]
+        );
+    }
+
+    #[test]
+    fn resolve_bump_workflow_uses_bun_runtime_directly() {
+        let workflow = resolve_bump_workflow(JavaScriptRuntime::Bun, None).expect("bun workflow");
+        assert_eq!(workflow, DependencyBumpWorkflow::Bun);
+        assert!(!workflow.wrap_with_node_manager());
+    }
+
+    #[test]
+    fn resolve_bump_workflow_rejects_deno_runtime() {
+        let error = resolve_bump_workflow(JavaScriptRuntime::Deno, None).expect_err("deno fails");
+        assert!(error.to_string().contains("use `helm deno`"));
     }
 }

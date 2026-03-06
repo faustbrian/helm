@@ -7,8 +7,8 @@ use std::path::Path;
 
 use super::service_scope::selected_services_in_scope;
 use crate::node::{
-    BuildNodeCommandOptions, JsRuntime, NodeToolchain, PackageManager, ResolveNodeRuntimeOptions,
-    VersionManager, build_node_command, resolve_node_runtime,
+    BuildNodeCommandOptions, JavaScriptRuntime, NodeToolchain, PackageManager,
+    ResolveNodeRuntimeOptions, VersionManager, build_node_command, resolve_node_runtime,
 };
 use crate::{cli, config};
 
@@ -17,7 +17,7 @@ pub(crate) struct HandlePackageManagerCommandOptions<'a> {
     pub(crate) kind: Option<config::Kind>,
     pub(crate) profile: Option<&'a str>,
     pub(crate) command_bin: Option<&'a str>,
-    pub(crate) runtime: Option<JsRuntime>,
+    pub(crate) runtime: Option<JavaScriptRuntime>,
     pub(crate) package_manager: Option<PackageManager>,
     pub(crate) version_manager: Option<VersionManager>,
     pub(crate) node_version: Option<&'a str>,

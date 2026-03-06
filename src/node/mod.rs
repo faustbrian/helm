@@ -11,4 +11,4 @@ pub(crate) use project_files::{
     detect_js_runtime, detect_node_package_manager, detect_node_version,
 };
 pub(crate) use resolve::{ResolveNodeRuntimeOptions, resolve_node_runtime};
-pub use types::{JsRuntime, NodeToolchain, PackageManager, VersionManager};
+pub use types::{JavaScriptRuntime, NodeToolchain, PackageManager, VersionManager};

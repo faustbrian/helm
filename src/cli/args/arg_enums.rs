@@ -34,8 +34,8 @@ mod tests {
     fn package_manager_arg_has_expected_variants() {
         assert_eq!(
             PackageManager::value_variants().len(),
-            4,
-            "package manager enum should expose four CLI values",
+            3,
+            "package manager enum should expose three CLI values",
         );
 
         let names = PackageManager::value_variants()
@@ -44,7 +44,7 @@ mod tests {
             .map(|value| value.get_name().to_owned())
             .collect::<Vec<_>>();
 
-        assert_eq!(names, vec!["bun", "npm", "pnpm", "yarn"]);
+        assert_eq!(names, vec!["npm", "pnpm", "yarn"]);
     }
 
     #[test]

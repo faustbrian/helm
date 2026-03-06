@@ -10,11 +10,14 @@ All notable changes to this project are documented in this file.
 
 - Added service-level Node toolchain configuration via `[service.node]`
   with `runtime`, `package_manager`, `version_manager`, and `version`
-  fields so app runtimes can resolve Node or Deno execution explicitly.
+  fields so app runtimes can resolve Node, Bun, or Deno execution
+  explicitly.
 - Added `helm node --package-manager`, `--version-manager`, and
   `--node-version`, plus matching overrides for `helm task deps bump`,
   so callers can choose package-manager and version-manager behavior per
   invocation.
+- Added `helm bun` with `--bun-version`, plus Bun runtime detection from
+  `bun.lock`, `bun.lockb`, and `package.json.packageManager`.
 - Added `helm deno` with `--deno-version`, plus Deno runtime detection
   from `deno.json`, `deno.jsonc`, and `deno.lock`.
 - Added project-file Node inference for `package.json.packageManager`,
@@ -25,10 +28,13 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Changed app runtime image generation to install the selected Node
-  version-manager or Deno runtime instead of always installing a
-  hardcoded NodeSource LTS toolchain under the hood.
+  version-manager, Bun runtime, or Deno runtime instead of always
+  installing a hardcoded NodeSource LTS toolchain under the hood.
 - Changed Node package-manager execution to resolve from config and
   project metadata instead of defaulting `helm node` to `bun`.
+- Changed JS runtime naming from `JsRuntime` to
+  `JavaScriptRuntime`, and split Bun into its own `helm bun` command
+  instead of treating it as a Node package-manager option.
 - Changed Node-related CLI flags by removing `--manager` in favor of the
   explicit `--package-manager` name. This is a breaking CLI change.
 

@@ -6,7 +6,7 @@ use crate::cli::args::{Cli, Commands, TaskCommands, TaskDepsCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::cli::handlers;
 use crate::config;
-use crate::node::JsRuntime;
+use crate::node::JavaScriptRuntime;
 
 pub(super) fn dispatch(
     cli: &Cli,
@@ -68,10 +68,30 @@ pub(super) fn dispatch(
                 kind: args.kind,
                 profile: args.profile(),
                 command_bin: None,
-                runtime: Some(JsRuntime::Node),
+                runtime: Some(JavaScriptRuntime::Node),
                 package_manager: args.package_manager,
                 version_manager: args.version_manager,
                 node_version: args.node_version.as_deref(),
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Bun(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("bun"),
+                runtime: Some(JavaScriptRuntime::Bun),
+                package_manager: None,
+                version_manager: None,
+                node_version: args.bun_version.as_deref(),
                 non_interactive: context.non_interactive(),
                 tty: args.tty,
                 no_tty: args.no_tty,
@@ -88,7 +108,7 @@ pub(super) fn dispatch(
                 kind: args.kind,
                 profile: args.profile(),
                 command_bin: Some("deno"),
-                runtime: Some(JsRuntime::Deno),
+                runtime: Some(JavaScriptRuntime::Deno),
                 package_manager: None,
                 version_manager: None,
                 node_version: args.deno_version.as_deref(),
@@ -181,6 +201,11 @@ mod tests {
     #[test]
     fn wrapper_dispatches_node() {
         assert!(dispatch_result(&["helm", "node"]).is_some());
+    }
+
+    #[test]
+    fn wrapper_dispatches_bun() {
+        assert!(dispatch_result(&["helm", "bun"]).is_some());
     }
 
     #[test]

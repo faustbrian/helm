@@ -136,6 +136,17 @@ fn app_action_argument_methods() {
     };
     assert_eq!(args.service(), Some("node"));
 
+    let args = commands::BunArgs {
+        service: Some("bun".to_owned()),
+        kind: None,
+        profile: None,
+        bun_version: Some("1.2.5".to_owned()),
+        tty: true,
+        no_tty: false,
+        command: vec!["run".to_owned(), "dev".to_owned()],
+    };
+    assert_eq!(args.service(), Some("bun"));
+
     let args = commands::DenoArgs {
         service: Some("app".to_owned()),
         kind: None,

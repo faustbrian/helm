@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct NodeToolchain {
     /// Preferred JS runtime for app workflows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub runtime: Option<JsRuntime>,
+    pub runtime: Option<JavaScriptRuntime>,
     /// Preferred package manager for `helm node` and Node task workflows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_manager: Option<PackageManager>,
@@ -21,18 +21,16 @@ pub struct NodeToolchain {
 /// Supported JS runtimes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
-pub enum JsRuntime {
+pub enum JavaScriptRuntime {
     Node,
+    Bun,
     Deno,
 }
-
-impl JsRuntime {}
 
 /// Supported JS package managers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum PackageManager {
-    Bun,
     Npm,
     Pnpm,
     Yarn,
@@ -42,7 +40,6 @@ impl PackageManager {
     #[must_use]
     pub fn command_prefix(self) -> Vec<String> {
         match self {
-            Self::Bun => vec!["bun".to_owned()],
             Self::Npm => vec!["npm".to_owned()],
             Self::Pnpm => vec!["pnpm".to_owned()],
             Self::Yarn => vec!["yarn".to_owned()],

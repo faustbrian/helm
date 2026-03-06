@@ -113,7 +113,7 @@ fn parse_app_node_toolchain_section() {
     let node = app.node.as_ref().expect("node toolchain configured");
 
     assert_eq!(node.version.as_deref(), Some("22"));
-    assert_eq!(node.runtime, Some(crate::node::JsRuntime::Node));
+    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Node));
     assert_eq!(node.version_manager, Some(crate::node::VersionManager::Fnm));
     assert_eq!(
         node.package_manager,
@@ -144,7 +144,35 @@ fn parse_app_deno_toolchain_section() {
         .as_ref()
         .expect("deno runtime configured");
 
-    assert_eq!(node.runtime, Some(crate::node::JsRuntime::Deno));
+    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Deno));
     assert_eq!(node.version.as_deref(), Some("2.2.3"));
+    assert!(node.package_manager.is_none());
+}
+
+#[test]
+fn parse_app_bun_toolchain_section() {
+    let toml = r#"
+            [[service]]
+            name = "web"
+            kind = "app"
+            driver = "frankenphp"
+            image = "dunglas/frankenphp:php8.5"
+            host = "127.0.0.1"
+            port = 8000
+            domain = "donkey.helm"
+
+            [service.node]
+            runtime = "bun"
+            version = "1.2.5"
+        "#;
+
+    let config: Config = toml::from_str(toml).expect("failed to parse");
+    let node = config.service[0]
+        .node
+        .as_ref()
+        .expect("bun runtime configured");
+
+    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Bun));
+    assert_eq!(node.version.as_deref(), Some("1.2.5"));
     assert!(node.package_manager.is_none());
 }

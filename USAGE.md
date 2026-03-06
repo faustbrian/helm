@@ -107,7 +107,6 @@ If `--service` is omitted, commands operate on all matching services.
 
 ### Node Package Manager (`helm node --package-manager`)
 
-- `bun`
 - `npm`
 - `pnpm`
 - `yarn`
@@ -122,6 +121,7 @@ If `--service` is omitted, commands operate on all matching services.
 ### JS Runtime (`[service.node].runtime`)
 
 - `node` (default)
+- `bun`
 - `deno`
 
 ### Container Engine (`--engine`)
@@ -695,14 +695,14 @@ Flags:
 
 ### `helm node -- <COMMAND...>`
 
-Run JS package manager commands inside app container.
+Run Node package manager commands inside the app container.
 
 Flags:
 
 - `--service <NAME>`
 - `--kind <KIND>`
 - `--profile <NAME>` (conflicts with `--service` and `--kind`)
-- `--package-manager <bun|npm|pnpm|yarn>` (optional override)
+- `--package-manager <npm|pnpm|yarn>` (optional override)
 - `--version-manager <system|fnm|nvm|volta>` (optional override)
 - `--node-version <VERSION>` (optional override)
 - `--tty`
@@ -765,6 +765,39 @@ runtime = "deno"
 version = "2.2.3"
 ```
 
+### `helm bun -- <COMMAND...>`
+
+Run Bun inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--bun-version <VERSION>` (optional override)
+- `--tty`
+- `--no-tty`
+- Trailing Bun command/args.
+
+Bun resolution order:
+
+- CLI `--bun-version`
+- `[service.node]` in `.helm.toml`
+- Project files: `bun.lock`, `bun.lockb`, or `package.json.packageManager`
+- Helm default Bun installer version
+
+Config example:
+
+```toml
+[[service]]
+preset = "laravel"
+name = "app"
+
+[service.node]
+runtime = "bun"
+version = "1.2.5"
+```
+
 ### `helm task deps bump`
 
 Run opinionated dependency bump workflows inside the app container.
@@ -777,7 +810,7 @@ Flags:
 - `--composer`
 - `--node`
 - `--all` (runs both workflows; conflicts with `--composer` and `--node`)
-- `--package-manager <bun|npm|pnpm|yarn>` (optional override)
+- `--package-manager <npm|pnpm|yarn>` (optional override)
 - `--version-manager <system|fnm|nvm|volta>` (optional override)
 - `--node-version <VERSION>` (optional override)
 - `--tty`
@@ -791,6 +824,8 @@ Notes:
   then `composer normalize`.
 - Node workflow infers the package manager from `package.json.packageManager`
   first, then lockfiles, when `--package-manager` is omitted.
+- Bun workspaces use the Bun workflow directly when
+  `[service.node].runtime = "bun"` or Bun project files are detected.
 - Non-system Node version managers require a concrete Node version from
   `--node-version`, `[service.node].version`, or project files such as
   `.nvmrc` or `.node-version`.

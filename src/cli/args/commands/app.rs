@@ -9,7 +9,7 @@ mod task;
 
 pub(crate) use actions::{AppCreateArgs, EnvScrubArgs, OpenArgs, ServeArgs};
 pub(crate) use share::{ShareArgs, ShareCommands, ShareProviderSelectionArgs};
-pub(crate) use shell::{ArtisanArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs};
+pub(crate) use shell::{ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs};
 pub(crate) use task::{TaskArgs, TaskCommands, TaskDepsCommands};
 #[cfg(test)]
 pub(crate) use task::{TaskDepsArgs, TaskDepsBumpArgs};

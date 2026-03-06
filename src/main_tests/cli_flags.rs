@@ -723,6 +723,20 @@ fn deno_cli_parses_deno_version_flag() {
 }
 
 #[test]
+fn bun_cli_parses_bun_version_flag() {
+    let cli = Cli::try_parse_from(["helm", "bun", "--bun-version", "1.2.5", "--", "run", "dev"])
+        .expect("parse bun");
+
+    match cli.command {
+        Commands::Bun(args) => {
+            assert_eq!(args.bun_version.as_deref(), Some("1.2.5"));
+            assert_eq!(args.command, vec!["run".to_owned(), "dev".to_owned()]);
+        }
+        _ => panic!("expected bun command"),
+    }
+}
+
+#[test]
 fn app_runtime_commands_allow_disabling_tty_with_no_tty() {
     let artisan =
         Cli::try_parse_from(["helm", "artisan", "--no-tty", "test"]).expect("parse artisan no-tty");

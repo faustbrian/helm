@@ -10,9 +10,9 @@ mod meta;
 mod operations;
 
 pub(crate) use app::{
-    AppCreateArgs, ArtisanArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs, OpenArgs,
-    ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs, TaskArgs, TaskCommands,
-    TaskDepsCommands,
+    AppCreateArgs, ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs,
+    OpenArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs, TaskArgs,
+    TaskCommands, TaskDepsCommands,
 };
 #[cfg(test)]
 pub(crate) use app::{TaskDepsArgs, TaskDepsBumpArgs};
@@ -123,6 +123,8 @@ pub(crate) enum Commands {
     Composer(ComposerArgs),
     /// Run JS package manager command inside an app container
     Node(NodeArgs),
+    /// Run Bun inside an app container
+    Bun(BunArgs),
     /// Run Deno inside an app container
     Deno(DenoArgs),
     /// Run opinionated internal task workflows
