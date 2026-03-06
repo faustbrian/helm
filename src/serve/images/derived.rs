@@ -35,7 +35,7 @@ pub(super) fn resolve_runtime_image(
     let include_js_tooling = should_include_js_tooling(target);
     let sql_client_flavor = sql_client_flavor_from_injected_env(injected_env);
     let node_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
-        configured: target.node.as_ref(),
+        configured: target.javascript.as_ref(),
         workspace_root,
         runtime: None,
         package_manager: None,

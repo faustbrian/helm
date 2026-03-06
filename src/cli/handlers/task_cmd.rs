@@ -220,7 +220,7 @@ fn run_node_bump(
     requested_node_version: Option<&str>,
 ) -> Result<()> {
     let javascript_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
-        configured: target.node.as_ref(),
+        configured: target.javascript.as_ref(),
         workspace_root,
         runtime: Some(JavaScriptRuntime::Node),
         package_manager: requested_package_manager,

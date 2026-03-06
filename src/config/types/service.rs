@@ -95,7 +95,7 @@ pub struct ServiceConfig {
     pub env_mapping: Option<HashMap<String, String>>,
     /// Optional JavaScript toolchain preferences for app workflows.
     #[serde(default)]
-    pub node: Option<JavaScriptToolchain>,
+    pub javascript: Option<JavaScriptToolchain>,
     /// Explicit docker container name for this service.
     #[serde(default)]
     pub container_name: Option<String>,

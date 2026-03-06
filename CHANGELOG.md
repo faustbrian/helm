@@ -9,7 +9,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added service-level JavaScript toolchain configuration via
-  `[service.node]`
+  `[service.javascript]`
   with `runtime`, `package_manager`, `version_manager`, and `version`
   fields so app runtimes can resolve Node, Bun, or Deno execution
   explicitly.
@@ -42,6 +42,9 @@ All notable changes to this project are documented in this file.
 - Changed the shared runtime domain module from `src/node/` to
   `src/javascript/` so internal naming matches the broader
   JavaScript-runtime scope.
+- Changed the service config section name from `[service.node]` to
+  `[service.javascript]` so configuration naming matches Bun and Deno
+  support. This is a breaking config change.
 - Changed Node-related CLI flags by removing `--manager` in favor of the
   explicit `--package-manager` name. This is a breaking CLI change.
 

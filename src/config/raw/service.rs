@@ -78,7 +78,7 @@ pub(crate) struct RawServiceConfig {
     #[serde(default)]
     pub env_mapping: Option<HashMap<String, String>>,
     #[serde(default)]
-    pub node: Option<JavaScriptToolchain>,
+    pub javascript: Option<JavaScriptToolchain>,
     #[serde(default)]
     pub container_name: Option<String>,
 }

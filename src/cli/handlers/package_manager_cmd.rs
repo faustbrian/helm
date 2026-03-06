@@ -45,7 +45,7 @@ pub(crate) fn handle_package_manager_command(
     )?;
     let command = resolve_package_manager_command(options.command, options.default_command);
     let node_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
-        configured: runtime.target.node.as_ref(),
+        configured: runtime.target.javascript.as_ref(),
         workspace_root: runtime.workspace_root.as_path(),
         runtime: options.runtime,
         package_manager: options.package_manager,
@@ -54,7 +54,7 @@ pub(crate) fn handle_package_manager_command(
         require_package_manager: options.command_bin.is_none(),
     })?;
     let mut target = runtime.target.clone();
-    target.node = Some(JavaScriptToolchain {
+    target.javascript = Some(JavaScriptToolchain {
         runtime: Some(node_runtime.runtime),
         package_manager: node_runtime.package_manager,
         version_manager: Some(node_runtime.version_manager),

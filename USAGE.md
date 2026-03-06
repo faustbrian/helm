@@ -118,7 +118,7 @@ If `--service` is omitted, commands operate on all matching services.
 - `nvm`
 - `volta`
 
-### JavaScript Runtime (`[service.node].runtime`)
+### JavaScript Runtime (`[service.javascript].runtime`)
 
 - `node` (default)
 - `bun`
@@ -712,7 +712,7 @@ Flags:
 Node package-manager resolution order:
 
 - CLI overrides
-- `[service.node]` in `.helm.toml`
+- `[service.javascript]` in `.helm.toml`
 - Project files:
   `.nvmrc`, `.node-version`, `package.json.packageManager`,
   `package.json.volta.node`, and `package.json.engines.node`
@@ -725,7 +725,7 @@ Config example:
 preset = "laravel"
 name = "app"
 
-[service.node]
+[service.javascript]
 runtime = "node"
 package_manager = "pnpm"
 version_manager = "fnm"
@@ -749,7 +749,7 @@ Flags:
 Deno resolution order:
 
 - CLI `--deno-version`
-- `[service.node]` in `.helm.toml`
+- `[service.javascript]` in `.helm.toml`
 - Project files: `deno.json`, `deno.jsonc`, or `deno.lock`
 - Helm default Deno installer version
 
@@ -760,7 +760,7 @@ Config example:
 preset = "laravel"
 name = "app"
 
-[service.node]
+[service.javascript]
 runtime = "deno"
 version = "2.2.3"
 ```
@@ -782,7 +782,7 @@ Flags:
 Bun resolution order:
 
 - CLI `--bun-version`
-- `[service.node]` in `.helm.toml`
+- `[service.javascript]` in `.helm.toml`
 - Project files: `bun.lock`, `bun.lockb`, or `package.json.packageManager`
 - Helm default Bun installer version
 
@@ -793,7 +793,7 @@ Config example:
 preset = "laravel"
 name = "app"
 
-[service.node]
+[service.javascript]
 runtime = "bun"
 version = "1.2.5"
 ```
@@ -834,7 +834,7 @@ Notes:
 - `--all` runs Composer, Node, Bun, and Deno workflows; missing manifests
   are skipped with a warning.
 - Non-system Node version managers require a concrete Node version from
-  `--node-version`, `[service.node].version`, or project files such as
+  `--node-version`, `[service.javascript].version`, or project files such as
   `.nvmrc` or `.node-version`.
 - Missing `composer.json`, `package.json`, or Deno project files are
   skipped with a warning.

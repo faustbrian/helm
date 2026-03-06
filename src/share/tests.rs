@@ -100,7 +100,7 @@ fn app_service() -> ServiceConfig {
         php_extensions: None,
         trust_container_ca: false,
         env_mapping: None,
-        node: None,
+        javascript: None,
         container_name: Some("acme-api-app".to_owned()),
         resolved_container_name: Some("acme-api-app".to_owned()),
     }

@@ -99,7 +99,7 @@ pub(super) fn expand_raw_service(raw: RawServiceConfig) -> Result<ServiceConfig>
             .trust_container_ca
             .unwrap_or_else(|| defaults.as_ref().is_some_and(|d| d.trust_container_ca)),
         env_mapping: raw.env_mapping,
-        node: raw.node,
+        javascript: raw.javascript,
         container_name: raw.container_name,
         resolved_container_name: None,
     })

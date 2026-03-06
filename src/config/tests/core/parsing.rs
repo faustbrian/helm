@@ -88,7 +88,7 @@ fn parse_app_domains_list() {
 }
 
 #[test]
-fn parse_app_node_toolchain_section() {
+fn parse_app_javascript_toolchain_section() {
     let toml = r#"
             container_prefix = "app"
 
@@ -101,7 +101,7 @@ fn parse_app_node_toolchain_section() {
             port = 8000
             domain = "donkey.helm"
 
-            [service.node]
+            [service.javascript]
             runtime = "node"
             version_manager = "fnm"
             version = "22"
@@ -110,19 +110,22 @@ fn parse_app_node_toolchain_section() {
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
     let app = &config.service[0];
-    let node = app.node.as_ref().expect("node toolchain configured");
+    let javascript = app
+        .javascript
+        .as_ref()
+        .expect("javascript toolchain configured");
 
-    assert_eq!(node.version.as_deref(), Some("22"));
+    assert_eq!(javascript.version.as_deref(), Some("22"));
     assert_eq!(
-        node.runtime,
+        javascript.runtime,
         Some(crate::javascript::JavaScriptRuntime::Node)
     );
     assert_eq!(
-        node.version_manager,
+        javascript.version_manager,
         Some(crate::javascript::VersionManager::Fnm)
     );
     assert_eq!(
-        node.package_manager,
+        javascript.package_manager,
         Some(crate::javascript::PackageManager::Pnpm)
     );
 }
@@ -139,23 +142,23 @@ fn parse_app_deno_toolchain_section() {
             port = 8000
             domain = "donkey.helm"
 
-            [service.node]
+            [service.javascript]
             runtime = "deno"
             version = "2.2.3"
         "#;
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
-    let node = config.service[0]
-        .node
+    let javascript = config.service[0]
+        .javascript
         .as_ref()
         .expect("deno runtime configured");
 
     assert_eq!(
-        node.runtime,
+        javascript.runtime,
         Some(crate::javascript::JavaScriptRuntime::Deno)
     );
-    assert_eq!(node.version.as_deref(), Some("2.2.3"));
-    assert!(node.package_manager.is_none());
+    assert_eq!(javascript.version.as_deref(), Some("2.2.3"));
+    assert!(javascript.package_manager.is_none());
 }
 
 #[test]
@@ -170,21 +173,21 @@ fn parse_app_bun_toolchain_section() {
             port = 8000
             domain = "donkey.helm"
 
-            [service.node]
+            [service.javascript]
             runtime = "bun"
             version = "1.2.5"
         "#;
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
-    let node = config.service[0]
-        .node
+    let javascript = config.service[0]
+        .javascript
         .as_ref()
         .expect("bun runtime configured");
 
     assert_eq!(
-        node.runtime,
+        javascript.runtime,
         Some(crate::javascript::JavaScriptRuntime::Bun)
     );
-    assert_eq!(node.version.as_deref(), Some("1.2.5"));
-    assert!(node.package_manager.is_none());
+    assert_eq!(javascript.version.as_deref(), Some("1.2.5"));
+    assert!(javascript.package_manager.is_none());
 }

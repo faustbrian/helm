@@ -54,7 +54,7 @@ pub(crate) fn resolve_javascript_runtime(
 
     if runtime == JavaScriptRuntime::Node && options.require_package_manager {
         package_manager.context(
-            "could not infer Node package manager; pass --package-manager <npm|pnpm|yarn> or set [service.node].package_manager",
+            "could not infer Node package manager; pass --package-manager <npm|pnpm|yarn> or set [service.javascript].package_manager",
         )?;
     }
 
@@ -63,7 +63,7 @@ pub(crate) fn resolve_javascript_runtime(
         && node_version.is_none()
     {
         anyhow::bail!(
-            "node version manager '{}' requires a Node version; pass --node-version or set [service.node].version",
+            "node version manager '{}' requires a Node version; pass --node-version or set [service.javascript].version",
             version_manager.as_str()
         );
     }

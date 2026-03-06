@@ -55,7 +55,7 @@ mod tests {
             php_extensions: None,
             trust_container_ca: false,
             env_mapping: None,
-            node: None,
+            javascript: None,
             container_name: None,
             resolved_container_name: Some("app-service".to_owned()),
         }
