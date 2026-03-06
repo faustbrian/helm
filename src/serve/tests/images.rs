@@ -4,8 +4,8 @@ use super::super::images::{
 };
 use super::super::sql_client_flavor::SqlClientFlavor;
 use super::helpers::app_service;
-use crate::node::JavaScriptRuntime;
-use crate::node::VersionManager;
+use crate::javascript::JavaScriptRuntime;
+use crate::javascript::VersionManager;
 use std::collections::HashMap;
 
 #[test]

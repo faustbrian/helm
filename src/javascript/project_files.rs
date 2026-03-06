@@ -3,7 +3,7 @@ use std::path::Path;
 use super::package_json::read_package_json;
 use super::{JavaScriptRuntime, PackageManager, VersionManager};
 
-pub(crate) fn detect_js_runtime(workspace_root: &Path) -> Option<JavaScriptRuntime> {
+pub(crate) fn detect_javascript_runtime(workspace_root: &Path) -> Option<JavaScriptRuntime> {
     if [
         workspace_root.join("deno.json"),
         workspace_root.join("deno.jsonc"),

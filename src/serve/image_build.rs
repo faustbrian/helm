@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::config::ServiceConfig;
-use crate::node::{JavaScriptRuntime, VersionManager};
+use crate::javascript::{JavaScriptRuntime, VersionManager};
 use crate::serve::sql_client_flavor::SqlClientFlavor;
 
 mod build;
@@ -29,7 +29,7 @@ pub(super) fn installed_php_modules(base_image: &str) -> Result<std::collections
     inspect::installed_php_modules(base_image)
 }
 
-/// Returns whether JS/composer tooling should be included in derived image.
+/// Returns whether JavaScript/composer tooling should be included in derived image.
 pub(super) fn should_include_js_tooling(target: &ServiceConfig) -> bool {
     target.driver == crate::config::Driver::Frankenphp
 }

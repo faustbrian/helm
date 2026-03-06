@@ -118,7 +118,7 @@ If `--service` is omitted, commands operate on all matching services.
 - `nvm`
 - `volta`
 
-### JS Runtime (`[service.node].runtime`)
+### JavaScript Runtime (`[service.node].runtime`)
 
 - `node` (default)
 - `bun`
@@ -709,7 +709,7 @@ Flags:
 - `--no-tty`
 - Trailing package-manager command/args.
 
-Node toolchain resolution order:
+Node package-manager resolution order:
 
 - CLI overrides
 - `[service.node]` in `.helm.toml`
@@ -809,7 +809,9 @@ Flags:
 - `--profile <NAME>` (conflicts with `--service` and `--kind`)
 - `--composer`
 - `--node`
-- `--all` (runs both workflows; conflicts with `--composer` and `--node`)
+- `--bun`
+- `--deno`
+- `--all` (runs all workflows; conflicts with `--composer`, `--node`, `--bun`, and `--deno`)
 - `--package-manager <npm|pnpm|yarn>` (optional override)
 - `--version-manager <system|fnm|nvm|volta>` (optional override)
 - `--node-version <VERSION>` (optional override)
@@ -818,18 +820,24 @@ Flags:
 
 Notes:
 
-- At least one target flag is required: `--composer`, `--node`, or `--all`.
+- At least one target flag is required: `--composer`, `--node`, `--bun`,
+  `--deno`, or `--all`.
 - Composer workflow runs: `composer bump --dev-only`,
   `composer bump --no-dev-only`, `composer update --ignore-platform-reqs`,
   then `composer normalize`.
-- Node workflow infers the package manager from `package.json.packageManager`
-  first, then lockfiles, when `--package-manager` is omitted.
-- Bun workspaces use the Bun workflow directly when
-  `[service.node].runtime = "bun"` or Bun project files are detected.
+- Node workflow runs against `package.json` and infers the package manager
+  from `package.json.packageManager` first, then lockfiles, when
+  `--package-manager` is omitted.
+- Bun workflow runs `bun update --latest` against `package.json`.
+- Deno workflow runs `deno outdated --update --latest` when a Deno project
+  file is present.
+- `--all` runs Composer, Node, Bun, and Deno workflows; missing manifests
+  are skipped with a warning.
 - Non-system Node version managers require a concrete Node version from
   `--node-version`, `[service.node].version`, or project files such as
   `.nvmrc` or `.node-version`.
-- Missing `composer.json` or `package.json` files are skipped with a warning.
+- Missing `composer.json`, `package.json`, or Deno project files are
+  skipped with a warning.
 
 ### `helm ls`
 

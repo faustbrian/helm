@@ -6,9 +6,10 @@ use anyhow::Result;
 use std::path::Path;
 
 use super::service_scope::selected_services_in_scope;
-use crate::node::{
-    BuildNodeCommandOptions, JavaScriptRuntime, NodeToolchain, PackageManager,
-    ResolveNodeRuntimeOptions, VersionManager, build_node_command, resolve_node_runtime,
+use crate::javascript::{
+    BuildNodeCommandOptions, JavaScriptRuntime, JavaScriptToolchain, PackageManager,
+    ResolveJavaScriptRuntimeOptions, VersionManager, build_node_command,
+    resolve_javascript_runtime,
 };
 use crate::{cli, config};
 
@@ -43,7 +44,7 @@ pub(crate) fn handle_package_manager_command(
         options.project_root,
     )?;
     let command = resolve_package_manager_command(options.command, options.default_command);
-    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+    let node_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
         configured: runtime.target.node.as_ref(),
         workspace_root: runtime.workspace_root.as_path(),
         runtime: options.runtime,
@@ -53,7 +54,7 @@ pub(crate) fn handle_package_manager_command(
         require_package_manager: options.command_bin.is_none(),
     })?;
     let mut target = runtime.target.clone();
-    target.node = Some(NodeToolchain {
+    target.node = Some(JavaScriptToolchain {
         runtime: Some(node_runtime.runtime),
         package_manager: node_runtime.package_manager,
         version_manager: Some(node_runtime.version_manager),

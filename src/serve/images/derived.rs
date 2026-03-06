@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::ServiceConfig;
-use crate::node::{ResolveNodeRuntimeOptions, resolve_node_runtime};
+use crate::javascript::{ResolveJavaScriptRuntimeOptions, resolve_javascript_runtime};
 use crate::output::{self, LogLevel, Persistence};
 use crate::serve::sql_client_flavor::sql_client_flavor_from_injected_env;
 
@@ -34,7 +34,7 @@ pub(super) fn resolve_runtime_image(
 ) -> Result<String> {
     let include_js_tooling = should_include_js_tooling(target);
     let sql_client_flavor = sql_client_flavor_from_injected_env(injected_env);
-    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+    let node_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
         configured: target.node.as_ref(),
         workspace_root,
         runtime: None,

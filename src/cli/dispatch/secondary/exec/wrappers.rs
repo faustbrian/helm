@@ -6,7 +6,7 @@ use crate::cli::args::{Cli, Commands, TaskCommands, TaskDepsCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::cli::handlers;
 use crate::config;
-use crate::node::JavaScriptRuntime;
+use crate::javascript::JavaScriptRuntime;
 
 pub(super) fn dispatch(
     cli: &Cli,
@@ -131,6 +131,8 @@ pub(super) fn dispatch(
                         profile: args.profile(),
                         composer: args.composer,
                         node: args.node,
+                        bun: args.bun,
+                        deno: args.deno,
                         all: args.all,
                         package_manager: args.package_manager,
                         version_manager: args.version_manager,

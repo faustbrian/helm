@@ -46,7 +46,7 @@ mod dependency_order;
 mod display;
 mod docker;
 mod env;
-mod node;
+mod javascript;
 mod output;
 mod parallel;
 mod serve;

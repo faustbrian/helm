@@ -9,9 +9,9 @@ use std::path::Path;
 use crate::cli;
 use crate::cli::args::{PackageManagerArg, VersionManagerArg};
 use crate::config;
-use crate::node::{
-    BuildNodeCommandOptions, JavaScriptRuntime, ResolveNodeRuntimeOptions, build_node_command,
-    resolve_node_runtime,
+use crate::javascript::{
+    BuildNodeCommandOptions, JavaScriptRuntime, ResolveJavaScriptRuntimeOptions,
+    build_node_command, resolve_javascript_runtime,
 };
 use crate::output::{self, LogLevel, Persistence::Persistent};
 
@@ -21,6 +21,8 @@ pub(crate) struct HandleTaskDepsBumpOptions<'a> {
     pub(crate) profile: Option<&'a str>,
     pub(crate) composer: bool,
     pub(crate) node: bool,
+    pub(crate) bun: bool,
+    pub(crate) deno: bool,
     pub(crate) all: bool,
     pub(crate) package_manager: Option<PackageManagerArg>,
     pub(crate) version_manager: Option<VersionManagerArg>,
@@ -37,13 +39,21 @@ pub(crate) struct HandleTaskDepsBumpOptions<'a> {
 struct TaskBumpTargets {
     composer: bool,
     node: bool,
+    bun: bool,
+    deno: bool,
 }
 
 pub(crate) fn handle_task_deps_bump(
     config: &config::Config,
     options: HandleTaskDepsBumpOptions<'_>,
 ) -> Result<()> {
-    let targets = resolve_bump_targets(options.composer, options.node, options.all)?;
+    let targets = resolve_bump_targets(
+        options.composer,
+        options.node,
+        options.bun,
+        options.deno,
+        options.all,
+    )?;
     let runtime = cli::support::resolve_app_runtime_context(
         config,
         resolve_single_app_service_name(config, options.service, options.kind, options.profile)?
@@ -79,6 +89,42 @@ pub(crate) fn handle_task_deps_bump(
             options.package_manager,
             options.version_manager,
             options.node_version,
+        )?;
+    }
+
+    if targets.bun {
+        run_runtime_bump(
+            RuntimeBumpOptions {
+                workspace_root,
+                target: runtime.target,
+                start_context: &start_context,
+                tty,
+                quiet: options.quiet,
+                runtime: JavaScriptRuntime::Bun,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+            },
+            RuntimeManifest::PackageJson {
+                workflow_name: "Bun",
+            },
+        )?;
+    }
+
+    if targets.deno {
+        run_runtime_bump(
+            RuntimeBumpOptions {
+                workspace_root,
+                target: runtime.target,
+                start_context: &start_context,
+                tty,
+                quiet: options.quiet,
+                runtime: JavaScriptRuntime::Deno,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+            },
+            RuntimeManifest::Deno,
         )?;
     }
 
@@ -173,71 +219,32 @@ fn run_node_bump(
     requested_version_manager: Option<VersionManagerArg>,
     requested_node_version: Option<&str>,
 ) -> Result<()> {
-    let manifest_path = workspace_root.join("package.json");
-    if !manifest_path.is_file() {
-        output::event(
-            "task",
-            LogLevel::Warn,
-            &format!(
-                "Skipping Node bump: no package.json in {}",
-                workspace_root.display()
-            ),
-            Persistent,
-        );
-        return Ok(());
-    }
-
-    let package_name = read_package_name(&manifest_path).with_context(|| {
-        format!(
-            "failed to read package name from {}",
-            manifest_path.display()
-        )
-    })?;
-    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+    let javascript_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
         configured: target.node.as_ref(),
         workspace_root,
-        runtime: None,
+        runtime: Some(JavaScriptRuntime::Node),
         package_manager: requested_package_manager,
         version_manager: requested_version_manager,
         node_version: requested_node_version,
         require_package_manager: true,
     })?;
-    let bump_workflow = resolve_bump_workflow(node_runtime.runtime, node_runtime.package_manager)?;
 
-    super::log::info_if_not_quiet(
-        quiet,
-        "task",
-        &format!(
-            "Bumping {} dependencies for {package_name}",
-            bump_workflow.display_name()
-        ),
-    );
-
-    for command in bump_workflow.commands() {
-        let wrapped = if bump_workflow.wrap_with_node_manager() {
-            build_node_command(BuildNodeCommandOptions {
-                version_manager: node_runtime.version_manager,
-                node_version: node_runtime.node_version.as_deref(),
-                command: &command,
-            })?
-        } else {
-            command
-        };
-        let display = wrapped.join(" ");
-        cli::support::run_service_command_with_tty(target, &wrapped, tty, start_context)
-            .with_context(|| format!("Node bump step failed for {package_name}: {display}"))?;
-    }
-
-    super::log::success_if_not_quiet(
-        quiet,
-        "task",
-        &format!(
-            "{} dependencies updated for {package_name}",
-            bump_workflow.display_name()
-        ),
-    );
-
-    Ok(())
+    run_runtime_bump(
+        RuntimeBumpOptions {
+            workspace_root,
+            target,
+            start_context,
+            tty,
+            quiet,
+            runtime: JavaScriptRuntime::Node,
+            package_manager: javascript_runtime.package_manager,
+            version_manager: Some(javascript_runtime.version_manager),
+            node_version: javascript_runtime.node_version.as_deref(),
+        },
+        RuntimeManifest::PackageJson {
+            workflow_name: "Node",
+        },
+    )
 }
 
 fn read_package_name(path: &Path) -> Result<String> {
@@ -276,6 +283,7 @@ fn composer_bump_commands() -> Vec<Vec<String>> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DependencyBumpWorkflow {
     Bun,
+    Deno,
     Npm,
     Pnpm,
     Yarn,
@@ -287,6 +295,12 @@ impl DependencyBumpWorkflow {
             Self::Bun => vec![vec![
                 "bun".to_owned(),
                 "update".to_owned(),
+                "--latest".to_owned(),
+            ]],
+            Self::Deno => vec![vec![
+                "deno".to_owned(),
+                "outdated".to_owned(),
+                "--update".to_owned(),
                 "--latest".to_owned(),
             ]],
             Self::Npm => vec![
@@ -310,6 +324,7 @@ impl DependencyBumpWorkflow {
     const fn display_name(self) -> &'static str {
         match self {
             Self::Bun => "bun",
+            Self::Deno => "deno",
             Self::Npm => "npm",
             Self::Pnpm => "pnpm",
             Self::Yarn => "yarn",
@@ -317,7 +332,7 @@ impl DependencyBumpWorkflow {
     }
 
     const fn wrap_with_node_manager(self) -> bool {
-        !matches!(self, Self::Bun)
+        matches!(self, Self::Npm | Self::Pnpm | Self::Yarn)
     }
 }
 
@@ -327,6 +342,7 @@ fn resolve_bump_workflow(
 ) -> Result<DependencyBumpWorkflow> {
     match runtime {
         JavaScriptRuntime::Bun => Ok(DependencyBumpWorkflow::Bun),
+        JavaScriptRuntime::Deno => Ok(DependencyBumpWorkflow::Deno),
         JavaScriptRuntime::Node => package_manager
             .map(|manager| match manager {
                 PackageManagerArg::Npm => DependencyBumpWorkflow::Npm,
@@ -334,27 +350,149 @@ fn resolve_bump_workflow(
                 PackageManagerArg::Yarn => DependencyBumpWorkflow::Yarn,
             })
             .context("node package manager required"),
-        JavaScriptRuntime::Deno => {
-            anyhow::bail!(
-                "configured JS runtime is deno; use `helm deno` instead of Node dependency bump workflows"
-            );
-        }
     }
 }
 
-fn resolve_bump_targets(composer: bool, node: bool, all: bool) -> Result<TaskBumpTargets> {
+struct RuntimeBumpOptions<'a> {
+    workspace_root: &'a Path,
+    target: &'a config::ServiceConfig,
+    start_context: &'a cli::support::ServiceStartContext<'a>,
+    tty: bool,
+    quiet: bool,
+    runtime: JavaScriptRuntime,
+    package_manager: Option<PackageManagerArg>,
+    version_manager: Option<VersionManagerArg>,
+    node_version: Option<&'a str>,
+}
+
+enum RuntimeManifest<'a> {
+    PackageJson { workflow_name: &'a str },
+    Deno,
+}
+
+fn run_runtime_bump(options: RuntimeBumpOptions<'_>, manifest: RuntimeManifest<'_>) -> Result<()> {
+    let workflow = resolve_bump_workflow(options.runtime, options.package_manager)?;
+    let package_name = match manifest {
+        RuntimeManifest::PackageJson { workflow_name } => {
+            let manifest_path = options.workspace_root.join("package.json");
+            if !manifest_path.is_file() {
+                output::event(
+                    "task",
+                    LogLevel::Warn,
+                    &format!(
+                        "Skipping {workflow_name} bump: no package.json in {}",
+                        options.workspace_root.display()
+                    ),
+                    Persistent,
+                );
+                return Ok(());
+            }
+
+            read_package_name(&manifest_path).with_context(|| {
+                format!(
+                    "failed to read package name from {}",
+                    manifest_path.display()
+                )
+            })?
+        }
+        RuntimeManifest::Deno => {
+            if !has_deno_project(options.workspace_root) {
+                output::event(
+                    "task",
+                    LogLevel::Warn,
+                    &format!(
+                        "Skipping Deno bump: no deno.json, deno.jsonc, or deno.lock in {}",
+                        options.workspace_root.display()
+                    ),
+                    Persistent,
+                );
+                return Ok(());
+            }
+
+            options
+                .workspace_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| "unknown".to_owned())
+        }
+    };
+
+    super::log::info_if_not_quiet(
+        options.quiet,
+        "task",
+        &format!(
+            "Bumping {} dependencies for {package_name}",
+            workflow.display_name()
+        ),
+    );
+
+    for command in workflow.commands() {
+        let wrapped = if workflow.wrap_with_node_manager() {
+            build_node_command(BuildNodeCommandOptions {
+                version_manager: options
+                    .version_manager
+                    .expect("node version manager required"),
+                node_version: options.node_version,
+                command: &command,
+            })?
+        } else {
+            command
+        };
+        let display = wrapped.join(" ");
+        cli::support::run_service_command_with_tty(
+            options.target,
+            &wrapped,
+            options.tty,
+            options.start_context,
+        )
+        .with_context(|| format!("Dependency bump step failed for {package_name}: {display}"))?;
+    }
+
+    super::log::success_if_not_quiet(
+        options.quiet,
+        "task",
+        &format!(
+            "{} dependencies updated for {package_name}",
+            workflow.display_name()
+        ),
+    );
+
+    Ok(())
+}
+
+fn has_deno_project(workspace_root: &Path) -> bool {
+    ["deno.json", "deno.jsonc", "deno.lock"]
+        .into_iter()
+        .any(|name| workspace_root.join(name).is_file())
+}
+
+fn resolve_bump_targets(
+    composer: bool,
+    node: bool,
+    bun: bool,
+    deno: bool,
+    all: bool,
+) -> Result<TaskBumpTargets> {
     if all {
         return Ok(TaskBumpTargets {
             composer: true,
             node: true,
+            bun: true,
+            deno: true,
         });
     }
 
-    if composer || node {
-        return Ok(TaskBumpTargets { composer, node });
+    if composer || node || bun || deno {
+        return Ok(TaskBumpTargets {
+            composer,
+            node,
+            bun,
+            deno,
+        });
     }
 
-    anyhow::bail!("select at least one target with --composer, --node, or --all")
+    anyhow::bail!("select at least one target with --composer, --node, --bun, --deno, or --all")
 }
 
 #[cfg(test)]
@@ -364,7 +502,7 @@ mod tests {
         resolve_bump_workflow,
     };
     use crate::cli::args::PackageManagerArg;
-    use crate::node::{JavaScriptRuntime, detect_node_package_manager};
+    use crate::javascript::{JavaScriptRuntime, detect_node_package_manager};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -384,22 +522,42 @@ mod tests {
 
     #[test]
     fn resolve_bump_targets_accepts_explicit_flags() {
-        let targets = resolve_bump_targets(true, false, false).expect("composer target");
+        let targets =
+            resolve_bump_targets(true, false, false, false, false).expect("composer target");
         assert!(targets.composer);
         assert!(!targets.node);
+        assert!(!targets.bun);
+        assert!(!targets.deno);
 
-        let targets = resolve_bump_targets(false, true, false).expect("node target");
+        let targets = resolve_bump_targets(false, true, false, false, false).expect("node target");
         assert!(!targets.composer);
         assert!(targets.node);
+        assert!(!targets.bun);
+        assert!(!targets.deno);
 
-        let targets = resolve_bump_targets(false, false, true).expect("all targets");
+        let targets = resolve_bump_targets(false, false, true, false, false).expect("bun target");
+        assert!(!targets.composer);
+        assert!(!targets.node);
+        assert!(targets.bun);
+        assert!(!targets.deno);
+
+        let targets = resolve_bump_targets(false, false, false, true, false).expect("deno target");
+        assert!(!targets.composer);
+        assert!(!targets.node);
+        assert!(!targets.bun);
+        assert!(targets.deno);
+
+        let targets = resolve_bump_targets(false, false, false, false, true).expect("all targets");
         assert!(targets.composer);
         assert!(targets.node);
+        assert!(targets.bun);
+        assert!(targets.deno);
     }
 
     #[test]
     fn resolve_bump_targets_requires_a_target_flag() {
-        let error = resolve_bump_targets(false, false, false).expect_err("missing target");
+        let error =
+            resolve_bump_targets(false, false, false, false, false).expect_err("missing target");
         assert!(error.to_string().contains("select at least one target"));
     }
 
@@ -469,6 +627,14 @@ mod tests {
     #[test]
     fn node_bump_commands_match_supported_managers() {
         assert_eq!(
+            DependencyBumpWorkflow::Bun.commands(),
+            vec![vec![
+                "bun".to_owned(),
+                "update".to_owned(),
+                "--latest".to_owned(),
+            ]]
+        );
+        assert_eq!(
             DependencyBumpWorkflow::Npm.commands(),
             vec![
                 vec![
@@ -492,6 +658,15 @@ mod tests {
             DependencyBumpWorkflow::Yarn.commands(),
             vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]]
         );
+        assert_eq!(
+            DependencyBumpWorkflow::Deno.commands(),
+            vec![vec![
+                "deno".to_owned(),
+                "outdated".to_owned(),
+                "--update".to_owned(),
+                "--latest".to_owned(),
+            ]]
+        );
     }
 
     #[test]
@@ -502,8 +677,9 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bump_workflow_rejects_deno_runtime() {
-        let error = resolve_bump_workflow(JavaScriptRuntime::Deno, None).expect_err("deno fails");
-        assert!(error.to_string().contains("use `helm deno`"));
+    fn resolve_bump_workflow_uses_deno_runtime_directly() {
+        let workflow = resolve_bump_workflow(JavaScriptRuntime::Deno, None).expect("deno workflow");
+        assert_eq!(workflow, DependencyBumpWorkflow::Deno);
+        assert!(!workflow.wrap_with_node_manager());
     }
 }

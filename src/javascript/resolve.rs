@@ -2,12 +2,12 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use super::{
-    JavaScriptRuntime, NodeToolchain, PackageManager, VersionManager, detect_js_runtime,
-    detect_node_package_manager, detect_node_version,
+    JavaScriptRuntime, JavaScriptToolchain, PackageManager, VersionManager,
+    detect_javascript_runtime, detect_node_package_manager, detect_node_version,
 };
 
-pub(crate) struct ResolveNodeRuntimeOptions<'a> {
-    pub(crate) configured: Option<&'a NodeToolchain>,
+pub(crate) struct ResolveJavaScriptRuntimeOptions<'a> {
+    pub(crate) configured: Option<&'a JavaScriptToolchain>,
     pub(crate) workspace_root: &'a Path,
     pub(crate) runtime: Option<JavaScriptRuntime>,
     pub(crate) package_manager: Option<PackageManager>,
@@ -17,20 +17,20 @@ pub(crate) struct ResolveNodeRuntimeOptions<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) struct ResolvedNodeRuntime {
+pub(crate) struct ResolvedJavaScriptRuntime {
     pub(crate) runtime: JavaScriptRuntime,
     pub(crate) package_manager: Option<PackageManager>,
     pub(crate) version_manager: VersionManager,
     pub(crate) node_version: Option<String>,
 }
 
-pub(crate) fn resolve_node_runtime(
-    options: ResolveNodeRuntimeOptions<'_>,
-) -> Result<ResolvedNodeRuntime> {
+pub(crate) fn resolve_javascript_runtime(
+    options: ResolveJavaScriptRuntimeOptions<'_>,
+) -> Result<ResolvedJavaScriptRuntime> {
     let runtime = options
         .runtime
         .or_else(|| options.configured.and_then(|config| config.runtime))
-        .or_else(|| detect_js_runtime(options.workspace_root))
+        .or_else(|| detect_javascript_runtime(options.workspace_root))
         .unwrap_or(JavaScriptRuntime::Node);
     let package_manager = options
         .package_manager
@@ -70,17 +70,17 @@ pub(crate) fn resolve_node_runtime(
 
     if runtime == JavaScriptRuntime::Deno && options.require_package_manager {
         anyhow::bail!(
-            "configured JS runtime is deno; use `helm deno` instead of Node package-manager workflows"
+            "configured JavaScript runtime is deno; use `helm deno` instead of Node package-manager workflows"
         );
     }
 
     if runtime == JavaScriptRuntime::Bun && options.require_package_manager {
         anyhow::bail!(
-            "configured JS runtime is bun; use `helm bun` instead of Node package-manager workflows"
+            "configured JavaScript runtime is bun; use `helm bun` instead of Node package-manager workflows"
         );
     }
 
-    Ok(ResolvedNodeRuntime {
+    Ok(ResolvedJavaScriptRuntime {
         runtime,
         package_manager,
         version_manager,
@@ -90,8 +90,10 @@ pub(crate) fn resolve_node_runtime(
 
 #[cfg(test)]
 mod tests {
-    use super::{ResolveNodeRuntimeOptions, resolve_node_runtime};
-    use crate::node::{JavaScriptRuntime, NodeToolchain, PackageManager, VersionManager};
+    use super::{ResolveJavaScriptRuntimeOptions, resolve_javascript_runtime};
+    use crate::javascript::{
+        JavaScriptRuntime, JavaScriptToolchain, PackageManager, VersionManager,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -110,12 +112,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_node_runtime_reads_version_from_nvmrc() {
+    fn resolve_javascript_runtime_reads_version_from_nvmrc() {
         let root = temp_root("helm-node-runtime-nvmrc");
         fs::write(root.join(".nvmrc"), "22\n").expect("write nvmrc");
 
-        let runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
-            configured: Some(&NodeToolchain {
+        let runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
+            configured: Some(&JavaScriptToolchain {
                 runtime: Some(JavaScriptRuntime::Node),
                 package_manager: Some(PackageManager::Npm),
                 version_manager: Some(VersionManager::Fnm),
@@ -135,11 +137,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_node_runtime_requires_version_for_non_system_manager() {
+    fn resolve_javascript_runtime_requires_version_for_non_system_manager() {
         let root = temp_root("helm-node-runtime-version-required");
 
-        let error = resolve_node_runtime(ResolveNodeRuntimeOptions {
-            configured: Some(&NodeToolchain {
+        let error = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
+            configured: Some(&JavaScriptToolchain {
                 runtime: Some(JavaScriptRuntime::Node),
                 package_manager: Some(PackageManager::Npm),
                 version_manager: Some(VersionManager::Volta),
@@ -159,11 +161,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_node_runtime_detects_deno_workspace() {
+    fn resolve_javascript_runtime_detects_deno_workspace() {
         let root = temp_root("helm-js-runtime-deno");
         fs::write(root.join("deno.json"), "{\"tasks\":{}}").expect("write deno config");
 
-        let runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+        let runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
             configured: None,
             workspace_root: &root,
             runtime: None,
@@ -179,11 +181,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_node_runtime_detects_bun_workspace() {
+    fn resolve_javascript_runtime_detects_bun_workspace() {
         let root = temp_root("helm-js-runtime-bun");
         fs::write(root.join("bun.lock"), "{}").expect("write bun lockfile");
 
-        let runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+        let runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
             configured: None,
             workspace_root: &root,
             runtime: None,

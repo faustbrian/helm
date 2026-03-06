@@ -45,7 +45,7 @@ pub(crate) struct TaskDepsBumpArgs {
         long,
         default_value_t = false,
         conflicts_with = "all",
-        required_unless_present_any = ["node", "all"]
+        required_unless_present_any = ["node", "bun", "deno", "all"]
     )]
     pub(crate) composer: bool,
     /// Run the Node dependency bump workflow
@@ -53,15 +53,31 @@ pub(crate) struct TaskDepsBumpArgs {
         long,
         default_value_t = false,
         conflicts_with = "all",
-        required_unless_present_any = ["composer", "all"]
+        required_unless_present_any = ["composer", "bun", "deno", "all"]
     )]
     pub(crate) node: bool,
-    /// Run both Composer and Node dependency bump workflows
+    /// Run the Bun dependency bump workflow
     #[arg(
         long,
         default_value_t = false,
-        conflicts_with_all = ["composer", "node"],
-        required_unless_present_any = ["composer", "node"]
+        conflicts_with = "all",
+        required_unless_present_any = ["composer", "node", "deno", "all"]
+    )]
+    pub(crate) bun: bool,
+    /// Run the Deno dependency bump workflow
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with = "all",
+        required_unless_present_any = ["composer", "node", "bun", "all"]
+    )]
+    pub(crate) deno: bool,
+    /// Run all dependency bump workflows
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with_all = ["composer", "node", "bun", "deno"],
+        required_unless_present_any = ["composer", "node", "bun", "deno"]
     )]
     pub(crate) all: bool,
     /// Override inferred Node package manager

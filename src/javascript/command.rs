@@ -70,7 +70,7 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{BuildNodeCommandOptions, build_node_command};
-    use crate::node::VersionManager;
+    use crate::javascript::VersionManager;
 
     #[test]
     fn build_node_command_wraps_fnm_exec() {

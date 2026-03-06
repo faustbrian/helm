@@ -121,7 +121,7 @@ pub(crate) enum Commands {
     Artisan(ArtisanArgs),
     /// Run composer inside an app container
     Composer(ComposerArgs),
-    /// Run JS package manager command inside an app container
+    /// Run Node package manager commands inside an app container
     Node(NodeArgs),
     /// Run Bun inside an app container
     Bun(BunArgs),

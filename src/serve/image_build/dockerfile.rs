@@ -1,13 +1,13 @@
 //! Dockerfile generator for serve derived images.
 
-use crate::node::{JavaScriptRuntime, VersionManager};
+use crate::javascript::{JavaScriptRuntime, VersionManager};
 use crate::serve::sql_client_flavor::SqlClientFlavor;
 
 /// Renders a complete Dockerfile for a derived serve image.
 ///
 /// The generated image can add:
 /// - missing PHP extensions
-/// - optional JS/package-manager tooling
+/// - optional JavaScript/package-manager tooling
 /// - MySQL client wrapper compatibility scripts
 pub(super) fn render_derived_dockerfile(
     base_image: &str,

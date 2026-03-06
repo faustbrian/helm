@@ -8,7 +8,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added service-level Node toolchain configuration via `[service.node]`
+- Added service-level JavaScript toolchain configuration via
+  `[service.node]`
   with `runtime`, `package_manager`, `version_manager`, and `version`
   fields so app runtimes can resolve Node, Bun, or Deno execution
   explicitly.
@@ -20,6 +21,9 @@ All notable changes to this project are documented in this file.
   `bun.lock`, `bun.lockb`, and `package.json.packageManager`.
 - Added `helm deno` with `--deno-version`, plus Deno runtime detection
   from `deno.json`, `deno.jsonc`, and `deno.lock`.
+- Added explicit `helm task deps bump --node`, `--bun`, and `--deno`
+  selectors so dependency workflows map directly to the runtime being
+  managed.
 - Added project-file Node inference for `package.json.packageManager`,
   `package.json.volta.node`, `.nvmrc`, `.node-version`, and
   `package.json.engines.node` so Node workflows can derive toolchain
@@ -32,9 +36,12 @@ All notable changes to this project are documented in this file.
   installing a hardcoded NodeSource LTS toolchain under the hood.
 - Changed Node package-manager execution to resolve from config and
   project metadata instead of defaulting `helm node` to `bun`.
-- Changed JS runtime naming from `JsRuntime` to
+- Changed JavaScript runtime naming from `JsRuntime` to
   `JavaScriptRuntime`, and split Bun into its own `helm bun` command
   instead of treating it as a Node package-manager option.
+- Changed the shared runtime domain module from `src/node/` to
+  `src/javascript/` so internal naming matches the broader
+  JavaScript-runtime scope.
 - Changed Node-related CLI flags by removing `--manager` in favor of the
   explicit `--package-manager` name. This is a breaking CLI change.
 

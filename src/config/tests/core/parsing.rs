@@ -113,11 +113,17 @@ fn parse_app_node_toolchain_section() {
     let node = app.node.as_ref().expect("node toolchain configured");
 
     assert_eq!(node.version.as_deref(), Some("22"));
-    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Node));
-    assert_eq!(node.version_manager, Some(crate::node::VersionManager::Fnm));
+    assert_eq!(
+        node.runtime,
+        Some(crate::javascript::JavaScriptRuntime::Node)
+    );
+    assert_eq!(
+        node.version_manager,
+        Some(crate::javascript::VersionManager::Fnm)
+    );
     assert_eq!(
         node.package_manager,
-        Some(crate::node::PackageManager::Pnpm)
+        Some(crate::javascript::PackageManager::Pnpm)
     );
 }
 
@@ -144,7 +150,10 @@ fn parse_app_deno_toolchain_section() {
         .as_ref()
         .expect("deno runtime configured");
 
-    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Deno));
+    assert_eq!(
+        node.runtime,
+        Some(crate::javascript::JavaScriptRuntime::Deno)
+    );
     assert_eq!(node.version.as_deref(), Some("2.2.3"));
     assert!(node.package_manager.is_none());
 }
@@ -172,7 +181,10 @@ fn parse_app_bun_toolchain_section() {
         .as_ref()
         .expect("bun runtime configured");
 
-    assert_eq!(node.runtime, Some(crate::node::JavaScriptRuntime::Bun));
+    assert_eq!(
+        node.runtime,
+        Some(crate::javascript::JavaScriptRuntime::Bun)
+    );
     assert_eq!(node.version.as_deref(), Some("1.2.5"));
     assert!(node.package_manager.is_none());
 }

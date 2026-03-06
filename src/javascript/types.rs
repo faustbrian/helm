@@ -1,10 +1,10 @@
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-/// Service-level Node toolchain preferences.
+/// Service-level JavaScript toolchain preferences.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq)]
-pub struct NodeToolchain {
-    /// Preferred JS runtime for app workflows.
+pub struct JavaScriptToolchain {
+    /// Preferred JavaScript runtime for app workflows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<JavaScriptRuntime>,
     /// Preferred package manager for `helm node` and Node task workflows.
@@ -18,7 +18,7 @@ pub struct NodeToolchain {
     pub version: Option<String>,
 }
 
-/// Supported JS runtimes.
+/// Supported JavaScript runtimes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum JavaScriptRuntime {
@@ -27,7 +27,7 @@ pub enum JavaScriptRuntime {
     Deno,
 }
 
-/// Supported JS package managers.
+/// Supported Node package managers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum PackageManager {

@@ -16,7 +16,7 @@ mod lock_commands;
 mod preset_commands;
 mod profile_commands;
 
-pub(crate) use crate::node::{
+pub(crate) use crate::javascript::{
     PackageManager as PackageManagerArg, VersionManager as VersionManagerArg,
 };
 pub(crate) use arg_enums::{PortStrategyArg, PullPolicyArg, ShareProviderArg};

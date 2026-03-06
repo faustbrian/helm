@@ -252,6 +252,8 @@ fn cli_parses_task_deps_bump_targets() {
                     crate::cli::args::TaskDepsBumpArgs {
                         composer: true,
                         node: false,
+                        bun: false,
+                        deno: false,
                         all: false,
                         ..
                     }
@@ -271,6 +273,50 @@ fn cli_parses_task_deps_bump_targets() {
                     crate::cli::args::TaskDepsBumpArgs {
                         composer: false,
                         node: true,
+                        bun: false,
+                        deno: false,
+                        all: false,
+                        ..
+                    }
+                ),
+            })
+        )),
+        _ => panic!("expected task command"),
+    }
+
+    let bun =
+        Cli::try_parse_from(["helm", "task", "deps", "bump", "--bun"]).expect("parse task deps");
+    match bun.command {
+        Commands::Task(args) => assert!(matches!(
+            args.command,
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Bump(
+                    crate::cli::args::TaskDepsBumpArgs {
+                        composer: false,
+                        node: false,
+                        bun: true,
+                        deno: false,
+                        all: false,
+                        ..
+                    }
+                ),
+            })
+        )),
+        _ => panic!("expected task command"),
+    }
+
+    let deno = Cli::try_parse_from(["helm", "task", "deps", "bump", "--deno"])
+        .expect("parse task deps bump deno");
+    match deno.command {
+        Commands::Task(args) => assert!(matches!(
+            args.command,
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Bump(
+                    crate::cli::args::TaskDepsBumpArgs {
+                        composer: false,
+                        node: false,
+                        bun: false,
+                        deno: true,
                         all: false,
                         ..
                     }
@@ -290,6 +336,8 @@ fn cli_parses_task_deps_bump_targets() {
                     crate::cli::args::TaskDepsBumpArgs {
                         composer: false,
                         node: false,
+                        bun: false,
+                        deno: false,
                         all: true,
                         ..
                     }

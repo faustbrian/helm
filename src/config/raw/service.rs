@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use super::super::{Driver, Kind};
 use super::RawServiceHook;
-use crate::node::NodeToolchain;
+use crate::javascript::JavaScriptToolchain;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RawServiceConfig {
@@ -78,7 +78,7 @@ pub(crate) struct RawServiceConfig {
     #[serde(default)]
     pub env_mapping: Option<HashMap<String, String>>,
     #[serde(default)]
-    pub node: Option<NodeToolchain>,
+    pub node: Option<JavaScriptToolchain>,
     #[serde(default)]
     pub container_name: Option<String>,
 }

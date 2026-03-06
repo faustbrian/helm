@@ -27,7 +27,7 @@ pub(crate) enum ShareProviderArg {
 #[cfg(test)]
 mod tests {
     use super::{PortStrategyArg, PullPolicyArg, ShareProviderArg};
-    use crate::node::PackageManager;
+    use crate::javascript::PackageManager;
     use clap::ValueEnum;
 
     #[test]
