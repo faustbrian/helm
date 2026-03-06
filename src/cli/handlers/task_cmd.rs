@@ -15,7 +15,8 @@ use crate::javascript::{
 };
 use crate::output::{self, LogLevel, Persistence::Persistent};
 
-pub(crate) struct HandleTaskDepsBumpOptions<'a> {
+pub(crate) struct HandleTaskDepsWorkflowOptions<'a> {
+    pub(crate) action: TaskDependencyAction,
     pub(crate) service: Option<&'a str>,
     pub(crate) kind: Option<config::Kind>,
     pub(crate) profile: Option<&'a str>,
@@ -36,18 +37,47 @@ pub(crate) struct HandleTaskDepsBumpOptions<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TaskBumpTargets {
+pub(crate) enum TaskDependencyAction {
+    Bump,
+    Audit,
+    Normalize,
+    Install,
+}
+
+impl TaskDependencyAction {
+    const fn progress_verb(self) -> &'static str {
+        match self {
+            Self::Bump => "Bumping",
+            Self::Audit => "Auditing",
+            Self::Normalize => "Normalizing",
+            Self::Install => "Installing",
+        }
+    }
+
+    const fn completion_phrase(self) -> &'static str {
+        match self {
+            Self::Bump => "updated",
+            Self::Audit => "audit completed",
+            Self::Normalize => "normalized",
+            Self::Install => "installed",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TaskDependencyTargets {
     composer: bool,
     node: bool,
     bun: bool,
     deno: bool,
 }
 
-pub(crate) fn handle_task_deps_bump(
+pub(crate) fn handle_task_deps_workflow(
     config: &config::Config,
-    options: HandleTaskDepsBumpOptions<'_>,
+    options: HandleTaskDepsWorkflowOptions<'_>,
 ) -> Result<()> {
-    let targets = resolve_bump_targets(
+    let targets = resolve_task_targets(
+        options.action,
         options.composer,
         options.node,
         options.bun,
@@ -70,22 +100,24 @@ pub(crate) fn handle_task_deps_bump(
     let workspace_root = runtime.workspace_root.as_path();
 
     if targets.composer {
-        run_composer_bump(
+        run_composer_workflow(
             workspace_root,
             runtime.target,
             &start_context,
             tty,
             options.quiet,
+            options.action,
         )?;
     }
 
     if targets.node {
-        run_node_bump(
+        run_node_workflow(
             workspace_root,
             runtime.target,
             &start_context,
             tty,
             options.quiet,
+            options.action,
             options.package_manager,
             options.version_manager,
             options.node_version,
@@ -104,6 +136,7 @@ pub(crate) fn handle_task_deps_bump(
                 package_manager: None,
                 version_manager: None,
                 node_version: None,
+                action: options.action,
             },
             RuntimeManifest::PackageJson {
                 workflow_name: "Bun",
@@ -123,6 +156,7 @@ pub(crate) fn handle_task_deps_bump(
                 package_manager: None,
                 version_manager: None,
                 node_version: None,
+                action: options.action,
             },
             RuntimeManifest::Deno,
         )?;
@@ -160,12 +194,13 @@ fn resolve_single_app_service_name(
         .map(|service_config| service_config.name.clone()))
 }
 
-fn run_composer_bump(
+fn run_composer_workflow(
     workspace_root: &Path,
     target: &config::ServiceConfig,
     start_context: &cli::support::ServiceStartContext<'_>,
     tty: bool,
     quiet: bool,
+    action: TaskDependencyAction,
 ) -> Result<()> {
     let manifest_path = workspace_root.join("composer.json");
     if !manifest_path.is_file() {
@@ -191,30 +226,39 @@ fn run_composer_bump(
     super::log::info_if_not_quiet(
         quiet,
         "task",
-        &format!("Bumping Composer dependencies for {package_name}"),
+        &format!(
+            "{} Composer dependencies for {package_name}",
+            action.progress_verb()
+        ),
     );
 
-    for command in composer_bump_commands() {
+    for command in composer_commands(action) {
         let display = command.join(" ");
         cli::support::run_service_command_with_tty(target, &command, tty, start_context)
-            .with_context(|| format!("Composer bump step failed for {package_name}: {display}"))?;
+            .with_context(|| {
+                format!("Composer workflow step failed for {package_name}: {display}")
+            })?;
     }
 
     super::log::success_if_not_quiet(
         quiet,
         "task",
-        &format!("Composer dependencies updated for {package_name}"),
+        &format!(
+            "Composer dependencies {} for {package_name}",
+            action.completion_phrase()
+        ),
     );
 
     Ok(())
 }
 
-fn run_node_bump(
+fn run_node_workflow(
     workspace_root: &Path,
     target: &config::ServiceConfig,
     start_context: &cli::support::ServiceStartContext<'_>,
     tty: bool,
     quiet: bool,
+    action: TaskDependencyAction,
     requested_package_manager: Option<PackageManagerArg>,
     requested_version_manager: Option<VersionManagerArg>,
     requested_node_version: Option<&str>,
@@ -240,6 +284,7 @@ fn run_node_bump(
             package_manager: javascript_runtime.package_manager,
             version_manager: Some(javascript_runtime.version_manager),
             node_version: javascript_runtime.node_version.as_deref(),
+            action,
         },
         RuntimeManifest::PackageJson {
             workflow_name: "Node",
@@ -259,29 +304,40 @@ fn read_package_name(path: &Path) -> Result<String> {
         .map_or_else(|| "unknown".to_owned(), str::to_owned))
 }
 
-fn composer_bump_commands() -> Vec<Vec<String>> {
-    vec![
-        vec![
-            "composer".to_owned(),
-            "bump".to_owned(),
-            "--dev-only".to_owned(),
+fn composer_commands(action: TaskDependencyAction) -> Vec<Vec<String>> {
+    match action {
+        TaskDependencyAction::Bump => vec![
+            vec![
+                "composer".to_owned(),
+                "bump".to_owned(),
+                "--dev-only".to_owned(),
+            ],
+            vec![
+                "composer".to_owned(),
+                "bump".to_owned(),
+                "--no-dev-only".to_owned(),
+            ],
+            vec![
+                "composer".to_owned(),
+                "update".to_owned(),
+                "--ignore-platform-reqs".to_owned(),
+            ],
+            vec!["composer".to_owned(), "normalize".to_owned()],
         ],
-        vec![
-            "composer".to_owned(),
-            "bump".to_owned(),
-            "--no-dev-only".to_owned(),
-        ],
-        vec![
-            "composer".to_owned(),
-            "update".to_owned(),
-            "--ignore-platform-reqs".to_owned(),
-        ],
-        vec!["composer".to_owned(), "normalize".to_owned()],
-    ]
+        TaskDependencyAction::Audit => {
+            vec![vec!["composer".to_owned(), "audit".to_owned()]]
+        }
+        TaskDependencyAction::Normalize => {
+            vec![vec!["composer".to_owned(), "normalize".to_owned()]]
+        }
+        TaskDependencyAction::Install => {
+            vec![vec!["composer".to_owned(), "install".to_owned()]]
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DependencyBumpWorkflow {
+enum DependencyWorkflow {
     Bun,
     Deno,
     Npm,
@@ -289,21 +345,30 @@ enum DependencyBumpWorkflow {
     Yarn,
 }
 
-impl DependencyBumpWorkflow {
-    fn commands(self) -> Vec<Vec<String>> {
-        match self {
-            Self::Bun => vec![vec![
+impl DependencyWorkflow {
+    fn commands(self, action: TaskDependencyAction) -> Option<Vec<Vec<String>>> {
+        match (self, action) {
+            (Self::Bun, TaskDependencyAction::Bump) => Some(vec![vec![
                 "bun".to_owned(),
                 "update".to_owned(),
                 "--latest".to_owned(),
-            ]],
-            Self::Deno => vec![vec![
+            ]]),
+            (Self::Bun, TaskDependencyAction::Audit) => {
+                Some(vec![vec!["bun".to_owned(), "audit".to_owned()]])
+            }
+            (Self::Bun, TaskDependencyAction::Normalize) => {
+                Some(vec![vec!["bun".to_owned(), "install".to_owned()]])
+            }
+            (Self::Bun, TaskDependencyAction::Install) => {
+                Some(vec![vec!["bun".to_owned(), "install".to_owned()]])
+            }
+            (Self::Deno, TaskDependencyAction::Bump) => Some(vec![vec![
                 "deno".to_owned(),
                 "outdated".to_owned(),
                 "--update".to_owned(),
                 "--latest".to_owned(),
-            ]],
-            Self::Npm => vec![
+            ]]),
+            (Self::Npm, TaskDependencyAction::Bump) => Some(vec![
                 vec![
                     "npx".to_owned(),
                     "--yes".to_owned(),
@@ -311,13 +376,54 @@ impl DependencyBumpWorkflow {
                     "-u".to_owned(),
                 ],
                 vec!["npm".to_owned(), "install".to_owned()],
-            ],
-            Self::Pnpm => vec![vec![
+            ]),
+            (Self::Pnpm, TaskDependencyAction::Bump) => Some(vec![vec![
                 "pnpm".to_owned(),
                 "update".to_owned(),
                 "--latest".to_owned(),
-            ]],
-            Self::Yarn => vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]],
+            ]]),
+            (Self::Yarn, TaskDependencyAction::Bump) => Some(vec![vec![
+                "yarn".to_owned(),
+                "up".to_owned(),
+                "*".to_owned(),
+            ]]),
+            (Self::Npm, TaskDependencyAction::Audit) => {
+                Some(vec![vec!["npm".to_owned(), "audit".to_owned()]])
+            }
+            (Self::Pnpm, TaskDependencyAction::Audit) => {
+                Some(vec![vec!["pnpm".to_owned(), "audit".to_owned()]])
+            }
+            (Self::Yarn, TaskDependencyAction::Audit) => Some(vec![vec![
+                "yarn".to_owned(),
+                "npm".to_owned(),
+                "audit".to_owned(),
+            ]]),
+            (Self::Npm, TaskDependencyAction::Normalize) => Some(vec![vec![
+                "npm".to_owned(),
+                "install".to_owned(),
+                "--package-lock-only".to_owned(),
+            ]]),
+            (Self::Pnpm, TaskDependencyAction::Normalize) => Some(vec![vec![
+                "pnpm".to_owned(),
+                "install".to_owned(),
+                "--lockfile-only".to_owned(),
+            ]]),
+            (Self::Yarn, TaskDependencyAction::Normalize) => Some(vec![vec![
+                "yarn".to_owned(),
+                "install".to_owned(),
+                "--mode".to_owned(),
+                "skip-build".to_owned(),
+            ]]),
+            (Self::Npm, TaskDependencyAction::Install) => {
+                Some(vec![vec!["npm".to_owned(), "install".to_owned()]])
+            }
+            (Self::Pnpm, TaskDependencyAction::Install) => {
+                Some(vec![vec!["pnpm".to_owned(), "install".to_owned()]])
+            }
+            (Self::Yarn, TaskDependencyAction::Install) => {
+                Some(vec![vec!["yarn".to_owned(), "install".to_owned()]])
+            }
+            _ => None,
         }
     }
 
@@ -336,18 +442,18 @@ impl DependencyBumpWorkflow {
     }
 }
 
-fn resolve_bump_workflow(
+fn resolve_workflow(
     runtime: JavaScriptRuntime,
     package_manager: Option<PackageManagerArg>,
-) -> Result<DependencyBumpWorkflow> {
+) -> Result<DependencyWorkflow> {
     match runtime {
-        JavaScriptRuntime::Bun => Ok(DependencyBumpWorkflow::Bun),
-        JavaScriptRuntime::Deno => Ok(DependencyBumpWorkflow::Deno),
+        JavaScriptRuntime::Bun => Ok(DependencyWorkflow::Bun),
+        JavaScriptRuntime::Deno => Ok(DependencyWorkflow::Deno),
         JavaScriptRuntime::Node => package_manager
             .map(|manager| match manager {
-                PackageManagerArg::Npm => DependencyBumpWorkflow::Npm,
-                PackageManagerArg::Pnpm => DependencyBumpWorkflow::Pnpm,
-                PackageManagerArg::Yarn => DependencyBumpWorkflow::Yarn,
+                PackageManagerArg::Npm => DependencyWorkflow::Npm,
+                PackageManagerArg::Pnpm => DependencyWorkflow::Pnpm,
+                PackageManagerArg::Yarn => DependencyWorkflow::Yarn,
             })
             .context("node package manager required"),
     }
@@ -363,6 +469,7 @@ struct RuntimeBumpOptions<'a> {
     package_manager: Option<PackageManagerArg>,
     version_manager: Option<VersionManagerArg>,
     node_version: Option<&'a str>,
+    action: TaskDependencyAction,
 }
 
 enum RuntimeManifest<'a> {
@@ -371,7 +478,7 @@ enum RuntimeManifest<'a> {
 }
 
 fn run_runtime_bump(options: RuntimeBumpOptions<'_>, manifest: RuntimeManifest<'_>) -> Result<()> {
-    let workflow = resolve_bump_workflow(options.runtime, options.package_manager)?;
+    let workflow = resolve_workflow(options.runtime, options.package_manager)?;
     let package_name = match manifest {
         RuntimeManifest::PackageJson { workflow_name } => {
             let manifest_path = options.workspace_root.join("package.json");
@@ -422,12 +529,27 @@ fn run_runtime_bump(options: RuntimeBumpOptions<'_>, manifest: RuntimeManifest<'
         options.quiet,
         "task",
         &format!(
-            "Bumping {} dependencies for {package_name}",
+            "{} {} dependencies for {package_name}",
+            options.action.progress_verb(),
             workflow.display_name()
         ),
     );
 
-    for command in workflow.commands() {
+    let Some(commands) = workflow.commands(options.action) else {
+        output::event(
+            "task",
+            LogLevel::Warn,
+            &format!(
+                "Skipping {} workflow for {}: runtime does not support this action",
+                workflow.display_name(),
+                action_name(options.action)
+            ),
+            Persistent,
+        );
+        return Ok(());
+    };
+
+    for command in commands {
         let wrapped = if workflow.wrap_with_node_manager() {
             build_node_command(BuildNodeCommandOptions {
                 version_manager: options
@@ -446,15 +568,18 @@ fn run_runtime_bump(options: RuntimeBumpOptions<'_>, manifest: RuntimeManifest<'
             options.tty,
             options.start_context,
         )
-        .with_context(|| format!("Dependency bump step failed for {package_name}: {display}"))?;
+        .with_context(|| {
+            format!("Dependency workflow step failed for {package_name}: {display}")
+        })?;
     }
 
     super::log::success_if_not_quiet(
         options.quiet,
         "task",
         &format!(
-            "{} dependencies updated for {package_name}",
-            workflow.display_name()
+            "{} dependencies {} for {package_name}",
+            workflow.display_name(),
+            options.action.completion_phrase()
         ),
     );
 
@@ -467,15 +592,16 @@ fn has_deno_project(workspace_root: &Path) -> bool {
         .any(|name| workspace_root.join(name).is_file())
 }
 
-fn resolve_bump_targets(
+fn resolve_task_targets(
+    action: TaskDependencyAction,
     composer: bool,
     node: bool,
     bun: bool,
     deno: bool,
     all: bool,
-) -> Result<TaskBumpTargets> {
+) -> Result<TaskDependencyTargets> {
     if all {
-        return Ok(TaskBumpTargets {
+        return Ok(TaskDependencyTargets {
             composer: true,
             node: true,
             bun: true,
@@ -484,7 +610,7 @@ fn resolve_bump_targets(
     }
 
     if composer || node || bun || deno {
-        return Ok(TaskBumpTargets {
+        return Ok(TaskDependencyTargets {
             composer,
             node,
             bun,
@@ -492,14 +618,24 @@ fn resolve_bump_targets(
         });
     }
 
+    let _ = action;
     anyhow::bail!("select at least one target with --composer, --node, --bun, --deno, or --all")
+}
+
+fn action_name(action: TaskDependencyAction) -> &'static str {
+    match action {
+        TaskDependencyAction::Bump => "bump",
+        TaskDependencyAction::Audit => "audit",
+        TaskDependencyAction::Normalize => "normalize",
+        TaskDependencyAction::Install => "install",
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        DependencyBumpWorkflow, composer_bump_commands, read_package_name, resolve_bump_targets,
-        resolve_bump_workflow,
+        DependencyWorkflow, TaskDependencyAction, composer_commands, read_package_name,
+        resolve_task_targets, resolve_workflow,
     };
     use crate::cli::args::PackageManagerArg;
     use crate::javascript::{JavaScriptRuntime, detect_node_package_manager};
@@ -521,33 +657,66 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bump_targets_accepts_explicit_flags() {
+    fn resolve_task_targets_accepts_explicit_flags() {
         let targets =
-            resolve_bump_targets(true, false, false, false, false).expect("composer target");
+            resolve_task_targets(TaskDependencyAction::Bump, true, false, false, false, false)
+                .expect("composer target");
         assert!(targets.composer);
         assert!(!targets.node);
         assert!(!targets.bun);
         assert!(!targets.deno);
 
-        let targets = resolve_bump_targets(false, true, false, false, false).expect("node target");
+        let targets = resolve_task_targets(
+            TaskDependencyAction::Audit,
+            false,
+            true,
+            false,
+            false,
+            false,
+        )
+        .expect("node target");
         assert!(!targets.composer);
         assert!(targets.node);
         assert!(!targets.bun);
         assert!(!targets.deno);
 
-        let targets = resolve_bump_targets(false, false, true, false, false).expect("bun target");
+        let targets = resolve_task_targets(
+            TaskDependencyAction::Normalize,
+            false,
+            false,
+            true,
+            false,
+            false,
+        )
+        .expect("bun target");
         assert!(!targets.composer);
         assert!(!targets.node);
         assert!(targets.bun);
         assert!(!targets.deno);
 
-        let targets = resolve_bump_targets(false, false, false, true, false).expect("deno target");
+        let targets = resolve_task_targets(
+            TaskDependencyAction::Install,
+            false,
+            false,
+            false,
+            true,
+            false,
+        )
+        .expect("deno target");
         assert!(!targets.composer);
         assert!(!targets.node);
         assert!(!targets.bun);
         assert!(targets.deno);
 
-        let targets = resolve_bump_targets(false, false, false, false, true).expect("all targets");
+        let targets = resolve_task_targets(
+            TaskDependencyAction::Install,
+            false,
+            false,
+            false,
+            false,
+            true,
+        )
+        .expect("all targets");
         assert!(targets.composer);
         assert!(targets.node);
         assert!(targets.bun);
@@ -555,9 +724,16 @@ mod tests {
     }
 
     #[test]
-    fn resolve_bump_targets_requires_a_target_flag() {
-        let error =
-            resolve_bump_targets(false, false, false, false, false).expect_err("missing target");
+    fn resolve_task_targets_requires_a_target_flag() {
+        let error = resolve_task_targets(
+            TaskDependencyAction::Bump,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+        .expect_err("missing target");
         assert!(error.to_string().contains("select at least one target"));
     }
 
@@ -600,9 +776,9 @@ mod tests {
     }
 
     #[test]
-    fn composer_bump_commands_match_expected_workflow() {
+    fn composer_commands_match_supported_workflows() {
         assert_eq!(
-            composer_bump_commands(),
+            composer_commands(TaskDependencyAction::Bump),
             vec![
                 vec![
                     "composer".to_owned(),
@@ -622,21 +798,37 @@ mod tests {
                 vec!["composer".to_owned(), "normalize".to_owned()],
             ]
         );
+        assert_eq!(
+            composer_commands(TaskDependencyAction::Audit),
+            vec![vec!["composer".to_owned(), "audit".to_owned()]]
+        );
+        assert_eq!(
+            composer_commands(TaskDependencyAction::Normalize),
+            vec![vec!["composer".to_owned(), "normalize".to_owned()]]
+        );
+        assert_eq!(
+            composer_commands(TaskDependencyAction::Install),
+            vec![vec!["composer".to_owned(), "install".to_owned()]]
+        );
     }
 
     #[test]
-    fn node_bump_commands_match_supported_managers() {
+    fn runtime_commands_match_supported_workflows() {
         assert_eq!(
-            DependencyBumpWorkflow::Bun.commands(),
-            vec![vec![
+            DependencyWorkflow::Bun.commands(TaskDependencyAction::Bump),
+            Some(vec![vec![
                 "bun".to_owned(),
                 "update".to_owned(),
                 "--latest".to_owned(),
-            ]]
+            ]])
         );
         assert_eq!(
-            DependencyBumpWorkflow::Npm.commands(),
-            vec![
+            DependencyWorkflow::Bun.commands(TaskDependencyAction::Audit),
+            Some(vec![vec!["bun".to_owned(), "audit".to_owned(),]])
+        );
+        assert_eq!(
+            DependencyWorkflow::Npm.commands(TaskDependencyAction::Bump),
+            Some(vec![
                 vec![
                     "npx".to_owned(),
                     "--yes".to_owned(),
@@ -644,42 +836,54 @@ mod tests {
                     "-u".to_owned(),
                 ],
                 vec!["npm".to_owned(), "install".to_owned()],
-            ]
+            ])
         );
         assert_eq!(
-            DependencyBumpWorkflow::Pnpm.commands(),
-            vec![vec![
+            DependencyWorkflow::Pnpm.commands(TaskDependencyAction::Normalize),
+            Some(vec![vec![
                 "pnpm".to_owned(),
-                "update".to_owned(),
-                "--latest".to_owned(),
-            ]]
+                "install".to_owned(),
+                "--lockfile-only".to_owned(),
+            ]])
         );
         assert_eq!(
-            DependencyBumpWorkflow::Yarn.commands(),
-            vec![vec!["yarn".to_owned(), "up".to_owned(), "*".to_owned()]]
+            DependencyWorkflow::Yarn.commands(TaskDependencyAction::Install),
+            Some(vec![vec!["yarn".to_owned(), "install".to_owned()]])
         );
         assert_eq!(
-            DependencyBumpWorkflow::Deno.commands(),
-            vec![vec![
+            DependencyWorkflow::Deno.commands(TaskDependencyAction::Bump),
+            Some(vec![vec![
                 "deno".to_owned(),
                 "outdated".to_owned(),
                 "--update".to_owned(),
                 "--latest".to_owned(),
-            ]]
+            ]])
+        );
+        assert_eq!(
+            DependencyWorkflow::Deno.commands(TaskDependencyAction::Audit),
+            None
+        );
+        assert_eq!(
+            DependencyWorkflow::Pnpm.commands(TaskDependencyAction::Bump),
+            Some(vec![vec![
+                "pnpm".to_owned(),
+                "update".to_owned(),
+                "--latest".to_owned(),
+            ]])
         );
     }
 
     #[test]
-    fn resolve_bump_workflow_uses_bun_runtime_directly() {
-        let workflow = resolve_bump_workflow(JavaScriptRuntime::Bun, None).expect("bun workflow");
-        assert_eq!(workflow, DependencyBumpWorkflow::Bun);
+    fn resolve_workflow_uses_bun_runtime_directly() {
+        let workflow = resolve_workflow(JavaScriptRuntime::Bun, None).expect("bun workflow");
+        assert_eq!(workflow, DependencyWorkflow::Bun);
         assert!(!workflow.wrap_with_node_manager());
     }
 
     #[test]
-    fn resolve_bump_workflow_uses_deno_runtime_directly() {
-        let workflow = resolve_bump_workflow(JavaScriptRuntime::Deno, None).expect("deno workflow");
-        assert_eq!(workflow, DependencyBumpWorkflow::Deno);
+    fn resolve_workflow_uses_deno_runtime_directly() {
+        let workflow = resolve_workflow(JavaScriptRuntime::Deno, None).expect("deno workflow");
+        assert_eq!(workflow, DependencyWorkflow::Deno);
         assert!(!workflow.wrap_with_node_manager());
     }
 }

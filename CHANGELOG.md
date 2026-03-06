@@ -24,6 +24,11 @@ All notable changes to this project are documented in this file.
 - Added explicit `helm task deps bump --node`, `--bun`, and `--deno`
   selectors so dependency workflows map directly to the runtime being
   managed.
+- Added `helm task deps audit`, `helm task deps normalize`, and
+  `helm task deps install` so app dependency maintenance now covers
+  vulnerability checks, manifest normalization, and install workflows
+  across Composer plus the explicit Node, Bun, and Deno runtime
+  selectors already used by `helm task deps bump`.
 - Added project-file Node inference for `package.json.packageManager`,
   `package.json.volta.node`, `.nvmrc`, `.node-version`, and
   `package.json.engines.node` so Node workflows can derive toolchain

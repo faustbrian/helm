@@ -245,105 +245,90 @@ fn cli_parses_task_deps_bump_targets() {
     let composer = Cli::try_parse_from(["helm", "task", "deps", "bump", "--composer"])
         .expect("parse task deps bump composer");
     match composer.command {
-        Commands::Task(args) => assert!(matches!(
-            args.command,
+        Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
-                command: crate::cli::args::TaskDepsCommands::Bump(
-                    crate::cli::args::TaskDepsBumpArgs {
-                        composer: true,
-                        node: false,
-                        bun: false,
-                        deno: false,
-                        all: false,
-                        ..
-                    }
-                ),
-            })
-        )),
+                command: crate::cli::args::TaskDepsCommands::Bump(args),
+            }) => {
+                assert!(args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected bump task command"),
+        },
         _ => panic!("expected task command"),
     }
 
     let node = Cli::try_parse_from(["helm", "task", "deps", "bump", "--node"])
         .expect("parse task deps bump node");
     match node.command {
-        Commands::Task(args) => assert!(matches!(
-            args.command,
+        Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
-                command: crate::cli::args::TaskDepsCommands::Bump(
-                    crate::cli::args::TaskDepsBumpArgs {
-                        composer: false,
-                        node: true,
-                        bun: false,
-                        deno: false,
-                        all: false,
-                        ..
-                    }
-                ),
-            })
-        )),
+                command: crate::cli::args::TaskDepsCommands::Bump(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected bump task command"),
+        },
         _ => panic!("expected task command"),
     }
 
     let bun =
         Cli::try_parse_from(["helm", "task", "deps", "bump", "--bun"]).expect("parse task deps");
     match bun.command {
-        Commands::Task(args) => assert!(matches!(
-            args.command,
+        Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
-                command: crate::cli::args::TaskDepsCommands::Bump(
-                    crate::cli::args::TaskDepsBumpArgs {
-                        composer: false,
-                        node: false,
-                        bun: true,
-                        deno: false,
-                        all: false,
-                        ..
-                    }
-                ),
-            })
-        )),
+                command: crate::cli::args::TaskDepsCommands::Bump(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected bump task command"),
+        },
         _ => panic!("expected task command"),
     }
 
     let deno = Cli::try_parse_from(["helm", "task", "deps", "bump", "--deno"])
         .expect("parse task deps bump deno");
     match deno.command {
-        Commands::Task(args) => assert!(matches!(
-            args.command,
+        Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
-                command: crate::cli::args::TaskDepsCommands::Bump(
-                    crate::cli::args::TaskDepsBumpArgs {
-                        composer: false,
-                        node: false,
-                        bun: false,
-                        deno: true,
-                        all: false,
-                        ..
-                    }
-                ),
-            })
-        )),
+                command: crate::cli::args::TaskDepsCommands::Bump(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected bump task command"),
+        },
         _ => panic!("expected task command"),
     }
 
     let all =
         Cli::try_parse_from(["helm", "task", "deps", "bump", "--all"]).expect("parse task deps");
     match all.command {
-        Commands::Task(args) => assert!(matches!(
-            args.command,
+        Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
-                command: crate::cli::args::TaskDepsCommands::Bump(
-                    crate::cli::args::TaskDepsBumpArgs {
-                        composer: false,
-                        node: false,
-                        bun: false,
-                        deno: false,
-                        all: true,
-                        ..
-                    }
-                ),
-            })
-        )),
+                command: crate::cli::args::TaskDepsCommands::Bump(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(args.targets.all);
+            }
+            _ => panic!("expected bump task command"),
+        },
         _ => panic!("expected task command"),
     }
 }
@@ -352,6 +337,94 @@ fn cli_parses_task_deps_bump_targets() {
 fn cli_rejects_task_deps_bump_without_target_flag() {
     let result = Cli::try_parse_from(["helm", "task", "deps", "bump"]);
     assert!(result.is_err());
+}
+
+#[test]
+fn cli_parses_task_deps_audit_targets() {
+    let composer = Cli::try_parse_from(["helm", "task", "deps", "audit", "--composer"])
+        .expect("parse task deps audit composer");
+    match composer.command {
+        Commands::Task(args) => match args.command {
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Audit(args),
+            }) => {
+                assert!(args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected audit task command"),
+        },
+        _ => panic!("expected task command"),
+    }
+
+    let bun = Cli::try_parse_from(["helm", "task", "deps", "audit", "--bun"])
+        .expect("parse task deps audit bun");
+    match bun.command {
+        Commands::Task(args) => match args.command {
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Audit(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected audit task command"),
+        },
+        _ => panic!("expected task command"),
+    }
+}
+
+#[test]
+fn cli_parses_task_deps_normalize_targets() {
+    let deno = Cli::try_parse_from(["helm", "task", "deps", "normalize", "--deno"])
+        .expect("parse task deps normalize deno");
+    match deno.command {
+        Commands::Task(args) => match args.command {
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Normalize(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(args.targets.deno);
+                assert!(!args.targets.all);
+            }
+            _ => panic!("expected normalize task command"),
+        },
+        _ => panic!("expected task command"),
+    }
+}
+
+#[test]
+fn cli_parses_task_deps_install_all_targets() {
+    let all = Cli::try_parse_from(["helm", "task", "deps", "install", "--all"])
+        .expect("parse task deps install all");
+    match all.command {
+        Commands::Task(args) => match args.command {
+            crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
+                command: crate::cli::args::TaskDepsCommands::Install(args),
+            }) => {
+                assert!(!args.targets.composer);
+                assert!(!args.targets.node);
+                assert!(!args.targets.bun);
+                assert!(!args.targets.deno);
+                assert!(args.targets.all);
+            }
+            _ => panic!("expected install task command"),
+        },
+        _ => panic!("expected task command"),
+    }
+}
+
+#[test]
+fn cli_rejects_new_task_deps_workflows_without_target_flag() {
+    assert!(Cli::try_parse_from(["helm", "task", "deps", "audit"]).is_err());
+    assert!(Cli::try_parse_from(["helm", "task", "deps", "normalize"]).is_err());
+    assert!(Cli::try_parse_from(["helm", "task", "deps", "install"]).is_err());
 }
 
 #[test]

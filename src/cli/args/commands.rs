@@ -9,13 +9,13 @@ mod lifecycle;
 mod meta;
 mod operations;
 
+#[cfg(test)]
+pub(crate) use app::TaskDepsArgs;
 pub(crate) use app::{
     AppCreateArgs, ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs,
     OpenArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs, TaskArgs,
     TaskCommands, TaskDepsCommands,
 };
-#[cfg(test)]
-pub(crate) use app::{TaskDepsArgs, TaskDepsBumpArgs};
 
 #[cfg(test)]
 pub(crate) use app::{ShareStartArgs, ShareStatusArgs, ShareStopArgs};

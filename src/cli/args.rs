@@ -24,9 +24,9 @@ pub(crate) use commands::Commands;
 pub(crate) use commands::ShareCommands;
 pub(crate) use commands::ShareProviderSelectionArgs;
 pub(crate) use commands::TaskCommands;
-pub(crate) use commands::TaskDepsCommands;
 #[cfg(test)]
-pub(crate) use commands::{TaskDepsArgs, TaskDepsBumpArgs};
+pub(crate) use commands::TaskDepsArgs;
+pub(crate) use commands::TaskDepsCommands;
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;
 pub(crate) use lock_commands::LockCommands;

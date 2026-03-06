@@ -84,7 +84,9 @@ pub(crate) use start_cmd::{HandleStartOptions, handle_start};
 pub(crate) use status_cmd::handle_status;
 pub(crate) use stop_cmd::handle_stop;
 pub(crate) use swarm_cmd::{HandleSwarmOptions, handle_swarm};
-pub(crate) use task_cmd::{HandleTaskDepsBumpOptions, handle_task_deps_bump};
+pub(crate) use task_cmd::{
+    HandleTaskDepsWorkflowOptions, TaskDependencyAction, handle_task_deps_workflow,
+};
 pub(crate) use up_cmd::{HandleUpOptions, handle_up};
 pub(crate) use update_cmd::{HandleUpdateOptions, handle_update};
 pub(crate) use url_cmd::handle_url;

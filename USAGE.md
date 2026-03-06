@@ -173,7 +173,22 @@ Validate local setup and configuration health.
 
 ### `helm task deps bump`
 
-Run opinionated dependency bump workflows for Composer and Node manifests.
+Run opinionated dependency bump workflows for Composer and selected
+JavaScript runtimes.
+
+### `helm task deps audit`
+
+Run dependency vulnerability audits for Composer and selected
+JavaScript runtimes.
+
+### `helm task deps normalize`
+
+Normalize dependency manifests and lockfiles for Composer and selected
+JavaScript runtimes.
+
+### `helm task deps install`
+
+Install dependencies for Composer and selected JavaScript runtimes.
 
 ### `helm setup`
 
@@ -798,9 +813,9 @@ runtime = "bun"
 version = "1.2.5"
 ```
 
-### `helm task deps bump`
+### `helm task deps <bump|audit|normalize|install>`
 
-Run opinionated dependency bump workflows inside the app container.
+Run opinionated dependency workflows inside the app container.
 
 Flags:
 
@@ -822,17 +837,35 @@ Notes:
 
 - At least one target flag is required: `--composer`, `--node`, `--bun`,
   `--deno`, or `--all`.
-- Composer workflow runs: `composer bump --dev-only`,
-  `composer bump --no-dev-only`, `composer update --ignore-platform-reqs`,
-  then `composer normalize`.
-- Node workflow runs against `package.json` and infers the package manager
-  from `package.json.packageManager` first, then lockfiles, when
+- `bump` runs:
+  - Composer: `composer bump --dev-only`, `composer bump --no-dev-only`,
+    `composer update --ignore-platform-reqs`, then `composer normalize`
+  - Node: manager-specific upgrade flow against `package.json`
+  - Bun: `bun update --latest`
+  - Deno: `deno outdated --update --latest`
+- `audit` runs:
+  - Composer: `composer audit`
+  - Node: manager-specific audit flow
+  - Bun: `bun audit`
+  - Deno: currently skipped with a warning because Helm does not define a
+    Deno dependency-audit equivalent yet
+- `normalize` runs:
+  - Composer: `composer normalize`
+  - Node: manager-specific lockfile normalization flow
+  - Bun: `bun install`
+  - Deno: currently skipped with a warning because Helm does not define a
+    Deno dependency-normalize equivalent yet
+- `install` runs:
+  - Composer: `composer install`
+  - Node: manager-specific install flow
+  - Bun: `bun install`
+  - Deno: currently skipped with a warning because Helm does not define a
+    Deno dependency-install equivalent yet
+- Node workflow targets infer the package manager from
+  `package.json.packageManager` first, then lockfiles, when
   `--package-manager` is omitted.
-- Bun workflow runs `bun update --latest` against `package.json`.
-- Deno workflow runs `deno outdated --update --latest` when a Deno project
-  file is present.
 - `--all` runs Composer, Node, Bun, and Deno workflows; missing manifests
-  are skipped with a warning.
+  and unsupported Deno actions are skipped with a warning.
 - Non-system Node version managers require a concrete Node version from
   `--node-version`, `[service.javascript].version`, or project files such as
   `.nvmrc` or `.node-version`.

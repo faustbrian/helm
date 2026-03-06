@@ -29,10 +29,88 @@ pub(crate) struct TaskDepsArgs {
 pub(crate) enum TaskDepsCommands {
     /// Bump app dependency manifests and refresh locks
     Bump(TaskDepsBumpArgs),
+    /// Audit app dependencies for known vulnerabilities
+    Audit(TaskDepsAuditArgs),
+    /// Normalize dependency manifests and lockfiles
+    Normalize(TaskDepsNormalizeArgs),
+    /// Install app dependencies from declared manifests
+    Install(TaskDepsInstallArgs),
 }
 
 #[derive(Args)]
 pub(crate) struct TaskDepsBumpArgs {
+    #[command(flatten)]
+    pub(crate) selection: TaskDepsSelectionArgs,
+    #[command(flatten)]
+    pub(crate) targets: TaskDepsRuntimeTargetsArgs,
+}
+
+impl TaskDepsBumpArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.selection.service()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.selection.profile()
+    }
+}
+
+#[derive(Args)]
+pub(crate) struct TaskDepsAuditArgs {
+    #[command(flatten)]
+    pub(crate) selection: TaskDepsSelectionArgs,
+    #[command(flatten)]
+    pub(crate) targets: TaskDepsRuntimeTargetsArgs,
+}
+
+impl TaskDepsAuditArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.selection.service()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.selection.profile()
+    }
+}
+
+#[derive(Args)]
+pub(crate) struct TaskDepsNormalizeArgs {
+    #[command(flatten)]
+    pub(crate) selection: TaskDepsSelectionArgs,
+    #[command(flatten)]
+    pub(crate) targets: TaskDepsRuntimeTargetsArgs,
+}
+
+impl TaskDepsNormalizeArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.selection.service()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.selection.profile()
+    }
+}
+
+#[derive(Args)]
+pub(crate) struct TaskDepsInstallArgs {
+    #[command(flatten)]
+    pub(crate) selection: TaskDepsSelectionArgs,
+    #[command(flatten)]
+    pub(crate) targets: TaskDepsRuntimeTargetsArgs,
+}
+
+impl TaskDepsInstallArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.selection.service()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.selection.profile()
+    }
+}
+
+#[derive(Args)]
+pub(crate) struct TaskDepsSelectionArgs {
     #[arg(long)]
     pub(crate) service: Option<String>,
     #[arg(long, value_enum)]
@@ -40,6 +118,33 @@ pub(crate) struct TaskDepsBumpArgs {
     /// Select a service profile (full, infra, data, app, web, api)
     #[arg(long, conflicts_with_all = ["service", "kind"])]
     pub(crate) profile: Option<String>,
+    /// Override inferred Node package manager
+    #[arg(long = "package-manager", value_enum)]
+    pub(crate) package_manager: Option<PackageManagerArg>,
+    /// Override the Node version manager used for Node workflows
+    #[arg(long = "version-manager", value_enum)]
+    pub(crate) version_manager: Option<VersionManagerArg>,
+    /// Override the Node version used for Node workflows
+    #[arg(long = "node-version")]
+    pub(crate) node_version: Option<String>,
+    #[arg(long, default_value_t = false, conflicts_with = "no_tty")]
+    pub(crate) tty: bool,
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_tty: bool,
+}
+
+impl TaskDepsSelectionArgs {
+    pub(crate) fn service(&self) -> Option<&str> {
+        self.service.as_deref()
+    }
+
+    pub(crate) fn profile(&self) -> Option<&str> {
+        self.profile.as_deref()
+    }
+}
+
+#[derive(Args)]
+pub(crate) struct TaskDepsRuntimeTargetsArgs {
     /// Run the Composer dependency bump workflow
     #[arg(
         long,
@@ -80,27 +185,4 @@ pub(crate) struct TaskDepsBumpArgs {
         required_unless_present_any = ["composer", "node", "bun", "deno"]
     )]
     pub(crate) all: bool,
-    /// Override inferred Node package manager
-    #[arg(long = "package-manager", value_enum)]
-    pub(crate) package_manager: Option<PackageManagerArg>,
-    /// Override the Node version manager used for Node workflows
-    #[arg(long = "version-manager", value_enum)]
-    pub(crate) version_manager: Option<VersionManagerArg>,
-    /// Override the Node version used for Node workflows
-    #[arg(long = "node-version")]
-    pub(crate) node_version: Option<String>,
-    #[arg(long, default_value_t = false, conflicts_with = "no_tty")]
-    pub(crate) tty: bool,
-    #[arg(long, default_value_t = false)]
-    pub(crate) no_tty: bool,
-}
-
-impl TaskDepsBumpArgs {
-    pub(crate) fn service(&self) -> Option<&str> {
-        self.service.as_deref()
-    }
-
-    pub(crate) fn profile(&self) -> Option<&str> {
-        self.profile.as_deref()
-    }
 }
