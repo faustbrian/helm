@@ -19,7 +19,7 @@ pub(super) fn run_command_one_off(
     project_root: &Path,
     injected_env: &HashMap<String, String>,
 ) -> Result<()> {
-    let runtime_image = resolve_runtime_image(target, true, injected_env)?;
+    let runtime_image = resolve_runtime_image(target, true, injected_env, project_root)?;
     let mut args = vec!["run".to_owned(), "--rm".to_owned()];
     args.push(if tty { "-it" } else { "-i" }.to_owned());
     args.push("-w".to_owned());

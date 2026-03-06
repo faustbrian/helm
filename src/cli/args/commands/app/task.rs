@@ -4,7 +4,7 @@
 
 use clap::{Args, Subcommand};
 
-use crate::cli::args::PackageManagerArg;
+use crate::cli::args::{PackageManagerArg, VersionManagerArg};
 use crate::config;
 
 #[derive(Args)]
@@ -65,8 +65,14 @@ pub(crate) struct TaskDepsBumpArgs {
     )]
     pub(crate) all: bool,
     /// Override inferred JS package manager
-    #[arg(long, value_enum)]
-    pub(crate) manager: Option<PackageManagerArg>,
+    #[arg(long = "package-manager", value_enum)]
+    pub(crate) package_manager: Option<PackageManagerArg>,
+    /// Override the Node version manager used for Node workflows
+    #[arg(long = "version-manager", value_enum)]
+    pub(crate) version_manager: Option<VersionManagerArg>,
+    /// Override the Node version used for Node workflows
+    #[arg(long = "node-version")]
+    pub(crate) node_version: Option<String>,
     #[arg(long, default_value_t = false, conflicts_with = "no_tty")]
     pub(crate) tty: bool,
     #[arg(long, default_value_t = false)]

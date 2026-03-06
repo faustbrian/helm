@@ -667,6 +667,40 @@ fn app_runtime_commands_default_tty_to_true() {
 }
 
 #[test]
+fn node_cli_parses_package_manager_and_version_manager_flags() {
+    let cli = Cli::try_parse_from([
+        "helm",
+        "node",
+        "--package-manager",
+        "pnpm",
+        "--version-manager",
+        "fnm",
+        "--node-version",
+        "22",
+        "--",
+        "run",
+        "dev",
+    ])
+    .expect("parse node");
+
+    match cli.command {
+        Commands::Node(args) => {
+            assert!(matches!(
+                args.package_manager,
+                Some(crate::cli::args::PackageManagerArg::Pnpm)
+            ));
+            assert!(matches!(
+                args.version_manager,
+                Some(crate::cli::args::VersionManagerArg::Fnm)
+            ));
+            assert_eq!(args.node_version.as_deref(), Some("22"));
+            assert_eq!(args.command, vec!["run".to_owned(), "dev".to_owned()]);
+        }
+        _ => panic!("expected node command"),
+    }
+}
+
+#[test]
 fn app_runtime_commands_allow_disabling_tty_with_no_tty() {
     let artisan =
         Cli::try_parse_from(["helm", "artisan", "--no-tty", "test"]).expect("parse artisan no-tty");

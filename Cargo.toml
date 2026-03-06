@@ -1,6 +1,6 @@
 [package]
 name = "helm"
-version = "4.1.0"
+version = "6.0.0"
 edition = "2024"
 description = "Zero-BS Laravel workspace orchestrator"
 license = "MIT"

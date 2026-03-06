@@ -6,13 +6,20 @@ use anyhow::Result;
 use std::path::Path;
 
 use super::service_scope::selected_services_in_scope;
+use crate::node::{
+    BuildNodeCommandOptions, PackageManager, ResolveNodeRuntimeOptions, VersionManager,
+    build_node_command, resolve_node_runtime,
+};
 use crate::{cli, config};
 
 pub(crate) struct HandlePackageManagerCommandOptions<'a> {
     pub(crate) service: Option<&'a str>,
     pub(crate) kind: Option<config::Kind>,
     pub(crate) profile: Option<&'a str>,
-    pub(crate) manager_bin: &'a str,
+    pub(crate) command_bin: Option<&'a str>,
+    pub(crate) package_manager: Option<PackageManager>,
+    pub(crate) version_manager: Option<VersionManager>,
+    pub(crate) node_version: Option<&'a str>,
     pub(crate) non_interactive: bool,
     pub(crate) tty: bool,
     pub(crate) no_tty: bool,
@@ -26,7 +33,6 @@ pub(crate) fn handle_package_manager_command(
     config: &config::Config,
     options: HandlePackageManagerCommandOptions<'_>,
 ) -> Result<()> {
-    let command = resolve_package_manager_command(options.command, options.default_command);
     let selected_service =
         resolve_single_app_service(config, options.service, options.kind, options.profile)?;
     let runtime = cli::support::resolve_app_runtime_context(
@@ -35,8 +41,31 @@ pub(crate) fn handle_package_manager_command(
         options.config_path,
         options.project_root,
     )?;
-    let mut full_command = vec![options.manager_bin.to_owned()];
-    full_command.extend(command);
+    let command = resolve_package_manager_command(options.command, options.default_command);
+    let full_command = if let Some(command_bin) = options.command_bin {
+        let mut full_command = vec![command_bin.to_owned()];
+        full_command.extend(command);
+        full_command
+    } else {
+        let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+            configured: runtime.target.node.as_ref(),
+            workspace_root: runtime.workspace_root.as_path(),
+            package_manager: options.package_manager,
+            version_manager: options.version_manager,
+            node_version: options.node_version,
+            require_package_manager: true,
+        })?;
+        let mut base_command = node_runtime
+            .package_manager
+            .expect("node package manager required")
+            .command_prefix();
+        base_command.extend(command);
+        build_node_command(BuildNodeCommandOptions {
+            version_manager: node_runtime.version_manager,
+            node_version: node_runtime.node_version.as_deref(),
+            command: &base_command,
+        })?
+    };
     let tty = if options.non_interactive {
         false
     } else {

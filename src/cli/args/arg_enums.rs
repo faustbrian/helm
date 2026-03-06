@@ -11,14 +11,6 @@ pub(crate) enum PullPolicyArg {
     Never,
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-pub(crate) enum PackageManagerArg {
-    Bun,
-    Npm,
-    Pnpm,
-    Yarn,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum PortStrategyArg {
     Random,
@@ -34,18 +26,19 @@ pub(crate) enum ShareProviderArg {
 
 #[cfg(test)]
 mod tests {
-    use super::{PackageManagerArg, PortStrategyArg, PullPolicyArg, ShareProviderArg};
+    use super::{PortStrategyArg, PullPolicyArg, ShareProviderArg};
+    use crate::node::PackageManager;
     use clap::ValueEnum;
 
     #[test]
     fn package_manager_arg_has_expected_variants() {
         assert_eq!(
-            PackageManagerArg::value_variants().len(),
+            PackageManager::value_variants().len(),
             4,
             "package manager enum should expose four CLI values",
         );
 
-        let names = PackageManagerArg::value_variants()
+        let names = PackageManager::value_variants()
             .into_iter()
             .filter_map(|value| value.to_possible_value())
             .map(|value| value.get_name().to_owned())

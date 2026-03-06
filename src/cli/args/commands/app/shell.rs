@@ -6,7 +6,7 @@ use clap::Args;
 
 use crate::config;
 
-use super::super::super::PackageManagerArg;
+use super::super::super::{PackageManagerArg, VersionManagerArg};
 
 #[derive(Args)]
 pub(crate) struct ExecArgs {
@@ -104,8 +104,12 @@ pub(crate) struct NodeArgs {
     /// Select a service profile (full, infra, data, app, web, api)
     #[arg(long, conflicts_with_all = ["service", "kind"])]
     pub(crate) profile: Option<String>,
-    #[arg(long, value_enum, default_value_t = PackageManagerArg::Bun)]
-    pub(crate) manager: PackageManagerArg,
+    #[arg(long = "package-manager", value_enum)]
+    pub(crate) package_manager: Option<PackageManagerArg>,
+    #[arg(long = "version-manager", value_enum)]
+    pub(crate) version_manager: Option<VersionManagerArg>,
+    #[arg(long = "node-version")]
+    pub(crate) node_version: Option<String>,
     #[arg(long, default_value_t = true, conflicts_with = "no_tty")]
     pub(crate) tty: bool,
     #[arg(long, default_value_t = false)]

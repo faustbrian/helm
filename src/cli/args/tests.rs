@@ -9,7 +9,7 @@ use clap::Parser;
 use crate::cli::args::commands;
 use crate::cli::args::{
     Cli, ConfigCommands, EnvCommands, LockCommands, PackageManagerArg, PresetCommands,
-    ProfileCommands, ShareProviderArg, default_parallelism,
+    ProfileCommands, ShareProviderArg, VersionManagerArg, default_parallelism,
 };
 use crate::config;
 
@@ -127,7 +127,9 @@ fn app_action_argument_methods() {
         service: Some("node".to_owned()),
         kind: None,
         profile: None,
-        manager: PackageManagerArg::Pnpm,
+        package_manager: Some(PackageManagerArg::Pnpm),
+        version_manager: Some(VersionManagerArg::Fnm),
+        node_version: Some("22".to_owned()),
         tty: true,
         no_tty: false,
         command: vec!["run".to_owned(), "dev".to_owned()],

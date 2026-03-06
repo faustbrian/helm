@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{Driver, Kind, ServiceHook};
+use crate::node::NodeToolchain;
 
 /// Configuration for a single service instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +93,9 @@ pub struct ServiceConfig {
     /// Optional Laravel env var name overrides.
     #[serde(default)]
     pub env_mapping: Option<HashMap<String, String>>,
+    /// Optional Node toolchain preferences for app workflows.
+    #[serde(default)]
+    pub node: Option<NodeToolchain>,
     /// Explicit docker container name for this service.
     #[serde(default)]
     pub container_name: Option<String>,

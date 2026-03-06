@@ -1,6 +1,7 @@
 //! PHP extension verification for resolved serve runtime images.
 
 use anyhow::Result;
+use std::path::Path;
 
 use crate::config::ServiceConfig;
 
@@ -19,8 +20,12 @@ pub(crate) fn verify_php_extensions(
         return Ok(None);
     };
 
-    let runtime_image =
-        super::resolve_runtime_image(target, true, &std::collections::HashMap::new())?;
+    let runtime_image = super::resolve_runtime_image(
+        target,
+        true,
+        &std::collections::HashMap::new(),
+        Path::new("."),
+    )?;
     if crate::docker::is_dry_run() {
         return Ok(Some(super::PhpExtensionCheck {
             target: target.name.clone(),

@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-03-06
+
+### Added
+
+- Added service-level Node toolchain configuration via `[service.node]`
+  with `package_manager`, `version_manager`, and `version` fields so app
+  runtimes can resolve Node execution through `system`, `fnm`, `nvm`, or
+  `volta`.
+- Added `helm node --package-manager`, `--version-manager`, and
+  `--node-version`, plus matching overrides for `helm task deps bump`,
+  so callers can choose package-manager and version-manager behavior per
+  invocation.
+- Added project-file Node inference for `package.json.packageManager`,
+  `package.json.volta.node`, `.nvmrc`, `.node-version`, and
+  `package.json.engines.node` so Node workflows can derive toolchain
+  settings from existing repo metadata.
+
+### Changed
+
+- Changed app runtime image generation to install the selected Node
+  version-manager instead of always installing a hardcoded NodeSource
+  LTS toolchain under the hood.
+- Changed Node package-manager execution to resolve from config and
+  project metadata instead of defaulting `helm node` to `bun`.
+- Changed Node-related CLI flags by removing `--manager` in favor of the
+  explicit `--package-manager` name. This is a breaking CLI change.
+
 ### Fixed
 
 - Fixed flaky Rust tests that mutate Docker runtime test state by

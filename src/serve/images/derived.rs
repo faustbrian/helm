@@ -5,8 +5,10 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::config::ServiceConfig;
+use crate::node::{ResolveNodeRuntimeOptions, resolve_node_runtime};
 use crate::output::{self, LogLevel, Persistence};
 use crate::serve::sql_client_flavor::sql_client_flavor_from_injected_env;
 
@@ -28,9 +30,18 @@ pub(super) fn resolve_runtime_image(
     target: &ServiceConfig,
     allow_rebuild: bool,
     injected_env: &HashMap<String, String>,
+    workspace_root: &Path,
 ) -> Result<String> {
     let include_js_tooling = should_include_js_tooling(target);
     let sql_client_flavor = sql_client_flavor_from_injected_env(injected_env);
+    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+        configured: target.node.as_ref(),
+        workspace_root,
+        package_manager: None,
+        version_manager: None,
+        node_version: None,
+        require_package_manager: false,
+    })?;
     let normalized_extensions = target
         .php_extensions
         .as_ref()
@@ -53,6 +64,8 @@ pub(super) fn resolve_runtime_image(
         &target.image,
         &installable_extensions,
         include_js_tooling,
+        node_runtime.version_manager,
+        node_runtime.node_version.as_deref(),
         sql_client_flavor,
     );
     let signature = derive_image_signature(&dockerfile);

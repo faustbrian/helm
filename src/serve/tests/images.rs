@@ -4,6 +4,7 @@ use super::super::images::{
 };
 use super::super::sql_client_flavor::SqlClientFlavor;
 use super::helpers::app_service;
+use crate::node::VersionManager;
 use std::collections::HashMap;
 
 #[test]
@@ -21,6 +22,8 @@ fn extension_dockerfile_contains_install_step() {
         "dunglas/frankenphp:php8.5",
         &["pdo_mysql".to_owned(), "intl".to_owned()],
         false,
+        VersionManager::System,
+        None,
         SqlClientFlavor::Mysql,
     );
     assert!(rendered.contains("FROM dunglas/frankenphp:php8.5"));
@@ -34,10 +37,13 @@ fn derived_dockerfile_can_include_js_tooling() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
+        VersionManager::System,
+        Some("22"),
         SqlClientFlavor::Mysql,
     );
     assert!(rendered.contains("https://bun.sh/install"));
-    assert!(rendered.contains("corepack enable"));
+    assert!(rendered.contains("npm install -g pnpm yarn"));
+    assert!(!rendered.contains("corepack"));
     assert!(rendered.contains("getcomposer.org/installer"));
     assert!(rendered.contains("default-mysql-client"));
     assert!(rendered.contains("ghostscript"));
@@ -55,10 +61,29 @@ fn derived_dockerfile_uses_mariadb_client_when_requested() {
         "dunglas/frankenphp:php8.5",
         &Vec::new(),
         true,
+        VersionManager::System,
+        None,
         SqlClientFlavor::Mariadb,
     );
     assert!(rendered.contains("mariadb-client"));
     assert!(!rendered.contains("default-mysql-client"));
+}
+
+#[test]
+fn derived_dockerfile_can_install_fnm_managed_node() {
+    let rendered = render_derived_dockerfile(
+        "dunglas/frankenphp:php8.5",
+        &Vec::new(),
+        true,
+        VersionManager::Fnm,
+        Some("22"),
+        SqlClientFlavor::Mysql,
+    );
+
+    assert!(rendered.contains("fnm.vercel.app/install"));
+    assert!(rendered.contains("fnm install 22"));
+    assert!(rendered.contains("npm install -g pnpm yarn"));
+    assert!(!rendered.contains("corepack"));
 }
 
 #[test]

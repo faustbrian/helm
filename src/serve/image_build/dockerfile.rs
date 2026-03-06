@@ -1,5 +1,6 @@
 //! Dockerfile generator for serve derived images.
 
+use crate::node::VersionManager;
 use crate::serve::sql_client_flavor::SqlClientFlavor;
 
 /// Renders a complete Dockerfile for a derived serve image.
@@ -12,6 +13,8 @@ pub(super) fn render_derived_dockerfile(
     base_image: &str,
     extensions: &[String],
     include_js_tooling: bool,
+    version_manager: VersionManager,
+    node_version: Option<&str>,
     sql_client_flavor: SqlClientFlavor,
 ) -> String {
     let mut dockerfile = format!("FROM {base_image}\n");
@@ -21,7 +24,8 @@ pub(super) fn render_derived_dockerfile(
     if include_js_tooling {
         dockerfile.push_str(
             &format!(
-                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \\\n    && apt-get install -y --no-install-recommends nodejs \\\n    && corepack enable \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && curl -fsSL https://bun.sh/install | bash \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \\\n    && rm -rf /var/lib/apt/lists/*\n"
+                "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends bash curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && {} \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && curl -fsSL https://bun.sh/install | bash \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \\\n    && rm -rf /var/lib/apt/lists/*\n",
+                render_node_tooling_install(version_manager, node_version)
             ),
         );
     }
@@ -51,4 +55,72 @@ pub(super) fn render_derived_dockerfile(
     }
 
     dockerfile
+}
+
+fn render_node_tooling_install(
+    version_manager: VersionManager,
+    node_version: Option<&str>,
+) -> String {
+    match version_manager {
+        VersionManager::System => render_system_node_install(node_version),
+        VersionManager::Fnm => render_fnm_install(node_version),
+        VersionManager::Nvm => render_nvm_install(node_version),
+        VersionManager::Volta => render_volta_install(node_version),
+    }
+}
+
+fn render_system_node_install(node_version: Option<&str>) -> String {
+    let channel = node_version
+        .and_then(extract_node_major)
+        .map(|major| format!("setup_{major}.x"))
+        .unwrap_or_else(|| "setup_lts.x".to_owned());
+
+    format!(
+        "curl -fsSL https://deb.nodesource.com/{channel} | bash - \\\n    && apt-get install -y --no-install-recommends nodejs \\\n    && npm install -g pnpm yarn"
+    )
+}
+
+fn render_fnm_install(node_version: Option<&str>) -> String {
+    let mut install = "curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/local/fnm --skip-shell \\\n    && ln -sf /usr/local/fnm/fnm /usr/local/bin/fnm".to_owned();
+    if let Some(version) = node_version {
+        install.push_str(&format!(
+            " \\\n    && eval \"$(fnm env --shell bash)\" \\\n    && fnm install {version} \\\n    && fnm default {version} \\\n    && fnm exec --using {version} npm install -g pnpm yarn"
+        ));
+    }
+    install
+}
+
+fn render_nvm_install(node_version: Option<&str>) -> String {
+    let mut install = "export NVM_DIR=/usr/local/nvm \\\n    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash".to_owned();
+    if let Some(version) = node_version {
+        install.push_str(&format!(
+            " \\\n    && export NVM_DIR=/usr/local/nvm \\\n    && . \"$NVM_DIR/nvm.sh\" \\\n    && nvm install {version} \\\n    && nvm alias default {version} \\\n    && nvm exec {version} npm install -g pnpm yarn"
+        ));
+    }
+    install
+}
+
+fn render_volta_install(node_version: Option<&str>) -> String {
+    let mut install = "export VOLTA_HOME=/usr/local/volta \\\n    && curl -fsSL https://get.volta.sh | bash -s -- --skip-setup \\\n    && ln -sf /usr/local/volta/bin/volta /usr/local/bin/volta".to_owned();
+    if let Some(version) = node_version {
+        install.push_str(&format!(
+            " \\\n    && export VOLTA_HOME=/usr/local/volta \\\n    && export PATH=\"$VOLTA_HOME/bin:$PATH\" \\\n    && volta install node@{version} \\\n    && volta run --node {version} npm install -g pnpm yarn"
+        ));
+    }
+    install
+}
+
+fn extract_node_major(version: &str) -> Option<&str> {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let prefix_len = trimmed
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit() || *ch == '.')
+        .count();
+    let numeric = trimmed.get(..prefix_len)?;
+    let major = numeric.split('.').next()?;
+    (!major.is_empty()).then_some(major)
 }

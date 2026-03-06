@@ -2,7 +2,6 @@
 
 use anyhow::Result;
 
-use crate::cli::args::PackageManagerArg;
 use crate::cli::args::{Cli, Commands, TaskCommands, TaskDepsCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::cli::handlers;
@@ -47,7 +46,10 @@ pub(super) fn dispatch(
                 service: args.service(),
                 kind: args.kind,
                 profile: args.profile(),
-                manager_bin: "composer",
+                command_bin: Some("composer"),
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
                 non_interactive: context.non_interactive(),
                 tty: args.tty,
                 no_tty: args.no_tty,
@@ -63,7 +65,10 @@ pub(super) fn dispatch(
                 service: args.service(),
                 kind: args.kind,
                 profile: args.profile(),
-                manager_bin: manager_bin(args.manager),
+                command_bin: None,
+                package_manager: args.package_manager,
+                version_manager: args.version_manager,
+                node_version: args.node_version.as_deref(),
                 non_interactive: context.non_interactive(),
                 tty: args.tty,
                 no_tty: args.no_tty,
@@ -84,7 +89,9 @@ pub(super) fn dispatch(
                         composer: args.composer,
                         node: args.node,
                         all: args.all,
-                        manager: args.manager,
+                        package_manager: args.package_manager,
+                        version_manager: args.version_manager,
+                        node_version: args.node_version.as_deref(),
                         non_interactive: context.non_interactive(),
                         quiet: context.quiet(),
                         tty: args.tty,
@@ -110,22 +117,9 @@ pub(super) fn dispatch(
     }
 }
 
-const fn manager_bin(manager: PackageManagerArg) -> &'static str {
-    match manager {
-        PackageManagerArg::Bun => "bun",
-        PackageManagerArg::Npm => "npm",
-        PackageManagerArg::Pnpm => "pnpm",
-        PackageManagerArg::Yarn => "yarn",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::manager_bin;
-    use crate::cli::{
-        args::{Cli, PackageManagerArg},
-        dispatch::context::CliDispatchContext,
-    };
+    use crate::cli::{args::Cli, dispatch::context::CliDispatchContext};
     use crate::config::Config;
     use clap::Parser;
 
@@ -144,14 +138,6 @@ mod tests {
         let context = CliDispatchContext::from_cli(&cli);
         let mut config = sample_config();
         super::dispatch(&cli, &mut config, &context)
-    }
-
-    #[test]
-    fn manager_bin_maps_package_managers() {
-        assert_eq!(manager_bin(PackageManagerArg::Bun), "bun");
-        assert_eq!(manager_bin(PackageManagerArg::Npm), "npm");
-        assert_eq!(manager_bin(PackageManagerArg::Pnpm), "pnpm");
-        assert_eq!(manager_bin(PackageManagerArg::Yarn), "yarn");
     }
 
     #[test]

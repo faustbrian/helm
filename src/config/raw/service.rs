@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use super::super::{Driver, Kind};
 use super::RawServiceHook;
+use crate::node::NodeToolchain;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RawServiceConfig {
@@ -76,6 +77,8 @@ pub(crate) struct RawServiceConfig {
     pub trust_container_ca: Option<bool>,
     #[serde(default)]
     pub env_mapping: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub node: Option<NodeToolchain>,
     #[serde(default)]
     pub container_name: Option<String>,
 }

@@ -33,8 +33,12 @@ pub struct RunServeOptions<'a> {
 /// Returns an error if Docker or Caddy orchestration fails.
 pub fn run(options: RunServeOptions<'_>) -> Result<()> {
     let ports = resolve_caddy_ports()?;
-    let runtime_image =
-        resolve_runtime_image(options.target, options.allow_rebuild, options.injected_env)?;
+    let runtime_image = resolve_runtime_image(
+        options.target,
+        options.allow_rebuild,
+        options.injected_env,
+        options.project_root,
+    )?;
     ensure_container_running(
         options.target,
         options.recreate,

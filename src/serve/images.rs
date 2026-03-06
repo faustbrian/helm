@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::config::ServiceConfig;
 
@@ -14,8 +15,9 @@ pub(super) fn resolve_runtime_image(
     target: &ServiceConfig,
     allow_rebuild: bool,
     injected_env: &HashMap<String, String>,
+    workspace_root: &Path,
 ) -> Result<String> {
-    derived::resolve_runtime_image(target, allow_rebuild, injected_env)
+    derived::resolve_runtime_image(target, allow_rebuild, injected_env, workspace_root)
 }
 
 /// Normalizes php extensions into a canonical form.

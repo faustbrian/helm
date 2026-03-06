@@ -7,8 +7,11 @@ use serde_json::Value;
 use std::path::Path;
 
 use crate::cli;
-use crate::cli::args::PackageManagerArg;
+use crate::cli::args::{PackageManagerArg, VersionManagerArg};
 use crate::config;
+use crate::node::{
+    BuildNodeCommandOptions, ResolveNodeRuntimeOptions, build_node_command, resolve_node_runtime,
+};
 use crate::output::{self, LogLevel, Persistence::Persistent};
 
 pub(crate) struct HandleTaskDepsBumpOptions<'a> {
@@ -18,7 +21,9 @@ pub(crate) struct HandleTaskDepsBumpOptions<'a> {
     pub(crate) composer: bool,
     pub(crate) node: bool,
     pub(crate) all: bool,
-    pub(crate) manager: Option<PackageManagerArg>,
+    pub(crate) package_manager: Option<PackageManagerArg>,
+    pub(crate) version_manager: Option<VersionManagerArg>,
+    pub(crate) node_version: Option<&'a str>,
     pub(crate) non_interactive: bool,
     pub(crate) quiet: bool,
     pub(crate) tty: bool,
@@ -70,7 +75,9 @@ pub(crate) fn handle_task_deps_bump(
             &start_context,
             tty,
             options.quiet,
-            options.manager,
+            options.package_manager,
+            options.version_manager,
+            options.node_version,
         )?;
     }
 
@@ -161,7 +168,9 @@ fn run_node_bump(
     start_context: &cli::support::ServiceStartContext<'_>,
     tty: bool,
     quiet: bool,
-    requested_manager: Option<PackageManagerArg>,
+    requested_package_manager: Option<PackageManagerArg>,
+    requested_version_manager: Option<VersionManagerArg>,
+    requested_node_version: Option<&str>,
 ) -> Result<()> {
     let manifest_path = workspace_root.join("package.json");
     if !manifest_path.is_file() {
@@ -183,10 +192,17 @@ fn run_node_bump(
             manifest_path.display()
         )
     })?;
-    let manager = requested_manager.or_else(|| detect_node_manager(workspace_root));
-    let manager = manager.context(
-        "could not infer JS package manager from lockfiles; pass --manager <bun|npm|pnpm|yarn>",
-    )?;
+    let node_runtime = resolve_node_runtime(ResolveNodeRuntimeOptions {
+        configured: target.node.as_ref(),
+        workspace_root,
+        package_manager: requested_package_manager,
+        version_manager: requested_version_manager,
+        node_version: requested_node_version,
+        require_package_manager: true,
+    })?;
+    let manager = node_runtime
+        .package_manager
+        .expect("node package manager required");
 
     super::log::info_if_not_quiet(
         quiet,
@@ -198,8 +214,13 @@ fn run_node_bump(
     );
 
     for command in node_bump_commands(manager) {
-        let display = command.join(" ");
-        cli::support::run_service_command_with_tty(target, &command, tty, start_context)
+        let wrapped = build_node_command(BuildNodeCommandOptions {
+            version_manager: node_runtime.version_manager,
+            node_version: node_runtime.node_version.as_deref(),
+            command: &command,
+        })?;
+        let display = wrapped.join(" ");
+        cli::support::run_service_command_with_tty(target, &wrapped, tty, start_context)
             .with_context(|| format!("Node bump step failed for {package_name}: {display}"))?;
     }
 
@@ -297,26 +318,29 @@ fn resolve_bump_targets(composer: bool, node: bool, all: bool) -> Result<TaskBum
     anyhow::bail!("select at least one target with --composer, --node, or --all")
 }
 
-fn detect_node_manager(workspace_root: &Path) -> Option<PackageManagerArg> {
-    [
-        ("bun.lock", PackageManagerArg::Bun),
-        ("bun.lockb", PackageManagerArg::Bun),
-        ("pnpm-lock.yaml", PackageManagerArg::Pnpm),
-        ("yarn.lock", PackageManagerArg::Yarn),
-        ("package-lock.json", PackageManagerArg::Npm),
-        ("npm-shrinkwrap.json", PackageManagerArg::Npm),
-    ]
-    .into_iter()
-    .find_map(|(file_name, manager)| workspace_root.join(file_name).is_file().then_some(manager))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        composer_bump_commands, detect_node_manager, node_bump_commands, read_package_name,
-        resolve_bump_targets,
+        composer_bump_commands, node_bump_commands, read_package_name, resolve_bump_targets,
     };
     use crate::cli::args::PackageManagerArg;
+    use crate::node::detect_node_package_manager;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_root(prefix: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "{prefix}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        drop(fs::remove_dir_all(&root));
+        fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
 
     #[test]
     fn resolve_bump_targets_accepts_explicit_flags() {
@@ -341,39 +365,40 @@ mod tests {
 
     #[test]
     fn detect_node_manager_prefers_matching_lockfile() {
-        let root = std::env::temp_dir().join(format!(
-            "helm-task-node-manager-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).expect("create temp root");
-        std::fs::write(root.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'").expect("lockfile");
+        let root = temp_root("helm-task-node-manager");
+        fs::write(root.join("pnpm-lock.yaml"), "lockfileVersion: '9.0'").expect("lockfile");
 
-        let manager = detect_node_manager(&root);
+        let manager = detect_node_package_manager(&root);
         assert!(matches!(manager, Some(PackageManagerArg::Pnpm)));
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn detect_node_manager_reads_package_manager_from_package_json() {
+        let root = temp_root("helm-task-node-package-manager");
+        fs::write(
+            root.join("package.json"),
+            r#"{"name":"demo","packageManager":"yarn@4.6.0"}"#,
+        )
+        .expect("package json");
+
+        let manager = detect_node_package_manager(&root);
+        assert!(matches!(manager, Some(PackageManagerArg::Yarn)));
+
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[test]
     fn read_package_name_defaults_to_unknown_without_name() {
-        let root = std::env::temp_dir().join(format!(
-            "helm-task-read-package-name-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).expect("create temp root");
+        let root = temp_root("helm-task-read-package-name");
         let manifest = root.join("composer.json");
-        std::fs::write(&manifest, "{}").expect("write manifest");
+        fs::write(&manifest, "{}").expect("write manifest");
 
         let package_name = read_package_name(&manifest).expect("package name");
         assert_eq!(package_name, "unknown");
 
-        std::fs::remove_dir_all(&root).expect("cleanup");
+        fs::remove_dir_all(&root).expect("cleanup");
     }
 
     #[test]

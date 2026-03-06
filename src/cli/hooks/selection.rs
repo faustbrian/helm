@@ -61,6 +61,7 @@ mod tests {
             php_extensions: None,
             trust_container_ca: false,
             env_mapping: None,
+            node: None,
             container_name: Some(format!("{name}-container")),
             resolved_container_name: Some(format!("{name}-container")),
         }

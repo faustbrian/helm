@@ -33,6 +33,7 @@ pub(super) fn mysql_service(name: &str) -> ServiceConfig {
         php_extensions: None,
         trust_container_ca: false,
         env_mapping: None,
+        node: None,
         container_name: None,
         resolved_container_name: Some(format!("test-{name}")),
     }
@@ -72,6 +73,7 @@ pub(super) fn app_service(name: &str, domain: &str, port: u16, driver: Driver) -
         php_extensions: None,
         trust_container_ca: false,
         env_mapping: None,
+        node: None,
         container_name: None,
         resolved_container_name: None,
     }

@@ -86,3 +86,35 @@ fn parse_app_domains_list() {
     );
     assert_eq!(app.primary_domain(), Some("primary.helm"));
 }
+
+#[test]
+fn parse_app_node_toolchain_section() {
+    let toml = r#"
+            container_prefix = "app"
+
+            [[service]]
+            name = "web"
+            kind = "app"
+            driver = "frankenphp"
+            image = "dunglas/frankenphp:php8.5"
+            host = "127.0.0.1"
+            port = 8000
+            domain = "donkey.helm"
+
+            [service.node]
+            version_manager = "fnm"
+            version = "22"
+            package_manager = "pnpm"
+        "#;
+
+    let config: Config = toml::from_str(toml).expect("failed to parse");
+    let app = &config.service[0];
+    let node = app.node.as_ref().expect("node toolchain configured");
+
+    assert_eq!(node.version.as_deref(), Some("22"));
+    assert_eq!(node.version_manager, Some(crate::node::VersionManager::Fnm));
+    assert_eq!(
+        node.package_manager,
+        Some(crate::node::PackageManager::Pnpm)
+    );
+}

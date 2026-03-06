@@ -16,7 +16,10 @@ mod lock_commands;
 mod preset_commands;
 mod profile_commands;
 
-pub(crate) use arg_enums::{PackageManagerArg, PortStrategyArg, PullPolicyArg, ShareProviderArg};
+pub(crate) use crate::node::{
+    PackageManager as PackageManagerArg, VersionManager as VersionManagerArg,
+};
+pub(crate) use arg_enums::{PortStrategyArg, PullPolicyArg, ShareProviderArg};
 pub(crate) use commands::Commands;
 pub(crate) use commands::ShareCommands;
 pub(crate) use commands::ShareProviderSelectionArgs;

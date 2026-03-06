@@ -105,12 +105,19 @@ If `--service` is omitted, commands operate on all matching services.
 - `random` (default)
 - `stable` (uses `--port-seed` if provided)
 
-### Node Package Manager (`helm node --manager`)
+### Node Package Manager (`helm node --package-manager`)
 
-- `bun` (default)
+- `bun`
 - `npm`
 - `pnpm`
 - `yarn`
+
+### Node Version Manager (`helm node --version-manager`)
+
+- `system` (default)
+- `fnm`
+- `nvm`
+- `volta`
 
 ### Container Engine (`--engine`)
 
@@ -690,10 +697,34 @@ Flags:
 - `--service <NAME>`
 - `--kind <KIND>`
 - `--profile <NAME>` (conflicts with `--service` and `--kind`)
-- `--manager <bun|npm|pnpm|yarn>` (default: `bun`)
+- `--package-manager <bun|npm|pnpm|yarn>` (optional override)
+- `--version-manager <system|fnm|nvm|volta>` (optional override)
+- `--node-version <VERSION>` (optional override)
 - `--tty`
 - `--no-tty`
 - Trailing package-manager command/args.
+
+Node toolchain resolution order:
+
+- CLI overrides
+- `[service.node]` in `.helm.toml`
+- Project files:
+  `.nvmrc`, `.node-version`, `package.json.packageManager`,
+  `package.json.volta.node`, and `package.json.engines.node`
+- Helm defaults (`system` version manager)
+
+Config example:
+
+```toml
+[[service]]
+preset = "laravel"
+name = "app"
+
+[service.node]
+package_manager = "pnpm"
+version_manager = "fnm"
+version = "22"
+```
 
 ### `helm task deps bump`
 
@@ -707,7 +738,9 @@ Flags:
 - `--composer`
 - `--node`
 - `--all` (runs both workflows; conflicts with `--composer` and `--node`)
-- `--manager <bun|npm|pnpm|yarn>` (optional override for Node workflow)
+- `--package-manager <bun|npm|pnpm|yarn>` (optional override)
+- `--version-manager <system|fnm|nvm|volta>` (optional override)
+- `--node-version <VERSION>` (optional override)
 - `--tty`
 - `--no-tty`
 
@@ -717,8 +750,11 @@ Notes:
 - Composer workflow runs: `composer bump --dev-only`,
   `composer bump --no-dev-only`, `composer update --ignore-platform-reqs`,
   then `composer normalize`.
-- Node workflow infers the package manager from lockfiles when `--manager`
-  is omitted.
+- Node workflow infers the package manager from `package.json.packageManager`
+  first, then lockfiles, when `--package-manager` is omitted.
+- Non-system Node version managers require a concrete Node version from
+  `--node-version`, `[service.node].version`, or project files such as
+  `.nvmrc` or `.node-version`.
 - Missing `composer.json` or `package.json` files are skipped with a warning.
 
 ### `helm ls`
