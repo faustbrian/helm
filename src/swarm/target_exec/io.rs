@@ -69,6 +69,9 @@ fn emit_stream_line(
     output_mode: OutputMode,
     passthrough_stderr: bool,
 ) {
+    let Some(rendered) = sanitized_stream_line(rendered) else {
+        return;
+    };
     match output_mode {
         OutputMode::Logged => {
             output::stream(target_name, channel, rendered, Persistence::Persistent)
@@ -80,5 +83,28 @@ fn emit_stream_line(
                 println!("{rendered}");
             }
         }
+    }
+}
+
+fn sanitized_stream_line(rendered: &str) -> Option<&str> {
+    (!rendered.trim().is_empty()).then_some(rendered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitized_stream_line;
+
+    #[test]
+    fn sanitized_stream_line_drops_blank_output() {
+        assert_eq!(sanitized_stream_line(""), None);
+        assert_eq!(sanitized_stream_line("   \t"), None);
+    }
+
+    #[test]
+    fn sanitized_stream_line_preserves_real_content() {
+        assert_eq!(
+            sanitized_stream_line("#12 DONE 9.9s"),
+            Some("#12 DONE 9.9s")
+        );
     }
 }

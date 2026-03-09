@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::output::{self, LogLevel, Persistence};
 
+use super::capture::CommandCapture;
+
 #[cfg(test)]
 thread_local! {
     static TEST_CADDY_COMMAND: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -33,6 +35,23 @@ pub(super) fn ensure_caddy_installed() -> Result<()> {
     ensure_success(output, "caddy is unavailable").map(|_| ())
 }
 
+/// Validates a Caddy config before Helm attempts to reload or start it.
+pub(super) fn validate_caddy_config(caddyfile_path: &Path) -> Result<()> {
+    let config_path = caddyfile_path.to_string_lossy().into_owned();
+    let output = run_caddy(
+        &[
+            "validate",
+            "--config",
+            &config_path,
+            "--adapter",
+            "caddyfile",
+        ],
+        "failed to execute caddy validate",
+    )?;
+
+    ensure_success(output, "caddy config is invalid").map(|_| ())
+}
+
 /// Reloads Caddy with a new config, or starts it if reload fails.
 ///
 /// Reload-first behavior preserves existing process state when possible.
@@ -53,6 +72,8 @@ pub(super) fn reload_or_start_caddy(caddyfile_path: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let stop_output = run_caddy(&["stop"], "failed to execute caddy stop")
+        .unwrap_or_else(|_| failed_output("timed out stopping caddy before restart"));
     let start_output = run_caddy(
         &["start", "--config", &config_path, "--adapter", "caddyfile"],
         "failed to execute caddy start",
@@ -69,9 +90,10 @@ pub(super) fn reload_or_start_caddy(caddyfile_path: &Path) -> Result<()> {
     }
 
     let reload_stderr = stderr_text(&reload_output);
+    let stop_stderr = stderr_text(&stop_output);
     let start_stderr = stderr_text(&start_output);
     anyhow::bail!(
-        "failed to reload or start caddy\nreload error: {reload_stderr}\nstart error: {start_stderr}"
+        "failed to reload, stop, or start caddy\nreload error: {reload_stderr}\nstop error: {stop_stderr}\nstart error: {start_stderr}"
     );
 }
 
@@ -98,22 +120,24 @@ pub fn trust_local_caddy_ca() -> Result<()> {
 }
 
 fn run_caddy(args: &[&str], context: &str) -> Result<Output> {
+    let capture = CommandCapture::new()?;
     let mut child = Command::new(caddy_binary_name())
         .args(args)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(capture.stdout_stdio()?)
+        .stderr(capture.stderr_stdio()?)
         .spawn()
         .with_context(|| context.to_owned())?;
 
     let deadline = Instant::now() + CADDY_COMMAND_TIMEOUT;
     loop {
-        if let Some(_status) = child.try_wait().with_context(|| context.to_owned())? {
-            return child.wait_with_output().with_context(|| context.to_owned());
+        if let Some(status) = child.try_wait().with_context(|| context.to_owned())? {
+            return capture.finish(status);
         }
 
         if Instant::now() >= deadline {
             drop(child.kill());
-            drop(child.wait());
+            let status = child.wait().with_context(|| context.to_owned())?;
+            let _output = capture.finish(status);
             anyhow::bail!(
                 "timed out after {}s while running caddy {}",
                 CADDY_COMMAND_TIMEOUT.as_secs(),
@@ -160,12 +184,38 @@ fn stderr_text(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).to_string()
 }
 
+fn failed_output(stderr: &str) -> Output {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        Output {
+            status: std::process::ExitStatus::from_raw(1 << 8),
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let status = Command::new(caddy_binary_name())
+            .arg("__helm_failed_output_sentinel__")
+            .output()
+            .map(|output| output.status)
+            .unwrap_or_else(|_| panic!("failed to synthesize non-zero exit status"));
+        Output {
+            status,
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex;
+    use std::time::{Duration, Instant};
 
-    use super::{ensure_caddy_installed, trust_local_caddy_ca};
+    use super::{ensure_caddy_installed, trust_local_caddy_ca, validate_caddy_config};
     use super::{reload_or_start_caddy, set_caddy_binary_name};
 
     static TEST_ENV_MUTEX: Mutex<()> = Mutex::new(());
@@ -182,7 +232,7 @@ mod tests {
     where
         F: FnOnce() -> R,
     {
-        let _guard = TEST_ENV_MUTEX.lock().unwrap();
+        let _guard = TEST_ENV_MUTEX.lock().unwrap_or_else(|err| err.into_inner());
         let temp_dir = std::env::temp_dir().join(format!(
             "helm-mock-caddy-{}-{}",
             std::process::id(),
@@ -227,6 +277,17 @@ mod tests {
     }
 
     #[test]
+    fn validate_caddy_config_accepts_valid_config() {
+        with_mock_path(
+            Some("#!/usr/bin/env sh\nif [ \"$1\" = \"validate\" ]; then exit 0; fi\nexit 1\n"),
+            || {
+                validate_caddy_config(std::path::Path::new("/tmp/Caddyfile"))
+                    .expect("validate config");
+            },
+        );
+    }
+
+    #[test]
     fn reload_or_start_caddy_uses_reload_when_available() {
         with_mock_path(
             Some(
@@ -252,6 +313,50 @@ mod tests {
     }
 
     #[test]
+    fn reload_or_start_caddy_stops_existing_process_before_start_fallback() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "helm-caddy-order-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let log_path = temp_dir.join("calls.log");
+        let script = format!(
+            "#!/usr/bin/env sh\nprintf '%s\\n' \"$1\" >> \"{}\"\nif [ \"$1\" = \"reload\" ]; then\n  exit 1\nfi\nif [ \"$1\" = \"stop\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"start\" ]; then\n  exit 0\nfi\nexit 1\n",
+            log_path.display()
+        );
+
+        with_mock_path(Some(&script), || {
+            reload_or_start_caddy(std::path::Path::new("/tmp/Caddyfile")).expect("start fallback");
+        });
+
+        let calls = std::fs::read_to_string(&log_path).expect("read calls");
+        assert_eq!(calls, "reload\nstop\nstart\n");
+        drop(std::fs::remove_dir_all(&temp_dir));
+    }
+
+    #[test]
+    fn reload_or_start_caddy_does_not_block_on_inherited_stdio() {
+        with_mock_path(
+            Some(
+                "#!/usr/bin/env sh\n\nif [ \"$1\" = \"reload\" ]; then\n  echo reload failed >&2\n  exit 1\nfi\n\nif [ \"$1\" = \"stop\" ]; then\n  exit 0\nfi\n\nif [ \"$1\" = \"start\" ]; then\n  (sleep 2) &\n  echo started\n  exit 0\nfi\n\nexit 1\n",
+            ),
+            || {
+                let started_at = Instant::now();
+                reload_or_start_caddy(std::path::Path::new("/tmp/Caddyfile"))
+                    .expect("start fallback");
+                assert!(
+                    started_at.elapsed() < Duration::from_secs(1),
+                    "caddy start should not block on inherited stdio"
+                );
+            },
+        );
+    }
+
+    #[test]
     fn reload_or_start_caddy_fails_when_reload_and_start_fail() {
         with_mock_path(Some("#!/usr/bin/env sh\n\necho failed\nexit 1\n"), || {
             let error = reload_or_start_caddy(std::path::Path::new("/tmp/Caddyfile"))
@@ -259,7 +364,7 @@ mod tests {
             assert!(
                 error
                     .to_string()
-                    .contains("failed to reload or start caddy")
+                    .contains("failed to reload, stop, or start caddy")
             );
         });
     }

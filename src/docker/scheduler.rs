@@ -5,6 +5,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+const SLOT_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const HEAVY_SLOT_WAIT_ATTEMPTS: usize = 240;
+const BUILD_SLOT_WAIT_ATTEMPTS: usize = 7_200;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DockerOpClass {
     Heavy,
@@ -27,7 +31,7 @@ where
     let lock_root = lock_root(class);
     std::fs::create_dir_all(&lock_root)
         .with_context(|| format!("failed to create {}", lock_root.display()))?;
-    let _slot = acquire_slot(&lock_root, limit, op_name)?;
+    let _slot = acquire_slot(&lock_root, limit, op_name, class)?;
     operation()
 }
 
@@ -59,8 +63,16 @@ impl Drop for SlotGuard {
     }
 }
 
-fn acquire_slot(root: &Path, limit: usize, op_name: &str) -> Result<SlotGuard> {
-    let max_attempts = 240;
+fn acquire_slot(
+    root: &Path,
+    limit: usize,
+    op_name: &str,
+    class: DockerOpClass,
+) -> Result<SlotGuard> {
+    let max_attempts = match class {
+        DockerOpClass::Heavy => HEAVY_SLOT_WAIT_ATTEMPTS,
+        DockerOpClass::Build => BUILD_SLOT_WAIT_ATTEMPTS,
+    };
     for _ in 0..max_attempts {
         for slot in 0..limit {
             let slot_path = root.join(format!("slot-{slot}.lock"));
@@ -82,18 +94,22 @@ fn acquire_slot(root: &Path, limit: usize, op_name: &str) -> Result<SlotGuard> {
                 }
             }
         }
-        std::thread::sleep(Duration::from_millis(25));
+        std::thread::sleep(SLOT_WAIT_POLL_INTERVAL);
     }
 
+    let wait_secs = SLOT_WAIT_POLL_INTERVAL.as_secs_f64() * max_attempts as f64;
     anyhow::bail!(
-        "timed out waiting for runtime operation slot for '{op_name}' after {} attempts",
-        max_attempts
+        "timed out waiting for runtime operation slot for '{op_name}' after {} attempts (~{wait_secs:.1}s)",
+        max_attempts,
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DockerOpClass, with_scheduled_docker_op};
+    use super::{
+        BUILD_SLOT_WAIT_ATTEMPTS, DockerOpClass, SLOT_WAIT_POLL_INTERVAL, with_scheduled_docker_op,
+    };
+    use std::time::Duration;
 
     #[test]
     fn scheduled_op_runs_and_returns_result() {
@@ -102,5 +118,14 @@ mod tests {
         })
         .expect("scheduled op result");
         assert_eq!(value, 7);
+    }
+
+    #[test]
+    fn build_slot_timeout_budget_exceeds_long_image_builds() {
+        let wait_budget = SLOT_WAIT_POLL_INTERVAL.saturating_mul(BUILD_SLOT_WAIT_ATTEMPTS as u32);
+        assert!(
+            wait_budget >= Duration::from_secs(60),
+            "build slot wait budget should cover long derived image builds"
+        );
     }
 }

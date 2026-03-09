@@ -37,29 +37,24 @@ pub(super) fn read_caddy_state(path: &Path) -> Result<CaddyState> {
     Ok(state)
 }
 
-/// Persists route state TOML and generated Caddyfile atomically per call.
-pub(super) fn write_caddy_state_and_file(
-    state_path: &Path,
-    caddyfile_path: &Path,
-    state: &CaddyState,
-    caddyfile: &str,
-) -> Result<()> {
-    let state_content = toml::to_string_pretty(state).context("failed to serialize caddy state")?;
-    std::fs::write(state_path, state_content)
-        .with_context(|| format!("failed to write {}", state_path.display()))?;
-    std::fs::write(caddyfile_path, caddyfile)
-        .with_context(|| format!("failed to write {}", caddyfile_path.display()))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
     use super::{
         CaddyState, caddy_access_log_path, caddy_dir, caddy_dir_with_home, read_caddy_state,
-        write_caddy_state_and_file,
     };
+
+    fn write_caddy_state_and_file(
+        state_path: &std::path::Path,
+        caddyfile_path: &std::path::Path,
+        state: &CaddyState,
+        caddyfile: &str,
+    ) {
+        let state_content = toml::to_string_pretty(state).expect("serialize caddy state");
+        std::fs::write(state_path, state_content).expect("write state");
+        std::fs::write(caddyfile_path, caddyfile).expect("write caddyfile");
+    }
 
     fn temp_home_dir() -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("helm-caddy-fs-state-{}", std::process::id()));
@@ -108,8 +103,7 @@ mod tests {
         let state = CaddyState { routes };
         let caddyfile = "test caddyfile content";
 
-        write_caddy_state_and_file(&state_path, &caddyfile_path, &state, caddyfile)
-            .expect("write state");
+        write_caddy_state_and_file(&state_path, &caddyfile_path, &state, caddyfile);
 
         let written = read_caddy_state(&state_path).expect("read state");
         assert_eq!(written.routes.len(), 1);

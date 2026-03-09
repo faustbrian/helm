@@ -10,9 +10,10 @@ use crate::config::ServiceConfig;
 use crate::output::{self, LogLevel, Persistence};
 
 mod body;
+mod observation;
 mod url;
 
-use body::body_health_is_ok;
+use observation::HealthProbeObservation;
 use url::health_url_for_target;
 
 /// Polls target health endpoint until success or timeout.
@@ -40,44 +41,39 @@ pub(crate) fn wait_until_http_healthy(
     );
     let started = std::time::Instant::now();
 
-    loop {
-        let output = run_curl_command_with_body(&health_url);
+    let timeout_details = loop {
+        let observation = run_curl_command_with_body(&health_url)
+            .map(|result| HealthProbeObservation::from_output(&result))
+            .unwrap_or_else(HealthProbeObservation::missing_output);
 
-        if let Some(result) = output
-            && result.status.success()
-        {
-            let stdout = String::from_utf8_lossy(&result.stdout).to_string();
-            let mut lines = stdout.lines().collect::<Vec<_>>();
-            let Some(code_line) = lines.pop() else {
-                continue;
-            };
-            let body = lines.join("\n");
-            if let Ok(code) = code_line.trim().parse::<u16>()
-                && (accepted_statuses.is_empty() && (200..=299).contains(&code)
-                    || accepted_statuses.contains(&code))
-                && body_health_is_ok(target, &body)
-            {
-                output::event(
-                    &target.name,
-                    LogLevel::Success,
-                    &format!("Health check passed at {health_url} ({code})"),
-                    Persistence::Persistent,
-                );
-                return Ok(());
-            }
+        if observation.is_healthy(target, &accepted_statuses) {
+            let code = observation
+                .status()
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| String::from("healthy"));
+            output::event(
+                &target.name,
+                LogLevel::Success,
+                &format!("Health check passed at {health_url} ({code})"),
+                Persistence::Persistent,
+            );
+            return Ok(());
         }
 
         if started.elapsed() >= Duration::from_secs(timeout_secs) {
-            anyhow::bail!(
-                "app service '{}' did not become healthy at {} within {}s",
-                target.name,
-                health_url,
-                timeout_secs
-            );
+            break observation.describe_for_target(target);
         }
 
         thread::sleep(Duration::from_secs(interval_secs));
-    }
+    };
+
+    anyhow::bail!(
+        "app service '{}' did not become healthy at {} within {}s ({})",
+        target.name,
+        health_url,
+        timeout_secs,
+        timeout_details
+    );
 }
 
 #[cfg(test)]
@@ -215,6 +211,19 @@ mod tests {
                 wait_until_http_healthy(&make_target(Driver::Frankenphp), 0, 1, Some("/up"))
                     .expect_err("timeout expected");
             assert!(error.to_string().contains("did not become healthy"));
+        });
+    }
+
+    #[test]
+    fn wait_until_http_healthy_reports_last_unhealthy_response_on_timeout() {
+        with_fake_curl("bad gateway\n502", || {
+            let error =
+                wait_until_http_healthy(&make_target(Driver::Frankenphp), 0, 1, Some("/up"))
+                    .expect_err("timeout expected");
+            let message = error.to_string();
+            assert!(message.contains("did not become healthy"));
+            assert!(message.contains("last status: 502"));
+            assert!(message.contains("last body: bad gateway"));
         });
     }
 

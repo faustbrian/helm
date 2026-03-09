@@ -1,12 +1,12 @@
 //! Route-state mutation for Caddy-backed serve targets.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::config::ServiceConfig;
 use crate::output::{self, LogLevel, Persistence};
 
 use super::{
-    CaddyPorts, caddy_access_log_path, domains_for_service, fs_state, process, render_caddyfile,
+    CaddyPorts, apply, caddy_access_log_path, domains_for_service, fs_state, lock, render_caddyfile,
 };
 
 /// Adds/updates domains for a target and applies the resulting Caddy config.
@@ -73,24 +73,23 @@ where
     F: FnOnce(&mut crate::serve::CaddyState) -> Result<()>,
 {
     let caddy_dir = fs_state::caddy_dir()?;
-    let state_path = caddy_dir.join("sites.toml");
-    let caddyfile_path = caddy_dir.join("Caddyfile");
-    let access_log_path = caddy_access_log_path()?;
-
-    let mut state = fs_state::read_caddy_state(&state_path)?;
-    mutate_state(&mut state)?;
-
-    let caddyfile = render_caddyfile(&state, ports, &access_log_path);
     if crate::docker::is_dry_run() {
+        let state_path = caddy_dir.join("sites.toml");
+        let caddyfile_path = caddy_dir.join("Caddyfile");
         print_dry_run(&state_path, &caddyfile_path);
         return Ok(());
     }
 
-    std::fs::create_dir_all(&caddy_dir)
-        .with_context(|| format!("failed to create {}", caddy_dir.display()))?;
-    fs_state::write_caddy_state_and_file(&state_path, &caddyfile_path, &state, &caddyfile)?;
-    process::ensure_caddy_installed()?;
-    process::reload_or_start_caddy(&caddyfile_path)?;
+    lock::with_caddy_apply_lock(&caddy_dir, || {
+        let state_path = caddy_dir.join("sites.toml");
+        let access_log_path = caddy_access_log_path()?;
+
+        let mut state = fs_state::read_caddy_state(&state_path)?;
+        mutate_state(&mut state)?;
+
+        let caddyfile = render_caddyfile(&state, ports, &access_log_path);
+        apply::apply_caddy_state(&caddy_dir, &state, &caddyfile)
+    })?;
     if trust_local_ca {
         super::trust_local_caddy_ca()?;
     }
@@ -160,14 +159,16 @@ mod tests {
 
     #[test]
     fn configure_caddy_fails_when_no_domain_is_declared() {
-        let mut target = service();
-        target.domain = None;
-        let ports = CaddyPorts {
-            http: 80,
-            https: 443,
-        };
-        let error = configure_caddy(&target, ports).expect_err("missing domain");
-        assert!(error.to_string().contains("missing domain"));
+        docker::with_dry_run_state(false, || {
+            let mut target = service();
+            target.domain = None;
+            let ports = CaddyPorts {
+                http: 80,
+                https: 443,
+            };
+            let error = configure_caddy(&target, ports).expect_err("missing domain");
+            assert!(error.to_string().contains("missing domain"));
+        });
     }
 
     #[test]

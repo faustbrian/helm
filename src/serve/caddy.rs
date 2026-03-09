@@ -9,7 +9,10 @@ use crate::config::ServiceConfig;
 
 use super::{CaddyPorts, CaddyState};
 
+mod apply;
+mod capture;
 mod fs_state;
+mod lock;
 mod process;
 mod routes;
 mod template;

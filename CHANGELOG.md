@@ -4,6 +4,44 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed app health-check timeout errors to include the last observed HTTP
+  status, response body, or probe transport error, so `helm swarm recreate`
+  now reports actionable diagnostics for failures such as `502 Bad Gateway`.
+- Fixed Docker build-slot scheduling to wait long enough for real derived
+  image builds, preventing sibling swarm targets from failing after a short
+  slot-acquisition timeout while another app image is still building.
+- Fixed swarm target stream forwarding to drop blank child-output lines, and
+  clarified derived-image build queue logging so queued targets report that
+  they are waiting for a Docker build slot before the actual build begins.
+- Fixed Gotenberg health validation to evaluate the raw JSON response body
+  instead of a truncated display summary, preventing healthy `200 {"status":
+  "up"}` readiness responses from being misclassified as failures.
+- Fixed app health-check timeout diagnostics for proxy-backed `.helm` URLs to
+  explain that `502` means Caddy reached the public route but the upstream app
+  container was not yet serving valid HTTP.
+- Fixed Caddy reload fallback to stop any existing process before starting a
+  replacement, preventing duplicate `caddy run` instances from keeping stale
+  upstream port mappings alive after app ports change.
+- Fixed parallel swarm Caddy apply races by serializing route-state writes and
+  reload/start operations through one lock, preventing concurrent targets from
+  spawning overlapping `caddy run` processes on `:443`.
+- Fixed Caddy apply locking to recover stale lock files and wait long enough
+  for queued updates, preventing abandoned `apply.lock` files or normal
+  contention from causing downstream swarm targets to fail.
+- Fixed Caddy apply to stage and validate config changes before replacing
+  live files, then roll back and recover interrupted backup state so failed
+  or crashed updates do not leave Caddy stopped with stale routes or a
+  half-written config directory.
+- Fixed Caddy command execution to capture output through temporary files
+  instead of inherited pipes, preventing `helm ... recreate` from hanging
+  when `caddy reload` or `caddy start` leaves descendant processes holding
+  stdout or stderr open.
+- Refactored Caddy temporary-file subprocess capture into a dedicated
+  module so lifecycle code stays focused on reload, start, and trust
+  behavior without changing runtime behavior.
+
 ## [6.0.0] - 2026-03-06
 
 ### Added

@@ -42,7 +42,7 @@ pub(super) fn build_derived_image(tag: &str, dockerfile: &str) -> Result<()> {
     output::event(
         "build",
         LogLevel::Info,
-        &format!("Building derived serve image {tag}"),
+        &format!("Waiting for Docker build slot for derived serve image {tag}"),
         Persistence::Persistent,
     );
     let dockerfile_arg = dockerfile_path.to_string_lossy().into_owned();
@@ -51,6 +51,12 @@ pub(super) fn build_derived_image(tag: &str, dockerfile: &str) -> Result<()> {
         crate::docker::DockerOpClass::Build,
         "docker-build-derived-image",
         || {
+            output::event(
+                "build",
+                LogLevel::Info,
+                &format!("Building derived serve image {tag}"),
+                Persistence::Persistent,
+            );
             docker_status(
                 &["build", "-t", tag, "-f", &dockerfile_arg, &context_arg],
                 &crate::docker::runtime_command_error_context("build"),
