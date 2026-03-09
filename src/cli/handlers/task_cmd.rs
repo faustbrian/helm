@@ -554,7 +554,7 @@ fn run_runtime_bump(options: RuntimeBumpOptions<'_>, manifest: RuntimeManifest<'
             build_node_command(BuildNodeCommandOptions {
                 version_manager: options
                     .version_manager
-                    .expect("node version manager required"),
+                    .context("node version manager required")?,
                 node_version: options.node_version,
                 command: &command,
             })?

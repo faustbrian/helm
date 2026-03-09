@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use super::VersionManager;
 
@@ -11,14 +11,16 @@ pub(crate) struct BuildNodeCommandOptions<'a> {
 pub(crate) fn build_node_command(options: BuildNodeCommandOptions<'_>) -> Result<Vec<String>> {
     match options.version_manager {
         VersionManager::System => Ok(options.command.to_vec()),
-        VersionManager::Fnm => Ok(build_fnm_command(options)),
-        VersionManager::Volta => Ok(build_volta_command(options)),
-        VersionManager::Nvm => Ok(build_nvm_command(options)),
+        VersionManager::Fnm => build_fnm_command(options),
+        VersionManager::Volta => build_volta_command(options),
+        VersionManager::Nvm => build_nvm_command(options),
     }
 }
 
-fn build_fnm_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
-    let version = options.node_version.expect("node version required for fnm");
+fn build_fnm_command(options: BuildNodeCommandOptions<'_>) -> Result<Vec<String>> {
+    let version = options
+        .node_version
+        .context("node version required for fnm")?;
     let mut command = vec![
         "fnm".to_owned(),
         "exec".to_owned(),
@@ -27,13 +29,13 @@ fn build_fnm_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
         "--".to_owned(),
     ];
     command.extend(options.command.iter().cloned());
-    command
+    Ok(command)
 }
 
-fn build_volta_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
+fn build_volta_command(options: BuildNodeCommandOptions<'_>) -> Result<Vec<String>> {
     let version = options
         .node_version
-        .expect("node version required for volta");
+        .context("node version required for volta")?;
     let mut command = vec![
         "volta".to_owned(),
         "run".to_owned(),
@@ -41,11 +43,13 @@ fn build_volta_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
         version.to_owned(),
     ];
     command.extend(options.command.iter().cloned());
-    command
+    Ok(command)
 }
 
-fn build_nvm_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
-    let version = options.node_version.expect("node version required for nvm");
+fn build_nvm_command(options: BuildNodeCommandOptions<'_>) -> Result<Vec<String>> {
+    let version = options
+        .node_version
+        .context("node version required for nvm")?;
     let joined = options
         .command
         .iter()
@@ -56,7 +60,7 @@ fn build_nvm_command(options: BuildNodeCommandOptions<'_>) -> Vec<String> {
         "export NVM_DIR=/usr/local/nvm && . \"$NVM_DIR/nvm.sh\" && nvm install {version} >/dev/null && nvm exec {version} {joined}"
     );
 
-    vec!["bash".to_owned(), "-lc".to_owned(), script]
+    Ok(vec!["bash".to_owned(), "-lc".to_owned(), script])
 }
 
 fn shell_quote(value: &str) -> String {
@@ -93,5 +97,45 @@ mod tests {
                 "install".to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn build_node_command_requires_node_version_for_fnm() {
+        let error = build_node_command(BuildNodeCommandOptions {
+            version_manager: VersionManager::Fnm,
+            node_version: None,
+            command: &["pnpm".to_owned(), "install".to_owned()],
+        })
+        .expect_err("missing fnm version");
+
+        assert!(error.to_string().contains("node version required for fnm"));
+    }
+
+    #[test]
+    fn build_node_command_requires_node_version_for_volta() {
+        let error = build_node_command(BuildNodeCommandOptions {
+            version_manager: VersionManager::Volta,
+            node_version: None,
+            command: &["pnpm".to_owned(), "install".to_owned()],
+        })
+        .expect_err("missing volta version");
+
+        assert!(
+            error
+                .to_string()
+                .contains("node version required for volta")
+        );
+    }
+
+    #[test]
+    fn build_node_command_requires_node_version_for_nvm() {
+        let error = build_node_command(BuildNodeCommandOptions {
+            version_manager: VersionManager::Nvm,
+            node_version: None,
+            command: &["pnpm".to_owned(), "install".to_owned()],
+        })
+        .expect_err("missing nvm version");
+
+        assert!(error.to_string().contains("node version required for nvm"));
     }
 }

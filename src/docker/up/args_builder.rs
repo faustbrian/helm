@@ -99,25 +99,29 @@ mod tests {
 
     #[test]
     fn adds_host_gateway_mapping_for_loopback_services() {
-        let args = build_run_args(&service(), "acme-db");
-        let rendered = args.join(" ");
+        crate::docker::with_container_engine(crate::config::ContainerEngine::Docker, || {
+            let args = build_run_args(&service(), "acme-db");
+            let rendered = args.join(" ");
 
-        assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
+            assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
+        });
     }
 
     #[test]
     fn adds_host_gateway_mapping_when_custom_env_uses_alias() {
-        let mut with_env = service();
-        with_env.host = "10.0.0.10".to_owned();
-        with_env.env = Some(HashMap::from([(
-            "UPSTREAM".to_owned(),
-            "http://host.docker.internal:3306".to_owned(),
-        )]));
+        crate::docker::with_container_engine(crate::config::ContainerEngine::Docker, || {
+            let mut with_env = service();
+            with_env.host = "10.0.0.10".to_owned();
+            with_env.env = Some(HashMap::from([(
+                "UPSTREAM".to_owned(),
+                "http://host.docker.internal:3306".to_owned(),
+            )]));
 
-        let args = build_run_args(&with_env, "acme-db");
-        let rendered = args.join(" ");
+            let args = build_run_args(&with_env, "acme-db");
+            let rendered = args.join(" ");
 
-        assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
+            assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
+        });
     }
 
     #[test]

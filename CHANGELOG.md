@@ -41,6 +41,10 @@ All notable changes to this project are documented in this file.
 - Refactored Caddy temporary-file subprocess capture into a dedicated
   module so lifecycle code stays focused on reload, start, and trust
   behavior without changing runtime behavior.
+- Fixed CI stability for Docker host-gateway args tests by pinning their
+  runtime engine explicitly, and replaced panicking Node toolchain
+  `expect()` paths with actionable errors that satisfy strict Clippy
+  `expect_used` checks.
 
 ## [6.0.0] - 2026-03-06
 

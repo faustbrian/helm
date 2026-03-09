@@ -2,7 +2,7 @@
 //!
 //! Contains common logic used by `composer` and `node` handlers.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::path::Path;
 
 use super::service_scope::selected_services_in_scope;
@@ -67,7 +67,7 @@ pub(crate) fn handle_package_manager_command(
     } else {
         let mut base_command = node_runtime
             .package_manager
-            .expect("node package manager required")
+            .context("node package manager required")?
             .command_prefix();
         base_command.extend(command);
         build_node_command(BuildNodeCommandOptions {
