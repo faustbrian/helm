@@ -139,6 +139,9 @@ pub(crate) struct RecreateArgs {
     /// Persist random port assignments into `.helm.toml`
     #[arg(long, default_value_t = false, requires = "publish_all")]
     pub(crate) save_ports: bool,
+    /// Skip recreating workspace swarm dependencies
+    #[arg(long, default_value_t = false)]
+    pub(crate) no_deps: bool,
     /// Write inferred service vars to local `.env`
     #[arg(long, default_value_t = false)]
     pub(crate) env_output: bool,
@@ -300,6 +303,7 @@ mod tests {
             wait_timeout: 5,
             publish_all: false,
             save_ports: false,
+            no_deps: false,
             env_output: true,
             parallel: 1,
         };

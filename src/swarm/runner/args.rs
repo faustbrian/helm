@@ -48,6 +48,9 @@ pub(super) fn swarm_child_args(
     if should_env_output(&child_command, env_output) {
         child_command.push("--env-output".to_owned());
     }
+    if should_add_no_deps(&child_command) {
+        child_command.push("--no-deps".to_owned());
+    }
     args.extend(child_command);
     args
 }
@@ -73,6 +76,14 @@ fn should_set_port_seed(command: &[String], port_seed: Option<&str>) -> bool {
 /// Forwards `--env-output` to child `up` commands when enabled.
 fn should_env_output(command: &[String], env_output: bool) -> bool {
     env_output && should_forward_up_flag(command, "--env-output")
+}
+
+/// Prevents child processes from re-resolving project dependencies because the
+/// parent swarm invocation already owns dependency planning for the workspace.
+fn should_add_no_deps(command: &[String]) -> bool {
+    command.first().is_some_and(|subcommand| {
+        matches!(subcommand.as_str(), "up" | "recreate" | "start" | "down")
+    }) && !command.iter().any(|arg| arg == "--no-deps")
 }
 
 fn should_forward_up_flag(command: &[String], flag: &str) -> bool {

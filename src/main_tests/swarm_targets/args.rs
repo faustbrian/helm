@@ -43,6 +43,7 @@ fn swarm_child_args_forwards_global_flags_and_project_root() {
             "--profile",
             "infra",
             "--publish-all",
+            "--no-deps",
         ]
     );
 }
@@ -76,6 +77,7 @@ fn swarm_child_args_forwards_runtime_env_flag() {
             "/tmp/ws/api",
             "up",
             "--publish-all",
+            "--no-deps",
         ]
     );
 }
@@ -102,7 +104,13 @@ fn swarm_child_args_preserves_publish_all_for_up() {
 
     assert_eq!(
         args,
-        vec!["--project-root", "/tmp/ws/api", "up", "--publish-all",]
+        vec![
+            "--project-root",
+            "/tmp/ws/api",
+            "up",
+            "--publish-all",
+            "--no-deps",
+        ]
     );
 }
 
@@ -126,7 +134,10 @@ fn swarm_child_args_does_not_add_publish_all_for_non_up_commands() {
         None,
     );
 
-    assert_eq!(args, vec!["--project-root", "/tmp/ws/api", "down"]);
+    assert_eq!(
+        args,
+        vec!["--project-root", "/tmp/ws/api", "down", "--no-deps"]
+    );
 }
 
 #[test]
@@ -157,6 +168,7 @@ fn swarm_child_args_adds_env_output_for_up_when_requested() {
             "up",
             "--publish-all",
             "--env-output",
+            "--no-deps",
         ]
     );
 }
@@ -183,7 +195,13 @@ fn swarm_child_args_keeps_publish_all_in_repro_mode() {
 
     assert_eq!(
         args,
-        vec!["--project-root", "/tmp/ws/api", "up", "--publish-all",]
+        vec![
+            "--project-root",
+            "/tmp/ws/api",
+            "up",
+            "--publish-all",
+            "--no-deps",
+        ]
     );
 }
 
@@ -218,6 +236,7 @@ fn swarm_child_args_adds_stable_port_strategy_flags() {
             "stable",
             "--port-seed",
             "workspace-seed",
+            "--no-deps",
         ]
     );
 }
@@ -244,6 +263,12 @@ fn swarm_child_args_adds_publish_all_for_recreate() {
 
     assert_eq!(
         args,
-        vec!["--project-root", "/tmp/ws/api", "recreate", "--publish-all",]
+        vec![
+            "--project-root",
+            "/tmp/ws/api",
+            "recreate",
+            "--publish-all",
+            "--no-deps",
+        ]
     );
 }
