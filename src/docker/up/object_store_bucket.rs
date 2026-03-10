@@ -12,11 +12,11 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
     }
 
     let bucket = service.bucket.as_deref().unwrap_or("app");
-    let endpoint = format!(
-        "http://{}:{}",
-        crate::docker::host_gateway_alias(),
-        service.port
-    );
+    let container_name = service
+        .resolved_container_name
+        .as_deref()
+        .ok_or_else(|| anyhow!("no resolved container name for service '{}'", service.name))?;
+    let endpoint = format!("http://localhost:{}", service.default_port());
     let access_key = service.access_key.as_deref().unwrap_or("minio");
     let secret_key = service.secret_key.as_deref().unwrap_or("miniosecret");
     let region = service.region.as_deref().unwrap_or("us-east-1");
@@ -28,8 +28,16 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
         access_key,
         secret_key,
         region,
+        container_name,
     );
-    let create_args = build_aws_cli_create_args(bucket, &endpoint, access_key, secret_key, region);
+    let create_args = build_aws_cli_create_args(
+        bucket,
+        &endpoint,
+        access_key,
+        secret_key,
+        region,
+        container_name,
+    );
 
     if crate::docker::is_dry_run() {
         crate::docker::print_docker_command(&head_args);
@@ -80,12 +88,11 @@ fn build_aws_cli_args(
     access_key: &str,
     secret_key: &str,
     region: &str,
+    container_name: &str,
 ) -> Vec<String> {
     let mut args = vec!["run".to_owned(), "--rm".to_owned()];
-    if let Some(mapping) = crate::docker::host_gateway_mapping() {
-        args.push("--add-host".to_owned());
-        args.push(mapping.to_owned());
-    }
+    args.push("--network".to_owned());
+    args.push(format!("container:{container_name}"));
     args.extend([
         "-e".to_owned(),
         format!("AWS_ACCESS_KEY_ID={access_key}"),
@@ -110,6 +117,7 @@ fn build_aws_cli_create_args(
     access_key: &str,
     secret_key: &str,
     region: &str,
+    container_name: &str,
 ) -> Vec<String> {
     let mut args = build_aws_cli_args(
         "create-bucket",
@@ -118,6 +126,7 @@ fn build_aws_cli_create_args(
         access_key,
         secret_key,
         region,
+        container_name,
     );
     if region != "us-east-1" {
         args.push("--create-bucket-configuration".to_owned());
@@ -260,7 +269,7 @@ exit 1
     }
 
     #[test]
-    fn ensure_bucket_exists_uses_host_gateway_alias_endpoint() {
+    fn ensure_bucket_exists_uses_container_network_localhost_endpoint() {
         let log = std::env::temp_dir().join(format!("helm-bucket-args-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
@@ -280,12 +289,12 @@ exit 1
         );
 
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
-        assert!(content.contains("--endpoint-url http://host.docker.internal:9000"));
+        assert!(content.contains("--endpoint-url http://localhost:9000"));
         fs::remove_file(log).ok();
     }
 
     #[test]
-    fn ensure_bucket_exists_adds_host_gateway_mapping_for_docker() {
+    fn ensure_bucket_exists_uses_container_network_for_connectivity() {
         let log =
             std::env::temp_dir().join(format!("helm-bucket-host-map-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
@@ -306,7 +315,7 @@ exit 1
         );
 
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
-        assert!(content.contains("--add-host host.docker.internal:host-gateway"));
+        assert!(content.contains("--network container:acme-s3"));
         fs::remove_file(log).ok();
     }
 }
