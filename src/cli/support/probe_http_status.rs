@@ -27,15 +27,7 @@ fn curl_command() -> String {
 
 pub(crate) fn run_curl_command(url: &str) -> Option<std::process::Output> {
     Command::new(curl_command())
-        .args([
-            "-k",
-            "-sS",
-            "-w",
-            "\n%{http_code}",
-            "--max-time",
-            "5",
-            url,
-        ])
+        .args(["-k", "-sS", "-w", "\n%{http_code}", "--max-time", "5", url])
         .output()
         .ok()
 }

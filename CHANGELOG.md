@@ -6,6 +6,20 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed swarm child command construction to append `--no-deps` for nested
+  `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
+  processes from re-resolving workspace dependencies that the parent swarm
+  run already planned.
+- Fixed object-store bucket bootstrap to run the AWS CLI helper in the target
+  container's network namespace and reach the service over `localhost`,
+  restoring connectivity in rootless and other host-gateway-unfriendly Docker
+  setups.
+- Fixed random-port startup planning to reuse the published host port of an
+  already running container, preventing `up` and `recreate` flows from
+  reporting a new random port that the live service is not actually using.
+- Fixed HTTP status probing to parse the trailing curl status line after
+  preserving the response body, so doctor and open-summary checks can read
+  status codes reliably without discarding probe output.
 - Fixed app health-check timeout errors to include the last observed HTTP
   status, response body, or probe transport error, so `helm swarm recreate`
   now reports actionable diagnostics for failures such as `502 Bad Gateway`.

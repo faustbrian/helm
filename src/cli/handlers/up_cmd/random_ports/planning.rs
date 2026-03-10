@@ -232,7 +232,8 @@ mod tests {
         )
         .expect("write config");
 
-        let result = crate::docker::with_docker_command(&docker.to_string_lossy(), || test(config_path));
+        let result =
+            crate::docker::with_docker_command(&docker.to_string_lossy(), || test(config_path));
         fs::remove_dir_all(&root).ok();
         result
     }
@@ -252,10 +253,7 @@ fi
 exit 1
 "#,
             |config_path| {
-                let workspace_root = config_path
-                    .parent()
-                    .expect("workspace root")
-                    .to_path_buf();
+                let workspace_root = config_path.parent().expect("workspace root").to_path_buf();
                 let plan = plan_runtime_startup(
                     &config(),
                     PlanRuntimeStartupOptions {
