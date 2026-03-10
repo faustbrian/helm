@@ -188,7 +188,7 @@ mod tests {
         use std::io::Write;
         writeln!(
             file,
-            "#!/bin/sh\ncase \"$9\" in\n  *\"/up\")\n    printf '{}';\n    ;;\n  *)\n    printf '{}';\n    ;;\nesac\n",
+            "#!/bin/sh\ncase \"$7\" in\n  *\"/up\")\n    printf '{}';\n    ;;\n  *)\n    printf '{}';\n    ;;\nesac\n",
             health_code,
             app_code
         )

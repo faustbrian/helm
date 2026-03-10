@@ -30,8 +30,6 @@ pub(crate) fn run_curl_command(url: &str) -> Option<std::process::Output> {
         .args([
             "-k",
             "-sS",
-            "-o",
-            "/dev/null",
             "-w",
             "\n%{http_code}",
             "--max-time",
@@ -81,8 +79,8 @@ pub(crate) fn probe_http_status(url: &str) -> Option<u16> {
         return None;
     }
 
-    let raw = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    raw.parse::<u16>().ok()
+    let raw = String::from_utf8_lossy(&output.stdout);
+    raw.lines().next_back()?.trim().parse::<u16>().ok()
 }
 
 #[cfg(test)]
@@ -166,6 +164,14 @@ mod tests {
         assert_eq!(
             with_fake_curl("printf '%s' 'not-a-code'", "https://app.helm"),
             None
+        );
+    }
+
+    #[test]
+    fn probe_http_status_reads_status_from_last_output_line() {
+        assert_eq!(
+            with_fake_curl("printf '{\"status\":\"up\"}\n200'", "https://app.helm"),
+            Some(200)
         );
     }
 
