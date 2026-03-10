@@ -16,37 +16,123 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
         .resolved_container_name
         .as_deref()
         .ok_or_else(|| anyhow!("no resolved container name for service '{}'", service.name))?;
-    let endpoint = format!("http://localhost:{}", service.default_port());
     let access_key = service.access_key.as_deref().unwrap_or("minio");
     let secret_key = service.secret_key.as_deref().unwrap_or("miniosecret");
     let region = service.region.as_deref().unwrap_or("us-east-1");
-
-    let head_args = build_aws_cli_args(
-        "head-bucket",
+    let primary = build_container_network_bootstrap(
+        service,
         bucket,
-        &endpoint,
         access_key,
         secret_key,
         region,
         container_name,
     );
-    let create_args = build_aws_cli_create_args(
-        bucket,
-        &endpoint,
-        access_key,
-        secret_key,
-        region,
-        container_name,
-    );
+    let legacy = build_host_gateway_bootstrap(service, bucket, access_key, secret_key, region);
 
     if crate::docker::is_dry_run() {
-        crate::docker::print_docker_command(&head_args);
-        crate::docker::print_docker_command(&create_args);
+        crate::docker::print_docker_command(&primary.head_args);
+        crate::docker::print_docker_command(&primary.create_args);
         return Ok(());
     }
 
+    match run_bucket_bootstrap(service, bucket, &primary) {
+        Ok(()) => Ok(()),
+        Err(primary_error) => {
+            let Some(legacy) = legacy else {
+                return Err(primary_error);
+            };
+            run_bucket_bootstrap(service, bucket, &legacy).map_err(|legacy_error| {
+                anyhow!(
+                    "Failed to ensure object-store bucket '{}' for service '{}'. \
+                     Primary bootstrap failed: {}. Fallback bootstrap failed: {}",
+                    bucket,
+                    service.name,
+                    primary_error,
+                    legacy_error
+                )
+            })
+        }
+    }
+}
+
+fn is_object_store_driver(driver: Driver) -> bool {
+    matches!(
+        driver,
+        Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack
+    )
+}
+
+struct BucketBootstrapArgs {
+    head_args: Vec<String>,
+    create_args: Vec<String>,
+}
+
+fn build_container_network_bootstrap(
+    service: &ServiceConfig,
+    bucket: &str,
+    access_key: &str,
+    secret_key: &str,
+    region: &str,
+    container_name: &str,
+) -> BucketBootstrapArgs {
+    let endpoint = format!("http://localhost:{}", service.default_port());
+    BucketBootstrapArgs {
+        head_args: build_container_network_aws_cli_args(
+            "head-bucket",
+            bucket,
+            &endpoint,
+            access_key,
+            secret_key,
+            region,
+            container_name,
+        ),
+        create_args: build_container_network_aws_cli_create_args(
+            bucket,
+            &endpoint,
+            access_key,
+            secret_key,
+            region,
+            container_name,
+        ),
+    }
+}
+
+fn build_host_gateway_bootstrap(
+    service: &ServiceConfig,
+    bucket: &str,
+    access_key: &str,
+    secret_key: &str,
+    region: &str,
+) -> Option<BucketBootstrapArgs> {
+    let mapping = crate::docker::host_gateway_mapping()?;
+    let endpoint = format!(
+        "http://{}:{}",
+        crate::docker::host_gateway_alias(),
+        service.port
+    );
+    Some(BucketBootstrapArgs {
+        head_args: build_host_gateway_aws_cli_args(
+            "head-bucket",
+            bucket,
+            &endpoint,
+            access_key,
+            secret_key,
+            region,
+            mapping,
+        ),
+        create_args: build_host_gateway_aws_cli_create_args(
+            bucket, &endpoint, access_key, secret_key, region, mapping,
+        ),
+    })
+}
+
+fn run_bucket_bootstrap(
+    service: &ServiceConfig,
+    bucket: &str,
+    args: &BucketBootstrapArgs,
+) -> Result<()> {
     let head = crate::docker::run_docker_output_owned(
-        &head_args,
+        &args.head_args,
         &crate::docker::runtime_command_error_context("run"),
     )?;
     if head.status.success() {
@@ -54,7 +140,7 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
     }
 
     let create = crate::docker::run_docker_output_owned(
-        &create_args,
+        &args.create_args,
         &crate::docker::runtime_command_error_context("run"),
     )?;
     if create.status.success() {
@@ -74,14 +160,7 @@ pub(super) fn ensure_bucket_exists(service: &ServiceConfig) -> Result<()> {
     ))
 }
 
-fn is_object_store_driver(driver: Driver) -> bool {
-    matches!(
-        driver,
-        Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack
-    )
-}
-
-fn build_aws_cli_args(
+fn build_container_network_aws_cli_args(
     operation: &str,
     bucket: &str,
     endpoint: &str,
@@ -111,7 +190,7 @@ fn build_aws_cli_args(
     args
 }
 
-fn build_aws_cli_create_args(
+fn build_container_network_aws_cli_create_args(
     bucket: &str,
     endpoint: &str,
     access_key: &str,
@@ -119,7 +198,7 @@ fn build_aws_cli_create_args(
     region: &str,
     container_name: &str,
 ) -> Vec<String> {
-    let mut args = build_aws_cli_args(
+    let mut args = build_container_network_aws_cli_args(
         "create-bucket",
         bucket,
         endpoint,
@@ -127,6 +206,60 @@ fn build_aws_cli_create_args(
         secret_key,
         region,
         container_name,
+    );
+    if region != "us-east-1" {
+        args.push("--create-bucket-configuration".to_owned());
+        args.push(format!("LocationConstraint={region}"));
+    }
+    args
+}
+
+fn build_host_gateway_aws_cli_args(
+    operation: &str,
+    bucket: &str,
+    endpoint: &str,
+    access_key: &str,
+    secret_key: &str,
+    region: &str,
+    mapping: &str,
+) -> Vec<String> {
+    let mut args = vec!["run".to_owned(), "--rm".to_owned()];
+    args.push("--add-host".to_owned());
+    args.push(mapping.to_owned());
+    args.extend([
+        "-e".to_owned(),
+        format!("AWS_ACCESS_KEY_ID={access_key}"),
+        "-e".to_owned(),
+        format!("AWS_SECRET_ACCESS_KEY={secret_key}"),
+        "-e".to_owned(),
+        format!("AWS_DEFAULT_REGION={region}"),
+        AWS_CLI_IMAGE.to_owned(),
+        "s3api".to_owned(),
+        operation.to_owned(),
+        "--bucket".to_owned(),
+        bucket.to_owned(),
+        "--endpoint-url".to_owned(),
+        endpoint.to_owned(),
+    ]);
+    args
+}
+
+fn build_host_gateway_aws_cli_create_args(
+    bucket: &str,
+    endpoint: &str,
+    access_key: &str,
+    secret_key: &str,
+    region: &str,
+    mapping: &str,
+) -> Vec<String> {
+    let mut args = build_host_gateway_aws_cli_args(
+        "create-bucket",
+        bucket,
+        endpoint,
+        access_key,
+        secret_key,
+        region,
+        mapping,
     );
     if region != "us-east-1" {
         args.push("--create-bucket-configuration".to_owned());
@@ -316,6 +449,70 @@ exit 1
 
         let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
         assert!(content.contains("--network container:acme-s3"));
+        fs::remove_file(log).ok();
+    }
+
+    #[test]
+    fn ensure_bucket_exists_falls_back_to_host_gateway_when_container_network_fails() {
+        let log =
+            std::env::temp_dir().join(format!("helm-bucket-fallback-{}.log", unique_suffix()));
+        let log_path = log.to_string_lossy().to_string();
+        with_fake_runtime_command(
+            &format!(
+                r#"
+echo "$*" >> "{}"
+if echo "$*" | grep -q -- "--network container:acme-s3"; then
+  echo "network mode container: unsupported" 1>&2
+  exit 125
+fi
+if echo "$*" | grep -q "head-bucket"; then
+  exit 0
+fi
+exit 1
+"#,
+                log_path
+            ),
+            || {
+                ensure_bucket_exists(&service(Driver::Rustfs))
+                    .expect("legacy fallback should pass");
+            },
+        );
+
+        let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
+        assert!(content.contains("--network container:acme-s3"));
+        assert!(content.contains("--add-host host.docker.internal:host-gateway"));
+        fs::remove_file(log).ok();
+    }
+
+    #[test]
+    fn ensure_bucket_exists_fallback_uses_published_host_port() {
+        let log =
+            std::env::temp_dir().join(format!("helm-bucket-port-fallback-{}.log", unique_suffix()));
+        let log_path = log.to_string_lossy().to_string();
+        let mut svc = service(Driver::Rustfs);
+        svc.port = 49123;
+        with_fake_runtime_command(
+            &format!(
+                r#"
+echo "$*" >> "{}"
+if echo "$*" | grep -q -- "--network container:acme-s3"; then
+  echo "network mode container: unsupported" 1>&2
+  exit 125
+fi
+if echo "$*" | grep -q "head-bucket"; then
+  exit 0
+fi
+exit 1
+"#,
+                log_path
+            ),
+            || {
+                ensure_bucket_exists(&svc).expect("legacy fallback should use published port");
+            },
+        );
+
+        let content = fs::read_to_string(Path::new(&log)).expect("read fake runtime log");
+        assert!(content.contains("--endpoint-url http://host.docker.internal:49123"));
         fs::remove_file(log).ok();
     }
 }

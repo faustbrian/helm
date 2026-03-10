@@ -10,10 +10,11 @@ All notable changes to this project are documented in this file.
   `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
   processes from re-resolving workspace dependencies that the parent swarm
   run already planned.
-- Fixed object-store bucket bootstrap to run the AWS CLI helper in the target
-  container's network namespace and reach the service over `localhost`,
-  restoring connectivity in rootless and other host-gateway-unfriendly Docker
-  setups.
+- Fixed object-store bucket bootstrap to prefer running the AWS CLI helper in
+  the target container's network namespace and reach the service over
+  `localhost`, while falling back to the legacy host-gateway path for
+  published-port compatibility and runtimes that do not support
+  `--network container:...`.
 - Fixed random-port startup planning to reuse the published host port of an
   already running container, preventing `up` and `recreate` flows from
   reporting a new random port that the live service is not actually using.
