@@ -43,6 +43,13 @@ pub(super) fn build_artisan_test_command(
     vec!["sh".to_owned(), "-lc".to_owned(), script]
 }
 
+pub(super) fn should_prepare_playwright_for_artisan_test(
+    workspace_root: &Path,
+    browser_requested: bool,
+) -> bool {
+    browser_requested || should_bootstrap_playwright(workspace_root)
+}
+
 pub(super) fn should_bootstrap_playwright(workspace_root: &Path) -> bool {
     let composer_json_path = workspace_root.join("composer.json");
     let composer_json = match std::fs::read_to_string(composer_json_path) {
@@ -82,7 +89,10 @@ fn is_valid_env_key(key: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_artisan_test_command, should_bootstrap_playwright};
+    use super::{
+        build_artisan_test_command, should_bootstrap_playwright,
+        should_prepare_playwright_for_artisan_test,
+    };
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -131,6 +141,40 @@ mod tests {
         .expect("write composer");
 
         assert!(!should_bootstrap_playwright(&root));
+    }
+
+    #[test]
+    fn should_prepare_playwright_without_browser_flag_when_plugin_present() {
+        let root = temp_root("playwright-auto-enabled");
+        let composer = root.join("composer.json");
+        std::fs::write(
+            composer,
+            r#"{
+                "require-dev": {
+                    "pestphp/pest-plugin-browser": "^4.3"
+                }
+            }"#,
+        )
+        .expect("write composer");
+
+        assert!(should_prepare_playwright_for_artisan_test(&root, false));
+    }
+
+    #[test]
+    fn should_prepare_playwright_when_browser_flag_is_explicit() {
+        let root = temp_root("playwright-browser-flag");
+        let composer = root.join("composer.json");
+        std::fs::write(
+            composer,
+            r#"{
+                "require-dev": {
+                    "pestphp/pest": "^4.0"
+                }
+            }"#,
+        )
+        .expect("write composer");
+
+        assert!(should_prepare_playwright_for_artisan_test(&root, true));
     }
 
     #[test]
