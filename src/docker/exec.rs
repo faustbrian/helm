@@ -10,9 +10,11 @@ use crate::config::ServiceConfig;
 use super::{is_dry_run, print_docker_command};
 pub(crate) use args::build_exec_args;
 use args::{interactive_client_args, piped_client_args};
+use failure_message::command_failed_in_container;
 use run::{dry_run_process, run_docker_status, spawn_docker_piped};
 
 mod args;
+mod failure_message;
 mod run;
 
 /// Execs interactive as part of the docker exec workflow.
@@ -62,8 +64,106 @@ pub fn exec_command(service: &ServiceConfig, command: &[String], tty: bool) -> R
     let status = run_docker_status(&args, "Failed to execute command in container")?;
 
     if !status.success() {
-        anyhow::bail!("Command failed in container '{container_name}'");
+        anyhow::bail!(
+            "{}",
+            command_failed_in_container(&container_name, status.code())
+        );
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exec_command;
+    use crate::config::{Driver, Kind, ServiceConfig};
+    use crate::docker;
+    use std::env;
+    use std::fs;
+    use std::io::Write;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn with_fake_docker<F, T>(script: &str, test: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let bin_dir = env::temp_dir().join(format!(
+            "helm-fake-docker-exec-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&bin_dir).expect("create temp dir");
+
+        let binary = bin_dir.join("docker");
+        let mut file = fs::File::create(&binary).expect("create fake docker");
+        writeln!(file, "#!/bin/sh\n{}", script).expect("write script");
+        drop(file);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mut perms = fs::metadata(&binary).expect("metadata").permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&binary, perms).expect("chmod");
+        }
+
+        let binary = binary.to_string_lossy().to_string();
+        let result = docker::with_docker_command(&binary, test);
+        fs::remove_dir_all(&bin_dir).ok();
+        result
+    }
+
+    fn service() -> ServiceConfig {
+        ServiceConfig {
+            name: "app".to_owned(),
+            kind: Kind::App,
+            driver: Driver::Frankenphp,
+            image: "app".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 8080,
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: None,
+            domains: None,
+            container_port: None,
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: false,
+            octane: false,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            javascript: None,
+            container_name: Some("acme-app".to_owned()),
+            resolved_container_name: Some("acme-app".to_owned()),
+        }
+    }
+
+    #[test]
+    fn exec_command_includes_exit_code_in_failure_message() {
+        with_fake_docker("exit 23", || {
+            let error = exec_command(&service(), &["php".to_owned(), "artisan".to_owned()], false)
+                .expect_err("docker exec should fail");
+
+            assert!(error.to_string().contains("acme-app"));
+            assert!(error.to_string().contains("exit code: 23"));
+        });
+    }
 }

@@ -644,3 +644,6 @@ All notable changes to this project are documented in this file.
 - Updated `helm init` defaults to a smaller preset-driven config.
 - Fixed generated `helm init` template output so it writes valid TOML.
 - Updated package metadata and versioning to `1.0.0`.
+- Improved `helm artisan test` failure reporting to include the app
+  container exit code when `docker exec` returns non-zero after test
+  output has already been streamed.
