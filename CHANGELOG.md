@@ -6,10 +6,6 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Fixed `helm artisan test` Playwright bootstrap planning to provision
-  Playwright whenever browser testing is explicitly requested or
-  `pestphp/pest-plugin-browser` is present, even when the command does
-  not include `--browser`.
 - Fixed swarm child command construction to append `--no-deps` for nested
   `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
   processes from re-resolving workspace dependencies that the parent swarm

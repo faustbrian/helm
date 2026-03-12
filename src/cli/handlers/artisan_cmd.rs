@@ -19,7 +19,7 @@ use command::{
     is_artisan_test_command, remove_artisan_env_overrides, resolve_artisan_tty,
 };
 use runtime::{acquire_testing_runtime_lease, cleanup_test_services, ensure_test_services_running};
-use test_command::{build_artisan_test_command, should_prepare_playwright_for_artisan_test};
+use test_command::{build_artisan_test_command, should_bootstrap_playwright};
 
 pub(crate) struct HandleArtisanOptions<'a> {
     pub(crate) service: Option<&'a str>,
@@ -120,8 +120,7 @@ pub(crate) fn handle_artisan(
         let root = workspace_root
             .as_ref()
             .ok_or_else(|| anyhow!("testing workspace root should be set"))?;
-        let bootstrap_playwright =
-            should_prepare_playwright_for_artisan_test(root, browser_requested);
+        let bootstrap_playwright = browser_requested && should_bootstrap_playwright(root);
         build_artisan_test_command(user_command, &runtime.app_env, bootstrap_playwright)
     } else {
         build_artisan_command(user_command)
