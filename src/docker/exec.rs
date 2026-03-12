@@ -6,15 +6,14 @@ use anyhow::Result;
 use std::process::Child;
 
 use crate::config::ServiceConfig;
+use crate::docker::command_failed_in_container;
 
 use super::{is_dry_run, print_docker_command};
 pub(crate) use args::build_exec_args;
 use args::{interactive_client_args, piped_client_args};
-use failure_message::command_failed_in_container;
 use run::{dry_run_process, run_docker_status, spawn_docker_piped};
 
 mod args;
-mod failure_message;
 mod run;
 
 /// Execs interactive as part of the docker exec workflow.

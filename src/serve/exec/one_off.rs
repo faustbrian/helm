@@ -51,6 +51,6 @@ pub(super) fn run_command_one_off(
         &target.name,
         &args,
         "failed to execute one-off app command",
-        "one-off app command failed",
+        |_| "one-off app command failed".to_owned(),
     )
 }

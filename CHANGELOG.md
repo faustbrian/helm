@@ -647,3 +647,5 @@ All notable changes to this project are documented in this file.
 - Improved `helm artisan test` failure reporting to include the app
   container exit code when `docker exec` returns non-zero after test
   output has already been streamed.
+- Fixed `helm artisan` serve-container failures to report the actual
+  `docker exec` exit code instead of the generic container error.

@@ -1,5 +1,5 @@
 /// Formats command execution failures with container context and exit code.
-pub(super) fn command_failed_in_container(container_name: &str, exit_code: Option<i32>) -> String {
+pub(crate) fn command_failed_in_container(container_name: &str, exit_code: Option<i32>) -> String {
     match exit_code {
         Some(code) => format!("Command failed in container '{container_name}' (exit code: {code})"),
         None => format!("Command failed in container '{container_name}' (terminated by signal)"),

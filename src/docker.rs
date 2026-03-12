@@ -238,6 +238,7 @@ pub(crate) fn docker_command() -> String {
 mod cmd;
 mod engine;
 mod exec;
+mod failure_message;
 mod health;
 mod image_inspect;
 mod image_pull;
@@ -258,6 +259,7 @@ pub(crate) use cmd::{
 pub(crate) use engine::RuntimeDiagnosticCheck;
 pub(crate) use exec::build_exec_args;
 pub use exec::{exec_command, exec_interactive, exec_piped};
+pub(crate) use failure_message::command_failed_in_container;
 pub use health::wait_until_healthy;
 pub(crate) use image_inspect::{docker_image_exists, docker_image_repo_digest};
 pub(crate) use image_pull::docker_pull;

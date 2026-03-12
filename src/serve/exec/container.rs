@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::config::ServiceConfig;
 use crate::docker::build_exec_args;
+use crate::docker::command_failed_in_container;
 
 /// Executes a command inside the app container.
 ///
@@ -22,6 +23,6 @@ pub(super) fn exec_command(target: &ServiceConfig, command: &[String], tty: bool
         &target.name,
         &args,
         "failed to execute artisan command in serve container",
-        &format!("command failed in container '{container_name}'"),
+        |exit_code| command_failed_in_container(&container_name, exit_code),
     )
 }
