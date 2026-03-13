@@ -65,6 +65,7 @@ pub(super) fn expand_raw_service(raw: RawServiceConfig) -> Result<ServiceConfig>
         scheme: merge_opt_owned(raw.scheme, defaults.as_ref().and_then(|d| d.scheme)),
         domain: raw.domain,
         domains: raw.domains,
+        resolved_domain: None,
         container_port: merge_opt_copy(
             raw.container_port,
             defaults.as_ref().and_then(|d| d.container_port),

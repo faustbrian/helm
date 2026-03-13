@@ -7,6 +7,7 @@
 #![allow(clippy::match_same_arms)] // Duplicate arms keep driver/preset mapping explicit
 
 mod api;
+mod domain_names;
 mod expansion;
 mod paths;
 mod presets;
@@ -34,6 +35,6 @@ pub(crate) use service_methods::network::{
     is_unspecified_port_allocation_host, normalize_host_for_port_allocation,
 };
 pub use types::{
-    Config, ContainerEngine, Driver, HookOnError, HookPhase, HookRun, Kind, LockedImage, Lockfile,
-    ProjectType, ServiceConfig, ServiceHook, SwarmGit, SwarmTarget,
+    Config, ContainerEngine, DomainStrategy, Driver, HookOnError, HookPhase, HookRun, Kind,
+    LockedImage, Lockfile, ProjectType, ServiceConfig, ServiceHook, SwarmGit, SwarmTarget,
 };

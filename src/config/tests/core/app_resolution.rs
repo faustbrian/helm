@@ -7,6 +7,7 @@ fn resolve_app_requires_name_when_multiple_targets() {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![
             mysql_service("db1"),
             app_service("web1", "one.helm", 8000, Driver::Frankenphp),
@@ -29,6 +30,7 @@ fn resolve_app_defaults_to_named_app_when_multiple_targets() {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![
             app_service("app", "app.helm", 8000, Driver::Frankenphp),
             mailhog,

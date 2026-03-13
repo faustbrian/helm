@@ -107,6 +107,7 @@ mod tests {
             scheme: Some("https".to_owned()),
             domain: domain.map(ToOwned::to_owned),
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -162,6 +163,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![
                 service("app", Kind::App, Some("app.helm")),
                 service("cache", Kind::Database, Some("redis.helm")),

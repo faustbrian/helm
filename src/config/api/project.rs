@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::super::paths;
 
+#[derive(Clone, Copy)]
 pub struct ProjectRootPathOptions<'a> {
     pub config_path: Option<&'a Path>,
     pub project_root: Option<&'a Path>,

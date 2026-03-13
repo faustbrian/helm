@@ -49,6 +49,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![mysql_service("db"), app_service("web")],
             swarm: Vec::new(),
         }
@@ -73,6 +74,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -113,6 +115,7 @@ mod tests {
             scheme: None,
             domain: Some("app.localhost".to_owned()),
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,

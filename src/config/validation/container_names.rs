@@ -82,6 +82,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -109,6 +110,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![app_service("api", "127.0.0.1", None)],
             swarm: Vec::new(),
         };
@@ -122,6 +124,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("helm".to_owned()),
+            domain_strategy: None,
             service: vec![
                 app_service("api", "127.0.0.1", Some("custom-api")),
                 app_service("web", "127.0.0.1", None),
@@ -146,6 +149,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("helm".to_owned()),
+            domain_strategy: None,
             service: vec![
                 app_service("api", "127.0.0.1", Some("api")),
                 app_service("web", "127.0.0.1", Some("api")),

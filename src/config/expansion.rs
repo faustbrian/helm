@@ -28,6 +28,7 @@ pub(super) fn expand_raw_config(raw: RawConfig) -> Result<Config> {
         schema_version,
         project_type,
         container_prefix: raw.container_prefix,
+        domain_strategy: raw.domain_strategy,
         service: services,
         swarm: raw
             .swarm

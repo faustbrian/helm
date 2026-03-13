@@ -4,7 +4,7 @@
 
 use serde::Deserialize;
 
-use super::{ContainerEngine, ProjectType};
+use super::{ContainerEngine, DomainStrategy, ProjectType};
 
 mod service;
 mod service_hook;
@@ -25,6 +25,8 @@ pub(crate) struct RawConfig {
     #[serde(default)]
     pub container_engine: Option<ContainerEngine>,
     pub container_prefix: Option<String>,
+    #[serde(default)]
+    pub domain_strategy: Option<DomainStrategy>,
     #[serde(default)]
     pub service: Vec<RawServiceConfig>,
     #[serde(default)]

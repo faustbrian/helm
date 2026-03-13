@@ -48,6 +48,44 @@ Notes:
 - Podman support covers core Docker-compatible CLI flows.
 - Some advanced runtime/network behavior can differ by engine and host setup.
 
+## Domain Strategy
+
+Set a project default app-domain strategy in `.helm.toml`:
+
+```toml
+domain_strategy = "directory" # or "random"
+```
+
+Rules:
+
+- `directory` uses the kebab-case project directory name as the base label.
+- `random` uses a stable project-specific `helm-<hash>` base label.
+- Helm only auto-generates domains for app services that do not already define
+  `domain` or `domains`.
+- The generated app service named `app` uses `<base>.helm`.
+- Other app services use `<base>-<service>.helm`.
+
+Example for `/Users/brian/Developer/my-project`:
+
+```toml
+domain_strategy = "directory"
+
+[[service]]
+preset = "laravel"
+
+[[service]]
+preset = "gotenberg"
+
+[[service]]
+preset = "mailhog"
+```
+
+This resolves to:
+
+- `my-project.helm`
+- `my-project-gotenberg.helm`
+- `my-project-mailhog.helm`
+
 ## Common Selectors
 
 Many commands support these selectors:
@@ -134,6 +172,10 @@ If `--service` is omitted, commands operate on all matching services.
 ### `helm init`
 
 Initialize a new `.helm.toml` in the current directory.
+
+- New configs default `domain_strategy` to `directory`.
+- The generated template omits explicit app `domain` entries and relies on the
+  configured strategy instead.
 
 ### `helm config [--format <toml|json>] [migrate]`
 

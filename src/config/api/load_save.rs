@@ -29,7 +29,12 @@ pub fn load_config() -> Result<Config> {
 pub fn load_config_with(options: LoadConfigPathOptions<'_>) -> Result<Config> {
     let raw_config = load_raw_config_with(options)?;
     let mut config = expansion::expand_raw_config(raw_config)?;
+    let project_root = super::project::project_root_with(ProjectRootPathOptions::new(
+        options.config_path,
+        options.project_root,
+    ))?;
 
+    validation::validate_and_resolve_domains(&mut config, &project_root)?;
     validation::validate_and_resolve_container_names(&mut config)?;
     validation::validate_swarm_targets(&config)?;
 

@@ -148,6 +148,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: Vec::new(),
             swarm: Vec::new(),
         }

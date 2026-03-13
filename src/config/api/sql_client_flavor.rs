@@ -61,6 +61,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -88,6 +89,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("app".to_owned()),
+            domain_strategy: None,
             service: vec![],
             swarm: vec![],
         };
@@ -100,6 +102,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("app".to_owned()),
+            domain_strategy: None,
             service: vec![sql_service("mysql:8.1")],
             swarm: vec![],
         };
@@ -112,6 +115,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("app".to_owned()),
+            domain_strategy: None,
             service: vec![sql_service("mariadb:11")],
             swarm: vec![],
         };

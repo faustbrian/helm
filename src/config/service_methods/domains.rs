@@ -31,6 +31,15 @@ impl ServiceConfig {
             }
         }
 
+        if domains.is_empty()
+            && let Some(generated) = self.resolved_domain.as_deref()
+        {
+            let trimmed = generated.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed.to_ascii_lowercase()) {
+                domains.push(trimmed);
+            }
+        }
+
         domains
     }
 

@@ -63,6 +63,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![app_service()],
             swarm: Vec::new(),
         };
@@ -193,6 +194,7 @@ mod tests {
             scheme: Some("https".to_owned()),
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,

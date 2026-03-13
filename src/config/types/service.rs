@@ -48,6 +48,9 @@ pub struct ServiceConfig {
     /// Additional public domains for app services.
     #[serde(default)]
     pub domains: Option<Vec<String>>,
+    /// Resolved generated primary domain at runtime (not serialized).
+    #[serde(skip)]
+    pub resolved_domain: Option<String>,
     /// Optional internal container port override.
     #[serde(default)]
     pub container_port: Option<u16>,

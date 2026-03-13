@@ -130,6 +130,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -156,6 +157,7 @@ mod tests {
             schema_version: 1,
             project_type: config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: services,
             swarm: Vec::new(),
         }

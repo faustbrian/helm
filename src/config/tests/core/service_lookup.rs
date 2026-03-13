@@ -6,6 +6,7 @@ fn find_service_success() {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![mysql_service("db1"), mysql_service("db2")],
         swarm: vec![],
     };
@@ -21,6 +22,7 @@ fn find_service_not_found() {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![mysql_service("db1")],
         swarm: vec![],
     };
@@ -38,6 +40,7 @@ fn find_service_empty_list() {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![],
         swarm: vec![],
     };

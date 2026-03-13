@@ -146,6 +146,7 @@ fn handle_artisan_rejects_library_project_type() {
         schema_version: 1,
         project_type: config::ProjectType::Library,
         container_prefix: None,
+        domain_strategy: None,
         service: Vec::new(),
         swarm: Vec::new(),
     };

@@ -48,6 +48,7 @@ fn apply_runtime_env_appends_name_suffix_and_shifts_ports() -> Result<()> {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![mysql_service("db")],
         swarm: Vec::new(),
     };
@@ -65,6 +66,7 @@ fn apply_runtime_env_testing_namespace_keeps_base_ports() -> Result<()> {
         schema_version: 1,
         project_type: ProjectType::Project,
         container_prefix: Some("test".to_owned()),
+        domain_strategy: None,
         service: vec![ServiceConfig {
             port: 54_320,
             ..mysql_service("db")

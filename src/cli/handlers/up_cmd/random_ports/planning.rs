@@ -139,6 +139,7 @@ mod tests {
             scheme: None,
             domain: Some("app.helm".to_owned()),
             domains: None,
+            resolved_domain: None,
             container_port: Some(80),
             smtp_port: None,
             volumes: None,
@@ -179,6 +180,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: Some(3306),
             smtp_port: None,
             volumes: None,
@@ -205,6 +207,7 @@ mod tests {
             schema_version: 1,
             project_type: ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![app_service(), db_service(33060)],
             swarm: Vec::new(),
         }

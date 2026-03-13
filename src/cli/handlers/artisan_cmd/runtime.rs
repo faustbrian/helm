@@ -61,6 +61,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![service("valkey", configured_port, None)],
             swarm: Vec::new(),
         };
@@ -80,6 +81,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![service("mailhog", app_port, Some(smtp_port))],
             swarm: Vec::new(),
         };
@@ -98,6 +100,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![app_service("app", app_port)],
             swarm: Vec::new(),
         };
@@ -115,6 +118,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![app_service("app", app_port)],
             swarm: Vec::new(),
         };
@@ -136,6 +140,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![
                 app_service("app", app_port),
                 service("redis", cache_port, None),
@@ -175,6 +180,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port,
             volumes: None,

@@ -25,6 +25,11 @@ pub fn migrate_config_with(options: MigrateConfigOptions<'_>) -> Result<PathBuf>
 
     raw.schema_version = Some(1);
     let mut config = expansion::expand_raw_config(raw)?;
+    let project_root = super::project::project_root_with(ProjectRootPathOptions::new(
+        options.config_path,
+        options.project_root,
+    ))?;
+    validation::validate_and_resolve_domains(&mut config, &project_root)?;
     validation::validate_and_resolve_container_names(&mut config)?;
     validation::validate_swarm_targets(&config)?;
     save_config_with(
@@ -106,5 +111,37 @@ container_name = \"app\"
 
         let result = migrate_config_with(ProjectRootPathOptions::new(Some(&path), None));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn migrate_config_with_preserves_domain_strategy_without_persisting_generated_domain()
+    -> anyhow::Result<()> {
+        let root = temp_root().join("my-project");
+        fs::create_dir_all(&root).expect("create project root");
+        let path = write_config(
+            &root,
+            "project_type = \"project\"
+domain_strategy = \"directory\"
+container_prefix = \"shipit-api\"
+
+[[service]]
+preset = \"laravel\"
+",
+        );
+
+        migrate_config_with(ProjectRootPathOptions::new(Some(&path), None))?;
+
+        let migrated_raw = fs::read_to_string(&path).expect("read migrated config");
+        assert!(migrated_raw.contains("domain_strategy = \"directory\""));
+        assert!(!migrated_raw.contains("domain = \"my-project.helm\""));
+
+        let migrated = load_config_with(LoadConfigPathOptions::new(Some(&path), None))?;
+        assert_eq!(migrated.service[0].domain, None);
+        assert_eq!(
+            migrated.service[0].primary_domain(),
+            Some("my-project.helm")
+        );
+
+        Ok(())
     }
 }

@@ -63,6 +63,7 @@ mod tests {
             schema_version: 1,
             project_type: config::ProjectType::Project,
             container_prefix: Some("helm".to_owned()),
+            domain_strategy: None,
             service: vec![laravel, mysql],
             swarm: Vec::new(),
         };
@@ -99,6 +100,7 @@ mod tests {
             schema_version: 1,
             project_type: config::ProjectType::Project,
             container_prefix: Some("helm".to_owned()),
+            domain_strategy: None,
             service: Vec::new(),
             swarm: Vec::new(),
         };

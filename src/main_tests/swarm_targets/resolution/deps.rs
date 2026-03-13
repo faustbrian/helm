@@ -21,6 +21,7 @@ fn resolve_swarm_targets_includes_dependencies_by_default() -> Result<()> {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: None,
+        domain_strategy: None,
         service: Vec::new(),
         swarm: vec![
             SwarmTarget {

@@ -11,6 +11,7 @@ fn inferred_app_env_sets_app_and_asset_urls_for_localhost_tls() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![app],
         swarm: vec![],
     };
@@ -36,6 +37,7 @@ fn inferred_app_env_sets_app_and_asset_urls_for_domain() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![app],
         swarm: vec![],
     };
@@ -65,6 +67,7 @@ fn inferred_app_env_uses_primary_domain_from_domains_list() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![app],
         swarm: vec![],
     };
@@ -89,6 +92,7 @@ fn inferred_app_env_sets_default_app_name_for_app_targets() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![app],
         swarm: vec![],
     };

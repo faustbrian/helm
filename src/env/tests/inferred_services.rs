@@ -34,6 +34,7 @@ fn inferred_app_env_includes_core_laravel_service_vars() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![
             db, redis, memcached, s3, gotenberg, mailhog, reverb, dusk, rabbitmq, soketi, scheduler,
         ],
@@ -125,6 +126,7 @@ fn inferred_app_env_uses_mariadb_flavor_for_mariadb_only_database_images() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![db],
         swarm: vec![],
     };
@@ -145,6 +147,7 @@ fn inferred_app_env_includes_meilisearch_scout_vars() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![meili],
         swarm: vec![],
     };
@@ -167,6 +170,7 @@ fn inferred_app_env_includes_typesense_scout_vars() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![typesense],
         swarm: vec![],
     };
@@ -190,6 +194,7 @@ fn inferred_app_env_includes_horizon_queue_defaults() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![horizon],
         swarm: vec![],
     };
@@ -207,6 +212,7 @@ fn inferred_app_env_prefers_object_store_domain_for_aws_url() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![s3],
         swarm: vec![],
     };
@@ -227,6 +233,7 @@ fn inferred_app_env_includes_scheduler_defaults() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![scheduler],
         swarm: vec![],
     };
@@ -246,6 +253,7 @@ fn inferred_app_env_uses_sqlsrv_connection_for_sqlserver() {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
         service: vec![db],
         swarm: vec![],
     };
@@ -282,6 +290,7 @@ fn inferred_app_env_applies_service_env_mapping_without_overwriting_primary_db()
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: Some("shipit-api".to_owned()),
+        domain_strategy: None,
         service: vec![primary, invoicing],
         swarm: vec![],
     };

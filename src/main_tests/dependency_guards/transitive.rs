@@ -6,6 +6,7 @@ fn down_guard_blocks_transitive_shared_dependencies() -> Result<()> {
         schema_version: 1,
         project_type: crate::config::ProjectType::Project,
         container_prefix: None,
+        domain_strategy: None,
         service: Vec::new(),
         swarm: vec![
             SwarmTarget {

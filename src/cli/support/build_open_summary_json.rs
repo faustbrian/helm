@@ -51,6 +51,7 @@ mod tests {
             scheme: None,
             domain: Some("app.helm".to_owned()),
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,

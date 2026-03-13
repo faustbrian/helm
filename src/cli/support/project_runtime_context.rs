@@ -42,6 +42,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![ServiceConfig {
                 name: "db".to_owned(),
                 kind: Kind::Database,
@@ -60,6 +61,7 @@ mod tests {
                 scheme: None,
                 domain: None,
                 domains: None,
+                resolved_domain: None,
                 container_port: None,
                 smtp_port: None,
                 volumes: None,

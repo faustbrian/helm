@@ -221,6 +221,7 @@ mod tests {
             scheme: None,
             domain: Some("shipit-api.helm".to_owned()),
             domains: Some(vec!["alt-api.helm".to_owned()]),
+            resolved_domain: None,
             container_port: Some(80),
             smtp_port: None,
             volumes: None,

@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added project-wide `domain_strategy` config with `directory` and `random`
+  modes so app services can resolve `.helm` domains automatically without
+  repeating explicit per-service `domain` entries.
+
+### Changed
+
+- Changed `helm init` to write `domain_strategy = "directory"` and rely on
+  automatic `.helm` domain generation for app services instead of emitting an
+  explicit `domain = "...localhost"` entry in new configs.
+
 ### Fixed
 
 - Fixed swarm child command construction to append `--no-deps` for nested

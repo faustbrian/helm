@@ -2,21 +2,22 @@
 //!
 //! Contains config paths template logic used by Helm command workflows.
 
+use crate::config::domain_names::sanitize_project_slug;
+
 /// Builds default `.helm.toml` template content for the given project name.
 #[must_use]
 pub(super) fn default_config_template(project_name: &str) -> String {
     let slug = sanitize_project_slug(project_name);
-    let domain = format!("{slug}.localhost");
     format!(
         r#"schema_version = 1
 project_type = "project"
 container_engine = "docker"
 container_prefix = "{slug}"
+domain_strategy = "directory"
 
 [[service]]
 preset = "laravel"
 name = "app"
-domain = "{domain}"
 # depends_on = ["db", "redis"]
 #
 # Optional lifecycle hooks:
@@ -56,35 +57,10 @@ preset = "redis"
     )
 }
 
-fn sanitize_project_slug(name: &str) -> String {
-    let mut slug = String::new();
-    let mut previous_dash = false;
-
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-            previous_dash = false;
-            continue;
-        }
-
-        if !previous_dash {
-            slug.push('-');
-            previous_dash = true;
-        }
-    }
-
-    let slug = slug.trim_matches('-');
-    if slug.is_empty() {
-        "my-app".to_owned()
-    } else {
-        slug.to_owned()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::default_config_template;
-    use crate::config::RawConfig;
+    use crate::config::{DomainStrategy, RawConfig};
 
     /// Returns the default value for template is valid toml and preset driven.
     #[test]
@@ -107,13 +83,14 @@ mod tests {
             toml::from_str(&default_config_template("Billing API")).expect("parse template TOML");
 
         assert_eq!(raw.container_prefix.as_deref(), Some("billing-api"));
+        assert_eq!(raw.domain_strategy, Some(DomainStrategy::Directory));
 
         let app = raw
             .service
             .iter()
             .find(|service| service.name.as_deref() == Some("app"))
             .expect("app service present");
-        assert_eq!(app.domain.as_deref(), Some("billing-api.localhost"));
+        assert_eq!(app.domain, None);
     }
 
     #[test]

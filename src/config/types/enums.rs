@@ -103,6 +103,17 @@ impl Default for ContainerEngine {
     }
 }
 
+/// Strategy for generating default app domains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum DomainStrategy {
+    /// Use the kebab-case project directory name as the domain base label.
+    Directory,
+    /// Use a stable pseudo-random project-specific label as the domain base.
+    Random,
+}
+
 impl ContainerEngine {
     #[must_use]
     pub const fn command_binary(self) -> &'static str {

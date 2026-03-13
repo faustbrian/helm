@@ -57,6 +57,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,
@@ -83,6 +84,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: Some("helm".to_owned()),
+            domain_strategy: None,
             service: vec![service("app", Kind::App, Driver::Frankenphp)],
             swarm: Vec::new(),
         }

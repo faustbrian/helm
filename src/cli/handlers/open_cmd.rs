@@ -139,6 +139,7 @@ mod tests {
             schema_version: 1,
             project_type: crate::config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![crate::config::preset_preview("postgres")?],
             swarm: Vec::new(),
         };

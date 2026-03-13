@@ -19,6 +19,7 @@ pub(super) fn app_service() -> ServiceConfig {
         scheme: None,
         domain: Some("acme-api.helm".to_owned()),
         domains: None,
+        resolved_domain: None,
         container_port: Some(80),
         smtp_port: None,
         volumes: None,

@@ -90,6 +90,7 @@ mod tests {
             schema_version: 1,
             project_type: config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: vec![service("valkey", 6379), service("app", 8080)],
             swarm: Vec::new(),
         };
@@ -112,6 +113,7 @@ mod tests {
             schema_version: 1,
             project_type: config::ProjectType::Project,
             container_prefix: None,
+            domain_strategy: None,
             service: Vec::new(),
             swarm: Vec::new(),
         };
@@ -166,6 +168,7 @@ mod tests {
             scheme: None,
             domain: None,
             domains: None,
+            resolved_domain: None,
             container_port: None,
             smtp_port: None,
             volumes: None,

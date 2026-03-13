@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ProjectType, ServiceConfig, SwarmTarget};
+use super::{DomainStrategy, ProjectType, ServiceConfig, SwarmTarget};
 
 /// Root configuration structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +17,9 @@ pub struct Config {
     pub project_type: ProjectType,
     /// Global container name prefix used when service-level name is not set.
     pub container_prefix: Option<String>,
+    /// Project-wide strategy for generating default app domains.
+    #[serde(default)]
+    pub domain_strategy: Option<DomainStrategy>,
     /// List of service configurations.
     #[serde(default)]
     pub service: Vec<ServiceConfig>,
