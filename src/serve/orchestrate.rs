@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::ServiceConfig;
+use crate::config::{is_unspecified_port_allocation_host, normalize_host_for_port_allocation};
 use crate::output::{self, LogLevel, Persistence};
 
 use super::{
@@ -49,8 +50,8 @@ pub fn run(options: RunServeOptions<'_>) -> Result<()> {
     if options.trust_container_ca {
         trust_inner_container_ca(options.target, options.detached)?;
     }
-    let url = if options.target.localhost_tls {
-        localhost_url(options.target)
+    let url = if should_use_local_url(options.target) {
+        local_url(options.target)
     } else {
         configure_caddy(options.target, ports)?;
         ensure_hosts_entry(options.target)?;
@@ -84,8 +85,8 @@ pub fn down(target: &ServiceConfig) -> Result<()> {
 ///
 /// Returns an error if Caddy port env values are invalid.
 pub fn public_url(target: &ServiceConfig) -> Result<String> {
-    if target.localhost_tls {
-        return Ok(localhost_url(target));
+    if should_use_local_url(target) {
+        return Ok(local_url(target));
     }
     let ports = resolve_caddy_ports()?;
     caddy_served_url(target, ports.https)
@@ -95,6 +96,96 @@ fn localhost_url(target: &ServiceConfig) -> String {
     format!("https://localhost:{}", target.port)
 }
 
+fn should_use_local_url(target: &ServiceConfig) -> bool {
+    target.localhost_tls || target.primary_domain().is_none()
+}
+
+fn local_url(target: &ServiceConfig) -> String {
+    if target.localhost_tls {
+        return localhost_url(target);
+    }
+
+    format!(
+        "{}://{}:{}",
+        target.scheme(),
+        local_bind_host(&target.host),
+        target.port
+    )
+}
+
+fn local_bind_host(host: &str) -> String {
+    if is_unspecified_port_allocation_host(host) {
+        return "127.0.0.1".to_owned();
+    }
+
+    normalize_host_for_port_allocation(host)
+}
+
 fn caddy_served_url(target: &ServiceConfig, https_port: u16) -> Result<String> {
     Ok(served_url(service_domain(target)?, https_port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_url;
+    use crate::config::{Driver, Kind, ServiceConfig};
+
+    fn service() -> ServiceConfig {
+        ServiceConfig {
+            name: "app".to_owned(),
+            kind: Kind::App,
+            driver: Driver::Frankenphp,
+            image: "dunglas/frankenphp:php8.5".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 8080,
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: Some("app.helm".to_owned()),
+            domains: None,
+            resolved_domain: None,
+            container_port: Some(80),
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: false,
+            octane: false,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            javascript: None,
+            container_name: Some("app".to_owned()),
+            resolved_container_name: Some("app".to_owned()),
+        }
+    }
+
+    #[test]
+    fn public_url_falls_back_to_local_endpoint_when_domain_is_missing() {
+        let mut target = service();
+        target.domain = None;
+
+        let url = public_url(&target).expect("public url");
+        assert_eq!(url, "http://127.0.0.1:8080");
+    }
+
+    #[test]
+    fn public_url_prefers_localhost_tls_when_enabled() {
+        let mut target = service();
+        target.localhost_tls = true;
+
+        let url = public_url(&target).expect("public url");
+        assert_eq!(url, "https://localhost:8080");
+    }
 }
