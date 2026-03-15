@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed standalone lifecycle commands such as `helm up` to treat missing
+  workspace swarm context as a no-op for project dependencies, so
+  non-workspace projects no longer fail unless they actually opt into
+  swarm wiring.
 - Fixed swarm child command construction to append `--no-deps` for nested
   `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
   processes from re-resolving workspace dependencies that the parent swarm

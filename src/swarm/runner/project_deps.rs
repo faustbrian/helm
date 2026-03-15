@@ -16,10 +16,7 @@ pub(crate) fn run_project_swarm_dependencies(
     options: RunProjectSwarmDependenciesOptions<'_>,
 ) -> Result<()> {
     let Some(context) = resolve_workspace_swarm_context(options.project_root)? else {
-        anyhow::bail!(
-            "could not resolve workspace swarm config for project root {}",
-            options.project_root.display()
-        );
+        return Ok(());
     };
 
     if context.target.depends_on.is_empty() {

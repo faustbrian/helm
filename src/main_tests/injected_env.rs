@@ -189,3 +189,31 @@ fn project_dependency_injected_env_is_empty_outside_swarm_workspace() -> Result<
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[test]
+fn project_dependency_runner_is_noop_outside_swarm_workspace() -> Result<()> {
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!("helm-project-deps-runner-noop-{nonce}"));
+    std::fs::create_dir_all(&root)?;
+    std::fs::write(
+        root.join(".helm.toml"),
+        "project_type = \"project\"\ncontainer_prefix = \"solo\"\n",
+    )?;
+
+    let result = run_project_swarm_dependencies(crate::swarm::RunProjectSwarmDependenciesOptions {
+        operation: "up",
+        project_root: &root,
+        quiet: true,
+        no_color: true,
+        dry_run: true,
+        runtime_env: None,
+        force_down_deps: false,
+    });
+
+    std::fs::remove_dir_all(root)?;
+    assert!(
+        result.is_ok(),
+        "expected standalone project dependency run to noop"
+    );
+    Ok(())
+}
