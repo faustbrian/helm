@@ -19,12 +19,13 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Fixed standalone lifecycle commands such as `helm up` to treat missing
-  workspace swarm context as a no-op for project dependencies, so
-  non-workspace projects no longer fail unless they actually opt into
+  workspace swarm context as a no-op for project dependencies, and fixed
+  `--no-deps` to skip workspace swarm injected-env resolution entirely,
+  so non-workspace projects no longer fail unless they actually opt into
   swarm wiring.
-- Fixed app serve/open URL resolution to fall back to the local published
-  endpoint when no domain is configured, so legacy projects can keep app
-  domains optional instead of failing through the Caddy path.
+- Fixed app serve/open/down routing decisions to fall back to the local
+  published endpoint when no domain is configured, so legacy projects can
+  keep app domains optional instead of failing through the Caddy path.
 - Fixed swarm child command construction to append `--no-deps` for nested
   `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
   processes from re-resolving workspace dependencies that the parent swarm

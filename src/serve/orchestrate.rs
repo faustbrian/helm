@@ -73,7 +73,7 @@ pub fn run(options: RunServeOptions<'_>) -> Result<()> {
 /// Returns an error if Docker or Caddy orchestration fails.
 pub fn down(target: &ServiceConfig) -> Result<()> {
     remove_container(target)?;
-    if !target.localhost_tls {
+    if should_use_caddy(target) {
         remove_caddy_route(target)?;
     }
     Ok(())
@@ -98,6 +98,10 @@ fn localhost_url(target: &ServiceConfig) -> String {
 
 fn should_use_local_url(target: &ServiceConfig) -> bool {
     target.localhost_tls || target.primary_domain().is_none()
+}
+
+fn should_use_caddy(target: &ServiceConfig) -> bool {
+    !should_use_local_url(target)
 }
 
 fn local_url(target: &ServiceConfig) -> String {
@@ -127,7 +131,7 @@ fn caddy_served_url(target: &ServiceConfig, https_port: u16) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::public_url;
+    use super::{public_url, should_use_caddy, should_use_local_url};
     use crate::config::{Driver, Kind, ServiceConfig};
 
     fn service() -> ServiceConfig {
@@ -187,5 +191,14 @@ mod tests {
 
         let url = public_url(&target).expect("public url");
         assert_eq!(url, "https://localhost:8080");
+    }
+
+    #[test]
+    fn domainless_targets_use_local_url_instead_of_caddy() {
+        let mut target = service();
+        target.domain = None;
+
+        assert!(should_use_local_url(&target));
+        assert!(!should_use_caddy(&target));
     }
 }

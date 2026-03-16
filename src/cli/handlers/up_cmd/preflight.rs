@@ -51,7 +51,11 @@ pub(super) fn prepare_up_context(
             force_down_deps: false,
         })?;
 
-    let project_dependency_env = swarm::resolve_project_dependency_injected_env(&workspace_root)?;
+    let project_dependency_env = if options.include_project_deps {
+        swarm::resolve_project_dependency_injected_env(&workspace_root)?
+    } else {
+        HashMap::new()
+    };
     let env_path = cli::support::env_output_path(
         options.env_output,
         options.config_path,
@@ -64,4 +68,72 @@ pub(super) fn prepare_up_context(
         project_dependency_env,
         env_path,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PrepareUpContextOptions, prepare_up_context};
+    use crate::config::{Config, ProjectType};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn config() -> Config {
+        Config {
+            schema_version: 1,
+            project_type: ProjectType::Project,
+            container_prefix: None,
+            domain_strategy: None,
+            service: Vec::new(),
+            swarm: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn prepare_up_context_skips_swarm_injected_env_when_project_deps_are_disabled()
+    -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!(
+            "helm-up-preflight-no-deps-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root)?;
+        fs::write(
+            root.join(".helm.toml"),
+            r#"
+project_type = "project"
+[[swarm]]
+name = "api"
+root = "./"
+
+[[swarm.inject_env]]
+env = "LOCATION_API_BASE_URL"
+from = "location"
+value = ":base_url"
+"#,
+        )?;
+
+        let mut cfg = config();
+        let result = prepare_up_context(
+            &mut cfg,
+            PrepareUpContextOptions {
+                repro: false,
+                env_output: false,
+                save_ports: false,
+                config_path: None,
+                project_root: Some(&root),
+                include_project_deps: false,
+                quiet: true,
+                no_color: true,
+                dry_run: true,
+                runtime_env: None,
+            },
+        );
+
+        fs::remove_dir_all(&root)?;
+        let prepared = result.expect("preflight should skip swarm injected env");
+        assert!(prepared.project_dependency_env.is_empty());
+        Ok(())
+    }
 }
