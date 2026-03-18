@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -171,7 +172,7 @@ fn adaptive_pool_size_from_signals(
 }
 
 fn docker_resource_hint() -> Option<ResourceHint> {
-    let output = std::process::Command::new(crate::docker::docker_command())
+    let output = Command::new(crate::docker::docker_command())
         .args(["info", "--format", "{{.MemTotal}} {{.NCPU}}"])
         .output()
         .ok()?;
@@ -203,7 +204,7 @@ fn host_memory_bytes() -> Option<u64> {
 
 #[cfg(target_os = "macos")]
 fn host_memory_bytes() -> Option<u64> {
-    let output = std::process::Command::new("sysctl")
+    let output = Command::new("sysctl")
         .args(["-n", "hw.memsize"])
         .output()
         .ok()?;
@@ -263,8 +264,15 @@ fn read_slot_pid(slot_path: &Path) -> Option<u32> {
 }
 
 fn process_exists(pid: u32) -> bool {
-    std::process::Command::new("kill")
+    process_exists_with_command("kill", pid)
+}
+
+fn process_exists_with_command(command: &str, pid: u32) -> bool {
+    Command::new(command)
         .args(["-0", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }
@@ -273,14 +281,20 @@ fn process_exists(pid: u32) -> bool {
 mod tests {
     use std::collections::HashMap;
     use std::fs;
+    use std::io::Read;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
         ResourceHint, acquire_testing_runtime_lease, adaptive_pool_size_from_signals,
-        resolve_pooled_runtime_env_name, should_reclaim_existing_slot_with,
-        testing_runtime_env_name, testing_runtime_pool_size_from_env, workspace_pool_key,
+        process_exists_with_command, resolve_pooled_runtime_env_name,
+        should_reclaim_existing_slot_with, testing_runtime_env_name,
+        testing_runtime_pool_size_from_env, workspace_pool_key,
     };
+
+    static PATH_MUTEX: Mutex<()> = Mutex::new(());
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -425,5 +439,36 @@ mod tests {
         fs::write(&slot_path, "not-a-pid\n").expect("write invalid slot");
 
         assert!(!should_reclaim_existing_slot_with(&slot_path, |_| false));
+    }
+
+    #[test]
+    fn process_exists_with_command_checks_pid_quietly() {
+        let _guard = PATH_MUTEX.lock().unwrap_or_else(|err| err.into_inner());
+        let root = temp_root("fake-kill");
+        let binary = root.join("kill");
+        let args_file = root.join("kill-args.txt");
+        fs::write(
+            &binary,
+            format!(
+                "#!/bin/sh\nprintf '%s %s' \"$1\" \"$2\" > '{}'\nprintf '%s' 'No such process' >&2\nexit 1\n",
+                args_file.display()
+            ),
+        )
+        .expect("write fake kill");
+        let mut perms = fs::metadata(&binary).expect("kill metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&binary, perms).expect("chmod kill");
+
+        assert!(!process_exists_with_command(
+            binary.to_str().expect("binary path"),
+            424242
+        ));
+
+        let mut recorded_args = String::new();
+        fs::File::open(args_file)
+            .expect("open args file")
+            .read_to_string(&mut recorded_args)
+            .expect("read args file");
+        assert_eq!(recorded_args, "-0 424242");
     }
 }

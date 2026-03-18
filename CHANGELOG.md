@@ -18,6 +18,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed `helm artisan test` pooled-runtime stale-slot probing to silence
+  expected `kill -0` stderr for dead PIDs, preventing random `kill: <pid>:
+  No such process` noise during normal slot reclamation.
 - Fixed standalone lifecycle commands such as `helm up` to treat missing
   workspace swarm context as a no-op for project dependencies, and fixed
   `--no-deps` to skip workspace swarm injected-env resolution entirely,
