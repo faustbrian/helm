@@ -49,6 +49,8 @@ pub fn preset_preview(preset: &str) -> Result<ServiceConfig> {
         health_statuses: None,
         localhost_tls: None,
         octane: None,
+        octane_workers: None,
+        octane_max_requests: None,
         php_extensions: None,
         trust_container_ca: None,
         env_mapping: None,

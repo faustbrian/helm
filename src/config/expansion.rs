@@ -63,3 +63,58 @@ pub(super) fn expand_raw_config(raw: RawConfig) -> Result<Config> {
 pub(super) fn expand_raw_service(raw: RawServiceConfig) -> Result<ServiceConfig> {
     service::expand_raw_service(raw)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{RawServiceConfig, expand_raw_service};
+    use crate::config::{Driver, Kind};
+
+    #[test]
+    fn expand_raw_service_preserves_octane_worker_settings() -> anyhow::Result<()> {
+        let service = expand_raw_service(RawServiceConfig {
+            preset: None,
+            name: Some("app".to_owned()),
+            kind: Some(Kind::App),
+            driver: Some(Driver::Frankenphp),
+            image: Some("dunglas/frankenphp:php8.5".to_owned()),
+            host: Some("127.0.0.1".to_owned()),
+            port: Some(8080),
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: Some("acme.helm".to_owned()),
+            domains: None,
+            container_port: Some(80),
+            smtp_port: None,
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            localhost_tls: None,
+            octane: Some(true),
+            octane_workers: Some(6),
+            octane_max_requests: Some(500),
+            php_extensions: None,
+            trust_container_ca: None,
+            env_mapping: None,
+            javascript: None,
+            container_name: None,
+        })?;
+
+        assert!(service.octane);
+        assert_eq!(service.octane_workers, Some(6));
+        assert_eq!(service.octane_max_requests, Some(500));
+
+        Ok(())
+    }
+}

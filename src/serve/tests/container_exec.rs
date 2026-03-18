@@ -25,6 +25,30 @@ fn octane_enabled_uses_default_octane_command() {
 }
 
 #[test]
+fn octane_enabled_uses_configured_worker_settings() {
+    let mut service = app_service();
+    service.octane = true;
+    service.octane_workers = Some(8);
+    service.octane_max_requests = Some(250);
+
+    let command = resolved_run_command(&service).expect("octane command");
+    assert_eq!(
+        command,
+        vec![
+            "php".to_owned(),
+            "artisan".to_owned(),
+            "octane:frankenphp".to_owned(),
+            "--ansi".to_owned(),
+            "--watch".to_owned(),
+            "--workers=8".to_owned(),
+            "--max-requests=250".to_owned(),
+            "--host=0.0.0.0".to_owned(),
+            "--port=80".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn explicit_command_overrides_octane_default_command() {
     let mut service = app_service();
     service.octane = true;

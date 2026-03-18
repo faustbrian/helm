@@ -87,6 +87,12 @@ pub struct ServiceConfig {
     /// Run this app with Laravel Octane (frankenphp) when no custom command is set.
     #[serde(default)]
     pub octane: bool,
+    /// Optional Octane worker count for the default FrankenPHP command.
+    #[serde(default)]
+    pub octane_workers: Option<u16>,
+    /// Optional Octane max requests for the default FrankenPHP command.
+    #[serde(default)]
+    pub octane_max_requests: Option<u32>,
     /// Optional PHP extensions to auto-install into a derived serve image.
     #[serde(default)]
     pub php_extensions: Option<Vec<String>>,

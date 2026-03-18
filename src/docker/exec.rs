@@ -147,6 +147,8 @@ mod tests {
             health_statuses: None,
             localhost_tls: false,
             octane: false,
+            octane_workers: None,
+            octane_max_requests: None,
             php_extensions: None,
             trust_container_ca: false,
             env_mapping: None,

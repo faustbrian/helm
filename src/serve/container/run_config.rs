@@ -15,14 +15,17 @@ pub(crate) fn resolved_run_command(target: &ServiceConfig) -> Option<Vec<String>
     }
 
     if target.octane && target.driver == Driver::Frankenphp {
+        let worker_count = target.octane_workers.unwrap_or(1);
+        let max_requests = target.octane_max_requests.unwrap_or(1);
+
         return Some(vec![
             "php".to_owned(),
             "artisan".to_owned(),
             "octane:frankenphp".to_owned(),
             "--ansi".to_owned(),
             "--watch".to_owned(),
-            "--workers=1".to_owned(),
-            "--max-requests=1".to_owned(),
+            format!("--workers={worker_count}"),
+            format!("--max-requests={max_requests}"),
             "--host=0.0.0.0".to_owned(),
             format!("--port={}", target.resolved_container_port()),
         ]);

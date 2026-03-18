@@ -72,6 +72,10 @@ pub(crate) struct RawServiceConfig {
     #[serde(default)]
     pub octane: Option<bool>,
     #[serde(default)]
+    pub octane_workers: Option<u16>,
+    #[serde(default)]
+    pub octane_max_requests: Option<u32>,
+    #[serde(default)]
     pub php_extensions: Option<Vec<String>>,
     #[serde(default)]
     pub trust_container_ca: Option<bool>,

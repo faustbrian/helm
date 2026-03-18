@@ -93,6 +93,14 @@ pub(super) fn expand_raw_service(raw: RawServiceConfig) -> Result<ServiceConfig>
         octane: raw
             .octane
             .unwrap_or_else(|| defaults.as_ref().is_some_and(|d| d.octane)),
+        octane_workers: merge_opt_copy(
+            raw.octane_workers,
+            defaults.as_ref().and_then(|d| d.octane_workers),
+        ),
+        octane_max_requests: merge_opt_copy(
+            raw.octane_max_requests,
+            defaults.as_ref().and_then(|d| d.octane_max_requests),
+        ),
         php_extensions: raw
             .php_extensions
             .or_else(|| defaults.as_ref().and_then(|d| d.php_extensions.clone())),

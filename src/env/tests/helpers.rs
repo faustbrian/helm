@@ -34,6 +34,8 @@ pub(super) fn svc(name: &str, kind: Kind, driver: Driver, port: u16) -> ServiceC
         health_statuses: None,
         localhost_tls: false,
         octane: false,
+        octane_workers: None,
+        octane_max_requests: None,
         php_extensions: None,
         trust_container_ca: false,
         env_mapping: None,
