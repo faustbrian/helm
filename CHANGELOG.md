@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed Docker heavy-operation slot scheduling to reclaim stale PID lock
+  files and wait long enough for slow runtime cleanup, preventing random
+  `helm artisan test` setup failures while `docker rm` or `docker volume rm`
+  is queued behind abandoned or long-running heavy ops.
 - Fixed `helm artisan test` pooled-runtime stale-slot probing to silence
   expected `kill -0` stderr for dead PIDs, preventing random `kill: <pid>:
   No such process` noise during normal slot reclamation.
