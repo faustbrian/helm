@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed app-service startup waits to stop forcing HTTP `/up` probes onto
+  non-HTTP worker presets such as Horizon, while adding default HTTP health
+  paths for `frankenphp`, `reverb`, and `soketi` so `start --wait` uses the
+  correct readiness checks for each app preset.
 - Fixed `helm restore --service <db> --migrate` and `--schema-dump` to
   resolve and pass the restored service's Laravel database connection
   into `helm artisan`, and clarified post-restore logs to print the exact

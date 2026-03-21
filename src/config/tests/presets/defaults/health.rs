@@ -10,6 +10,14 @@ fn app_presets_apply_default_health_checks() {
             name = "web"
 
             [[service]]
+            preset = "frankenphp"
+            name = "plain-web"
+
+            [[service]]
+            preset = "reverb"
+            name = "ws"
+
+            [[service]]
             preset = "gotenberg"
             name = "pdf"
 
@@ -20,6 +28,10 @@ fn app_presets_apply_default_health_checks() {
             [[service]]
             preset = "mailpit"
             name = "mailpit"
+
+            [[service]]
+            preset = "soketi"
+            name = "socket"
 
             [[service]]
             preset = "selenium"
@@ -36,6 +48,22 @@ fn app_presets_apply_default_health_checks() {
         .expect("web service");
     assert_eq!(web.health_path.as_deref(), Some("/up"));
     assert_eq!(web.health_statuses.as_deref(), Some(&[200][..]));
+
+    let plain_web = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "plain-web")
+        .expect("plain web service");
+    assert_eq!(plain_web.health_path.as_deref(), Some("/"));
+    assert_eq!(plain_web.health_statuses.as_deref(), Some(&[200][..]));
+
+    let ws = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "ws")
+        .expect("reverb service");
+    assert_eq!(ws.health_path.as_deref(), Some("/"));
+    assert_eq!(ws.health_statuses.as_deref(), Some(&[200][..]));
 
     let pdf = config
         .service
@@ -60,6 +88,14 @@ fn app_presets_apply_default_health_checks() {
         .expect("mailpit service");
     assert_eq!(mailpit.health_path.as_deref(), Some("/"));
     assert_eq!(mailpit.health_statuses.as_deref(), Some(&[200][..]));
+
+    let socket = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "socket")
+        .expect("soketi service");
+    assert_eq!(socket.health_path.as_deref(), Some("/"));
+    assert_eq!(socket.health_statuses.as_deref(), Some(&[200][..]));
 
     let browser = config
         .service
