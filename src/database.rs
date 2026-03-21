@@ -13,6 +13,8 @@ mod restore;
 mod setup;
 mod sql_admin;
 
+pub(crate) use post_restore::PostRestoreOptions;
+
 pub fn setup(service: &ServiceConfig, timeout: u64) -> Result<()> {
     setup::setup(service, timeout)
 }
@@ -34,16 +36,6 @@ pub fn restore_stdin(service: &ServiceConfig, reset: bool, gzip: bool) -> Result
 }
 
 /// Runs optional post-restore app hooks (`migrate` and/or `schema:dump`).
-pub fn run_laravel_post_restore(
-    run_migrate: bool,
-    run_schema_dump: bool,
-    project_root_override: Option<&Path>,
-    config_path: Option<&Path>,
-) -> Result<()> {
-    post_restore::run_laravel_post_restore(
-        run_migrate,
-        run_schema_dump,
-        project_root_override,
-        config_path,
-    )
+pub fn run_laravel_post_restore(options: PostRestoreOptions<'_>) -> Result<()> {
+    post_restore::run_laravel_post_restore(options)
 }

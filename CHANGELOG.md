@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed `helm restore --service <db> --migrate` and `--schema-dump` to
+  resolve and pass the restored service's Laravel database connection
+  into `helm artisan`, and clarified post-restore logs to print the exact
+  `--database=...` connection used for each restored service.
 - Fixed Docker heavy-operation slot scheduling to reclaim stale PID lock
   files and wait long enough for slow runtime cleanup, preventing random
   `helm artisan test` setup failures while `docker rm` or `docker volume rm`

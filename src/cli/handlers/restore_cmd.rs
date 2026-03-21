@@ -31,12 +31,13 @@ pub(crate) fn handle_restore(
     }
 
     if options.migrate || options.schema_dump {
-        database::run_laravel_post_restore(
+        database::run_laravel_post_restore(database::PostRestoreOptions::new(
             options.migrate,
             options.schema_dump,
+            svc,
             options.project_root,
             options.config_path,
-        )?;
+        ))?;
     }
 
     Ok(())
