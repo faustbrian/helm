@@ -11,6 +11,7 @@ use crate::{cli, config};
 mod command;
 mod runtime;
 mod test_command;
+mod test_extensions;
 #[cfg(test)]
 mod tests;
 
@@ -20,6 +21,7 @@ use command::{
 };
 use runtime::{acquire_testing_runtime_lease, cleanup_test_services, ensure_test_services_running};
 use test_command::{build_artisan_test_command, should_bootstrap_playwright};
+use test_extensions::ensure_artisan_test_runtime_extensions;
 
 pub(crate) struct HandleArtisanOptions<'a> {
     pub(crate) service: Option<&'a str>,
@@ -82,6 +84,18 @@ pub(crate) fn handle_artisan(
         options.kind,
         options.profile,
     )?;
+    if is_test_command {
+        let selected_app =
+            config::resolve_app_service(&effective_config, selected_service.as_deref())?
+                .name
+                .clone();
+        let target = effective_config
+            .service
+            .iter_mut()
+            .find(|service| service.name == selected_app)
+            .ok_or_else(|| anyhow!("app service '{selected_app}' should be configured"))?;
+        ensure_artisan_test_runtime_extensions(target);
+    }
 
     let mut prepared_test_runtime = false;
     if is_test_command {

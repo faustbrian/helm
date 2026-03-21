@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed `helm artisan test` runtime planning to automatically include the
+  `pcov` PHP extension in derived app images so Laravel coverage runs have a
+  driver available without repeating `php_extensions = ["pcov"]` in app
+  config.
 - Fixed app-service startup waits to stop forcing HTTP `/up` probes onto
   non-HTTP worker presets such as Horizon, while adding default HTTP health
   paths for `frankenphp`, `reverb`, and `soketi` so `start --wait` uses the
