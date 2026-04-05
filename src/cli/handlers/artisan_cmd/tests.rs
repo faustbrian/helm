@@ -64,14 +64,14 @@ fn artisan_tty_uses_effective_tty_default_path() {
 }
 
 #[test]
-fn artisan_test_command_sets_memory_limit_to_2048m() {
+fn artisan_test_command_sets_memory_limit_to_4096m() {
     let mut inferred_env = HashMap::new();
     inferred_env.insert("DB_HOST".to_owned(), "host.docker.internal".to_owned());
 
     let command = build_artisan_test_command(vec!["test".to_owned()], &inferred_env, false);
     assert_eq!(command[0], "sh");
     assert_eq!(command[1], "-lc");
-    assert!(command[2].contains("memory_limit=2048M"));
+    assert!(command[2].contains("memory_limit=4096M"));
     assert!(command[2].contains("export PHP_INI_SCAN_DIR="));
     assert!(command[2].contains("export DB_HOST='host.docker.internal'"));
     assert!(command[2].contains("export APP_ENV='testing'"));

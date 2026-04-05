@@ -54,7 +54,7 @@ fn derived_dockerfile_can_include_js_tooling() {
     assert!(rendered.contains("--column-statistics=0|--set-gtid-purged=OFF"));
     assert!(rendered.contains("--ssl-mode=DISABLED"));
     assert!(rendered.contains("postgresql-client"));
-    assert!(rendered.contains("memory_limit=2048M"));
+    assert!(rendered.contains("memory_limit=4096M"));
 }
 
 #[test]

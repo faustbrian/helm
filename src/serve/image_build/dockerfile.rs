@@ -51,7 +51,7 @@ pub(super) fn render_derived_dockerfile(
         // Keep a high default for all PHP processes inside the app container,
         // including child test runners spawned by `artisan test`.
         dockerfile.push_str(
-            "RUN echo 'memory_limit=2048M' > /usr/local/etc/php/conf.d/zz-helm-memory-limit.ini\n",
+            "RUN echo 'memory_limit=4096M' > /usr/local/etc/php/conf.d/zz-helm-memory-limit.ini\n",
         );
     }
 

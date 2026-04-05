@@ -37,7 +37,7 @@ pub(super) fn build_artisan_test_command(
     };
 
     let script = format!(
-        "mkdir -p /tmp/helm-php/conf.d \\\n&& printf 'memory_limit=2048M\\n' > /tmp/helm-php/conf.d/zz-helm-memory.ini \\\n&& export PHP_INI_SCAN_DIR='/tmp/helm-php/conf.d:/usr/local/etc/php/conf.d' \\\n&& {}{playwright_bootstrap} \\\n&& {escaped}",
+        "mkdir -p /tmp/helm-php/conf.d \\\n&& printf 'memory_limit=4096M\\n' > /tmp/helm-php/conf.d/zz-helm-memory.ini \\\n&& export PHP_INI_SCAN_DIR='/tmp/helm-php/conf.d:/usr/local/etc/php/conf.d' \\\n&& {}{playwright_bootstrap} \\\n&& {escaped}",
         exports.join(" && ")
     );
     vec!["sh".to_owned(), "-lc".to_owned(), script]

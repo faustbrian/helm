@@ -18,6 +18,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed Helm's default PHP memory limit for derived app images and
+  `helm artisan test` runs to `4096M`, reducing coverage-run failures
+  caused by the previous `2048M` ceiling.
 - Fixed `helm artisan test` runtime planning to automatically include the
   `pcov` PHP extension in derived app images so Laravel coverage runs have a
   driver available without repeating `php_extensions = ["pcov"]` in app
