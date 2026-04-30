@@ -95,7 +95,7 @@ fn render_deno_install(version: Option<&str>) -> String {
 fn render_bun_install(version: Option<&str>) -> String {
     let version_arg = version
         .map(|value| format!("bun-v{value}"))
-        .unwrap_or_else(|| "latest".to_owned());
+        .unwrap_or_default();
 
     format!(
         "curl -fsSL https://bun.sh/install | bash -s -- {version_arg} \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun"

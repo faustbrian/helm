@@ -129,6 +129,23 @@ fn derived_dockerfile_can_install_bun_runtime() {
 }
 
 #[test]
+fn derived_dockerfile_installs_latest_bun_without_latest_alias() {
+    let rendered = render_derived_dockerfile(
+        "dunglas/frankenphp:php8.5",
+        &Vec::new(),
+        true,
+        JavaScriptRuntime::Bun,
+        VersionManager::System,
+        None,
+        SqlClientFlavor::Mysql,
+    );
+
+    assert!(rendered.contains("https://bun.sh/install"));
+    assert!(!rendered.contains("bash -s -- latest"));
+    assert!(!rendered.contains("bun-linux-aarch64.zip"));
+}
+
+#[test]
 fn normalize_php_extensions_maps_sqlite_to_sqlite3_and_dedupes() {
     let normalized = normalize_php_extensions(&[
         "sqlite".to_owned(),
