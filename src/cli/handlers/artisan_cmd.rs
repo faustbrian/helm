@@ -102,10 +102,14 @@ pub(crate) fn handle_artisan(
         let resolved_workspace_root = workspace_root
             .clone()
             .ok_or_else(|| anyhow!("testing workspace root should be set"))?;
-        match ensure_test_services_running(&mut effective_config, &resolved_workspace_root) {
+        match ensure_test_services_running(
+            &mut effective_config,
+            &resolved_workspace_root,
+            selected_service.as_deref(),
+        ) {
             Ok(()) => prepared_test_runtime = true,
             Err(start_error) => {
-                return match cleanup_test_services(&effective_config) {
+                return match cleanup_test_services(&effective_config, selected_service.as_deref()) {
                     Ok(()) => Err(start_error),
                     Err(cleanup_error) => Err(anyhow!(
                         "failed to prepare test runtime: {start_error}; failed to cleanup test \
@@ -155,7 +159,7 @@ pub(crate) fn handle_artisan(
         return command_result;
     }
 
-    let cleanup_result = cleanup_test_services(&effective_config);
+    let cleanup_result = cleanup_test_services(&effective_config, selected_service.as_deref());
     match (command_result, cleanup_result) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(command_error), Ok(())) => Err(command_error),

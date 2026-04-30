@@ -30,17 +30,21 @@ pub(super) fn set_testing_runtime_pool_size_override(pool_size: Option<usize>) {
 pub(super) fn ensure_test_services_running(
     config: &mut config::Config,
     workspace_root: &Path,
+    selected_service: Option<&str>,
 ) -> Result<()> {
     let (_, app_env) = prepare_testing_runtime(config)?;
-    let startup_services = resolve_testing_startup_services(config)?;
+    let startup_services = resolve_testing_startup_services(config, selected_service)?;
     cleanup_stale_testing_runtime_containers(&startup_services)?;
     let start_context = cli::support::ServiceStartContext::new(workspace_root, &app_env);
     run_testing_startup_services(&startup_services, &start_context, reset_service_runtime)
 }
 
 /// Tears down all test runtime services for the current runtime environment.
-pub(super) fn cleanup_test_services(config: &config::Config) -> Result<()> {
-    let startup_services = resolve_testing_startup_services(config)?;
+pub(super) fn cleanup_test_services(
+    config: &config::Config,
+    selected_service: Option<&str>,
+) -> Result<()> {
+    let startup_services = resolve_testing_startup_services(config, selected_service)?;
     for svc in startup_services {
         reset_service_runtime(svc)?;
     }
