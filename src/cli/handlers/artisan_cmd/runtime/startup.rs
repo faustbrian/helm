@@ -10,7 +10,43 @@ pub(super) fn resolve_testing_startup_services<'a>(
     config: &'a config::Config,
     selected_service: Option<&'a str>,
 ) -> Result<Vec<&'a config::ServiceConfig>> {
-    cli::support::resolve_up_services(config, selected_service, None, None)
+    if selected_service.is_none() {
+        return cli::support::resolve_up_services(config, None, None, None);
+    }
+
+    let mut selected_names = config
+        .service
+        .iter()
+        .filter(|service| service.kind != config::Kind::App)
+        .map(|service| service.name.clone())
+        .collect::<Vec<_>>();
+    selected_names.push(selected_service.expect("selected service should exist").to_owned());
+
+    let by_name = config
+        .service
+        .iter()
+        .map(|service| (service.name.as_str(), service))
+        .collect::<std::collections::HashMap<_, _>>();
+    let ordered_names = crate::dependency_order::order_dependency_names(
+        &selected_names,
+        |current| {
+            let Some(service) = by_name.get(current).copied() else {
+                anyhow::bail!("service '{current}' is missing");
+            };
+            Ok(service.depends_on.clone().unwrap_or_default())
+        },
+        |current| format!("circular dependency detected at service '{current}'"),
+    )?;
+
+    ordered_names
+        .iter()
+        .map(|name| {
+            by_name
+                .get(name.as_str())
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("service '{name}' is missing"))
+        })
+        .collect()
 }
 
 pub(super) fn run_testing_startup_services<F>(
@@ -44,7 +80,7 @@ mod tests {
     use crate::config::{Config, Driver, Kind, ProjectType, ServiceConfig};
 
     #[test]
-    fn resolve_testing_startup_services_scopes_to_selected_app_dependencies() {
+    fn resolve_testing_startup_services_keeps_infra_and_selected_app_only() {
         let config = Config {
             schema_version: 1,
             project_type: ProjectType::Project,
@@ -52,6 +88,7 @@ mod tests {
             domain_strategy: None,
             service: vec![
                 service("db", Kind::Database, Driver::Postgres, None),
+                service("cache", Kind::Cache, Driver::Valkey, None),
                 service("app", Kind::App, Driver::Frankenphp, Some(vec!["db"])),
                 service("profile-app", Kind::App, Driver::Frankenphp, Some(vec!["db"])),
             ],
@@ -62,7 +99,7 @@ mod tests {
             resolve_testing_startup_services(&config, Some("app")).expect("resolve services");
         let names: Vec<&str> = scoped.iter().map(|service| service.name.as_str()).collect();
 
-        assert_eq!(names, vec!["db", "app"]);
+        assert_eq!(names, vec!["db", "cache", "app"]);
     }
 
     fn service(
