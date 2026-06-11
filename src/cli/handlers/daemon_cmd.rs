@@ -4,18 +4,21 @@
 
 use crate::cli::args::{
     DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonStartArgs, DaemonStatusArgs,
-    DaemonStopArgs,
+    DaemonStopArgs, DaemonWatchArgs,
 };
 use crate::config;
-use crate::daemon::{self, DaemonSession};
+use crate::daemon::{self, DaemonSession, DiscoveryReport};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
     match &args.command {
         DaemonCommands::Start(start) => handle_daemon_start(start),
+        DaemonCommands::Watch(watch) => handle_daemon_watch(watch),
         DaemonCommands::Status(status) => handle_daemon_status(status),
         DaemonCommands::Stop(stop) => handle_daemon_stop(stop),
         DaemonCommands::Logs(logs) => handle_daemon_logs(logs),
@@ -25,20 +28,43 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
 
 fn handle_daemon_start(args: &DaemonStartArgs) -> Result<()> {
     let project_root = resolve_daemon_project_root(&args.path)?;
+    start_daemon_for_project_root(&project_root, true)?;
+    Ok(())
+}
+
+fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {
+    loop {
+        let report = daemon::discover_projects(&args.dir)?;
+        log_discovery_report(&report);
+        for project_root in &report.projects {
+            start_daemon_for_project_root(project_root, false)?;
+        }
+
+        if args.once {
+            return Ok(());
+        }
+
+        thread::sleep(Duration::from_secs(args.interval.max(1)));
+    }
+}
+
+fn start_daemon_for_project_root(project_root: &Path, log_existing: bool) -> Result<bool> {
     if let Some(existing) = daemon::load_session(&project_root)?
         && daemon::pid_is_running(existing.pid)
     {
-        output::event(
-            "daemon",
-            LogLevel::Info,
-            &format!(
-                "Daemon already running for {} (pid {})",
-                project_root.display(),
-                existing.pid
-            ),
-            Persistence::Persistent,
-        );
-        return Ok(());
+        if log_existing {
+            output::event(
+                "daemon",
+                LogLevel::Info,
+                &format!(
+                    "Daemon already running for {} (pid {})",
+                    project_root.display(),
+                    existing.pid
+                ),
+                Persistence::Persistent,
+            );
+        }
+        return Ok(false);
     }
 
     let log_path = daemon::daemon_log_path(&project_root)?;
@@ -62,7 +88,33 @@ fn handle_daemon_start(args: &DaemonStartArgs) -> Result<()> {
         ),
         Persistence::Persistent,
     );
-    Ok(())
+    Ok(true)
+}
+
+fn log_discovery_report(report: &DiscoveryReport) {
+    for invalid in &report.invalid_configs {
+        output::event(
+            "daemon",
+            LogLevel::Error,
+            &format!(
+                "Skipping invalid Helm project config at {}",
+                invalid.display()
+            ),
+            Persistence::Persistent,
+        );
+    }
+
+    for duplicate in &report.duplicate_projects {
+        output::event(
+            "daemon",
+            LogLevel::Info,
+            &format!(
+                "Skipping duplicate discovered Helm project at {}",
+                duplicate.display()
+            ),
+            Persistence::Persistent,
+        );
+    }
 }
 
 fn handle_daemon_status(args: &DaemonStatusArgs) -> Result<()> {
@@ -153,6 +205,7 @@ mod tests {
 
     use crate::cli::args::{
         DaemonArgs, DaemonCommands, DaemonStartArgs, DaemonStatusArgs, DaemonStopArgs,
+        DaemonWatchArgs,
     };
 
     fn temp_project_root(name: &str) -> PathBuf {
@@ -241,6 +294,47 @@ mod tests {
                 .expect("load daemon session after stop")
                 .is_none()
         );
+
+        crate::daemon::clear_test_daemon_binary();
+        crate::daemon::clear_test_daemon_home();
+    }
+
+    #[test]
+    fn daemon_watch_once_discovers_projects_and_starts_missing_daemons() {
+        let watch_root = temp_home("watch-root");
+        let project_root = watch_root.join("project-a");
+        fs::create_dir_all(&project_root).expect("create project root");
+        fs::write(
+            project_root.join(".helm.toml"),
+            "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
+        )
+        .expect("write helm config");
+
+        let home = temp_home("watch-home");
+        let binary = mock_daemon_binary(&home);
+        crate::daemon::set_test_daemon_home(home.to_str().expect("home path"));
+        crate::daemon::set_test_daemon_binary(&binary);
+
+        super::handle_daemon(&DaemonArgs {
+            command: DaemonCommands::Watch(DaemonWatchArgs {
+                dir: vec![watch_root.clone()],
+                once: true,
+                interval: 1,
+            }),
+        })
+        .expect("watch once");
+
+        let session = crate::daemon::load_session(&project_root)
+            .expect("load watch session")
+            .expect("watch should create daemon session");
+        assert!(crate::daemon::pid_is_running(session.pid));
+
+        super::handle_daemon(&DaemonArgs {
+            command: DaemonCommands::Stop(DaemonStopArgs {
+                path: project_root.clone(),
+            }),
+        })
+        .expect("stop watched daemon");
 
         crate::daemon::clear_test_daemon_binary();
         crate::daemon::clear_test_daemon_home();

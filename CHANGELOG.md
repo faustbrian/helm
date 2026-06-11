@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file.
   before normal config loading.
 - Added per-project daemon session persistence under `~/.config/helm/daemon/`
   so daemon commands can track pid and log metadata across separate CLI runs.
+- Added `helm daemon watch` with repeatable `--dir` roots, `--once`, and
+  `--interval` so Helm can discover `.helm.toml` projects and start missing
+  per-project daemons automatically.
 
 ### Changed
 
@@ -28,6 +31,9 @@ All notable changes to this project are documented in this file.
 - Changed the daemon child path to bootstrap projects through the existing
   `start` flow, then supervise service containers by polling for non-running
   containers and retrying recovery with exponential backoff.
+- Changed daemon project discovery to deduplicate overlapping watch roots,
+  skip nested child projects once a valid parent project is managed, and
+  report invalid `.helm.toml` files without stopping sibling discovery.
 
 ### Fixed
 

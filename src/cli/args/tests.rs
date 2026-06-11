@@ -815,6 +815,13 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
+    let watch = Cli::parse_from(["helm", "daemon", "watch", "--dir", "/tmp/projects"]);
+    if let commands::Commands::Daemon(args) = watch.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Watch(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+
     let status = Cli::parse_from(["helm", "daemon", "status", "--path", "/tmp/project"]);
     if let commands::Commands::Daemon(args) = status.command {
         assert!(matches!(args.command, commands::DaemonCommands::Status(_)));

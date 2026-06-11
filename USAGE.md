@@ -190,7 +190,7 @@ Initialize a new `.helm.toml` in the current directory.
 - `--format <FORMAT>`: output format (`toml` default, `json` supported).
 - `helm config migrate`: migrate local config schema to latest supported version.
 
-### `helm daemon <start|status|stop|logs>`
+### `helm daemon <start|watch|status|stop|logs>`
 
 Manage a per-project Helm daemon target by explicit path instead of the
 current working directory.
@@ -207,12 +207,20 @@ Notes:
   config loading, so they do not depend on the caller's current directory.
 - `daemon start` persists per-project session metadata and a log path under
   `~/.config/helm/daemon/`.
+- `daemon watch --dir <DIR>` scans one or more parent directories for
+  `.helm.toml` projects and starts missing per-project daemons.
+- `daemon watch --once` runs one discovery pass and exits.
+- `daemon watch --interval <SECONDS>` controls the repeat scan delay when
+  `--once` is not set.
 - `daemon status`, `stop`, and `logs` read that persisted session state instead
   of inferring daemon ownership from the current shell process.
 - The daemon child bootstraps the project through Helm's existing `start`
   flow, then polls managed services and reruns `up` if any service container is
   missing or no longer `running`.
 - Repeated recovery failures use exponential backoff before retrying.
+- Watch mode deduplicates overlapping watch roots, ignores nested child
+  projects under an already managed project root, and reports invalid
+  `.helm.toml` files without stopping discovery for valid sibling projects.
 
 ### `helm preset <SUBCOMMAND>`
 

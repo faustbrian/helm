@@ -1006,6 +1006,34 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
+    let watch = Cli::try_parse_from([
+        "helm",
+        "daemon",
+        "watch",
+        "--dir",
+        "/tmp/projects",
+        "--dir",
+        "/tmp/work",
+        "--once",
+        "--interval",
+        "15",
+    ])
+    .expect("parse daemon watch");
+    match watch.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Watch(watch_args) => {
+                assert_eq!(
+                    watch_args.dir,
+                    vec![PathBuf::from("/tmp/projects"), PathBuf::from("/tmp/work")]
+                );
+                assert!(watch_args.once);
+                assert_eq!(watch_args.interval, 15);
+            }
+            _ => panic!("expected daemon watch subcommand"),
+        },
+        _ => panic!("expected daemon command"),
+    }
+
     let status = Cli::try_parse_from(["helm", "daemon", "status", "--path", "/tmp/project"])
         .expect("parse daemon status");
     match status.command {
