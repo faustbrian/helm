@@ -25,6 +25,9 @@ All notable changes to this project are documented in this file.
 - Changed Docker `run` generation to default Helm-managed services to
   `--restart unless-stopped`, improving recovery after Docker restarts
   and laptop sleep without requiring a manual `helm up`.
+- Changed the daemon child path to bootstrap projects through the existing
+  `start` flow, then supervise service containers by polling for non-running
+  containers and retrying recovery with exponential backoff.
 
 ### Fixed
 

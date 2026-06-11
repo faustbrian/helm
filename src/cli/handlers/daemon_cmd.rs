@@ -2,21 +2,16 @@
 //!
 //! Contains pre-config daemon command routing used by Helm command workflows.
 
-use anyhow::Result;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::Duration;
-
 use crate::cli::args::{
     DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonStartArgs, DaemonStatusArgs,
     DaemonStopArgs,
 };
 use crate::config;
 use crate::daemon::{self, DaemonSession};
-use crate::docker;
 use crate::output::{self, LogLevel, Persistence};
-use crate::{cli, config::LoadConfigPathOptions};
+use anyhow::Result;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
     match &args.command {
@@ -143,36 +138,7 @@ fn handle_daemon_logs(args: &DaemonLogsArgs) -> Result<()> {
 
 fn handle_daemon_run(args: &DaemonRunArgs) -> Result<()> {
     let project_root = resolve_daemon_project_root(&args.path)?;
-    let mut config =
-        config::load_config_with(LoadConfigPathOptions::new(None, Some(&project_root)))?;
-    cli::handlers::handle_start(
-        &mut config,
-        cli::handlers::HandleStartOptions {
-            service: None,
-            kind: None,
-            profile: None,
-            wait: false,
-            no_wait: true,
-            wait_timeout: 30,
-            pull_policy: docker::PullPolicy::Missing,
-            force_recreate: false,
-            open_after_start: false,
-            health_path: None,
-            include_project_deps: true,
-            parallel: cli::args::default_parallelism(),
-            quiet: false,
-            no_color: false,
-            dry_run: false,
-            repro: false,
-            runtime_env: None,
-            config_path: None,
-            project_root: Some(&project_root),
-        },
-    )?;
-
-    loop {
-        thread::sleep(Duration::from_secs(60));
-    }
+    daemon::run_supervisor(&project_root)
 }
 
 fn resolve_daemon_project_root(path: &Path) -> Result<PathBuf> {

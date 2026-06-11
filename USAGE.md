@@ -209,6 +209,10 @@ Notes:
   `~/.config/helm/daemon/`.
 - `daemon status`, `stop`, and `logs` read that persisted session state instead
   of inferring daemon ownership from the current shell process.
+- The daemon child bootstraps the project through Helm's existing `start`
+  flow, then polls managed services and reruns `up` if any service container is
+  missing or no longer `running`.
+- Repeated recovery failures use exponential backoff before retrying.
 
 ### `helm preset <SUBCOMMAND>`
 
