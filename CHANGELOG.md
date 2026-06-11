@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
 - Added `helm daemon watch` with repeatable `--dir` roots, `--once`, and
   `--interval` so Helm can discover `.helm.toml` projects and start missing
   per-project daemons automatically.
+- Added `helm daemon service <install|status|print|uninstall>` so users can
+  install a login-time watch service through `launchd` or `systemd --user`
+  without hand-writing unit definitions.
 
 ### Changed
 

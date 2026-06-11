@@ -2,8 +2,14 @@
 //!
 //! Contains cli args for `helm daemon` workflows.
 
+mod service;
+
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
+
+pub(crate) use service::{
+    DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+};
 
 #[derive(Args)]
 pub(crate) struct DaemonArgs {
@@ -17,6 +23,8 @@ pub(crate) enum DaemonCommands {
     Start(DaemonStartArgs),
     /// Watch directories for Helm projects and ensure daemons are running
     Watch(DaemonWatchArgs),
+    /// Install or inspect a login-time daemon watch service
+    Service(DaemonServiceArgs),
     /// Show daemon status for a project
     Status(DaemonStatusArgs),
     /// Stop a per-project Helm daemon

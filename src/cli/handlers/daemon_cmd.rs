@@ -2,6 +2,8 @@
 //!
 //! Contains pre-config daemon command routing used by Helm command workflows.
 
+mod service;
+
 use crate::cli::args::{
     DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonStartArgs, DaemonStatusArgs,
     DaemonStopArgs, DaemonWatchArgs,
@@ -19,6 +21,7 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
     match &args.command {
         DaemonCommands::Start(start) => handle_daemon_start(start),
         DaemonCommands::Watch(watch) => handle_daemon_watch(watch),
+        DaemonCommands::Service(service_args) => service::handle_daemon_service(service_args),
         DaemonCommands::Status(status) => handle_daemon_status(status),
         DaemonCommands::Stop(stop) => handle_daemon_stop(stop),
         DaemonCommands::Logs(logs) => handle_daemon_logs(logs),

@@ -28,7 +28,7 @@ fn test_daemon_binary() -> Option<String> {
     TEST_DAEMON_BINARY.with(|value| value.borrow().clone())
 }
 
-fn daemon_binary() -> Result<String> {
+pub(crate) fn daemon_binary() -> Result<String> {
     #[cfg(test)]
     if let Some(path) = test_daemon_binary() {
         return Ok(path);

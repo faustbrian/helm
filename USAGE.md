@@ -222,6 +222,29 @@ Notes:
   projects under an already managed project root, and reports invalid
   `.helm.toml` files without stopping discovery for valid sibling projects.
 
+### `helm daemon service <install|status|print|uninstall>`
+
+Manage a login-time watch service backed by the local user service manager.
+
+Flags:
+
+- `install --dir <DIR>` (repeatable, required)
+- `install --interval <SECONDS>` (default: `30`)
+- `print --dir <DIR>` (repeatable, required)
+- `print --interval <SECONDS>` (default: `30`)
+
+Notes:
+
+- On macOS Helm installs a `launchd` user agent under
+  `~/Library/LaunchAgents/`.
+- On Linux Helm installs a `systemd --user` unit under
+  `~/.config/systemd/user/`.
+- `install` writes the rendered service definition, enables it for the current
+  user, and starts it immediately.
+- `status` reports whether the service definition is currently installed.
+- `print` shows the rendered unit/plist without writing it.
+- `uninstall` stops the installed service and removes its definition file.
+
 ### `helm preset <SUBCOMMAND>`
 
 - `helm preset list`: list available preset names.

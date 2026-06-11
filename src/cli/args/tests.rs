@@ -822,6 +822,20 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
+    let service = Cli::parse_from([
+        "helm",
+        "daemon",
+        "service",
+        "install",
+        "--dir",
+        "/tmp/projects",
+    ]);
+    if let commands::Commands::Daemon(args) = service.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Service(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+
     let status = Cli::parse_from(["helm", "daemon", "status", "--path", "/tmp/project"]);
     if let commands::Commands::Daemon(args) = status.command {
         assert!(matches!(args.command, commands::DaemonCommands::Status(_)));

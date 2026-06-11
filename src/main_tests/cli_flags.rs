@@ -1034,6 +1034,36 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
+    let service_install = Cli::try_parse_from([
+        "helm",
+        "daemon",
+        "service",
+        "install",
+        "--dir",
+        "/tmp/projects",
+        "--dir",
+        "/tmp/work",
+        "--interval",
+        "45",
+    ])
+    .expect("parse daemon service install");
+    match service_install.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Service(service_args) => match service_args.command {
+                crate::cli::args::DaemonServiceCommands::Install(install_args) => {
+                    assert_eq!(
+                        install_args.dir,
+                        vec![PathBuf::from("/tmp/projects"), PathBuf::from("/tmp/work")]
+                    );
+                    assert_eq!(install_args.interval, 45);
+                }
+                _ => panic!("expected daemon service install subcommand"),
+            },
+            _ => panic!("expected daemon service subcommand"),
+        },
+        _ => panic!("expected daemon command"),
+    }
+
     let status = Cli::try_parse_from(["helm", "daemon", "status", "--path", "/tmp/project"])
         .expect("parse daemon status");
     match status.command {

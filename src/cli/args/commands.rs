@@ -18,8 +18,9 @@ pub(crate) use app::{
     TaskCommands, TaskDepsCommands,
 };
 pub(crate) use daemon::{
-    DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonStartArgs, DaemonStatusArgs,
-    DaemonStopArgs, DaemonWatchArgs,
+    DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonServiceArgs,
+    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonStartArgs,
+    DaemonStatusArgs, DaemonStopArgs, DaemonWatchArgs,
 };
 
 #[cfg(test)]
