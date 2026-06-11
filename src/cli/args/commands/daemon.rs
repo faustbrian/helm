@@ -21,6 +21,8 @@ pub(crate) enum DaemonCommands {
     Stop(DaemonStopArgs),
     /// Show daemon log output for a project
     Logs(DaemonLogsArgs),
+    #[command(hide = true)]
+    Run(DaemonRunArgs),
 }
 
 #[derive(Args)]
@@ -46,6 +48,13 @@ pub(crate) struct DaemonStopArgs {
 
 #[derive(Args)]
 pub(crate) struct DaemonLogsArgs {
+    /// Project directory or nested path inside a Helm project
+    #[arg(long, value_name = "DIR")]
+    pub(crate) path: PathBuf,
+}
+
+#[derive(Args)]
+pub(crate) struct DaemonRunArgs {
     /// Project directory or nested path inside a Helm project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,

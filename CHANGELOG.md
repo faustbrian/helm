@@ -14,6 +14,8 @@ All notable changes to this project are documented in this file.
 - Added a `helm daemon` command group with `start`, `status`, `stop`, and
   `logs` subcommands that resolve target projects from an explicit `--path`
   before normal config loading.
+- Added per-project daemon session persistence under `~/.config/helm/daemon/`
+  so daemon commands can track pid and log metadata across separate CLI runs.
 
 ### Changed
 

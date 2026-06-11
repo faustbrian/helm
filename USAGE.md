@@ -205,6 +205,10 @@ Notes:
   that project.
 - Daemon commands resolve `.helm.toml` from the explicit path before regular
   config loading, so they do not depend on the caller's current directory.
+- `daemon start` persists per-project session metadata and a log path under
+  `~/.config/helm/daemon/`.
+- `daemon status`, `stop`, and `logs` read that persisted session state instead
+  of inferring daemon ownership from the current shell process.
 
 ### `helm preset <SUBCOMMAND>`
 
