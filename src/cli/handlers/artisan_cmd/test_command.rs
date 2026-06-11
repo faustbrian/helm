@@ -31,7 +31,7 @@ pub(super) fn build_artisan_test_command(
     exports.push("export APP_ENV='testing'".to_owned());
 
     let playwright_bootstrap = if bootstrap_playwright {
-        " && npm install playwright@latest && npx playwright install-deps && npx playwright install"
+        " && if [ ! -f package.json ]; then echo 'Playwright browser tests require package.json in the workspace root.' >&2; exit 1; fi && if [ ! -x ./node_modules/.bin/playwright ]; then npm install; fi && npx playwright install-deps && npx playwright install"
     } else {
         ""
     };
@@ -137,7 +137,10 @@ mod tests {
     fn artisan_test_command_includes_playwright_bootstrap_when_enabled() {
         let command = build_artisan_test_command(vec!["test".to_owned()], &HashMap::new(), true);
         let script = command.get(2).expect("shell script payload");
-        assert!(script.contains("npm install playwright@latest"));
+        assert!(script.contains("if [ ! -f package.json ]"));
+        assert!(
+            script.contains("if [ ! -x ./node_modules/.bin/playwright ]; then npm install; fi")
+        );
         assert!(script.contains("npx playwright install-deps"));
         assert!(script.contains("npx playwright install"));
     }
