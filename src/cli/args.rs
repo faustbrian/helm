@@ -30,7 +30,7 @@ pub(crate) use commands::TaskDepsCommands;
 pub(crate) use commands::{
     DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonServiceArgs,
     DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonStartArgs,
-    DaemonStatusArgs, DaemonStopArgs, DaemonWatchArgs,
+    DaemonStatusArgs, DaemonStopArgs, DaemonWatchArgs, DaemonWatchPolicyArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;

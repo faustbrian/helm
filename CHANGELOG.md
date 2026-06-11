@@ -22,6 +22,9 @@ All notable changes to this project are documented in this file.
 - Added `helm daemon service <install|status|print|uninstall>` so users can
   install a login-time watch service through `launchd` or `systemd --user`
   without hand-writing unit definitions.
+- Added watch policy flags for `helm daemon watch` and installed daemon watch
+  services so users can exclude subtrees and cap the number of auto-started
+  projects under broad parent directories.
 
 ### Changed
 

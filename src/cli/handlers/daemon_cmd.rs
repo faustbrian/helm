@@ -9,7 +9,7 @@ use crate::cli::args::{
     DaemonStopArgs, DaemonWatchArgs,
 };
 use crate::config;
-use crate::daemon::{self, DaemonSession, DiscoveryReport};
+use crate::daemon::{self, DaemonSession, DiscoveryOptions, DiscoveryReport};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
 use std::io::Write;
@@ -37,7 +37,7 @@ fn handle_daemon_start(args: &DaemonStartArgs) -> Result<()> {
 
 fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {
     loop {
-        let report = daemon::discover_projects(&args.dir)?;
+        let report = daemon::discover_projects(&watch_discovery_options(args))?;
         log_discovery_report(&report);
         for project_root in &report.projects {
             start_daemon_for_project_root(project_root, false)?;
@@ -117,6 +117,26 @@ fn log_discovery_report(report: &DiscoveryReport) {
             ),
             Persistence::Persistent,
         );
+    }
+
+    for limited in &report.limited_projects {
+        output::event(
+            "daemon",
+            LogLevel::Info,
+            &format!(
+                "Skipping discovered Helm project at {} because the watch project limit was reached",
+                limited.display()
+            ),
+            Persistence::Persistent,
+        );
+    }
+}
+
+fn watch_discovery_options(args: &DaemonWatchArgs) -> DiscoveryOptions {
+    DiscoveryOptions {
+        watch_dirs: args.dir.clone(),
+        exclude_dirs: args.policy.exclude_dir.clone(),
+        max_projects: args.policy.max_projects,
     }
 }
 
@@ -208,7 +228,7 @@ mod tests {
 
     use crate::cli::args::{
         DaemonArgs, DaemonCommands, DaemonStartArgs, DaemonStatusArgs, DaemonStopArgs,
-        DaemonWatchArgs,
+        DaemonWatchArgs, DaemonWatchPolicyArgs,
     };
 
     fn temp_project_root(name: &str) -> PathBuf {
@@ -321,6 +341,10 @@ mod tests {
         super::handle_daemon(&DaemonArgs {
             command: DaemonCommands::Watch(DaemonWatchArgs {
                 dir: vec![watch_root.clone()],
+                policy: DaemonWatchPolicyArgs {
+                    exclude_dir: Vec::new(),
+                    max_projects: None,
+                },
                 once: true,
                 interval: 1,
             }),

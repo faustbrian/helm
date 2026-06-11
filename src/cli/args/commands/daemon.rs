@@ -12,6 +12,16 @@ pub(crate) use service::{
 };
 
 #[derive(Args)]
+pub(crate) struct DaemonWatchPolicyArgs {
+    /// Directory subtree to exclude from project discovery
+    #[arg(long, value_name = "DIR")]
+    pub(crate) exclude_dir: Vec<PathBuf>,
+    /// Maximum number of projects to auto-start from one watch pass
+    #[arg(long, value_name = "N")]
+    pub(crate) max_projects: Option<usize>,
+}
+
+#[derive(Args)]
 pub(crate) struct DaemonArgs {
     #[command(subcommand)]
     pub(crate) command: DaemonCommands,
@@ -54,6 +64,8 @@ pub(crate) struct DaemonWatchArgs {
     /// Directory to scan for Helm projects
     #[arg(long, value_name = "DIR", required = true)]
     pub(crate) dir: Vec<PathBuf>,
+    #[command(flatten)]
+    pub(crate) policy: DaemonWatchPolicyArgs,
     /// Run one discovery pass and exit
     #[arg(long, default_value_t = false)]
     pub(crate) once: bool,

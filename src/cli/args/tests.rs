@@ -815,7 +815,17 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
-    let watch = Cli::parse_from(["helm", "daemon", "watch", "--dir", "/tmp/projects"]);
+    let watch = Cli::parse_from([
+        "helm",
+        "daemon",
+        "watch",
+        "--dir",
+        "/tmp/projects",
+        "--exclude-dir",
+        "/tmp/archive",
+        "--max-projects",
+        "5",
+    ]);
     if let commands::Commands::Daemon(args) = watch.command {
         assert!(matches!(args.command, commands::DaemonCommands::Watch(_)));
     } else {
@@ -829,6 +839,10 @@ fn daemon_command_variants_parse() {
         "install",
         "--dir",
         "/tmp/projects",
+        "--exclude-dir",
+        "/tmp/archive",
+        "--max-projects",
+        "5",
     ]);
     if let commands::Commands::Daemon(args) = service.command {
         assert!(matches!(args.command, commands::DaemonCommands::Service(_)));

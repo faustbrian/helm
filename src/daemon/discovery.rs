@@ -7,19 +7,29 @@ use std::path::{Path, PathBuf};
 
 use crate::config;
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DiscoveryOptions {
+    pub(crate) watch_dirs: Vec<PathBuf>,
+    pub(crate) exclude_dirs: Vec<PathBuf>,
+    pub(crate) max_projects: Option<usize>,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DiscoveryReport {
     pub(crate) projects: Vec<PathBuf>,
     pub(crate) invalid_configs: Vec<PathBuf>,
     pub(crate) duplicate_projects: Vec<PathBuf>,
+    pub(crate) limited_projects: Vec<PathBuf>,
 }
 
-pub(crate) fn discover_projects(watch_dirs: &[PathBuf]) -> Result<DiscoveryReport> {
+pub(crate) fn discover_projects(options: &DiscoveryOptions) -> Result<DiscoveryReport> {
     let mut report = DiscoveryReport::default();
     let mut seen = HashSet::new();
+    let mut watch_dirs = options.watch_dirs.clone();
+    watch_dirs.sort();
 
-    for dir in watch_dirs {
-        discover_dir(dir, &mut seen, &mut report)?;
+    for dir in &watch_dirs {
+        discover_dir(dir, &mut seen, &mut report, options)?;
     }
 
     Ok(report)
@@ -29,8 +39,9 @@ fn discover_dir(
     dir: &Path,
     seen: &mut HashSet<PathBuf>,
     report: &mut DiscoveryReport,
+    options: &DiscoveryOptions,
 ) -> Result<()> {
-    if !dir.is_dir() {
+    if !dir.is_dir() || should_skip_dir(dir, options) {
         return Ok(());
     }
 
@@ -42,6 +53,10 @@ fn discover_dir(
                     None,
                     Some(dir),
                 ))?;
+                if report.max_projects_reached(options.max_projects) {
+                    report.limited_projects.push(project_root);
+                    return Ok(());
+                }
                 let canonical = fs::canonicalize(&project_root).unwrap_or(project_root.clone());
                 if seen.insert(canonical) {
                     report.projects.push(project_root);
@@ -56,33 +71,49 @@ fn discover_dir(
         }
     }
 
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
+    let mut entries =
+        fs::read_dir(dir)?.collect::<std::result::Result<Vec<_>, std::io::Error>>()?;
+    entries.sort_by_key(|entry| entry.path());
+    for entry in entries {
         if !entry.file_type()?.is_dir() {
             continue;
         }
 
-        if should_skip_dir(&entry.path()) {
+        if should_skip_dir(&entry.path(), options) {
             continue;
         }
 
-        discover_dir(&entry.path(), seen, report)?;
+        discover_dir(&entry.path(), seen, report, options)?;
     }
 
     Ok(())
 }
 
-fn should_skip_dir(path: &Path) -> bool {
+fn should_skip_dir(path: &Path, options: &DiscoveryOptions) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return false;
     };
 
-    matches!(name, ".git" | "node_modules" | "vendor" | "target")
+    if matches!(name, ".git" | "node_modules" | "vendor" | "target") {
+        return true;
+    }
+
+    let normalized = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    options.exclude_dirs.iter().any(|excluded| {
+        let excluded = fs::canonicalize(excluded).unwrap_or_else(|_| excluded.clone());
+        normalized == excluded || normalized.starts_with(&excluded)
+    })
+}
+
+impl DiscoveryReport {
+    fn max_projects_reached(&self, max_projects: Option<usize>) -> bool {
+        max_projects.is_some_and(|limit| self.projects.len() >= limit)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::discover_projects;
+    use super::{DiscoveryOptions, discover_projects};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -117,7 +148,11 @@ mod tests {
         write_project(&parent);
         write_project(&child);
 
-        let report = discover_projects(&[root]).expect("discover projects");
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root],
+            ..DiscoveryOptions::default()
+        })
+        .expect("discover projects");
         assert_eq!(report.projects.len(), 1);
         assert_eq!(report.projects[0], parent);
     }
@@ -128,7 +163,11 @@ mod tests {
         let project = root.join("project");
         write_project(&project);
 
-        let report = discover_projects(&[root.clone(), project.clone()]).expect("discover");
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root.clone(), project.clone()],
+            ..DiscoveryOptions::default()
+        })
+        .expect("discover");
         assert_eq!(report.projects.len(), 1);
         assert_eq!(report.duplicate_projects, vec![project]);
     }
@@ -147,8 +186,51 @@ mod tests {
         let valid = root.join("valid");
         write_project(&valid);
 
-        let report = discover_projects(&[root]).expect("discover");
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root],
+            ..DiscoveryOptions::default()
+        })
+        .expect("discover");
         assert_eq!(report.projects.len(), 1);
         assert_eq!(report.invalid_configs, vec![invalid]);
+    }
+
+    #[test]
+    fn discover_projects_skips_excluded_directories() {
+        let root = temp_root("exclude");
+        let included = root.join("included");
+        let excluded = root.join("excluded");
+        write_project(&included);
+        write_project(&excluded);
+
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root],
+            exclude_dirs: vec![excluded.clone()],
+            max_projects: None,
+        })
+        .expect("discover");
+
+        assert_eq!(report.projects, vec![included]);
+        assert!(report.duplicate_projects.is_empty());
+        assert!(report.limited_projects.is_empty());
+    }
+
+    #[test]
+    fn discover_projects_stops_after_max_project_limit() {
+        let root = temp_root("limit");
+        let alpha = root.join("alpha");
+        let beta = root.join("beta");
+        write_project(&alpha);
+        write_project(&beta);
+
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root],
+            exclude_dirs: Vec::new(),
+            max_projects: Some(1),
+        })
+        .expect("discover");
+
+        assert_eq!(report.projects, vec![alpha]);
+        assert_eq!(report.limited_projects, vec![beta]);
     }
 }

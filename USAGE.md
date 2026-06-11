@@ -209,6 +209,10 @@ Notes:
   `~/.config/helm/daemon/`.
 - `daemon watch --dir <DIR>` scans one or more parent directories for
   `.helm.toml` projects and starts missing per-project daemons.
+- `daemon watch --exclude-dir <DIR>` skips specific subtrees inside watched
+  roots.
+- `daemon watch --max-projects <N>` caps how many discovered projects Helm
+  will auto-start from one watch pass.
 - `daemon watch --once` runs one discovery pass and exits.
 - `daemon watch --interval <SECONDS>` controls the repeat scan delay when
   `--once` is not set.
@@ -221,6 +225,9 @@ Notes:
 - Watch mode deduplicates overlapping watch roots, ignores nested child
   projects under an already managed project root, and reports invalid
   `.helm.toml` files without stopping discovery for valid sibling projects.
+- When `--max-projects` is set, extra discovered projects are skipped instead
+  of being auto-started, which keeps broad watch roots from starting an
+  unbounded number of daemons.
 
 ### `helm daemon service <install|status|print|uninstall>`
 
@@ -229,8 +236,12 @@ Manage a login-time watch service backed by the local user service manager.
 Flags:
 
 - `install --dir <DIR>` (repeatable, required)
+- `install --exclude-dir <DIR>` (repeatable)
+- `install --max-projects <N>`
 - `install --interval <SECONDS>` (default: `30`)
 - `print --dir <DIR>` (repeatable, required)
+- `print --exclude-dir <DIR>` (repeatable)
+- `print --max-projects <N>`
 - `print --interval <SECONDS>` (default: `30`)
 
 Notes:
@@ -241,6 +252,8 @@ Notes:
   `~/.config/systemd/user/`.
 - `install` writes the rendered service definition, enables it for the current
   user, and starts it immediately.
+- Installed services preserve the same watch policy flags as interactive
+  `helm daemon watch`, including exclusions and max project limits.
 - `status` reports whether the service definition is currently installed.
 - `print` shows the rendered unit/plist without writing it.
 - `uninstall` stops the installed service and removes its definition file.
