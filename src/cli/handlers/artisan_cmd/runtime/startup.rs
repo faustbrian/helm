@@ -20,7 +20,11 @@ pub(super) fn resolve_testing_startup_services<'a>(
         .filter(|service| service.kind != config::Kind::App)
         .map(|service| service.name.clone())
         .collect::<Vec<_>>();
-    selected_names.push(selected_service.expect("selected service should exist").to_owned());
+    selected_names.push(
+        selected_service
+            .expect("selected service should exist")
+            .to_owned(),
+    );
 
     let by_name = config
         .service
@@ -90,7 +94,12 @@ mod tests {
                 service("db", Kind::Database, Driver::Postgres, None),
                 service("cache", Kind::Cache, Driver::Valkey, None),
                 service("app", Kind::App, Driver::Frankenphp, Some(vec!["db"])),
-                service("profile-app", Kind::App, Driver::Frankenphp, Some(vec!["db"])),
+                service(
+                    "profile-app",
+                    Kind::App,
+                    Driver::Frankenphp,
+                    Some(vec!["db"]),
+                ),
             ],
             swarm: Vec::new(),
         };
@@ -137,6 +146,7 @@ mod tests {
             hook: Vec::new(),
             health_path: None,
             health_statuses: None,
+            restart: None,
             localhost_tls: false,
             octane: false,
             octane_workers: None,

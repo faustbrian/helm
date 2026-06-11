@@ -9,12 +9,17 @@ All notable changes to this project are documented in this file.
 - Added project-wide `domain_strategy` config with `directory` and `random`
   modes so app services can resolve `.helm` domains automatically without
   repeating explicit per-service `domain` entries.
+- Added service-level `restart` config with Docker-compatible policies so
+  projects can opt out of or override Helm's default restart behavior.
 
 ### Changed
 
 - Changed `helm init` to write `domain_strategy = "directory"` and rely on
   automatic `.helm` domain generation for app services instead of emitting an
   explicit `domain = "...localhost"` entry in new configs.
+- Changed Docker `run` generation to default Helm-managed services to
+  `--restart unless-stopped`, improving recovery after Docker restarts
+  and laptop sleep without requiring a manual `helm up`.
 
 ### Fixed
 

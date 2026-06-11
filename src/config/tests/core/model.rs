@@ -1,6 +1,7 @@
 use super::helpers::mysql_service;
 use super::*;
 use anyhow::Result;
+
 #[test]
 fn driver_serde_lowercase() {
     let toml = r#"
@@ -136,5 +137,15 @@ fn resolved_domain_urls_respect_scheme_and_keep_prefixed_values() {
             "http://main.site".to_owned(),
             "https://other.site".to_owned()
         ]
+    );
+}
+
+#[test]
+fn services_default_to_unless_stopped_restart_policy() {
+    let service = mysql_service("db");
+
+    assert_eq!(
+        service.resolved_restart_policy(),
+        RestartPolicy::UnlessStopped
     );
 }

@@ -162,6 +162,24 @@ fn parse_app_deno_toolchain_section() {
 }
 
 #[test]
+fn parse_service_restart_policy_override() {
+    let toml = r#"
+            [[service]]
+            name = "db"
+            kind = "database"
+            driver = "mysql"
+            image = "mysql:8.4"
+            host = "127.0.0.1"
+            port = 3306
+            restart = "no"
+        "#;
+
+    let config: Config = toml::from_str(toml).expect("failed to parse");
+
+    assert_eq!(config.service[0].restart, Some(RestartPolicy::No));
+}
+
+#[test]
 fn parse_app_bun_toolchain_section() {
     let toml = r#"
             [[service]]

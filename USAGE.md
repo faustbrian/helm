@@ -138,6 +138,13 @@ If `--service` is omitted, commands operate on all matching services.
 - `missing` (default)
 - `never`
 
+### Restart Policy (`restart`)
+
+- `no`
+- `on-failure`
+- `always`
+- `unless-stopped` (default when `restart` is omitted)
+
 ### Port Strategy (`--port-strategy`)
 
 - `random` (default)
@@ -346,6 +353,29 @@ argv = ["php", "artisan", "db:seed", "--class=DevUserSeeder"]
 `run.type = "exec"` runs inside the selected service container.
 `run.type = "script"` runs a host script (relative paths are resolved from
 the Helm project root).
+
+## Service Restart Policy
+
+Helm applies Docker restart policies to long-lived service containers.
+When `restart` is omitted, Helm uses `unless-stopped` so services come
+back after Docker restarts or laptop sleep without requiring a manual
+morning `helm up`.
+
+Override per service in `.helm.toml` when a container should opt out or
+use a stricter Docker policy:
+
+```toml
+[[service]]
+preset = "laravel"
+restart = "unless-stopped"
+
+[[service]]
+name = "browser"
+preset = "dusk"
+restart = "no"
+```
+
+Helm passes the configured value through to Docker `run --restart ...`.
 
 ### `helm stop`
 

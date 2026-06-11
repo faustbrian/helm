@@ -100,6 +100,7 @@ mod tests {
             hook: Vec::new(),
             health_path: None,
             health_statuses: None,
+            restart: None,
             localhost_tls: None,
             octane: Some(true),
             octane_workers: Some(6),

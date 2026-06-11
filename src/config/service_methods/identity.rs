@@ -5,6 +5,7 @@
 use anyhow::{Result, anyhow};
 
 use super::ServiceConfig;
+use crate::config::RestartPolicy;
 
 impl ServiceConfig {
     /// Returns the Docker container name for this service.
@@ -19,5 +20,10 @@ impl ServiceConfig {
     #[must_use]
     pub fn scheme(&self) -> &str {
         self.scheme.as_deref().unwrap_or("http")
+    }
+
+    #[must_use]
+    pub fn resolved_restart_policy(&self) -> RestartPolicy {
+        self.restart.unwrap_or(RestartPolicy::UnlessStopped)
     }
 }

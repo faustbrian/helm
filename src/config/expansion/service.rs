@@ -89,6 +89,7 @@ pub(super) fn expand_raw_service(raw: RawServiceConfig) -> Result<ServiceConfig>
         health_statuses: raw
             .health_statuses
             .or_else(|| preset.and_then(presets::default_health_statuses_for_preset)),
+        restart: raw.restart,
         localhost_tls: raw.localhost_tls.unwrap_or(false),
         octane: raw
             .octane

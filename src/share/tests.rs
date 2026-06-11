@@ -96,6 +96,7 @@ fn app_service() -> ServiceConfig {
         hook: Vec::new(),
         health_path: None,
         health_statuses: None,
+        restart: None,
         localhost_tls: false,
         octane: false,
         octane_workers: None,

@@ -36,5 +36,6 @@ pub(crate) use service_methods::network::{
 };
 pub use types::{
     Config, ContainerEngine, DomainStrategy, Driver, HookOnError, HookPhase, HookRun, Kind,
-    LockedImage, Lockfile, ProjectType, ServiceConfig, ServiceHook, SwarmGit, SwarmTarget,
+    LockedImage, Lockfile, ProjectType, RestartPolicy, ServiceConfig, ServiceHook, SwarmGit,
+    SwarmTarget,
 };

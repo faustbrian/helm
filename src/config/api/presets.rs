@@ -47,6 +47,7 @@ pub fn preset_preview(preset: &str) -> Result<ServiceConfig> {
         hook: Vec::new(),
         health_path: None,
         health_statuses: None,
+        restart: None,
         localhost_tls: None,
         octane: None,
         octane_workers: None,

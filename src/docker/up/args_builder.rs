@@ -17,6 +17,11 @@ pub(super) fn build_run_args(service: &ServiceConfig, container_name: &str) -> V
     let mut args = vec![
         "run".to_owned(),
         "-d".to_owned(),
+        "--restart".to_owned(),
+        service
+            .resolved_restart_policy()
+            .as_docker_value()
+            .to_owned(),
         "--name".to_owned(),
         container_name.to_owned(),
         "-p".to_owned(),
@@ -87,6 +92,7 @@ mod tests {
             hook: Vec::new(),
             health_path: None,
             health_statuses: None,
+            restart: None,
             localhost_tls: false,
             octane: false,
             octane_workers: None,
@@ -108,6 +114,25 @@ mod tests {
 
             assert!(rendered.contains("--add-host host.docker.internal:host-gateway"));
         });
+    }
+
+    #[test]
+    fn includes_default_restart_policy() {
+        let args = build_run_args(&service(), "acme-db");
+        let rendered = args.join(" ");
+
+        assert!(rendered.contains("--restart unless-stopped"));
+    }
+
+    #[test]
+    fn includes_explicit_restart_policy_override() {
+        let mut service = service();
+        service.restart = Some(crate::config::RestartPolicy::No);
+
+        let args = build_run_args(&service, "acme-db");
+        let rendered = args.join(" ");
+
+        assert!(rendered.contains("--restart no"));
     }
 
     #[test]

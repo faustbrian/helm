@@ -97,9 +97,36 @@ pub enum ContainerEngine {
     Podman,
 }
 
+/// Docker container restart policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum RestartPolicy {
+    /// Disable automatic restarts.
+    No,
+    /// Restart on non-zero exit.
+    OnFailure,
+    /// Always restart, including after manual stop until removed.
+    Always,
+    /// Restart unless manually stopped.
+    UnlessStopped,
+}
+
 impl Default for ContainerEngine {
     fn default() -> Self {
         Self::Docker
+    }
+}
+
+impl RestartPolicy {
+    #[must_use]
+    pub const fn as_docker_value(self) -> &'static str {
+        match self {
+            Self::No => "no",
+            Self::OnFailure => "on-failure",
+            Self::Always => "always",
+            Self::UnlessStopped => "unless-stopped",
+        }
     }
 }
 

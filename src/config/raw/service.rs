@@ -5,7 +5,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use super::super::{Driver, Kind};
+use super::super::{Driver, Kind, RestartPolicy};
 use super::RawServiceHook;
 use crate::javascript::JavaScriptToolchain;
 
@@ -67,6 +67,8 @@ pub(crate) struct RawServiceConfig {
     pub health_path: Option<String>,
     #[serde(default)]
     pub health_statuses: Option<Vec<u16>>,
+    #[serde(default)]
+    pub restart: Option<RestartPolicy>,
     #[serde(default)]
     pub localhost_tls: Option<bool>,
     #[serde(default)]

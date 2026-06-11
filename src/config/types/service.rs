@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{Driver, Kind, ServiceHook};
+use super::{Driver, Kind, RestartPolicy, ServiceHook};
 use crate::javascript::JavaScriptToolchain;
 
 /// Configuration for a single service instance.
@@ -81,6 +81,9 @@ pub struct ServiceConfig {
     /// Optional accepted health status codes.
     #[serde(default)]
     pub health_statuses: Option<Vec<u16>>,
+    /// Optional Docker restart policy override.
+    #[serde(default)]
+    pub restart: Option<RestartPolicy>,
     /// Serve app directly via <https://localhost>:<port> without host Caddy routing.
     #[serde(default)]
     pub localhost_tls: bool,
