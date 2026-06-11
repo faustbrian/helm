@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
   repeating explicit per-service `domain` entries.
 - Added service-level `restart` config with Docker-compatible policies so
   projects can opt out of or override Helm's default restart behavior.
+- Added a `helm daemon` command group with `start`, `status`, `stop`, and
+  `logs` subcommands that resolve target projects from an explicit `--path`
+  before normal config loading.
 
 ### Changed
 

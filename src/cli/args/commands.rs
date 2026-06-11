@@ -5,6 +5,7 @@
 use clap::Subcommand;
 
 mod app;
+mod daemon;
 mod lifecycle;
 mod meta;
 mod operations;
@@ -15,6 +16,9 @@ pub(crate) use app::{
     AppCreateArgs, ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs,
     OpenArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs, TaskArgs,
     TaskCommands, TaskDepsCommands,
+};
+pub(crate) use daemon::{
+    DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonStartArgs, DaemonStatusArgs, DaemonStopArgs,
 };
 
 #[cfg(test)]
@@ -48,6 +52,8 @@ pub(crate) enum Commands {
     Doctor(DoctorArgs),
     /// Manage workspace lockfile for reproducible image resolution
     Lock(LockArgs),
+    /// Manage per-project Helm daemon processes
+    Daemon(DaemonArgs),
     /// Prepare service(s)
     Setup(SetupArgs),
     /// Run doctor, start services, bootstrap app runtime, then open app URLs

@@ -9,6 +9,7 @@ use clap::CommandFactory;
 use clap_complete::generate;
 
 use crate::cli::args::{Cli, Commands};
+use crate::cli::handlers;
 use crate::config::{self, Config};
 use crate::output::{self, LogLevel, Persistence};
 
@@ -36,6 +37,11 @@ pub(super) fn handle_setup_commands(
     if let Commands::Completions(args) = &cli.command {
         let mut cmd = Cli::command();
         generate(args.shell, &mut cmd, "helm", &mut std::io::stdout());
+        return Ok(true);
+    }
+
+    if let Commands::Daemon(args) = &cli.command {
+        handlers::handle_daemon(args)?;
         return Ok(true);
     }
 

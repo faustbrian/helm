@@ -805,3 +805,34 @@ fn share_command_variants_parse() {
         panic!("expected share command");
     }
 }
+
+#[test]
+fn daemon_command_variants_parse() {
+    let start = Cli::parse_from(["helm", "daemon", "start", "--path", "/tmp/project"]);
+    if let commands::Commands::Daemon(args) = start.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Start(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+
+    let status = Cli::parse_from(["helm", "daemon", "status", "--path", "/tmp/project"]);
+    if let commands::Commands::Daemon(args) = status.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Status(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+
+    let stop = Cli::parse_from(["helm", "daemon", "stop", "--path", "/tmp/project"]);
+    if let commands::Commands::Daemon(args) = stop.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Stop(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+
+    let logs = Cli::parse_from(["helm", "daemon", "logs", "--path", "/tmp/project"]);
+    if let commands::Commands::Daemon(args) = logs.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Logs(_)));
+    } else {
+        panic!("expected daemon command");
+    }
+}

@@ -237,3 +237,21 @@ fn cli_dispatch_open_succeeds_and_records_browser_invocation() {
         });
     });
 }
+
+#[test]
+fn cli_dispatch_daemon_status_uses_explicit_path_without_local_project_context() {
+    let project_root = temporary_project_root();
+    crate::docker::with_test_runtime_lock(|| {
+        let cli = Cli::parse_from([
+            "helm",
+            "daemon",
+            "status",
+            "--path",
+            project_root
+                .to_str()
+                .expect("project root path should be valid UTF-8"),
+        ]);
+
+        assert!(crate::cli::dispatch::run(cli).is_ok());
+    });
+}

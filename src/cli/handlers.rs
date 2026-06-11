@@ -6,6 +6,7 @@ mod about_cmd;
 mod app_create_cmd;
 mod artisan_cmd;
 mod config_cmd;
+mod daemon_cmd;
 mod docker_ops;
 mod doctor_cmd;
 mod down_cmd;
@@ -47,6 +48,7 @@ pub(crate) use artisan_cmd::{
     HandleArtisanOptions, handle_artisan, set_testing_runtime_pool_size_override,
 };
 pub(crate) use config_cmd::{handle_config, handle_config_migrate};
+pub(crate) use daemon_cmd::handle_daemon;
 pub(crate) use docker_ops::{
     HandleAttachOptions, HandleCpOptions, HandleEventsOptions, HandleInspectOptions,
     HandlePortOptions, HandlePruneOptions, handle_attach, handle_cp, handle_events, handle_inspect,

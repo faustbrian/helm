@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 
 #[test]
 fn swarm_cli_defaults_to_dependency_expansion() {
@@ -988,5 +989,56 @@ fn lock_cli_parses_subcommands() {
             assert!(matches!(args.command, crate::cli::args::LockCommands::Diff))
         }
         _ => panic!("expected lock command"),
+    }
+}
+
+#[test]
+fn daemon_cli_parses_subcommands() {
+    let start = Cli::try_parse_from(["helm", "daemon", "start", "--path", "/tmp/project"])
+        .expect("parse daemon start");
+    match start.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Start(start_args) => {
+                assert_eq!(start_args.path, PathBuf::from("/tmp/project"));
+            }
+            _ => panic!("expected daemon start subcommand"),
+        },
+        _ => panic!("expected daemon command"),
+    }
+
+    let status = Cli::try_parse_from(["helm", "daemon", "status", "--path", "/tmp/project"])
+        .expect("parse daemon status");
+    match status.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Status(status_args) => {
+                assert_eq!(status_args.path, PathBuf::from("/tmp/project"));
+            }
+            _ => panic!("expected daemon status subcommand"),
+        },
+        _ => panic!("expected daemon command"),
+    }
+
+    let stop = Cli::try_parse_from(["helm", "daemon", "stop", "--path", "/tmp/project"])
+        .expect("parse daemon stop");
+    match stop.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Stop(stop_args) => {
+                assert_eq!(stop_args.path, PathBuf::from("/tmp/project"));
+            }
+            _ => panic!("expected daemon stop subcommand"),
+        },
+        _ => panic!("expected daemon command"),
+    }
+
+    let logs = Cli::try_parse_from(["helm", "daemon", "logs", "--path", "/tmp/project"])
+        .expect("parse daemon logs");
+    match logs.command {
+        Commands::Daemon(args) => match args.command {
+            crate::cli::args::DaemonCommands::Logs(logs_args) => {
+                assert_eq!(logs_args.path, PathBuf::from("/tmp/project"));
+            }
+            _ => panic!("expected daemon logs subcommand"),
+        },
+        _ => panic!("expected daemon command"),
     }
 }

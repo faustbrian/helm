@@ -190,6 +190,22 @@ Initialize a new `.helm.toml` in the current directory.
 - `--format <FORMAT>`: output format (`toml` default, `json` supported).
 - `helm config migrate`: migrate local config schema to latest supported version.
 
+### `helm daemon <start|status|stop|logs>`
+
+Manage a per-project Helm daemon target by explicit path instead of the
+current working directory.
+
+Flags:
+
+- `--path <DIR>` (required)
+
+Notes:
+
+- `--path` may point at the Helm project root or any nested directory inside
+  that project.
+- Daemon commands resolve `.helm.toml` from the explicit path before regular
+  config loading, so they do not depend on the caller's current directory.
+
 ### `helm preset <SUBCOMMAND>`
 
 - `helm preset list`: list available preset names.
