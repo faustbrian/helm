@@ -10,9 +10,9 @@ pub(super) fn resolve_testing_startup_services<'a>(
     config: &'a config::Config,
     selected_service: Option<&'a str>,
 ) -> Result<Vec<&'a config::ServiceConfig>> {
-    if selected_service.is_none() {
+    let Some(selected_service) = selected_service else {
         return cli::support::resolve_up_services(config, None, None, None);
-    }
+    };
 
     let mut selected_names = config
         .service
@@ -20,11 +20,7 @@ pub(super) fn resolve_testing_startup_services<'a>(
         .filter(|service| service.kind != config::Kind::App)
         .map(|service| service.name.clone())
         .collect::<Vec<_>>();
-    selected_names.push(
-        selected_service
-            .expect("selected service should exist")
-            .to_owned(),
-    );
+    selected_names.push(selected_service.to_owned());
 
     let by_name = config
         .service

@@ -43,6 +43,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed CI `clippy` failures in daemon and artisan runtime helpers by
+  removing panic-prone `expect()` usage from production code and marking
+  the long-running daemon supervisor loop as intentional.
 - Fixed repeated `helm artisan test --browser` Playwright browser downloads by
   caching browser binaries under `.helm/cache/playwright` in the mounted
   workspace and reusing that cache across reset test-runtime containers.

@@ -79,7 +79,7 @@ pub(crate) fn daemon_log_path(project_root: &Path) -> Result<PathBuf> {
 pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system clock")
+        .unwrap_or_default()
         .as_secs()
 }
 

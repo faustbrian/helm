@@ -13,6 +13,10 @@ use crate::output::{self, LogLevel, Persistence};
 const HEALTHY_POLL_INTERVAL_SECS: u64 = 5;
 const RECOVERY_TIMEOUT_SECS: u64 = 30;
 
+#[expect(
+    clippy::infinite_loop,
+    reason = "daemon supervisor is intended to run until killed"
+)]
 pub(crate) fn run(project_root: &Path) -> Result<()> {
     bootstrap_project(project_root)?;
 
