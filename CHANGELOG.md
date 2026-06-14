@@ -56,6 +56,9 @@ All notable changes to this project are documented in this file.
   baking Playwright's `install-deps chromium` step into the cached derived app
   image used for browser test runtimes instead of rerunning it inside each
   fresh test container.
+- Fixed `helm artisan test --browser` mixed-service projects such as
+  `app + mailhog` so browser-runtime targeting stays scoped to FrankenPHP app
+  services and does not route other app presets through PHP module inspection.
 - Fixed Helm's default PHP memory limit for derived app images and
   `helm artisan test` runs to `4096M`, reducing coverage-run failures
   caused by the previous `2048M` ceiling.

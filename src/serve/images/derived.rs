@@ -148,3 +148,168 @@ fn emit_derived_event(
 ) {
     output::event(&target.name, level, message, persistence);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_runtime_image;
+    use crate::config::{Driver, Kind, ServiceConfig};
+    use crate::docker;
+    use std::collections::HashMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "helm-derived-browser-audit-{name}-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
+
+    fn frankenphp_app() -> ServiceConfig {
+        ServiceConfig {
+            name: "app".to_owned(),
+            kind: Kind::App,
+            driver: Driver::Frankenphp,
+            image: "dunglas/frankenphp:php8.5".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 8080,
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: Some("app.helm".to_owned()),
+            domains: None,
+            resolved_domain: None,
+            container_port: Some(80),
+            smtp_port: None,
+            volumes: Some(vec![".:/app".to_owned()]),
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            restart: None,
+            localhost_tls: false,
+            octane: false,
+            octane_workers: None,
+            octane_max_requests: None,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            javascript: None,
+            container_name: Some("audit-app".to_owned()),
+            resolved_container_name: Some("audit-app".to_owned()),
+        }
+    }
+
+    fn mailhog_app() -> ServiceConfig {
+        ServiceConfig {
+            name: "mailhog".to_owned(),
+            kind: Kind::App,
+            driver: Driver::Mailhog,
+            image: "mailhog/mailhog:latest".to_owned(),
+            host: "127.0.0.1".to_owned(),
+            port: 8025,
+            database: None,
+            username: None,
+            password: None,
+            bucket: None,
+            access_key: None,
+            secret_key: None,
+            api_key: None,
+            region: None,
+            scheme: None,
+            domain: Some("mailhog.helm".to_owned()),
+            domains: None,
+            resolved_domain: None,
+            container_port: Some(8025),
+            smtp_port: Some(1025),
+            volumes: None,
+            env: None,
+            command: None,
+            depends_on: None,
+            seed_file: None,
+            hook: Vec::new(),
+            health_path: None,
+            health_statuses: None,
+            restart: None,
+            localhost_tls: false,
+            octane: false,
+            octane_workers: None,
+            octane_max_requests: None,
+            php_extensions: None,
+            trust_container_ca: false,
+            env_mapping: None,
+            javascript: None,
+            container_name: Some("audit-mailhog".to_owned()),
+            resolved_container_name: Some("audit-mailhog".to_owned()),
+        }
+    }
+
+    #[test]
+    fn browser_targeted_frankenphp_runtime_skips_php_module_inspection_when_extensions_are_empty() {
+        let root = temp_root("frankenphp");
+        fs::write(
+            root.join("package.json"),
+            r#"{
+                "devDependencies": {
+                    "playwright": "^1.60.0"
+                }
+            }"#,
+        )
+        .expect("write package.json");
+
+        let env = HashMap::from([
+            ("HELM_BROWSER_TEST_RUNTIME".to_owned(), "1".to_owned()),
+            (
+                "HELM_BROWSER_TEST_RUNTIME_TARGETS".to_owned(),
+                "app".to_owned(),
+            ),
+        ]);
+
+        let result = docker::with_dry_run_state(false, || {
+            docker::with_docker_command("/tmp/helm-unexpected-docker", || {
+                resolve_runtime_image(&frankenphp_app(), false, &env, &root)
+            })
+        })
+        .expect("resolve runtime image without php -m inspection");
+
+        assert_eq!(result, "dunglas/frankenphp:php8.5");
+    }
+
+    #[test]
+    fn browser_runtime_marker_is_ignored_for_non_target_app_services() {
+        let root = temp_root("mailhog");
+        fs::write(root.join("package.json"), "{}").expect("write package.json");
+
+        let env = HashMap::from([
+            ("HELM_BROWSER_TEST_RUNTIME".to_owned(), "1".to_owned()),
+            (
+                "HELM_BROWSER_TEST_RUNTIME_TARGETS".to_owned(),
+                "app".to_owned(),
+            ),
+        ]);
+
+        let result = docker::with_dry_run_state(false, || {
+            docker::with_docker_command("/tmp/helm-unexpected-docker", || {
+                resolve_runtime_image(&mailhog_app(), false, &env, &root)
+            })
+        })
+        .expect("resolve mailhog runtime image without browser targeting");
+
+        assert_eq!(result, "mailhog/mailhog:latest");
+    }
+}
