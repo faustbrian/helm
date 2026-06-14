@@ -28,6 +28,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Changed Rust dependencies and CI workflow action pins to their latest
+  available releases, including `tabled 0.21`, refreshed transitive lockfile
+  versions, and `actions/checkout@v5` in the GitHub Actions pipeline.
 - Changed `helm init` to write `domain_strategy = "directory"` and rely on
   automatic `.helm` domain generation for app services instead of emitting an
   explicit `domain = "...localhost"` entry in new configs.

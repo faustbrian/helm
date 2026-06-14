@@ -115,7 +115,9 @@ mod tests {
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("run.sh"), "printf '%s' ok; exit 0");
 
-        run_script_hook(&script, None, &dir).expect("run script hook");
+        crate::docker::with_dry_run_state(false, || {
+            run_script_hook(&script, None, &dir).expect("run script hook");
+        });
     }
 
     #[test]
@@ -125,7 +127,9 @@ mod tests {
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("fail.sh"), "echo boom; exit 3");
 
-        let error = run_script_hook(&script, None, &dir).expect_err("expected script error path");
+        let error = crate::docker::with_dry_run_state(false, || {
+            run_script_hook(&script, None, &dir).expect_err("expected script error path")
+        });
         assert!(error.to_string().contains("non-zero status"));
     }
 
@@ -136,7 +140,9 @@ mod tests {
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("sleep.sh"), "trap 'exit 0' TERM INT; sleep 5");
 
-        let error = run_script_hook(&script, Some(1), &dir).expect_err("expected timeout");
+        let error = crate::docker::with_dry_run_state(false, || {
+            run_script_hook(&script, Some(1), &dir).expect_err("expected timeout")
+        });
         assert!(error.to_string().contains("timed out"));
     }
 
