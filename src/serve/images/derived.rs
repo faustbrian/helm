@@ -34,7 +34,7 @@ pub(super) fn resolve_runtime_image(
     workspace_root: &Path,
 ) -> Result<String> {
     let include_js_tooling = should_include_js_tooling(target);
-    let playwright_package_spec = browser_test_runtime_enabled(injected_env)
+    let playwright_package_spec = browser_test_runtime_enabled(injected_env, &target.name)
         .then(|| resolve_playwright_package_spec(workspace_root))
         .flatten();
     let sql_client_flavor = sql_client_flavor_from_injected_env(injected_env);
@@ -59,8 +59,11 @@ pub(super) fn resolve_runtime_image(
         return Ok(target.image.clone());
     }
 
-    let installable_extensions =
-        filter_installable_extensions(&target.image, &normalized_extensions)?;
+    let installable_extensions = if normalized_extensions.is_empty() {
+        Vec::new()
+    } else {
+        filter_installable_extensions(&target.image, &normalized_extensions)?
+    };
     if installable_extensions.is_empty() && !include_js_tooling && playwright_package_spec.is_none()
     {
         return Ok(target.image.clone());

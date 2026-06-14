@@ -35,7 +35,16 @@ pub(super) fn ensure_test_services_running(
 ) -> Result<()> {
     let (_, mut app_env) = prepare_testing_runtime(config)?;
     if bootstrap_playwright {
-        serve::enable_browser_test_runtime(&mut app_env);
+        let frankenphp_services = config
+            .service
+            .iter()
+            .filter(|service| {
+                service.kind == config::Kind::App && service.driver == config::Driver::Frankenphp
+            })
+            .map(|service| service.name.clone())
+            .collect::<Vec<_>>();
+
+        serve::enable_browser_test_runtime(&mut app_env, &frankenphp_services);
     }
     let startup_services = resolve_testing_startup_services(config, selected_service)?;
     cleanup_stale_testing_runtime_containers(&startup_services)?;

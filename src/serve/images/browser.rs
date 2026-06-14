@@ -5,17 +5,36 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const BROWSER_TEST_RUNTIME_ENV_KEY: &str = "HELM_BROWSER_TEST_RUNTIME";
+const BROWSER_TEST_RUNTIME_TARGETS_ENV_KEY: &str = "HELM_BROWSER_TEST_RUNTIME_TARGETS";
 
 /// Marks a runtime env map so derived app images include browser-test deps.
-pub(crate) fn enable_browser_test_runtime(app_env: &mut HashMap<String, String>) {
+pub(crate) fn enable_browser_test_runtime(
+    app_env: &mut HashMap<String, String>,
+    target_names: &[String],
+) {
     app_env.insert(BROWSER_TEST_RUNTIME_ENV_KEY.to_owned(), "1".to_owned());
+    app_env.insert(
+        BROWSER_TEST_RUNTIME_TARGETS_ENV_KEY.to_owned(),
+        target_names.join(","),
+    );
 }
 
 /// Returns whether the injected env enables browser-test runtime behavior.
-pub(super) fn browser_test_runtime_enabled(app_env: &HashMap<String, String>) -> bool {
+pub(super) fn browser_test_runtime_enabled(
+    app_env: &HashMap<String, String>,
+    target_name: &str,
+) -> bool {
     app_env
         .get(BROWSER_TEST_RUNTIME_ENV_KEY)
         .is_some_and(|value| value == "1")
+        && app_env
+            .get(BROWSER_TEST_RUNTIME_TARGETS_ENV_KEY)
+            .is_some_and(|targets| {
+                targets
+                    .split(',')
+                    .map(str::trim)
+                    .any(|candidate| candidate == target_name)
+            })
 }
 
 /// Resolves the Playwright package spec used for build-time dependency install.
@@ -63,10 +82,12 @@ mod tests {
     #[test]
     fn enable_browser_test_runtime_marks_runtime_env() {
         let mut env = HashMap::new();
+        let targets = vec!["app".to_owned()];
 
-        enable_browser_test_runtime(&mut env);
+        enable_browser_test_runtime(&mut env, &targets);
 
-        assert!(browser_test_runtime_enabled(&env));
+        assert!(browser_test_runtime_enabled(&env, "app"));
+        assert!(!browser_test_runtime_enabled(&env, "mailhog"));
     }
 
     #[test]
