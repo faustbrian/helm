@@ -43,6 +43,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed repeated `helm artisan test --browser` Playwright browser downloads by
+  caching browser binaries under `.helm/cache/playwright` in the mounted
+  workspace and reusing that cache across reset test-runtime containers.
 - Fixed Helm's default PHP memory limit for derived app images and
   `helm artisan test` runs to `4096M`, reducing coverage-run failures
   caused by the previous `2048M` ceiling.
