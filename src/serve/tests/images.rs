@@ -27,6 +27,7 @@ fn extension_dockerfile_contains_install_step() {
         VersionManager::System,
         None,
         SqlClientFlavor::Mysql,
+        None,
     );
     assert!(rendered.contains("FROM dunglas/frankenphp:php8.5"));
     assert!(rendered.contains("RUN install-php-extensions pdo_mysql intl"));
@@ -43,6 +44,7 @@ fn derived_dockerfile_can_include_js_tooling() {
         VersionManager::System,
         Some("22"),
         SqlClientFlavor::Mysql,
+        None,
     );
     assert!(rendered.contains("npm install -g pnpm yarn"));
     assert!(!rendered.contains("corepack"));
@@ -67,6 +69,7 @@ fn derived_dockerfile_uses_mariadb_client_when_requested() {
         VersionManager::System,
         None,
         SqlClientFlavor::Mariadb,
+        None,
     );
     assert!(rendered.contains("mariadb-client"));
     assert!(!rendered.contains("default-mysql-client"));
@@ -82,6 +85,7 @@ fn derived_dockerfile_can_install_fnm_managed_node() {
         VersionManager::Fnm,
         Some("22"),
         SqlClientFlavor::Mysql,
+        None,
     );
 
     assert!(rendered.contains("fnm.vercel.app/install"));
@@ -100,6 +104,7 @@ fn derived_dockerfile_can_install_deno_runtime() {
         VersionManager::System,
         Some("2.2.3"),
         SqlClientFlavor::Mysql,
+        None,
     );
 
     assert!(rendered.contains("https://deno.land/install.sh"));
@@ -119,6 +124,7 @@ fn derived_dockerfile_can_install_bun_runtime() {
         VersionManager::System,
         Some("1.2.5"),
         SqlClientFlavor::Mysql,
+        None,
     );
 
     assert!(rendered.contains("https://bun.sh/install"));
@@ -138,11 +144,28 @@ fn derived_dockerfile_installs_latest_bun_without_latest_alias() {
         VersionManager::System,
         None,
         SqlClientFlavor::Mysql,
+        None,
     );
 
     assert!(rendered.contains("https://bun.sh/install"));
     assert!(!rendered.contains("bash -s -- latest"));
     assert!(!rendered.contains("bun-linux-aarch64.zip"));
+}
+
+#[test]
+fn derived_dockerfile_can_install_playwright_system_dependencies() {
+    let rendered = render_derived_dockerfile(
+        "dunglas/frankenphp:php8.5",
+        &Vec::new(),
+        true,
+        JavaScriptRuntime::Node,
+        VersionManager::System,
+        Some("22"),
+        SqlClientFlavor::Mysql,
+        Some("playwright@^1.60.0"),
+    );
+
+    assert!(rendered.contains("npx -y 'playwright@^1.60.0' install-deps chromium"));
 }
 
 #[test]

@@ -29,6 +29,7 @@ mod trust;
 pub use caddy::{caddy_access_log_path, trust_local_caddy_ca};
 pub(crate) use exec::{exec_artisan, exec_or_run_command, runtime_cmdline};
 pub(crate) use hosts::{domain_resolves_to_loopback, ensure_hosts_entry_for_domain};
+pub(crate) use images::enable_browser_test_runtime;
 pub use state::PhpExtensionCheck;
 
 use container::resolve_volume_mapping;

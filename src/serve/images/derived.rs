@@ -16,6 +16,7 @@ use super::super::image_build::{
     build_derived_image, filter_installable_extensions, render_derived_dockerfile,
     should_include_js_tooling,
 };
+use super::browser::{browser_test_runtime_enabled, resolve_playwright_package_spec};
 use super::lock::{docker_image_exists, read_derived_image_lock, write_derived_image_lock};
 use super::runtime::normalize_php_extensions;
 use signature::derive_image_signature;
@@ -33,6 +34,9 @@ pub(super) fn resolve_runtime_image(
     workspace_root: &Path,
 ) -> Result<String> {
     let include_js_tooling = should_include_js_tooling(target);
+    let playwright_package_spec = browser_test_runtime_enabled(injected_env)
+        .then(|| resolve_playwright_package_spec(workspace_root))
+        .flatten();
     let sql_client_flavor = sql_client_flavor_from_injected_env(injected_env);
     let node_runtime = resolve_javascript_runtime(ResolveJavaScriptRuntimeOptions {
         configured: target.javascript.as_ref(),
@@ -50,13 +54,15 @@ pub(super) fn resolve_runtime_image(
         .map(|exts| normalize_php_extensions(exts))
         .unwrap_or_default();
 
-    if normalized_extensions.is_empty() && !include_js_tooling {
+    if normalized_extensions.is_empty() && !include_js_tooling && playwright_package_spec.is_none()
+    {
         return Ok(target.image.clone());
     }
 
     let installable_extensions =
         filter_installable_extensions(&target.image, &normalized_extensions)?;
-    if installable_extensions.is_empty() && !include_js_tooling {
+    if installable_extensions.is_empty() && !include_js_tooling && playwright_package_spec.is_none()
+    {
         return Ok(target.image.clone());
     }
 
@@ -69,6 +75,7 @@ pub(super) fn resolve_runtime_image(
         node_runtime.version_manager,
         node_runtime.node_version.as_deref(),
         sql_client_flavor,
+        playwright_package_spec.as_deref(),
     );
     let signature = derive_image_signature(&dockerfile);
     if let Some(tag) = read_derived_image_lock()?.entries.get(&signature).cloned()

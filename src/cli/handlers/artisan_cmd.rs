@@ -61,9 +61,12 @@ pub(crate) fn handle_artisan(
     let mut effective_config = config.clone();
     let mut _testing_runtime_lease = None;
     let mut workspace_root = None;
+    let mut bootstrap_playwright = false;
     if is_test_command {
         let resolved_workspace_root =
             cli::support::workspace_root(options.config_path, options.project_root)?;
+        bootstrap_playwright =
+            browser_requested && should_bootstrap_playwright(&resolved_workspace_root);
         effective_config = load_artisan_test_base_config(
             options.config_path,
             options.project_root,
@@ -106,6 +109,7 @@ pub(crate) fn handle_artisan(
             &mut effective_config,
             &resolved_workspace_root,
             selected_service.as_deref(),
+            bootstrap_playwright,
         ) {
             Ok(()) => prepared_test_runtime = true,
             Err(start_error) => {
@@ -135,10 +139,6 @@ pub(crate) fn handle_artisan(
         )?
     };
     let full_command = if is_test_command {
-        let root = workspace_root
-            .as_ref()
-            .ok_or_else(|| anyhow!("testing workspace root should be set"))?;
-        let bootstrap_playwright = browser_requested && should_bootstrap_playwright(root);
         build_artisan_test_command(user_command, &runtime.app_env, bootstrap_playwright)
     } else {
         build_artisan_command(user_command)

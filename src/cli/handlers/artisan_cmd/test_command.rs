@@ -31,7 +31,7 @@ pub(super) fn build_artisan_test_command(
     exports.push("export APP_ENV='testing'".to_owned());
 
     let playwright_bootstrap = if bootstrap_playwright {
-        " && if [ ! -f package.json ]; then echo 'Playwright browser tests require package.json in the workspace root.' >&2; exit 1; fi && export PLAYWRIGHT_BROWSERS_PATH='/app/.helm/cache/playwright' && mkdir -p \"$PLAYWRIGHT_BROWSERS_PATH\" && if [ ! -x ./node_modules/.bin/playwright ]; then npm install; fi && npx playwright install-deps && if [ -z \"$(find \"$PLAYWRIGHT_BROWSERS_PATH\" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)\" ]; then npx playwright install chromium; fi"
+        " && if [ ! -f package.json ]; then echo 'Playwright browser tests require package.json in the workspace root.' >&2; exit 1; fi && export PLAYWRIGHT_BROWSERS_PATH='/app/.helm/cache/playwright' && mkdir -p \"$PLAYWRIGHT_BROWSERS_PATH\" && if [ ! -x ./node_modules/.bin/playwright ]; then npm install; fi && if [ -z \"$(find \"$PLAYWRIGHT_BROWSERS_PATH\" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)\" ]; then npx playwright install chromium; fi"
     } else {
         ""
     };
@@ -146,7 +146,7 @@ mod tests {
         assert!(script.contains(
             "if [ -z \"$(find \"$PLAYWRIGHT_BROWSERS_PATH\" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)\" ]; then npx playwright install chromium; fi"
         ));
-        assert!(script.contains("npx playwright install-deps"));
+        assert!(!script.contains("npx playwright install-deps"));
         assert!(!script.contains("npx playwright install &&"));
     }
 }

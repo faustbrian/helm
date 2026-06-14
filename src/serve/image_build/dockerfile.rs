@@ -17,6 +17,7 @@ pub(super) fn render_derived_dockerfile(
     version_manager: VersionManager,
     node_version: Option<&str>,
     sql_client_flavor: SqlClientFlavor,
+    playwright_package_spec: Option<&str>,
 ) -> String {
     let mut dockerfile = format!("FROM {base_image}\n");
     let sql_client_package = sql_client_flavor.apt_package();
@@ -26,7 +27,12 @@ pub(super) fn render_derived_dockerfile(
         dockerfile.push_str(
             &format!(
                 "RUN apt-get update \\\n    && apt-get install -y --no-install-recommends bash curl ca-certificates gnupg unzip ghostscript {sql_client_package} postgresql-client \\\n    && {} \\\n    && curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer \\\n    && rm -rf /var/lib/apt/lists/*\n",
-                render_js_tooling_install(runtime, version_manager, node_version),
+                render_js_tooling_install(
+                    runtime,
+                    version_manager,
+                    node_version,
+                    playwright_package_spec,
+                ),
             ),
         );
     }
@@ -62,85 +68,112 @@ fn render_js_tooling_install(
     runtime: JavaScriptRuntime,
     version_manager: VersionManager,
     node_version: Option<&str>,
+    playwright_package_spec: Option<&str>,
 ) -> String {
     match runtime {
-        JavaScriptRuntime::Node => render_node_tooling_install(version_manager, node_version),
-        JavaScriptRuntime::Bun => render_bun_install(node_version),
-        JavaScriptRuntime::Deno => render_deno_install(node_version),
+        JavaScriptRuntime::Node => {
+            render_node_tooling_install(version_manager, node_version, playwright_package_spec)
+        }
+        JavaScriptRuntime::Bun => render_bun_install(node_version, playwright_package_spec),
+        JavaScriptRuntime::Deno => render_deno_install(node_version, playwright_package_spec),
     }
 }
 
 fn render_node_tooling_install(
     version_manager: VersionManager,
     node_version: Option<&str>,
+    playwright_package_spec: Option<&str>,
 ) -> String {
     match version_manager {
-        VersionManager::System => render_system_node_install(node_version),
-        VersionManager::Fnm => render_fnm_install(node_version),
-        VersionManager::Nvm => render_nvm_install(node_version),
-        VersionManager::Volta => render_volta_install(node_version),
+        VersionManager::System => render_system_node_install(node_version, playwright_package_spec),
+        VersionManager::Fnm => render_fnm_install(node_version, playwright_package_spec),
+        VersionManager::Nvm => render_nvm_install(node_version, playwright_package_spec),
+        VersionManager::Volta => render_volta_install(node_version, playwright_package_spec),
     }
 }
 
-fn render_deno_install(version: Option<&str>) -> String {
+fn render_deno_install(version: Option<&str>, playwright_package_spec: Option<&str>) -> String {
     let version_arg = version
         .map(|value| format!(" --version {value}"))
         .unwrap_or_default();
 
-    format!(
+    let install = format!(
         "curl -fsSL https://deno.land/install.sh | sh -s --{version_arg} \\\n    && ln -sf /root/.deno/bin/deno /usr/local/bin/deno"
-    )
+    );
+    append_playwright_install_deps(install, playwright_package_spec)
 }
 
-fn render_bun_install(version: Option<&str>) -> String {
+fn render_bun_install(version: Option<&str>, playwright_package_spec: Option<&str>) -> String {
     let version_arg = version
         .map(|value| format!("bun-v{value}"))
         .unwrap_or_default();
 
-    format!(
+    let install = format!(
         "curl -fsSL https://bun.sh/install | bash -s -- {version_arg} \\\n    && ln -sf /root/.bun/bin/bun /usr/local/bin/bun"
-    )
+    );
+    append_playwright_install_deps(install, playwright_package_spec)
 }
 
-fn render_system_node_install(node_version: Option<&str>) -> String {
+fn render_system_node_install(
+    node_version: Option<&str>,
+    playwright_package_spec: Option<&str>,
+) -> String {
     let channel = node_version
         .and_then(extract_node_major)
         .map(|major| format!("setup_{major}.x"))
         .unwrap_or_else(|| "setup_lts.x".to_owned());
 
-    format!(
+    let install = format!(
         "curl -fsSL https://deb.nodesource.com/{channel} | bash - \\\n    && apt-get install -y --no-install-recommends nodejs \\\n    && npm install -g pnpm yarn"
-    )
+    );
+    append_playwright_install_deps(install, playwright_package_spec)
 }
 
-fn render_fnm_install(node_version: Option<&str>) -> String {
+fn render_fnm_install(node_version: Option<&str>, playwright_package_spec: Option<&str>) -> String {
     let mut install = "curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /usr/local/fnm --skip-shell \\\n    && ln -sf /usr/local/fnm/fnm /usr/local/bin/fnm".to_owned();
     if let Some(version) = node_version {
         install.push_str(&format!(
             " \\\n    && eval \"$(fnm env --shell bash)\" \\\n    && fnm install {version} \\\n    && fnm default {version} \\\n    && fnm exec --using {version} npm install -g pnpm yarn"
         ));
     }
-    install
+    append_playwright_install_deps(install, playwright_package_spec)
 }
 
-fn render_nvm_install(node_version: Option<&str>) -> String {
+fn render_nvm_install(node_version: Option<&str>, playwright_package_spec: Option<&str>) -> String {
     let mut install = "export NVM_DIR=/usr/local/nvm \\\n    && curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash".to_owned();
     if let Some(version) = node_version {
         install.push_str(&format!(
             " \\\n    && export NVM_DIR=/usr/local/nvm \\\n    && . \"$NVM_DIR/nvm.sh\" \\\n    && nvm install {version} \\\n    && nvm alias default {version} \\\n    && nvm exec {version} npm install -g pnpm yarn"
         ));
     }
-    install
+    append_playwright_install_deps(install, playwright_package_spec)
 }
 
-fn render_volta_install(node_version: Option<&str>) -> String {
+fn render_volta_install(
+    node_version: Option<&str>,
+    playwright_package_spec: Option<&str>,
+) -> String {
     let mut install = "export VOLTA_HOME=/usr/local/volta \\\n    && curl -fsSL https://get.volta.sh | bash -s -- --skip-setup \\\n    && ln -sf /usr/local/volta/bin/volta /usr/local/bin/volta".to_owned();
     if let Some(version) = node_version {
         install.push_str(&format!(
             " \\\n    && export VOLTA_HOME=/usr/local/volta \\\n    && export PATH=\"$VOLTA_HOME/bin:$PATH\" \\\n    && volta install node@{version} \\\n    && volta run --node {version} npm install -g pnpm yarn"
         ));
     }
-    install
+    append_playwright_install_deps(install, playwright_package_spec)
+}
+
+fn append_playwright_install_deps(
+    install: String,
+    playwright_package_spec: Option<&str>,
+) -> String {
+    let Some(package_spec) = playwright_package_spec else {
+        return install;
+    };
+
+    format!(
+        "{install} \\\n    && npx -y '{}' install-deps chromium",
+        package_spec
+    )
 }
 
 fn extract_node_major(version: &str) -> Option<&str> {

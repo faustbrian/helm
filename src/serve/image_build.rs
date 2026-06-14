@@ -43,6 +43,7 @@ pub(super) fn render_derived_dockerfile(
     version_manager: VersionManager,
     node_version: Option<&str>,
     sql_client_flavor: SqlClientFlavor,
+    playwright_package_spec: Option<&str>,
 ) -> String {
     dockerfile::render_derived_dockerfile(
         base_image,
@@ -52,6 +53,7 @@ pub(super) fn render_derived_dockerfile(
         version_manager,
         node_version,
         sql_client_flavor,
+        playwright_package_spec,
     )
 }
 

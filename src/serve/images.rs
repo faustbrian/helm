@@ -6,9 +6,11 @@ use std::path::Path;
 
 use crate::config::ServiceConfig;
 
+mod browser;
 mod derived;
 mod lock;
 mod runtime;
+pub(crate) use browser::enable_browser_test_runtime;
 
 /// Resolves the effective runtime image for a serve target.
 pub(super) fn resolve_runtime_image(

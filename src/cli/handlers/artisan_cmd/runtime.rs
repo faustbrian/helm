@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::path::Path;
 
-use crate::{cli, config};
+use crate::{cli, config, serve};
 
 mod cleanup_stale_runtime;
 mod reset_service;
@@ -31,8 +31,12 @@ pub(super) fn ensure_test_services_running(
     config: &mut config::Config,
     workspace_root: &Path,
     selected_service: Option<&str>,
+    bootstrap_playwright: bool,
 ) -> Result<()> {
-    let (_, app_env) = prepare_testing_runtime(config)?;
+    let (_, mut app_env) = prepare_testing_runtime(config)?;
+    if bootstrap_playwright {
+        serve::enable_browser_test_runtime(&mut app_env);
+    }
     let startup_services = resolve_testing_startup_services(config, selected_service)?;
     cleanup_stale_testing_runtime_containers(&startup_services)?;
     let start_context = cli::support::ServiceStartContext::new(workspace_root, &app_env);
