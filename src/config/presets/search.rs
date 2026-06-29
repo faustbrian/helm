@@ -4,15 +4,48 @@
 
 use super::{Driver, Kind, PresetDefaults};
 
-pub(super) const PRESET_NAMES: &[&str] = &["meilisearch", "typesense"];
+pub(super) const PRESET_NAMES: &[&str] =
+    &["opensearch", "elasticsearch", "meilisearch", "typesense"];
 
 /// Resolves resolve using configured inputs and runtime state.
 pub(super) fn resolve(preset: &str) -> Option<PresetDefaults> {
     match preset {
+        "opensearch" => Some(opensearch()),
+        "elasticsearch" => Some(elasticsearch()),
         "meilisearch" => Some(meilisearch()),
         "typesense" => Some(typesense()),
         _ => None,
     }
+}
+
+fn opensearch() -> PresetDefaults {
+    let mut defaults = PresetDefaults::base(
+        Kind::Search,
+        Driver::Opensearch,
+        "opensearchproject/opensearch:latest",
+    );
+    defaults.name = Some("search");
+    defaults.forced_env = Some(vec![
+        ("SCOUT_DRIVER", "opensearch"),
+        ("discovery.type", "single-node"),
+        ("DISABLE_SECURITY_PLUGIN", "true"),
+    ]);
+    defaults
+}
+
+fn elasticsearch() -> PresetDefaults {
+    let mut defaults = PresetDefaults::base(
+        Kind::Search,
+        Driver::Elasticsearch,
+        "docker.elastic.co/elasticsearch/elasticsearch:9.4.2",
+    );
+    defaults.name = Some("search");
+    defaults.forced_env = Some(vec![
+        ("SCOUT_DRIVER", "elasticsearch"),
+        ("discovery.type", "single-node"),
+        ("xpack.security.enabled", "false"),
+    ]);
+    defaults
 }
 
 fn meilisearch() -> PresetDefaults {

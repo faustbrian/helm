@@ -58,6 +58,8 @@ fn uses_default_named_data_volume(service: &ServiceConfig) -> bool {
             | Driver::Garage
             | Driver::Rustfs
             | Driver::Localstack
+            | Driver::Opensearch
+            | Driver::Elasticsearch
             | Driver::Meilisearch
             | Driver::Typesense
     )

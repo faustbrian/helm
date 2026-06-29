@@ -1,4 +1,4 @@
-//! Search backend env inference (Meilisearch/Typesense).
+//! Search backend env inference.
 
 use std::collections::HashMap;
 
@@ -9,10 +9,22 @@ use super::super::{insert_if_absent, runtime_host_for_app, service_endpoint};
 /// Applies inferred Scout/search variables based on selected search driver.
 pub(super) fn apply(vars: &mut HashMap<String, String>, service: &ServiceConfig) {
     match service.driver {
+        Driver::Opensearch => apply_opensearch(vars, service),
+        Driver::Elasticsearch => apply_elasticsearch(vars, service),
         Driver::Meilisearch => apply_meilisearch(vars, service),
         Driver::Typesense => apply_typesense(vars, service),
         _ => {}
     }
+}
+
+fn apply_opensearch(vars: &mut HashMap<String, String>, service: &ServiceConfig) {
+    insert_if_absent(vars, "SCOUT_DRIVER", "opensearch".to_owned());
+    insert_if_absent(vars, "OPENSEARCH_HOST", service_endpoint(service));
+}
+
+fn apply_elasticsearch(vars: &mut HashMap<String, String>, service: &ServiceConfig) {
+    insert_if_absent(vars, "SCOUT_DRIVER", "elasticsearch".to_owned());
+    insert_if_absent(vars, "ELASTICSEARCH_HOST", service_endpoint(service));
 }
 
 /// Applies Meilisearch-specific env keys.

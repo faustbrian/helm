@@ -63,6 +63,8 @@ pub(super) fn interactive_client_args(service: &ServiceConfig) -> Vec<String> {
         | Driver::Garage
         | Driver::Rustfs
         | Driver::Localstack
+        | Driver::Opensearch
+        | Driver::Elasticsearch
         | Driver::Meilisearch
         | Driver::Typesense
         | Driver::Frankenphp
@@ -126,6 +128,8 @@ pub(super) fn piped_client_args(service: &ServiceConfig) -> Result<Vec<String>> 
         | Driver::Garage
         | Driver::Rustfs
         | Driver::Localstack
+        | Driver::Opensearch
+        | Driver::Elasticsearch
         | Driver::Meilisearch
         | Driver::Typesense
         | Driver::Frankenphp

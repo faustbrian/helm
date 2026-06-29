@@ -41,6 +41,8 @@ pub(super) fn sql_driver(service: &ServiceConfig) -> Result<Driver> {
         | Driver::Garage
         | Driver::Rustfs
         | Driver::Localstack
+        | Driver::Opensearch
+        | Driver::Elasticsearch
         | Driver::Meilisearch
         | Driver::Typesense
         | Driver::Frankenphp

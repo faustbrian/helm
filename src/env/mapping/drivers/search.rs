@@ -6,6 +6,22 @@ use std::collections::HashMap;
 
 use crate::config::ServiceConfig;
 
+pub(super) fn apply_opensearch_map(map: &mut HashMap<String, String>, service: &ServiceConfig) {
+    map.insert("SCOUT_DRIVER".to_owned(), "opensearch".to_owned());
+    map.insert(
+        "OPENSEARCH_HOST".to_owned(),
+        format!("{}://{}:{}", service.scheme(), service.host, service.port),
+    );
+}
+
+pub(super) fn apply_elasticsearch_map(map: &mut HashMap<String, String>, service: &ServiceConfig) {
+    map.insert("SCOUT_DRIVER".to_owned(), "elasticsearch".to_owned());
+    map.insert(
+        "ELASTICSEARCH_HOST".to_owned(),
+        format!("{}://{}:{}", service.scheme(), service.host, service.port),
+    );
+}
+
 pub(super) fn apply_meilisearch_map(map: &mut HashMap<String, String>, service: &ServiceConfig) {
     map.insert("SCOUT_DRIVER".to_owned(), "meilisearch".to_owned());
     map.insert(

@@ -24,7 +24,9 @@ pub(super) fn apply_service_env(vars: &mut HashMap<String, String>, service: &Se
         Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack => {
             object_store::apply(&mut service_vars, service)
         }
-        Driver::Meilisearch | Driver::Typesense => search::apply(&mut service_vars, service),
+        Driver::Opensearch | Driver::Elasticsearch | Driver::Meilisearch | Driver::Typesense => {
+            search::apply(&mut service_vars, service)
+        }
         Driver::Frankenphp
         | Driver::Reverb
         | Driver::Horizon

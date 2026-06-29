@@ -37,7 +37,7 @@ pub(in crate::output) fn token_color(token: &str) -> TokenColor {
         "minio" | "garage" => TokenColor::MinioRed,
         "rustfs" | "object-store" | "object_store" => TokenColor::RustOrange,
         "meilisearch" => TokenColor::SearchGreen,
-        "typesense" | "search" => TokenColor::Teal,
+        "opensearch" | "elasticsearch" | "typesense" | "search" => TokenColor::Teal,
         "gotenberg" => TokenColor::BrandBlue,
         "mailhog" | "mailpit" | "dusk" | "selenium" | "rabbitmq" | "soketi" | "scheduler" => {
             TokenColor::Purple

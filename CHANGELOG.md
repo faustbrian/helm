@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `opensearch` and `elasticsearch` search service presets with local
+  single-node defaults, inferred Scout env wiring, named data volumes, and
+  shared runtime handling alongside existing search backends.
 - Added project-wide `domain_strategy` config with `directory` and `random`
   modes so app services can resolve `.helm` domains automatically without
   repeating explicit per-service `domain` entries.

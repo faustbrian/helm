@@ -306,6 +306,14 @@ fn search_presets_set_laravel_scout_env_defaults() {
             container_prefix = "acme-api"
 
             [[service]]
+            preset = "opensearch"
+            name = "search-opensearch"
+
+            [[service]]
+            preset = "elasticsearch"
+            name = "search-elasticsearch"
+
+            [[service]]
             preset = "meilisearch"
             name = "search-meili"
 
@@ -316,6 +324,62 @@ fn search_presets_set_laravel_scout_env_defaults() {
 
     let raw: RawConfig = toml::from_str(toml).expect("raw config parse");
     let config = expansion::expand_raw_config(raw).expect("expand preset config");
+
+    let opensearch = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "search-opensearch")
+        .expect("opensearch service");
+    assert_eq!(
+        opensearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("SCOUT_DRIVER")),
+        Some(&"opensearch".to_owned())
+    );
+    assert_eq!(
+        opensearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("discovery.type")),
+        Some(&"single-node".to_owned())
+    );
+    assert_eq!(
+        opensearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("DISABLE_SECURITY_PLUGIN")),
+        Some(&"true".to_owned())
+    );
+    assert_eq!(opensearch.port, 9200);
+
+    let elasticsearch = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "search-elasticsearch")
+        .expect("elasticsearch service");
+    assert_eq!(
+        elasticsearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("SCOUT_DRIVER")),
+        Some(&"elasticsearch".to_owned())
+    );
+    assert_eq!(
+        elasticsearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("discovery.type")),
+        Some(&"single-node".to_owned())
+    );
+    assert_eq!(
+        elasticsearch
+            .env
+            .as_ref()
+            .and_then(|env| env.get("xpack.security.enabled")),
+        Some(&"false".to_owned())
+    );
+    assert_eq!(elasticsearch.port, 9201);
 
     let meili = config
         .service

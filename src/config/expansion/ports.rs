@@ -67,6 +67,7 @@ const fn preferred_start_port(driver: Driver) -> u16 {
         Driver::Minio | Driver::Rustfs => 9000,
         Driver::Garage => 3900,
         Driver::Localstack => 4566,
+        Driver::Opensearch | Driver::Elasticsearch => 9200,
         Driver::Meilisearch => 7700,
         Driver::Typesense => 8108,
         Driver::Frankenphp => 33065,

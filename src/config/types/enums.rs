@@ -62,6 +62,10 @@ pub enum Driver {
     Rustfs,
     /// `LocalStack`.
     Localstack,
+    /// `OpenSearch`.
+    Opensearch,
+    /// `Elasticsearch`.
+    Elasticsearch,
     /// `Meilisearch`.
     Meilisearch,
     /// `Typesense`.

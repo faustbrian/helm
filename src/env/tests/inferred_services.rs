@@ -139,6 +139,44 @@ fn inferred_app_env_uses_mariadb_flavor_for_mariadb_only_database_images() {
 }
 
 #[test]
+fn inferred_app_env_includes_opensearch_scout_vars() {
+    let config = Config {
+        schema_version: 1,
+        project_type: crate::config::ProjectType::Project,
+        container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
+        service: vec![svc("search", Kind::Search, Driver::Opensearch, 9200)],
+        swarm: vec![],
+    };
+
+    let vars = inferred_app_env(&config);
+    assert_eq!(vars.get("SCOUT_DRIVER"), Some(&"opensearch".to_owned()));
+    assert_eq!(
+        vars.get("OPENSEARCH_HOST"),
+        Some(&"http://host.docker.internal:9200".to_owned())
+    );
+}
+
+#[test]
+fn inferred_app_env_includes_elasticsearch_scout_vars() {
+    let config = Config {
+        schema_version: 1,
+        project_type: crate::config::ProjectType::Project,
+        container_prefix: Some("app".to_owned()),
+        domain_strategy: None,
+        service: vec![svc("search", Kind::Search, Driver::Elasticsearch, 9200)],
+        swarm: vec![],
+    };
+
+    let vars = inferred_app_env(&config);
+    assert_eq!(vars.get("SCOUT_DRIVER"), Some(&"elasticsearch".to_owned()));
+    assert_eq!(
+        vars.get("ELASTICSEARCH_HOST"),
+        Some(&"http://host.docker.internal:9200".to_owned())
+    );
+}
+
+#[test]
 fn inferred_app_env_includes_meilisearch_scout_vars() {
     let mut meili = svc("search", Kind::Search, Driver::Meilisearch, 7700);
     meili.api_key = Some("masterKey".to_owned());

@@ -24,6 +24,8 @@ pub(super) fn base_map_for_driver(service: &ServiceConfig) -> HashMap<String, St
         Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack => {
             object_store::apply_object_store_map(&mut map, service)
         }
+        Driver::Opensearch => search::apply_opensearch_map(&mut map, service),
+        Driver::Elasticsearch => search::apply_elasticsearch_map(&mut map, service),
         Driver::Meilisearch => search::apply_meilisearch_map(&mut map, service),
         Driver::Typesense => search::apply_typesense_map(&mut map, service),
         Driver::Frankenphp
@@ -145,6 +147,42 @@ mod tests {
 
     #[test]
     fn base_map_for_driver_generates_search_vars() {
+        let opensearch = build_service(
+            "search",
+            Kind::Search,
+            Driver::Opensearch,
+            "10.0.0.7",
+            9200,
+            Some("http"),
+        );
+        let opensearch_values = base_map_for_driver(&opensearch);
+        assert_eq!(
+            opensearch_values.get("SCOUT_DRIVER"),
+            Some(&"opensearch".to_owned())
+        );
+        assert_eq!(
+            opensearch_values.get("OPENSEARCH_HOST"),
+            Some(&"http://10.0.0.7:9200".to_owned())
+        );
+
+        let elasticsearch = build_service(
+            "search",
+            Kind::Search,
+            Driver::Elasticsearch,
+            "10.0.0.9",
+            9200,
+            Some("http"),
+        );
+        let elasticsearch_values = base_map_for_driver(&elasticsearch);
+        assert_eq!(
+            elasticsearch_values.get("SCOUT_DRIVER"),
+            Some(&"elasticsearch".to_owned())
+        );
+        assert_eq!(
+            elasticsearch_values.get("ELASTICSEARCH_HOST"),
+            Some(&"http://10.0.0.9:9200".to_owned())
+        );
+
         let service = build_service(
             "search",
             Kind::Search,

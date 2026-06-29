@@ -236,6 +236,8 @@ fn token_color_maps_brand_services() {
         token_color("meilisearch"),
         TokenColor::SearchGreen
     ));
+    assert!(matches!(token_color("opensearch"), TokenColor::Teal));
+    assert!(matches!(token_color("elasticsearch"), TokenColor::Teal));
     assert!(matches!(token_color("typesense"), TokenColor::Teal));
     assert!(matches!(token_color("gotenberg"), TokenColor::BrandBlue));
     assert!(matches!(token_color("rabbitmq"), TokenColor::Purple));

@@ -19,6 +19,7 @@ impl ServiceConfig {
             Driver::Garage => 3900,
             Driver::Rustfs => 9000,
             Driver::Localstack => 4566,
+            Driver::Opensearch | Driver::Elasticsearch => 9200,
             Driver::Meilisearch => 7700,
             Driver::Typesense => 8108,
             Driver::Frankenphp => 80,
@@ -63,6 +64,8 @@ impl ServiceConfig {
             | Driver::Memcached
             | Driver::Rustfs
             | Driver::Localstack
+            | Driver::Opensearch
+            | Driver::Elasticsearch
             | Driver::Meilisearch
             | Driver::Typesense
             | Driver::Frankenphp

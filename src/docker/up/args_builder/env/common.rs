@@ -42,6 +42,8 @@ fn default_persistent_data_dir(service: &ServiceConfig) -> Option<&'static str> 
         Driver::Minio | Driver::Rustfs => Some("/data"),
         Driver::Garage => Some("/var/lib/garage"),
         Driver::Localstack => Some("/var/lib/localstack"),
+        Driver::Opensearch => Some("/usr/share/opensearch/data"),
+        Driver::Elasticsearch => Some("/usr/share/elasticsearch/data"),
         Driver::Meilisearch => Some("/meili_data"),
         Driver::Typesense => Some("/data"),
         Driver::Memcached

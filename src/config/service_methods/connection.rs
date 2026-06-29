@@ -55,6 +55,8 @@ impl ServiceConfig {
             Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack => {
                 format!("{scheme}://{host}:{port}")
             }
+            Driver::Opensearch => format!("{scheme}://{host}:{port}"),
+            Driver::Elasticsearch => format!("{scheme}://{host}:{port}"),
             Driver::Meilisearch => format!("{scheme}://{host}:{port}"),
             Driver::Typesense => format!("{scheme}://{host}:{port}"),
             Driver::Rabbitmq => {

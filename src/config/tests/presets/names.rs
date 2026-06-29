@@ -25,6 +25,8 @@ fn preset_names_are_unique_and_include_primary_aliases() {
         "garage",
         "localstack",
         "rustfs",
+        "opensearch",
+        "elasticsearch",
         "meilisearch",
         "typesense",
         "frankenphp",

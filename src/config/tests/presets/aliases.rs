@@ -50,6 +50,14 @@ fn preset_aliases_cover_all_primary_backends() {
             name = "localstack"
 
             [[service]]
+            preset = "opensearch"
+            name = "search-opensearch"
+
+            [[service]]
+            preset = "elasticsearch"
+            name = "search-elasticsearch"
+
+            [[service]]
             preset = "meilisearch"
             name = "search-meili"
 
@@ -186,6 +194,20 @@ fn preset_aliases_cover_all_primary_backends() {
         .expect("localstack service");
     assert_eq!(localstack.kind, Kind::ObjectStore);
     assert_eq!(localstack.image, "localstack/localstack:latest");
+
+    let opensearch = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "search-opensearch")
+        .expect("opensearch service");
+    assert_eq!(opensearch.driver, Driver::Opensearch);
+
+    let elasticsearch = config
+        .service
+        .iter()
+        .find(|svc| svc.name == "search-elasticsearch")
+        .expect("elasticsearch service");
+    assert_eq!(elasticsearch.driver, Driver::Elasticsearch);
 
     let meili = config
         .service

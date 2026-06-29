@@ -27,7 +27,9 @@ fn append_driver_env(args: &mut Vec<String>, service: &ServiceConfig) {
         Driver::Mongodb | Driver::Postgres | Driver::Mysql | Driver::Sqlserver => {
             sql::append(args, service)
         }
-        Driver::Meilisearch | Driver::Typesense => search::append(args, service),
+        Driver::Opensearch | Driver::Elasticsearch | Driver::Meilisearch | Driver::Typesense => {
+            search::append(args, service)
+        }
         Driver::Minio | Driver::Garage | Driver::Rustfs | Driver::Localstack => {
             object_store::append(args, service)
         }
