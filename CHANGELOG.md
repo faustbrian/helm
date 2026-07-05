@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added top-level `helm phpstan`, `helm ecs`, `helm php-cs-fixer`, and
+  `helm psalm` wrappers so common PHP quality tools can run directly inside
+  the selected app container without going through `helm exec`.
+- Added top-level `helm pint`, `helm pest`, `helm phpunit`, and
+  `helm rector` wrappers so common PHP formatting, test, and refactor tools
+  can run directly inside the selected app container.
 - Added `opensearch` and `elasticsearch` search service presets with local
   single-node defaults, inferred Scout env wiring, named data volumes, and
   shared runtime handling alongside existing search backends.

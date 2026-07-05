@@ -123,6 +123,16 @@ fn app_action_argument_methods() {
     };
     assert_eq!(args.service(), Some("worker"));
 
+    let args = commands::PhpToolArgs {
+        service: Some("app".to_owned()),
+        kind: None,
+        profile: Some("web".to_owned()),
+        tty: false,
+        no_tty: true,
+        command: vec!["analyse".to_owned()],
+    };
+    assert_eq!(args.profile(), Some("web"));
+
     let args = commands::NodeArgs {
         service: Some("node".to_owned()),
         kind: None,

@@ -848,6 +848,110 @@ Flags:
 - `--no-tty`
 - Trailing Composer command/args.
 
+### `helm phpstan -- <COMMAND...>`
+
+Run `phpstan` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing PHPStan command/args.
+
+### `helm ecs -- <COMMAND...>`
+
+Run `ecs` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing ECS command/args.
+
+### `helm php-cs-fixer -- <COMMAND...>`
+
+Run `php-cs-fixer` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing PHP CS Fixer command/args.
+
+### `helm psalm -- <COMMAND...>`
+
+Run `psalm` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing Psalm command/args.
+
+### `helm pint -- <COMMAND...>`
+
+Run `pint` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing Pint command/args.
+
+### `helm pest -- <COMMAND...>`
+
+Run `pest` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing Pest command/args.
+
+### `helm phpunit -- <COMMAND...>`
+
+Run `phpunit` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing PHPUnit command/args.
+
+### `helm rector -- <COMMAND...>`
+
+Run `rector` inside the app container.
+
+Flags:
+
+- `--service <NAME>`
+- `--kind <KIND>`
+- `--profile <NAME>` (conflicts with `--service` and `--kind`)
+- `--tty`
+- `--no-tty`
+- Trailing Rector command/args.
+
 ### `helm node -- <COMMAND...>`
 
 Run Node package manager commands inside the app container.

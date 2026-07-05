@@ -61,6 +61,166 @@ pub(super) fn dispatch(
                 default_command: &["list"],
             },
         )),
+        Commands::Phpstan(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("phpstan"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Ecs(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("ecs"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::PhpCsFixer(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("php-cs-fixer"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Psalm(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("psalm"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Pint(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("pint"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Pest(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("pest"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Phpunit(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("phpunit"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
+        Commands::Rector(args) => Some(handlers::handle_package_manager_command(
+            config,
+            handlers::HandlePackageManagerCommandOptions {
+                service: args.service(),
+                kind: args.kind,
+                profile: args.profile(),
+                command_bin: Some("rector"),
+                runtime: None,
+                package_manager: None,
+                version_manager: None,
+                node_version: None,
+                non_interactive: context.non_interactive(),
+                tty: args.tty,
+                no_tty: args.no_tty,
+                command: &args.command,
+                config_path: context.config_path(),
+                project_root: context.project_root(),
+                default_command: &[],
+            },
+        )),
         Commands::Node(args) => Some(handlers::handle_package_manager_command(
             config,
             handlers::HandlePackageManagerCommandOptions {
@@ -269,6 +429,18 @@ mod tests {
     #[test]
     fn wrapper_dispatches_composer() {
         assert!(dispatch_result(&["helm", "composer"]).is_some());
+    }
+
+    #[test]
+    fn wrapper_dispatches_php_tools() {
+        assert!(dispatch_result(&["helm", "phpstan"]).is_some());
+        assert!(dispatch_result(&["helm", "ecs"]).is_some());
+        assert!(dispatch_result(&["helm", "php-cs-fixer"]).is_some());
+        assert!(dispatch_result(&["helm", "psalm"]).is_some());
+        assert!(dispatch_result(&["helm", "pint"]).is_some());
+        assert!(dispatch_result(&["helm", "pest"]).is_some());
+        assert!(dispatch_result(&["helm", "phpunit"]).is_some());
+        assert!(dispatch_result(&["helm", "rector"]).is_some());
     }
 
     #[test]

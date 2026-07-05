@@ -778,6 +778,81 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected composer command"),
     }
 
+    let phpstan = Cli::try_parse_from(["helm", "phpstan", "--", "analyse"]).expect("parse phpstan");
+    match phpstan.command {
+        Commands::Phpstan(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected phpstan command"),
+    }
+
+    let ecs = Cli::try_parse_from(["helm", "ecs", "--", "check"]).expect("parse ecs");
+    match ecs.command {
+        Commands::Ecs(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected ecs command"),
+    }
+
+    let fixer =
+        Cli::try_parse_from(["helm", "php-cs-fixer", "--", "fix"]).expect("parse php-cs-fixer");
+    match fixer.command {
+        Commands::PhpCsFixer(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected php-cs-fixer command"),
+    }
+
+    let psalm =
+        Cli::try_parse_from(["helm", "psalm", "--", "--show-info=false"]).expect("parse psalm");
+    match psalm.command {
+        Commands::Psalm(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected psalm command"),
+    }
+
+    let pint = Cli::try_parse_from(["helm", "pint", "--", "--dirty"]).expect("parse pint");
+    match pint.command {
+        Commands::Pint(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected pint command"),
+    }
+
+    let pest = Cli::try_parse_from(["helm", "pest", "--", "--filter=Feature"]).expect("parse pest");
+    match pest.command {
+        Commands::Pest(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected pest command"),
+    }
+
+    let phpunit =
+        Cli::try_parse_from(["helm", "phpunit", "--", "--testsuite=Unit"]).expect("parse phpunit");
+    match phpunit.command {
+        Commands::Phpunit(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected phpunit command"),
+    }
+
+    let rector = Cli::try_parse_from(["helm", "rector", "--", "process"]).expect("parse rector");
+    match rector.command {
+        Commands::Rector(args) => {
+            assert!(args.tty);
+            assert!(!args.no_tty);
+        }
+        _ => panic!("expected rector command"),
+    }
+
     let node = Cli::try_parse_from(["helm", "node", "--", "run", "dev"]).expect("parse node");
     match node.command {
         Commands::Node(args) => {
@@ -855,6 +930,85 @@ fn bun_cli_parses_bun_version_flag() {
             assert_eq!(args.command, vec!["run".to_owned(), "dev".to_owned()]);
         }
         _ => panic!("expected bun command"),
+    }
+}
+
+#[test]
+fn php_tool_commands_parse_arguments_like_composer() {
+    let phpstan = Cli::try_parse_from(["helm", "phpstan", "--service", "app", "--", "analyse"])
+        .expect("parse phpstan");
+    match phpstan.command {
+        Commands::Phpstan(args) => {
+            assert_eq!(args.service.as_deref(), Some("app"));
+            assert_eq!(args.command, vec!["analyse".to_owned()]);
+        }
+        _ => panic!("expected phpstan command"),
+    }
+
+    let ecs = Cli::try_parse_from(["helm", "ecs", "--no-tty", "--", "check"]).expect("parse ecs");
+    match ecs.command {
+        Commands::Ecs(args) => {
+            assert!(args.tty);
+            assert!(args.no_tty);
+            assert_eq!(args.command, vec!["check".to_owned()]);
+        }
+        _ => panic!("expected ecs command"),
+    }
+
+    let fixer = Cli::try_parse_from(["helm", "php-cs-fixer", "--", "fix", "--dry-run"])
+        .expect("parse php-cs-fixer");
+    match fixer.command {
+        Commands::PhpCsFixer(args) => {
+            assert_eq!(args.command, vec!["fix".to_owned(), "--dry-run".to_owned()]);
+        }
+        _ => panic!("expected php-cs-fixer command"),
+    }
+
+    let psalm = Cli::try_parse_from(["helm", "psalm", "--", "--shepherd"]).expect("parse psalm");
+    match psalm.command {
+        Commands::Psalm(args) => {
+            assert_eq!(args.command, vec!["--shepherd".to_owned()]);
+        }
+        _ => panic!("expected psalm command"),
+    }
+
+    let pint = Cli::try_parse_from(["helm", "pint", "--service", "app", "--", "--dirty"])
+        .expect("parse pint");
+    match pint.command {
+        Commands::Pint(args) => {
+            assert_eq!(args.service.as_deref(), Some("app"));
+            assert_eq!(args.command, vec!["--dirty".to_owned()]);
+        }
+        _ => panic!("expected pint command"),
+    }
+
+    let pest =
+        Cli::try_parse_from(["helm", "pest", "--no-tty", "--", "--parallel"]).expect("parse pest");
+    match pest.command {
+        Commands::Pest(args) => {
+            assert!(args.tty);
+            assert!(args.no_tty);
+            assert_eq!(args.command, vec!["--parallel".to_owned()]);
+        }
+        _ => panic!("expected pest command"),
+    }
+
+    let phpunit =
+        Cli::try_parse_from(["helm", "phpunit", "--", "--filter", "Unit"]).expect("parse phpunit");
+    match phpunit.command {
+        Commands::Phpunit(args) => {
+            assert_eq!(args.command, vec!["--filter".to_owned(), "Unit".to_owned()]);
+        }
+        _ => panic!("expected phpunit command"),
+    }
+
+    let rector =
+        Cli::try_parse_from(["helm", "rector", "--", "process", "src"]).expect("parse rector");
+    match rector.command {
+        Commands::Rector(args) => {
+            assert_eq!(args.command, vec!["process".to_owned(), "src".to_owned()]);
+        }
+        _ => panic!("expected rector command"),
     }
 }
 

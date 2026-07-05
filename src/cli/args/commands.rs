@@ -14,8 +14,8 @@ mod operations;
 pub(crate) use app::TaskDepsArgs;
 pub(crate) use app::{
     AppCreateArgs, ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs,
-    OpenArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs, TaskArgs,
-    TaskCommands, TaskDepsCommands,
+    OpenArgs, PhpToolArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs,
+    TaskArgs, TaskCommands, TaskDepsCommands,
 };
 pub(crate) use daemon::{
     DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonServiceArgs,
@@ -129,6 +129,22 @@ pub(crate) enum Commands {
     Artisan(ArtisanArgs),
     /// Run composer inside an app container
     Composer(ComposerArgs),
+    /// Run phpstan inside an app container
+    Phpstan(PhpToolArgs),
+    /// Run ECS inside an app container
+    Ecs(PhpToolArgs),
+    /// Run php-cs-fixer inside an app container
+    PhpCsFixer(PhpToolArgs),
+    /// Run Psalm inside an app container
+    Psalm(PhpToolArgs),
+    /// Run Pint inside an app container
+    Pint(PhpToolArgs),
+    /// Run Pest inside an app container
+    Pest(PhpToolArgs),
+    /// Run PHPUnit inside an app container
+    Phpunit(PhpToolArgs),
+    /// Run Rector inside an app container
+    Rector(PhpToolArgs),
     /// Run Node package manager commands inside an app container
     Node(NodeArgs),
     /// Run Bun inside an app container

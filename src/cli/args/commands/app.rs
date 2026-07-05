@@ -3,11 +3,13 @@
 //! Contains cli args commands app logic used by Helm command workflows.
 
 mod actions;
+mod php_tool;
 mod share;
 mod shell;
 mod task;
 
 pub(crate) use actions::{AppCreateArgs, EnvScrubArgs, OpenArgs, ServeArgs};
+pub(crate) use php_tool::PhpToolArgs;
 pub(crate) use share::{ShareArgs, ShareCommands, ShareProviderSelectionArgs};
 pub(crate) use shell::{ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs};
 #[cfg(test)]
