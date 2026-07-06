@@ -78,7 +78,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = std::env::temp_dir().join(format!(
-            "helm-prune-preview-{}",
+            "stackctl-prune-preview-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

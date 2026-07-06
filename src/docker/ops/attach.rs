@@ -1,6 +1,6 @@
 //! docker ops attach module.
 //!
-//! Contains docker attach operation used by Helm command workflows.
+//! Contains docker attach operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

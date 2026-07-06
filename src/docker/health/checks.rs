@@ -1,6 +1,6 @@
 //! docker health checks module.
 //!
-//! Contains docker health checks logic used by Helm command workflows.
+//! Contains docker health checks logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::net::TcpStream;
@@ -179,7 +179,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-fake-health-docker-{}",
+            "stackctl-fake-health-docker-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("time")

@@ -1,6 +1,6 @@
 //! cli args commands app module.
 //!
-//! Contains cli args commands app logic used by Helm command workflows.
+//! Contains cli args commands app logic used by Stackctl command workflows.
 
 mod actions;
 mod php_tool;

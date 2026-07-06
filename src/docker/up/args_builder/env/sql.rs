@@ -1,6 +1,6 @@
 //! docker up args builder env sql module.
 //!
-//! Contains docker up args builder env sql logic used by Helm command workflows.
+//! Contains docker up args builder env sql logic used by Stackctl command workflows.
 
 use crate::config::{Driver, ServiceConfig};
 
@@ -76,7 +76,7 @@ fn append_sqlserver(args: &mut Vec<String>, service: &ServiceConfig) {
         service
             .password
             .as_deref()
-            .unwrap_or("HelmSqlServerPassw0rd!")
+            .unwrap_or("StackctlSqlServerPassw0rd!")
     ));
     args.push("-e".to_owned());
     args.push("MSSQL_PID=Developer".to_owned());

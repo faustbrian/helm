@@ -1,6 +1,6 @@
 //! config presets search module.
 //!
-//! Contains config presets search logic used by Helm command workflows.
+//! Contains config presets search logic used by Stackctl command workflows.
 
 use super::{Driver, Kind, PresetDefaults};
 

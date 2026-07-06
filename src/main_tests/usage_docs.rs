@@ -36,11 +36,11 @@ fn documented_top_level_commands(usage: &str) -> BTreeSet<String> {
 
 fn parse_command_heading(line: &str) -> Option<String> {
     let trimmed = line.trim();
-    if !trimmed.starts_with("### `helm ") {
+    if !trimmed.starts_with("### `stackctl ") {
         return None;
     }
     let command = trimmed
-        .strip_prefix("### `helm ")?
+        .strip_prefix("### `stackctl ")?
         .split('`')
         .next()?
         .split_whitespace()

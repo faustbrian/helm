@@ -1,6 +1,6 @@
 //! docker up dry run module.
 //!
-//! Contains docker up dry run logic used by Helm command workflows.
+//! Contains docker up dry run logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

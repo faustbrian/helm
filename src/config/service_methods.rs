@@ -1,6 +1,6 @@
 //! config service methods module.
 //!
-//! Contains config service methods logic used by Helm command workflows.
+//! Contains config service methods logic used by Stackctl command workflows.
 
 use super::{Driver, ServiceConfig};
 

@@ -1,6 +1,6 @@
 //! config api project module.
 //!
-//! Contains config api project logic used by Helm command workflows.
+//! Contains config api project logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -30,7 +30,7 @@ impl<'a> ProjectRootPathOptions<'a> {
     }
 }
 
-/// Returns the directory containing the `.helm.toml` file.
+/// Returns the directory containing the `.stackctl.toml` file.
 ///
 /// # Errors
 ///
@@ -39,7 +39,7 @@ pub fn project_root() -> Result<PathBuf> {
     paths::project_root()
 }
 
-/// Returns the directory containing `.helm.toml`, with optional overrides.
+/// Returns the directory containing `.stackctl.toml`, with optional overrides.
 ///
 /// # Errors
 ///
@@ -48,7 +48,7 @@ pub fn project_root_with(options: ProjectRootPathOptions<'_>) -> Result<PathBuf>
     paths::project_root_with(options.config_path, options.project_root)
 }
 
-/// Creates a starter `.helm.toml` in the current directory.
+/// Creates a starter `.stackctl.toml` in the current directory.
 ///
 /// # Errors
 ///

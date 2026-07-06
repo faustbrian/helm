@@ -1,6 +1,6 @@
 //! database setup module.
 //!
-//! Contains database setup logic used by Helm command workflows.
+//! Contains database setup logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 

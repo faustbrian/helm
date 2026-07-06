@@ -1,6 +1,6 @@
 //! config expansion service fields module.
 //!
-//! Contains config expansion service fields logic used by Helm command workflows.
+//! Contains config expansion service fields logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

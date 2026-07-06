@@ -1,6 +1,6 @@
 //! docker exec module.
 //!
-//! Contains docker exec logic used by Helm command workflows.
+//! Contains docker exec logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::process::Child;
@@ -87,7 +87,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-fake-docker-exec-{}",
+            "stackctl-fake-docker-exec-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

@@ -172,7 +172,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let dir = env::temp_dir().join(format!(
-            "helm-open-reporting-{}",
+            "stackctl-open-reporting-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -206,7 +206,7 @@ mod tests {
         F: FnOnce(&Path) -> T,
     {
         let marker_dir = env::temp_dir().join(format!(
-            "helm-open-reporting-open-{}",
+            "stackctl-open-reporting-open-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

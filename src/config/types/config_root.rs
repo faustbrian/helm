@@ -1,6 +1,6 @@
 //! config types config root module.
 //!
-//! Contains config types config root logic used by Helm command workflows.
+//! Contains config types config root logic used by Stackctl command workflows.
 
 use serde::{Deserialize, Serialize};
 

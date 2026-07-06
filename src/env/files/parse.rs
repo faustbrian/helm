@@ -1,6 +1,6 @@
 //! env files parse module.
 //!
-//! Contains env files parse logic used by Helm command workflows.
+//! Contains env files parse logic used by Stackctl command workflows.
 
 pub(super) fn env_key(line: &str) -> Option<&str> {
     let trimmed = line.trim();

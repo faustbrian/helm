@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn check_php_extensions_returns_error_when_module_inspection_fails() {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-php-extensions-fail-{}",
+            "stackctl-php-extensions-fail-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

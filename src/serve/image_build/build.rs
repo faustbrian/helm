@@ -12,7 +12,7 @@ struct BuildContextDir {
 impl BuildContextDir {
     fn create() -> Result<Self> {
         let path = std::env::temp_dir().join(format!(
-            "helm-serve-build-{}",
+            "stackctl-serve-build-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_nanos())

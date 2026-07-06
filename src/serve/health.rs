@@ -135,7 +135,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = PathBuf::from("/tmp").join(format!(
-            "helm-serve-health-{}",
+            "stackctl-serve-health-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -165,7 +165,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = PathBuf::from("/tmp").join(format!(
-            "helm-serve-health-script-{}",
+            "stackctl-serve-health-script-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

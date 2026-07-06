@@ -1,6 +1,6 @@
 //! cli args commands operations docker ops top module.
 //!
-//! Contains top command args used by Helm command workflows.
+//! Contains top command args used by Stackctl command workflows.
 
 use clap::Args;
 

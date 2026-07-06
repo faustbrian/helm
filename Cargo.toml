@@ -1,10 +1,10 @@
 [package]
-name = "helm"
+name = "stackctl"
 version = "6.0.0"
 edition = "2024"
 description = "Zero-BS Laravel workspace orchestrator"
 license = "MIT"
-repository = "https://github.com/faustbrian/helm"
+repository = "https://github.com/faustbrian/stackctl"
 readme = "README.md"
 keywords = ["laravel", "docker", "workspace", "orchestrator", "cli"]
 categories = ["command-line-utilities", "development-tools"]

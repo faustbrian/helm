@@ -1,6 +1,6 @@
 //! docker manage container ops restart module.
 //!
-//! Contains docker manage container ops restart logic used by Helm command workflows.
+//! Contains docker manage container ops restart logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

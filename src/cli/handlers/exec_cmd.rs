@@ -1,6 +1,6 @@
 //! cli handlers exec cmd module.
 //!
-//! Contains cli handlers exec cmd logic used by Helm command workflows.
+//! Contains cli handlers exec cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

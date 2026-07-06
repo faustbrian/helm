@@ -1,6 +1,6 @@
 //! docker up args builder env module.
 //!
-//! Contains docker up args builder env logic used by Helm command workflows.
+//! Contains docker up args builder env logic used by Stackctl command workflows.
 
 use crate::config::{Driver, ServiceConfig};
 

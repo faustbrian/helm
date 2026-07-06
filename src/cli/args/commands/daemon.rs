@@ -1,6 +1,6 @@
 //! cli args commands daemon module.
 //!
-//! Contains cli args for `helm daemon` workflows.
+//! Contains cli args for `stackctl daemon` workflows.
 
 mod service;
 
@@ -29,15 +29,15 @@ pub(crate) struct DaemonArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum DaemonCommands {
-    /// Start a per-project Helm daemon
+    /// Start a per-project Stackctl daemon
     Start(DaemonStartArgs),
-    /// Watch directories for Helm projects and ensure daemons are running
+    /// Watch directories for Stackctl projects and ensure daemons are running
     Watch(DaemonWatchArgs),
     /// Install or inspect a login-time daemon watch service
     Service(DaemonServiceArgs),
     /// Show daemon status for a project
     Status(DaemonStatusArgs),
-    /// Stop a per-project Helm daemon
+    /// Stop a per-project Stackctl daemon
     Stop(DaemonStopArgs),
     /// Show daemon log output for a project
     Logs(DaemonLogsArgs),
@@ -47,21 +47,21 @@ pub(crate) enum DaemonCommands {
 
 #[derive(Args)]
 pub(crate) struct DaemonStartArgs {
-    /// Project directory or nested path inside a Helm project
+    /// Project directory or nested path inside a Stackctl project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,
 }
 
 #[derive(Args)]
 pub(crate) struct DaemonStatusArgs {
-    /// Project directory or nested path inside a Helm project
+    /// Project directory or nested path inside a Stackctl project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,
 }
 
 #[derive(Args)]
 pub(crate) struct DaemonWatchArgs {
-    /// Directory to scan for Helm projects
+    /// Directory to scan for Stackctl projects
     #[arg(long, value_name = "DIR", required = true)]
     pub(crate) dir: Vec<PathBuf>,
     #[command(flatten)]
@@ -76,21 +76,21 @@ pub(crate) struct DaemonWatchArgs {
 
 #[derive(Args)]
 pub(crate) struct DaemonStopArgs {
-    /// Project directory or nested path inside a Helm project
+    /// Project directory or nested path inside a Stackctl project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,
 }
 
 #[derive(Args)]
 pub(crate) struct DaemonLogsArgs {
-    /// Project directory or nested path inside a Helm project
+    /// Project directory or nested path inside a Stackctl project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,
 }
 
 #[derive(Args)]
 pub(crate) struct DaemonRunArgs {
-    /// Project directory or nested path inside a Helm project
+    /// Project directory or nested path inside a Stackctl project
     #[arg(long, value_name = "DIR")]
     pub(crate) path: PathBuf,
 }

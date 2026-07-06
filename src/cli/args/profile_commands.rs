@@ -1,6 +1,6 @@
 //! cli args profile commands module.
 //!
-//! Contains cli args profile commands logic used by Helm command workflows.
+//! Contains cli args profile commands logic used by Stackctl command workflows.
 
 use clap::Subcommand;
 

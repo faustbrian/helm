@@ -1,6 +1,6 @@
 //! cli handlers module.
 //!
-//! Contains cli handlers logic used by Helm command workflows.
+//! Contains cli handlers logic used by Stackctl command workflows.
 
 mod about_cmd;
 mod app_create_cmd;

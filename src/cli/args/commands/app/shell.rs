@@ -1,6 +1,6 @@
 //! cli args commands app shell module.
 //!
-//! Contains cli args commands app shell logic used by Helm command workflows.
+//! Contains cli args commands app shell logic used by Stackctl command workflows.
 
 use clap::Args;
 

@@ -1,6 +1,6 @@
 //! config raw swarm module.
 //!
-//! Contains config raw swarm logic used by Helm command workflows.
+//! Contains config raw swarm logic used by Stackctl command workflows.
 
 use serde::Deserialize;
 use std::path::PathBuf;

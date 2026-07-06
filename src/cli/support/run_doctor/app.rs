@@ -1,6 +1,6 @@
 //! cli support run doctor app module.
 //!
-//! Contains cli support run doctor app logic used by Helm command workflows.
+//! Contains cli support run doctor app logic used by Stackctl command workflows.
 
 use crate::config;
 
@@ -90,7 +90,7 @@ mod tests {
     impl TempDoctorRepairFixture {
         fn new(unhealthy_status: &str, healthy_status: &str) -> Self {
             let root = std::env::temp_dir().join(format!(
-                "helm-doctor-repair-{}",
+                "stackctl-doctor-repair-{}",
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("time")

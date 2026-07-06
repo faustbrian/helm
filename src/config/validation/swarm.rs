@@ -1,6 +1,6 @@
 //! config validation swarm module.
 //!
-//! Contains config validation swarm logic used by Helm command workflows.
+//! Contains config validation swarm logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::collections::HashSet;

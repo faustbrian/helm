@@ -103,7 +103,7 @@ mod tests {
 
     fn temp_caddy_dir(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "helm-caddy-lock-{name}-{}",
+            "stackctl-caddy-lock-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

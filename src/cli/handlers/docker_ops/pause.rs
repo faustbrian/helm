@@ -1,6 +1,6 @@
 //! cli handlers docker ops pause module.
 //!
-//! Contains pause handler used by Helm command workflows.
+//! Contains pause handler used by Stackctl command workflows.
 
 use anyhow::Result;
 

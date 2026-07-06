@@ -1,6 +1,6 @@
 //! config expansion service conflict module.
 //!
-//! Contains config expansion service conflict logic used by Helm command workflows.
+//! Contains config expansion service conflict logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

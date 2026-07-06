@@ -1,6 +1,6 @@
 //! cli args commands operations docker ops attach module.
 //!
-//! Contains attach command args used by Helm command workflows.
+//! Contains attach command args used by Stackctl command workflows.
 
 use clap::Args;
 

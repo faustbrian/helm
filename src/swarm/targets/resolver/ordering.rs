@@ -1,6 +1,6 @@
 //! swarm targets resolver ordering module.
 //!
-//! Contains swarm targets resolver ordering logic used by Helm command workflows.
+//! Contains swarm targets resolver ordering logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::collections::HashMap;

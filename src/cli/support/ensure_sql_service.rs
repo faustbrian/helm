@@ -1,6 +1,6 @@
 //! cli support ensure sql service module.
 //!
-//! Contains cli support ensure sql service logic used by Helm command workflows.
+//! Contains cli support ensure sql service logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

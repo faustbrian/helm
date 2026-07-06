@@ -1,6 +1,6 @@
 //! config paths search module.
 //!
-//! Contains config paths search logic used by Helm command workflows.
+//! Contains config paths search logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
@@ -15,12 +15,12 @@ pub(super) fn find_project_root(start: &Path) -> Result<PathBuf> {
     let mut current = start;
 
     loop {
-        if current.join(".helm.toml").exists() {
+        if current.join(".stackctl.toml").exists() {
             return Ok(current.to_path_buf());
         }
 
         current = current.parent().ok_or_else(|| {
-            anyhow!(".helm.toml not found in current directory or any parent directory")
+            anyhow!(".stackctl.toml not found in current directory or any parent directory")
         })?;
     }
 }
@@ -51,13 +51,13 @@ fn find_config_in_path_internal(
             }
         }
 
-        let config_path = current.join(".helm.toml");
+        let config_path = current.join(".stackctl.toml");
         if config_path.exists() {
             return Ok(config_path);
         }
 
         current = current.parent().ok_or_else(|| {
-            anyhow!(".helm.toml not found in current directory or any parent directory")
+            anyhow!(".stackctl.toml not found in current directory or any parent directory")
         })?;
     }
 }
@@ -72,7 +72,7 @@ mod tests {
 
     fn temp_tree() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "helm-path-search-{}-{}",
+            "stackctl-path-search-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -89,7 +89,7 @@ mod tests {
         let root = temp_tree();
         let nested = root.join("nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed root config");
@@ -103,13 +103,13 @@ mod tests {
         let root = temp_tree();
         let nested = root.join("nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed root config");
 
         let result = find_config_in_path(&nested).expect("find config from nested");
-        assert_eq!(result, root.join(".helm.toml"));
+        assert_eq!(result, root.join(".stackctl.toml"));
     }
 
     #[test]
@@ -117,26 +117,26 @@ mod tests {
         let root = temp_tree();
         let nested = root.join("nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed root config");
         fs::write(
-            root.join(".helm.testing.toml"),
+            root.join(".stackctl.testing.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed env config");
 
-        let result = find_config_in_path_with_env(&nested, Some(".helm.testing.toml"))
+        let result = find_config_in_path_with_env(&nested, Some(".stackctl.testing.toml"))
             .expect("find env config from nested");
-        assert_eq!(result, root.join(".helm.testing.toml"));
+        assert_eq!(result, root.join(".stackctl.testing.toml"));
     }
 
     #[test]
     fn find_config_file_uses_current_directory_when_available() {
         let root = temp_tree();
         let cwd = std::env::current_dir().expect("capture cwd");
-        let expected = root.join(".helm.toml");
+        let expected = root.join(".stackctl.toml");
         fs::write(
             &expected,
             "schema_version = 1\nproject_type = \"project\"\n",

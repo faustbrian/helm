@@ -1,6 +1,6 @@
 //! docker health module.
 //!
-//! Contains docker health logic used by Helm command workflows.
+//! Contains docker health logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

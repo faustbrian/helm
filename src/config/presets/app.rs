@@ -1,6 +1,6 @@
 //! config presets app module.
 //!
-//! Contains config presets app logic used by Helm command workflows.
+//! Contains config presets app logic used by Stackctl command workflows.
 
 use super::PresetDefaults;
 

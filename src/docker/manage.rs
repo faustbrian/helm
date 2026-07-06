@@ -1,6 +1,6 @@
 //! docker manage module.
 //!
-//! Contains docker manage logic used by Helm command workflows.
+//! Contains docker manage logic used by Stackctl command workflows.
 
 use anyhow::Result;
 
@@ -97,7 +97,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-manage-{}",
+            "stackctl-manage-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

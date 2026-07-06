@@ -1,6 +1,6 @@
 //! cli module.
 //!
-//! Contains cli logic used by Helm command workflows.
+//! Contains cli logic used by Stackctl command workflows.
 
 pub mod args;
 pub mod dispatch;

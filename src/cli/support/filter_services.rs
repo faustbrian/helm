@@ -1,6 +1,6 @@
 //! cli support filter services module.
 //!
-//! Contains cli support filter services logic used by Helm command workflows.
+//! Contains cli support filter services logic used by Stackctl command workflows.
 
 use crate::config;
 

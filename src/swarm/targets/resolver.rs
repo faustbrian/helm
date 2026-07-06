@@ -1,6 +1,6 @@
 //! swarm targets resolver module.
 //!
-//! Contains swarm targets resolver logic used by Helm command workflows.
+//! Contains swarm targets resolver logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ pub(super) fn resolve_swarm_targets(
 ) -> Result<Vec<ResolvedSwarmTarget>> {
     if config.swarm.is_empty() {
         anyhow::bail!(
-            "no swarm targets configured. Add [[swarm]] entries to .helm.toml in {}",
+            "no swarm targets configured. Add [[swarm]] entries to .stackctl.toml in {}",
             workspace_root.display()
         );
     }

@@ -1,6 +1,6 @@
 //! cli handlers artisan cmd command module.
 //!
-//! Contains cli handlers artisan cmd command logic used by Helm command workflows.
+//! Contains cli handlers artisan cmd command logic used by Stackctl command workflows.
 
 use crate::cli;
 

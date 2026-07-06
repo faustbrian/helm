@@ -1,6 +1,6 @@
 //! cli support normalize path module.
 //!
-//! Contains cli support normalize path logic used by Helm command workflows.
+//! Contains cli support normalize path logic used by Stackctl command workflows.
 
 /// Normalizes path into a canonical form.
 pub(crate) fn normalize_path(path: &str) -> String {
@@ -17,7 +17,7 @@ mod tests {
 
     #[test]
     fn normalize_path_preserves_absolute_path() {
-        assert_eq!(normalize_path("/tmp/helm"), "/tmp/helm");
+        assert_eq!(normalize_path("/tmp/stackctl"), "/tmp/stackctl");
     }
 
     #[test]

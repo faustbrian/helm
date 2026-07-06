@@ -8,13 +8,13 @@
 ## Install From Main Branch (Recommended)
 
 ```bash
-cargo install --git git@github.com:faustbrian/helm.git --bin helm --branch main --locked
+cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --branch main --locked
 ```
 
 ## Install From Git Tag
 
 ```bash
-cargo install --git git@github.com:faustbrian/helm.git --bin helm --tag v1.0.0 --locked
+cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --tag v1.0.0 --locked
 ```
 
 ## Install From Local Source
@@ -28,10 +28,10 @@ cargo install --path . --locked
 ## Verify Installation
 
 ```bash
-helm --version
+stackctl --version
 ```
 
-Expected output includes `helm 1.0.0`.
+Expected output includes `stackctl 1.0.0`.
 
 ## Upgrade
 
@@ -40,5 +40,5 @@ Re-run the install command for the target ref/tag.
 ## Shell Completions (Optional)
 
 ```bash
-helm completions zsh > ~/.zsh/completions/_helm
+stackctl completions zsh > ~/.zsh/completions/_stackctl
 ```

@@ -1,6 +1,6 @@
 //! config raw swarm git module.
 //!
-//! Contains config raw swarm git logic used by Helm command workflows.
+//! Contains config raw swarm git logic used by Stackctl command workflows.
 
 use serde::Deserialize;
 

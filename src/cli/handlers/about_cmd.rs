@@ -1,6 +1,6 @@
 //! cli handlers about cmd module.
 //!
-//! Contains cli handlers about cmd logic used by Helm command workflows.
+//! Contains cli handlers about cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use serde_json::json;
@@ -19,7 +19,7 @@ pub(crate) fn handle_about(
     let project_root = cli::support::workspace_root(config_path, project_root)?;
     let config_path = config_path
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| project_root.join(".helm.toml"));
+        .unwrap_or_else(|| project_root.join(".stackctl.toml"));
 
     if format.eq_ignore_ascii_case("json") {
         let app_name = project_root

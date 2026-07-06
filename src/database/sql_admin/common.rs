@@ -1,6 +1,6 @@
 //! database sql admin common module.
 //!
-//! Contains database sql admin common logic used by Helm command workflows.
+//! Contains database sql admin common logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::process::Output;
@@ -135,7 +135,7 @@ mod tests {
 
     fn fake_docker_binary(script: &str) -> String {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-fake-docker-{}-{}",
+            "stackctl-fake-docker-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)

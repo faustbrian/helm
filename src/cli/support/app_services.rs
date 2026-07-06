@@ -1,6 +1,6 @@
 //! cli support app services module.
 //!
-//! Contains cli support app services logic used by Helm command workflows.
+//! Contains cli support app services logic used by Stackctl command workflows.
 
 use crate::config;
 

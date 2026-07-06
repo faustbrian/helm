@@ -1,6 +1,6 @@
 //! config types service module.
 //!
-//! Contains config types service logic used by Helm command workflows.
+//! Contains config types service logic used by Stackctl command workflows.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

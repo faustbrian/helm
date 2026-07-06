@@ -1,6 +1,6 @@
 //! config services update module.
 //!
-//! Contains config services update logic used by Helm command workflows.
+//! Contains config services update logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

@@ -1,6 +1,6 @@
 //! cli support selected services module.
 //!
-//! Contains cli support selected services logic used by Helm command workflows.
+//! Contains cli support selected services logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::collections::HashSet;

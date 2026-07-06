@@ -6,72 +6,74 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added top-level `helm phpstan`, `helm ecs`, `helm php-cs-fixer`, and
-  `helm psalm` wrappers so common PHP quality tools can run directly inside
-  the selected app container without going through `helm exec`.
-- Added top-level `helm pint`, `helm pest`, `helm phpunit`, and
-  `helm rector` wrappers so common PHP formatting, test, and refactor tools
+- Added top-level `stackctl phpstan`, `stackctl ecs`, `stackctl php-cs-fixer`, and
+  `stackctl psalm` wrappers so common PHP quality tools can run directly inside
+  the selected app container without going through `stackctl exec`.
+- Added top-level `stackctl pint`, `stackctl pest`, `stackctl phpunit`, and
+  `stackctl rector` wrappers so common PHP formatting, test, and refactor tools
   can run directly inside the selected app container.
 - Added `opensearch` and `elasticsearch` search service presets with local
   single-node defaults, inferred Scout env wiring, named data volumes, and
   shared runtime handling alongside existing search backends.
 - Added project-wide `domain_strategy` config with `directory` and `random`
-  modes so app services can resolve `.helm` domains automatically without
+  modes so app services can resolve `.stackctl` domains automatically without
   repeating explicit per-service `domain` entries.
 - Added service-level `restart` config with Docker-compatible policies so
-  projects can opt out of or override Helm's default restart behavior.
-- Added a `helm daemon` command group with `start`, `status`, `stop`, and
+  projects can opt out of or override Stackctl's default restart behavior.
+- Added a `stackctl daemon` command group with `start`, `status`, `stop`, and
   `logs` subcommands that resolve target projects from an explicit `--path`
   before normal config loading.
-- Added per-project daemon session persistence under `~/.config/helm/daemon/`
+- Added per-project daemon session persistence under `~/.config/stackctl/daemon/`
   so daemon commands can track pid and log metadata across separate CLI runs.
-- Added `helm daemon watch` with repeatable `--dir` roots, `--once`, and
-  `--interval` so Helm can discover `.helm.toml` projects and start missing
+- Added `stackctl daemon watch` with repeatable `--dir` roots, `--once`, and
+  `--interval` so Stackctl can discover `.stackctl.toml` projects and start missing
   per-project daemons automatically.
-- Added `helm daemon service <install|status|print|uninstall>` so users can
+- Added `stackctl daemon service <install|status|print|uninstall>` so users can
   install a login-time watch service through `launchd` or `systemd --user`
   without hand-writing unit definitions.
-- Added watch policy flags for `helm daemon watch` and installed daemon watch
+- Added watch policy flags for `stackctl daemon watch` and installed daemon watch
   services so users can exclude subtrees and cap the number of auto-started
   projects under broad parent directories.
 
 ### Changed
 
+- Renamed the project, CLI, config files, env vars, Docker labels, and
+  user-facing documentation to `stackctl`.
 - Changed Rust dependencies and CI workflow action pins to their latest
   available releases, including `tabled 0.21`, refreshed transitive lockfile
   versions, and `actions/checkout@v5` in the GitHub Actions pipeline.
-- Changed `helm init` to write `domain_strategy = "directory"` and rely on
-  automatic `.helm` domain generation for app services instead of emitting an
+- Changed `stackctl init` to write `domain_strategy = "directory"` and rely on
+  automatic `.stackctl` domain generation for app services instead of emitting an
   explicit `domain = "...localhost"` entry in new configs.
-- Changed Docker `run` generation to default Helm-managed services to
+- Changed Docker `run` generation to default Stackctl-managed services to
   `--restart unless-stopped`, improving recovery after Docker restarts
-  and laptop sleep without requiring a manual `helm up`.
+  and laptop sleep without requiring a manual `stackctl up`.
 - Changed the daemon child path to bootstrap projects through the existing
   `start` flow, then supervise service containers by polling for non-running
   containers and retrying recovery with exponential backoff.
 - Changed daemon project discovery to deduplicate overlapping watch roots,
   skip nested child projects once a valid parent project is managed, and
-  report invalid `.helm.toml` files without stopping sibling discovery.
+  report invalid `.stackctl.toml` files without stopping sibling discovery.
 
 ### Fixed
 
 - Fixed CI `clippy` failures in daemon and artisan runtime helpers by
   removing panic-prone `expect()` usage from production code and marking
   the long-running daemon supervisor loop as intentional.
-- Fixed repeated `helm artisan test --browser` Playwright browser downloads by
-  caching browser binaries under `.helm/cache/playwright` in the mounted
+- Fixed repeated `stackctl artisan test --browser` Playwright browser downloads by
+  caching browser binaries under `.stackctl/cache/playwright` in the mounted
   workspace and reusing that cache across reset test-runtime containers.
-- Fixed repeated `helm artisan test --browser` system dependency installs by
+- Fixed repeated `stackctl artisan test --browser` system dependency installs by
   baking Playwright's `install-deps chromium` step into the cached derived app
   image used for browser test runtimes instead of rerunning it inside each
   fresh test container.
-- Fixed `helm artisan test --browser` mixed-service projects such as
+- Fixed `stackctl artisan test --browser` mixed-service projects such as
   `app + mailhog` so browser-runtime targeting stays scoped to FrankenPHP app
   services and does not route other app presets through PHP module inspection.
-- Fixed Helm's default PHP memory limit for derived app images and
-  `helm artisan test` runs to `4096M`, reducing coverage-run failures
+- Fixed Stackctl's default PHP memory limit for derived app images and
+  `stackctl artisan test` runs to `4096M`, reducing coverage-run failures
   caused by the previous `2048M` ceiling.
-- Fixed `helm artisan test` runtime planning to automatically include the
+- Fixed `stackctl artisan test` runtime planning to automatically include the
   `pcov` PHP extension in derived app images so Laravel coverage runs have a
   driver available without repeating `php_extensions = ["pcov"]` in app
   config.
@@ -79,18 +81,18 @@ All notable changes to this project are documented in this file.
   non-HTTP worker presets such as Horizon, while adding default HTTP health
   paths for `frankenphp`, `reverb`, and `soketi` so `start --wait` uses the
   correct readiness checks for each app preset.
-- Fixed `helm restore --service <db> --migrate` and `--schema-dump` to
+- Fixed `stackctl restore --service <db> --migrate` and `--schema-dump` to
   resolve and pass the restored service's Laravel database connection
-  into `helm artisan`, and clarified post-restore logs to print the exact
+  into `stackctl artisan`, and clarified post-restore logs to print the exact
   `--database=...` connection used for each restored service.
 - Fixed Docker heavy-operation slot scheduling to reclaim stale PID lock
   files and wait long enough for slow runtime cleanup, preventing random
-  `helm artisan test` setup failures while `docker rm` or `docker volume rm`
+  `stackctl artisan test` setup failures while `docker rm` or `docker volume rm`
   is queued behind abandoned or long-running heavy ops.
-- Fixed `helm artisan test` pooled-runtime stale-slot probing to silence
+- Fixed `stackctl artisan test` pooled-runtime stale-slot probing to silence
   expected `kill -0` stderr for dead PIDs, preventing random `kill: <pid>:
   No such process` noise during normal slot reclamation.
-- Fixed standalone lifecycle commands such as `helm up` to treat missing
+- Fixed standalone lifecycle commands such as `stackctl up` to treat missing
   workspace swarm context as a no-op for project dependencies, and fixed
   `--no-deps` to skip workspace swarm injected-env resolution entirely,
   so non-workspace projects no longer fail unless they actually opt into
@@ -99,7 +101,7 @@ All notable changes to this project are documented in this file.
   published endpoint when no domain is configured, so legacy projects can
   keep app domains optional instead of failing through the Caddy path.
 - Fixed swarm child command construction to append `--no-deps` for nested
-  `up`, `recreate`, `start`, and `down` invocations, preventing child Helm
+  `up`, `recreate`, `start`, and `down` invocations, preventing child Stackctl
   processes from re-resolving workspace dependencies that the parent swarm
   run already planned.
 - Fixed object-store bucket bootstrap to prefer running the AWS CLI helper in
@@ -114,7 +116,7 @@ All notable changes to this project are documented in this file.
   preserving the response body, so doctor and open-summary checks can read
   status codes reliably without discarding probe output.
 - Fixed app health-check timeout errors to include the last observed HTTP
-  status, response body, or probe transport error, so `helm swarm recreate`
+  status, response body, or probe transport error, so `stackctl swarm recreate`
   now reports actionable diagnostics for failures such as `502 Bad Gateway`.
 - Fixed Docker build-slot scheduling to wait long enough for real derived
   image builds, preventing sibling swarm targets from failing after a short
@@ -125,7 +127,7 @@ All notable changes to this project are documented in this file.
 - Fixed Gotenberg health validation to evaluate the raw JSON response body
   instead of a truncated display summary, preventing healthy `200 {"status":
   "up"}` readiness responses from being misclassified as failures.
-- Fixed app health-check timeout diagnostics for proxy-backed `.helm` URLs to
+- Fixed app health-check timeout diagnostics for proxy-backed `.stackctl` URLs to
   explain that `502` means Caddy reached the public route but the upstream app
   container was not yet serving valid HTTP.
 - Fixed Caddy reload fallback to stop any existing process before starting a
@@ -142,7 +144,7 @@ All notable changes to this project are documented in this file.
   or crashed updates do not leave Caddy stopped with stale routes or a
   half-written config directory.
 - Fixed Caddy command execution to capture output through temporary files
-  instead of inherited pipes, preventing `helm ... recreate` from hanging
+  instead of inherited pipes, preventing `stackctl ... recreate` from hanging
   when `caddy reload` or `caddy start` leaves descendant processes holding
   stdout or stderr open.
 - Refactored Caddy temporary-file subprocess capture into a dedicated
@@ -162,22 +164,22 @@ All notable changes to this project are documented in this file.
   with `runtime`, `package_manager`, `version_manager`, and `version`
   fields so app runtimes can resolve Node, Bun, or Deno execution
   explicitly.
-- Added `helm node --package-manager`, `--version-manager`, and
-  `--node-version`, plus matching overrides for `helm task deps bump`,
+- Added `stackctl node --package-manager`, `--version-manager`, and
+  `--node-version`, plus matching overrides for `stackctl task deps bump`,
   so callers can choose package-manager and version-manager behavior per
   invocation.
-- Added `helm bun` with `--bun-version`, plus Bun runtime detection from
+- Added `stackctl bun` with `--bun-version`, plus Bun runtime detection from
   `bun.lock`, `bun.lockb`, and `package.json.packageManager`.
-- Added `helm deno` with `--deno-version`, plus Deno runtime detection
+- Added `stackctl deno` with `--deno-version`, plus Deno runtime detection
   from `deno.json`, `deno.jsonc`, and `deno.lock`.
-- Added explicit `helm task deps bump --node`, `--bun`, and `--deno`
+- Added explicit `stackctl task deps bump --node`, `--bun`, and `--deno`
   selectors so dependency workflows map directly to the runtime being
   managed.
-- Added `helm task deps audit`, `helm task deps normalize`, and
-  `helm task deps install` so app dependency maintenance now covers
+- Added `stackctl task deps audit`, `stackctl task deps normalize`, and
+  `stackctl task deps install` so app dependency maintenance now covers
   vulnerability checks, manifest normalization, and install workflows
   across Composer plus the explicit Node, Bun, and Deno runtime
-  selectors already used by `helm task deps bump`.
+  selectors already used by `stackctl task deps bump`.
 - Added project-file Node inference for `package.json.packageManager`,
   `package.json.volta.node`, `.nvmrc`, `.node-version`, and
   `package.json.engines.node` so Node workflows can derive toolchain
@@ -189,9 +191,9 @@ All notable changes to this project are documented in this file.
   version-manager, Bun runtime, or Deno runtime instead of always
   installing a hardcoded NodeSource LTS toolchain under the hood.
 - Changed Node package-manager execution to resolve from config and
-  project metadata instead of defaulting `helm node` to `bun`.
+  project metadata instead of defaulting `stackctl node` to `bun`.
 - Changed JavaScript runtime naming from `JsRuntime` to
-  `JavaScriptRuntime`, and split Bun into its own `helm bun` command
+  `JavaScriptRuntime`, and split Bun into its own `stackctl bun` command
   instead of treating it as a Node package-manager option.
 - Changed the shared runtime domain module from `src/node/` to
   `src/javascript/` so internal naming matches the broader
@@ -213,20 +215,20 @@ All notable changes to this project are documented in this file.
   local S3-compatible object stores.
 - Fixed object-store startup reliability by automatically ensuring configured
   buckets exist during `up` flows for object-store services.
-- Fixed `helm artisan` with no explicit subcommand to run `php artisan list`
+- Fixed `stackctl artisan` with no explicit subcommand to run `php artisan list`
   by default, so command discovery works without requiring `-- <command>`.
-- Fixed `helm artisan` runtime env composition to include swarm
+- Fixed `stackctl artisan` runtime env composition to include swarm
   `inject_env` dependency values, so injected `*_API_BASE_URL` overrides are
   applied consistently in artisan command execution.
-- Fixed package-manager wrapper defaults so `helm composer` now runs
-  `composer list` when no subcommand is provided, and `helm node` now
+- Fixed package-manager wrapper defaults so `stackctl composer` now runs
+  `composer list` when no subcommand is provided, and `stackctl node` now
   executes the selected package manager without forcing explicit args.
 
 ## [5.0.0] - 2026-03-09
 
 ### Added
 
-- Added `helm task deps bump` for opinionated dependency maintenance
+- Added `stackctl task deps bump` for opinionated dependency maintenance
   workflows in app containers, with `--composer`, `--node`, and `--all`
   targets, lockfile-based Node package-manager inference, and documented
   manifest-skip behavior when `composer.json` or `package.json` is absent.
@@ -236,7 +238,7 @@ All notable changes to this project are documented in this file.
 - Changed `recreate` default behavior to wait for healthy services before
   finishing, with explicit opt-out available via `--no-wait`.
 - Changed config project-mode resolution to require an explicit
-  `project_type` outcome from `.helm.toml` or `composer.json` `type`
+  `project_type` outcome from `.stackctl.toml` or `composer.json` `type`
   (`project`/`library`), with hard failure when neither source resolves.
 - Changed Laravel-only workflows to respect project mode: `start` skips
   Laravel bootstrap for `library` projects, and `artisan`/`app-create` are
@@ -246,12 +248,12 @@ All notable changes to this project are documented in this file.
 
 - Fixed object-store bucket bootstrap on Linux by adding host-gateway mapping
   for bootstrap helper containers.
-- Fixed `helm swarm recreate` hangs after healthy targets by bounding Caddy
+- Fixed `stackctl swarm recreate` hangs after healthy targets by bounding Caddy
   reload/start command execution and output-drain waits, so swarm runs now
   complete instead of blocking indefinitely on stuck child process I/O.
 - Fixed object-store startup flakiness by improving readiness handling around
   bucket bootstrap timing and service health dependencies.
-- Fixed `helm artisan test` ZPL conversion runtime dependencies by installing
+- Fixed `stackctl artisan test` ZPL conversion runtime dependencies by installing
   `ghostscript` (`gs`) in default derived app images.
 - Fixed derived image cache invalidation by hashing rendered Dockerfile
   content, so runtime dependency/template changes rebuild automatically.
@@ -271,7 +273,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added container runtime engine selection via `.helm.toml` using
+- Added container runtime engine selection via `.stackctl.toml` using
   `container_engine = "docker"` or `container_engine = "podman"`.
 - Added global CLI override `--engine <docker|podman>` to select runtime
   engine for the current invocation.
@@ -286,7 +288,7 @@ All notable changes to this project are documented in this file.
 
 ### Migration Notes
 
-- Existing configs remain valid. If `container_engine` is omitted, Helm
+- Existing configs remain valid. If `container_engine` is omitted, Stackctl
   defaults to `docker`.
 - Podman support targets core Docker-compatible CLI flows. Some advanced
   behavior may still differ across host/network/runtime setups.
@@ -295,7 +297,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added automatic Playwright bootstrap for `helm artisan test` when
+- Added automatic Playwright bootstrap for `stackctl artisan test` when
   `pestphp/pest-plugin-browser` is detected in `composer.json`, including:
   `npm install playwright@latest`, `npx playwright install-deps`, and
   `npx playwright install`.
@@ -310,13 +312,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Fixed `helm artisan test` browser test failures caused by missing PHP
+- Fixed `stackctl artisan test` browser test failures caused by missing PHP
   `sockets` extension in app test runtime containers.
 - Fixed `PlaywrightOutdatedException` in containerized browser tests by
   ensuring Playwright package and browser/runtime dependencies are provisioned
   before test execution.
-- Fixed `helm artisan test` config loading to prefer `.helm.testing.toml`
-  when present, with fallback to `.helm.toml`, so test runtimes no longer
+- Fixed `stackctl artisan test` config loading to prefer `.stackctl.testing.toml`
+  when present, with fallback to `.stackctl.toml`, so test runtimes no longer
   start services that were excluded from testing config.
 
 ## [3.5.0] - 2026-02-22
@@ -335,7 +337,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added adaptive `helm artisan test` runtime pool sizing based on available
+- Added adaptive `stackctl artisan test` runtime pool sizing based on available
   host resources with optional Docker resource hints.
 - Added deterministic workspace-scoped runtime naming for pooled test runs to
   isolate concurrent workspaces safely.
@@ -343,7 +345,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Changed test runtime pool-size resolution precedence to:
-  explicit override, then `HELM_TEST_RUNTIME_POOL_SIZE`, then adaptive sizing.
+  explicit override, then `STACKCTL_TEST_RUNTIME_POOL_SIZE`, then adaptive sizing.
 - Changed pooled runtime lock wait behavior to allow longer acquisition under
   heavier concurrent test load.
 
@@ -356,16 +358,16 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added env-scoped config discovery for `--env <name>` so Helm now prefers
-  `.helm.<env>.toml` when present and falls back to `.helm.toml`.
+- Added env-scoped config discovery for `--env <name>` so Stackctl now prefers
+  `.stackctl.<env>.toml` when present and falls back to `.stackctl.toml`.
 - Added Docker runtime policy controls for operation scheduling:
   `--docker-max-heavy-ops`, `--docker-max-build-ops`,
   and `--docker-retry-budget`.
-- Added `--test-runtime-pool-size` for `helm artisan test` runtime pooling.
+- Added `--test-runtime-pool-size` for `stackctl artisan test` runtime pooling.
 
 ### Changed
 
-- Changed `helm artisan test` runtime namespace allocation to use pooled
+- Changed `stackctl artisan test` runtime namespace allocation to use pooled
   runtime leases, reducing unbounded parallel test runtime churn.
 - Changed heavy Docker execution paths to use scheduler gating for build and
   cleanup operations.
@@ -387,7 +389,7 @@ All notable changes to this project are documented in this file.
 - Added repeatable `--service` selection across the same operational command
   families so multiple explicit targets can be selected in one invocation.
 - Added output-format parity flags in docker-ops output flows:
-  `helm port --format json` and `helm inspect --output json`.
+  `stackctl port --format json` and `stackctl inspect --output json`.
 
 ### Changed
 
@@ -401,11 +403,11 @@ All notable changes to this project are documented in this file.
 ### Migration Notes
 
 - `port` JSON output:
-  - previous: `helm port --json`
-  - now also supported: `helm port --format json`
+  - previous: `stackctl port --json`
+  - now also supported: `stackctl port --format json`
 - `inspect` JSON output:
-  - previous: `helm inspect --json`
-  - now also supported: `helm inspect --output json`
+  - previous: `stackctl inspect --json`
+  - now also supported: `stackctl inspect --output json`
 - Profile-based selection on ops commands:
   - previous: commands commonly required explicit `--service`/`--kind`
   - now also supported: `--profile <infra|data|app|web|api|full|all>`
@@ -421,17 +423,17 @@ All notable changes to this project are documented in this file.
 - Added global `--non-interactive` mode to disable interactive behaviors in
   automation contexts, including browser-open and TTY-dependent command paths.
 - Added JSON output support for diagnostics commands:
-  `helm doctor --format json`, `helm health --format json`, and
-  `helm about --format json`.
+  `stackctl doctor --format json`, `stackctl health --format json`, and
+  `stackctl about --format json`.
 - Added lifecycle selector parity by supporting `--profile` on
-  `helm down`, `helm stop`, `helm rm`, `helm recreate`, and
-  `helm restart`.
+  `stackctl down`, `stackctl stop`, `stackctl rm`, `stackctl recreate`, and
+  `stackctl restart`.
 - Added repeatable `--service` selection for lifecycle and diagnostics paths
   so multiple explicit services can be targeted in one invocation.
-- Added `helm logs --since <VALUE>` and `helm logs --until <VALUE>` to align
+- Added `stackctl logs --since <VALUE>` and `stackctl logs --until <VALUE>` to align
   with Docker log time-window filtering behavior.
 - Added stop-timeout controls for teardown flows via
-  `helm stop --timeout <SECONDS>` and `helm down --timeout <SECONDS>`.
+  `stackctl stop --timeout <SECONDS>` and `stackctl down --timeout <SECONDS>`.
 - Added selector parity (`--kind` and `--profile`) across app/runtime command
   families: `exec`, `artisan`, `composer`, `node`, `serve`, and `open`.
 
@@ -447,10 +449,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added `helm share` tunnel management with `start`, `status`, and `stop`
+- Added `stackctl share` tunnel management with `start`, `status`, and `stop`
   subcommands for app services, including provider-backed session tracking,
   persisted runtime metadata, and JSON/text output modes.
-- Added Expose client sharing support to `helm share` via
+- Added Expose client sharing support to `stackctl share` via
   `--provider expose` and `--expose`.
 - Added share provider shorthand flags `--cloudflare`, `--expose`, and
   `--tailscale` as alternatives to
@@ -470,11 +472,11 @@ All notable changes to this project are documented in this file.
 
 - Fixed release build breakage after refactors by repairing visibility
   regressions in internal modules.
-- Fixed `helm artisan test` runtime isolation so test startup now derives
+- Fixed `stackctl artisan test` runtime isolation so test startup now derives
   injected env values after test-port remapping and keeps app targets on
   localhost TLS, preventing test containers from corrupting active dev
   runtime networking (for example Redis host/port reachability).
-- Fixed `helm artisan test` runtime cleanup to force-remove prior test
+- Fixed `stackctl artisan test` runtime cleanup to force-remove prior test
   containers and purge reusable named volumes before startup, ensuring each
   run starts from fresh service state.
 - Fixed random-port runtime flow failures in CLI orchestration by repairing
@@ -497,16 +499,16 @@ All notable changes to this project are documented in this file.
   require host-loopback reachability.
 - Added default persistent named-volume mounts for stateful backends when no
   explicit volume mapping is configured.
-- Added host-level port occupancy checks to `helm doctor` so startup conflicts
+- Added host-level port occupancy checks to `stackctl doctor` so startup conflicts
   are detected before container launch.
-- Added Laravel runtime bootstrap to `helm start` for app targets:
+- Added Laravel runtime bootstrap to `stackctl start` for app targets:
   `storage:link`, `migrate`, and conditional `key:generate` when `APP_KEY`
   is missing.
 
 ### Changed
 
 - Changed startup behavior to prioritize first-run app readiness as part of
-  the default `helm start` flow.
+  the default `stackctl start` flow.
 - Changed zero-config persistence defaults so common stateful services survive
   routine stop/down/recreate cycles without manual volume setup.
 - Changed Linux compatibility for host-service access by making loopback host
@@ -514,7 +516,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Fixed `helm start --env <name>` key bootstrap detection to inspect the
+- Fixed `stackctl start --env <name>` key bootstrap detection to inspect the
   effective runtime env file (`.env.<name>`) instead of always reading `.env`.
 - Fixed duplicate Laravel bootstrap execution across multi-app profiles by
   targeting only the primary web app container (FrankenPHP app target with no
@@ -570,8 +572,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Fixed `helm artisan test` runtime startup to assign random host ports by
-  default (matching `helm up`) and recreate remapped services automatically,
+- Fixed `stackctl artisan test` runtime startup to assign random host ports by
+  default (matching `stackctl up`) and recreate remapped services automatically,
   preventing host-port collision failures.
 
 ## [1.7.0] - 2026-02-13
@@ -580,7 +582,7 @@ All notable changes to this project are documented in this file.
 
 - Fixed swarm dependency `inject_env` `:port`/`:url` resolution to use live
   Docker host-port bindings when available, with fallback to configured ports.
-- Fixed `helm open` database status URLs to report runtime published ports
+- Fixed `stackctl open` database status URLs to report runtime published ports
   instead of static config ports.
 - Fixed Caddy reverse-proxy forwarding for app routes to always send HTTPS
   `X-Forwarded-*` headers, preventing login/form redirects from downgrading
@@ -588,7 +590,7 @@ All notable changes to this project are documented in this file.
 - Fixed serve container env precedence so inferred HTTPS `APP_URL` and
   `ASSET_URL` cannot be downgraded by explicit `service.env` `http://`
   overrides.
-- Fixed `helm up` app env merge precedence so swarm/project dependency
+- Fixed `stackctl up` app env merge precedence so swarm/project dependency
   injected values cannot downgrade inferred HTTPS `APP_URL`/`ASSET_URL` to
   `http://`.
 
@@ -596,18 +598,18 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added service lifecycle hooks in `.helm.toml` via `[[service.hook]]` with
+- Added service lifecycle hooks in `.stackctl.toml` via `[[service.hook]]` with
   `post_up`, `pre_down`, and `post_down` phases.
 - Added hook run modes for container `exec` commands and host `script`
   commands with optional `on_error` behavior (`fail` or `warn`).
-- Added lifecycle integration so configured hooks run during `helm up`,
-  `helm apply`, and `helm down` for selected targets.
+- Added lifecycle integration so configured hooks run during `stackctl up`,
+  `stackctl apply`, and `stackctl down` for selected targets.
 - Added usage and init-template examples for hook configuration.
 
 ### Fixed
 
-- Fixed `helm recreate --publish-all` to support `--parallel > 1`.
-- Fixed `helm swarm recreate` to work with default random-port publishing
+- Fixed `stackctl recreate --publish-all` to support `--parallel > 1`.
+- Fixed `stackctl swarm recreate` to work with default random-port publishing
   under parallel target execution.
 
 ## [1.5.0] - 2026-02-13
@@ -650,34 +652,34 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added formal Helm ownership labels to created containers:
-  `com.helm.managed`, `com.helm.service`, `com.helm.kind`, and
-  `com.helm.container`.
-- Added `helm relabel` command to migrate existing containers by recreating
-  selected services and applying Helm ownership labels.
+- Added formal Stackctl ownership labels to created containers:
+  `com.stackctl.managed`, `com.stackctl.service`, `com.stackctl.kind`, and
+  `com.stackctl.container`.
+- Added `stackctl relabel` command to migrate existing containers by recreating
+  selected services and applying Stackctl ownership labels.
 - Added label-aware ownership checks before scoped prune removes containers.
 - Added command polish flags for Docker parity:
-  `helm cp` now supports `-L/--follow-link` and `-a/--archive`.
+  `stackctl cp` now supports `-L/--follow-link` and `-a/--archive`.
 - Added command polish flags for Docker parity:
-  `helm inspect` now supports `--size` and `--type`.
+  `stackctl inspect` now supports `--size` and `--type`.
 - Added command polish flags for Docker parity:
-  `helm attach` now supports `--detach-keys`.
+  `stackctl attach` now supports `--detach-keys`.
 - Added structured JSON output modes:
-  `helm inspect --json`, `helm port --json`, and `helm events --json`.
-- Added `helm events --allow-empty` to explicitly allow empty service
+  `stackctl inspect --json`, `stackctl port --json`, and `stackctl events --json`.
+- Added `stackctl events --allow-empty` to explicitly allow empty service
   selections without failing.
 
 ### Changed
 
-- Changed default `helm events` scoping from name filters to label-based Helm
+- Changed default `stackctl events` scoping from name filters to label-based Stackctl
   ownership filters.
-- Changed `helm events` behavior to return non-zero when no services match,
+- Changed `stackctl events` behavior to return non-zero when no services match,
   unless `--allow-empty` is supplied.
-- Changed `helm events --all` behavior to print an explicit warning before
+- Changed `stackctl events --all` behavior to print an explicit warning before
   streaming global daemon events.
-- Changed default `helm prune` behavior to enforce Helm-scoped cleanup
+- Changed default `stackctl prune` behavior to enforce Stackctl-scoped cleanup
   semantics with ownership validation.
-- Changed `helm prune --all` behavior to require an explicit `--force` guard
+- Changed `stackctl prune --all` behavior to require an explicit `--force` guard
   before global Docker prune execution, with warning output when used.
 - Changed global prune dry-run behavior to preview candidate stopped containers
   before execution.
@@ -692,36 +694,36 @@ All notable changes to this project are documented in this file.
 - Added Docker passthrough commands for service containers:
   `top`, `stats`, `inspect`, `attach`, `cp`, `kill`, `pause`, `unpause`,
   `wait`, `events`, `port`, and `prune`.
-- Added `service:/path` shorthand resolution for `helm cp` endpoints.
+- Added `service:/path` shorthand resolution for `stackctl cp` endpoints.
 - Added Docker-compatible flags:
-  `helm cp` now supports `-L/--follow-link` and `-a/--archive`.
+  `stackctl cp` now supports `-L/--follow-link` and `-a/--archive`.
 - Added Docker-compatible flags:
-  `helm inspect` now supports `--size` and `--type`.
+  `stackctl inspect` now supports `--size` and `--type`.
 - Added Docker-compatible flags:
-  `helm attach` now supports `--detach-keys`.
+  `stackctl attach` now supports `--detach-keys`.
 - Added scoped selectors for event/prune workflows:
-  `helm events` now supports `--service` and `--kind`.
+  `stackctl events` now supports `--service` and `--kind`.
 - Added scoped selectors for event/prune workflows:
-  `helm prune` now supports `--service`, `--kind`, and `--parallel`.
+  `stackctl prune` now supports `--service`, `--kind`, and `--parallel`.
 
 ### Changed
 
 - Changed restore file-progress output from an in-place status bar to
   persistent incremental log events with percent and MiB totals.
-- Changed `helm events` default behavior to Helm container scope by applying
+- Changed `stackctl events` default behavior to Stackctl container scope by applying
   container filters from resolved service names.
-- Changed `helm events` UX to require explicit `--all` for global daemon
+- Changed `stackctl events` UX to require explicit `--all` for global daemon
   event streaming.
-- Changed `helm prune` default behavior to remove only stopped
-  Helm-configured service containers (safe by default).
-- Changed `helm prune` UX to require explicit `--all` for global
+- Changed `stackctl prune` default behavior to remove only stopped
+  Stackctl-configured service containers (safe by default).
+- Changed `stackctl prune` UX to require explicit `--all` for global
   `docker container prune` behavior.
 
 ## [1.0.0] - 2026-02-12
 
 ### Added
 
-- Stable `1.0.0` release line for Helm.
+- Stable `1.0.0` release line for Stackctl.
 - `INSTALLATION.md` with explicit install and verification steps.
 - Release changelog baseline.
 
@@ -729,11 +731,11 @@ All notable changes to this project are documented in this file.
 
 - Refined release README messaging around zero-BS, low-config Laravel
   orchestration.
-- Updated `helm init` defaults to a smaller preset-driven config.
-- Fixed generated `helm init` template output so it writes valid TOML.
+- Updated `stackctl init` defaults to a smaller preset-driven config.
+- Fixed generated `stackctl init` template output so it writes valid TOML.
 - Updated package metadata and versioning to `1.0.0`.
-- Improved `helm artisan test` failure reporting to include the app
+- Improved `stackctl artisan test` failure reporting to include the app
   container exit code when `docker exec` returns non-zero after test
   output has already been streamed.
-- Fixed `helm artisan` serve-container failures to report the actual
+- Fixed `stackctl artisan` serve-container failures to report the actual
   `docker exec` exit code instead of the generic container error.

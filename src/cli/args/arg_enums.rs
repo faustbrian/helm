@@ -1,6 +1,6 @@
 //! cli args arg enums module.
 //!
-//! Contains cli args arg enums logic used by Helm command workflows.
+//! Contains cli args arg enums logic used by Stackctl command workflows.
 
 use clap::ValueEnum;
 

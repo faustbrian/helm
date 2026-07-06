@@ -1,6 +1,6 @@
 //! config presets module.
 //!
-//! Contains config presets logic used by Helm command workflows.
+//! Contains config presets logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

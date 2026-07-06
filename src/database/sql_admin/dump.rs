@@ -1,6 +1,6 @@
 //! database sql admin dump module.
 //!
-//! Contains database sql admin dump logic used by Helm command workflows.
+//! Contains database sql admin dump logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

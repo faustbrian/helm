@@ -1,6 +1,6 @@
 //! swarm targets dependency guard module.
 //!
-//! Contains swarm targets dependency guard logic used by Helm command workflows.
+//! Contains swarm targets dependency guard logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;

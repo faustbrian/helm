@@ -1,6 +1,6 @@
 //! swarm target exec io module.
 //!
-//! Contains swarm target exec io logic used by Helm command workflows.
+//! Contains swarm target exec io logic used by Stackctl command workflows.
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{ChildStderr, ChildStdout};

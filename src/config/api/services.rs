@@ -1,6 +1,6 @@
 //! config api services module.
 //!
-//! Contains config api services logic used by Helm command workflows.
+//! Contains config api services logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

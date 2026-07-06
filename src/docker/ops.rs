@@ -1,6 +1,6 @@
 //! docker ops module.
 //!
-//! Contains ad-hoc Docker command operations used by Helm command workflows.
+//! Contains ad-hoc Docker command operations used by Stackctl command workflows.
 
 use anyhow::Result;
 
@@ -167,7 +167,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-ops-{}",
+            "stackctl-ops-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -312,7 +312,7 @@ mod tests {
             with_fake_docker("printf 'alpha\nbeta\n'; exit 0", || {
                 super::prune(PruneOptions {
                     force: false,
-                    filters: &["label=helm=true".to_owned()],
+                    filters: &["label=stackctl=true".to_owned()],
                 })
                 .expect("dry run prune");
             });

@@ -1,6 +1,6 @@
 //! config paths module.
 //!
-//! Contains config paths logic used by Helm command workflows.
+//! Contains config paths logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result, anyhow};
 use std::path::{Path, PathBuf};
@@ -36,10 +36,10 @@ pub(super) fn project_root_with(
 
 pub(super) fn init_config() -> Result<PathBuf> {
     let current_dir = std::env::current_dir().context("failed to get current directory")?;
-    let config_path = current_dir.join(".helm.toml");
+    let config_path = current_dir.join(".stackctl.toml");
 
     if config_path.exists() {
-        anyhow::bail!(".helm.toml already exists in {}", current_dir.display());
+        anyhow::bail!(".stackctl.toml already exists in {}", current_dir.display());
     }
 
     let project_name = current_dir
@@ -85,7 +85,7 @@ pub(super) fn resolve_lockfile_path(
     config_path: Option<&Path>,
     project_root: Option<&Path>,
 ) -> Result<PathBuf> {
-    Ok(project_root_with(config_path, project_root)?.join(".helm.lock.toml"))
+    Ok(project_root_with(config_path, project_root)?.join(".stackctl.lock.toml"))
 }
 
 #[cfg(test)]
@@ -101,7 +101,7 @@ mod tests {
 
     fn temp_root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "helm-config-paths-{}",
+            "stackctl-config-paths-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock")
@@ -117,7 +117,7 @@ mod tests {
         let nested = root.join("nested");
         fs::create_dir_all(&nested).expect("create nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed config");
@@ -133,7 +133,7 @@ mod tests {
         let nested = root.join("nested");
         fs::create_dir_all(&nested).expect("create nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed config");
@@ -148,7 +148,7 @@ mod tests {
         let nested = root.join("nested");
         fs::create_dir_all(&nested).expect("create nested");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed config");
@@ -168,7 +168,7 @@ mod tests {
     fn init_config_creates_default_file() {
         let root = temp_root();
         let cwd = std::env::current_dir().expect("current dir");
-        let original = root.join(".helm.toml");
+        let original = root.join(".stackctl.toml");
 
         let found = {
             std::env::set_current_dir(&root).expect("set cwd");
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn init_config_rejects_existing_file() {
         let root = temp_root();
-        let existing = root.join(".helm.toml");
+        let existing = root.join(".stackctl.toml");
         fs::write(
             &existing,
             "schema_version = 1\nproject_type = \"project\"\n",
@@ -220,8 +220,8 @@ mod tests {
     #[test]
     fn resolve_config_path_prefers_env_specific_file_when_present() {
         let root = temp_root();
-        let env_config = root.join(".helm.testing.toml");
-        let default_config = root.join(".helm.toml");
+        let env_config = root.join(".stackctl.testing.toml");
+        let default_config = root.join(".stackctl.toml");
         fs::write(
             &env_config,
             "schema_version = 1\nproject_type = \"project\"\n",
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn resolve_config_path_falls_back_to_default_when_env_file_missing() {
         let root = temp_root();
-        let default_config = root.join(".helm.toml");
+        let default_config = root.join(".stackctl.toml");
         fs::write(
             &default_config,
             "schema_version = 1\nproject_type = \"project\"\n",
@@ -261,11 +261,11 @@ mod tests {
     fn resolve_lockfile_path_uses_project_root_context() {
         let root = temp_root();
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\n",
         )
         .expect("seed config");
-        let expected = root.join(".helm.lock.toml");
+        let expected = root.join(".stackctl.lock.toml");
 
         let resolved = resolve_lockfile_path(None, Some(&root)).expect("resolve lock path");
         assert_eq!(resolved, expected);
@@ -275,7 +275,7 @@ mod tests {
     fn project_root_with_errors_when_no_config_is_found() {
         let root = temp_root();
         let error = project_root_with(None, Some(&root)).unwrap_err();
-        assert!(error.to_string().contains(".helm.toml not found"));
+        assert!(error.to_string().contains(".stackctl.toml not found"));
     }
 
     fn resolve_config_path_with_options(

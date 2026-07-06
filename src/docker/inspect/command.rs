@@ -1,6 +1,6 @@
 //! docker inspect command module.
 //!
-//! Contains docker inspect command logic used by Helm command workflows.
+//! Contains docker inspect command logic used by Stackctl command workflows.
 
 use std::process::Output;
 

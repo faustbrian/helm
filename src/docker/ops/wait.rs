@@ -1,6 +1,6 @@
 //! docker ops wait module.
 //!
-//! Contains docker wait operation used by Helm command workflows.
+//! Contains docker wait operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

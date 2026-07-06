@@ -1,6 +1,6 @@
 //! cli handlers stop cmd module.
 //!
-//! Contains cli handlers stop cmd logic used by Helm command workflows.
+//! Contains cli handlers stop cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

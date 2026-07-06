@@ -1,6 +1,6 @@
 //! cli support for each service module.
 //!
-//! Contains cli support for each service logic used by Helm command workflows.
+//! Contains cli support for each service logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use rayon::prelude::*;

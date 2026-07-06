@@ -1,6 +1,6 @@
 //! config raw module.
 //!
-//! Contains config raw logic used by Helm command workflows.
+//! Contains config raw logic used by Stackctl command workflows.
 
 use serde::Deserialize;
 

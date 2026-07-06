@@ -3,17 +3,20 @@ use super::*;
 #[test]
 fn resolve_swarm_targets_includes_dependencies_by_default() -> Result<()> {
     let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    let base = std::env::temp_dir().join(format!("helm-swarm-deps-test-{nonce}"));
+    let base = std::env::temp_dir().join(format!("stackctl-swarm-deps-test-{nonce}"));
     std::fs::create_dir_all(base.join("api"))?;
     std::fs::create_dir_all(base.join("bill"))?;
     std::fs::create_dir_all(base.join("postal"))?;
-    std::fs::write(base.join("api/.helm.toml"), "container_prefix = \"api\"\n")?;
     std::fs::write(
-        base.join("bill/.helm.toml"),
+        base.join("api/.stackctl.toml"),
+        "container_prefix = \"api\"\n",
+    )?;
+    std::fs::write(
+        base.join("bill/.stackctl.toml"),
         "container_prefix = \"bill\"\n",
     )?;
     std::fs::write(
-        base.join("postal/.helm.toml"),
+        base.join("postal/.stackctl.toml"),
         "container_prefix = \"postal\"\n",
     )?;
 

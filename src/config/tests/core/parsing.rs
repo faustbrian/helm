@@ -22,7 +22,7 @@ fn parse_app_service_section() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domain = "donkey.helm"
+            domain = "donkey.stackctl"
         "#;
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
@@ -34,7 +34,7 @@ fn parse_app_service_section() {
         .find(|svc| svc.kind == Kind::App)
         .expect("app service present");
     assert_eq!(app.name, "web");
-    assert_eq!(app.domain.as_deref(), Some("donkey.helm"));
+    assert_eq!(app.domain.as_deref(), Some("donkey.stackctl"));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn parse_app_only_config() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domain = "donkey.helm"
+            domain = "donkey.stackctl"
         "#;
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
@@ -69,7 +69,7 @@ fn parse_app_domains_list() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domains = ["primary.helm", "alt.test", "alt.org"]
+            domains = ["primary.stackctl", "alt.test", "alt.org"]
         "#;
 
     let config: Config = toml::from_str(toml).expect("failed to parse");
@@ -79,12 +79,12 @@ fn parse_app_domains_list() {
     assert_eq!(
         app.domains.as_ref().expect("domains configured"),
         &vec![
-            "primary.helm".to_owned(),
+            "primary.stackctl".to_owned(),
             "alt.test".to_owned(),
             "alt.org".to_owned()
         ]
     );
-    assert_eq!(app.primary_domain(), Some("primary.helm"));
+    assert_eq!(app.primary_domain(), Some("primary.stackctl"));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn parse_app_javascript_toolchain_section() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domain = "donkey.helm"
+            domain = "donkey.stackctl"
 
             [service.javascript]
             runtime = "node"
@@ -140,7 +140,7 @@ fn parse_app_deno_toolchain_section() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domain = "donkey.helm"
+            domain = "donkey.stackctl"
 
             [service.javascript]
             runtime = "deno"
@@ -189,7 +189,7 @@ fn parse_app_bun_toolchain_section() {
             image = "dunglas/frankenphp:php8.5"
             host = "127.0.0.1"
             port = 8000
-            domain = "donkey.helm"
+            domain = "donkey.stackctl"
 
             [service.javascript]
             runtime = "bun"

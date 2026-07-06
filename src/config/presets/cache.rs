@@ -1,6 +1,6 @@
 //! config presets cache module.
 //!
-//! Contains config presets cache logic used by Helm command workflows.
+//! Contains config presets cache logic used by Stackctl command workflows.
 
 use super::{Driver, Kind, PresetDefaults};
 

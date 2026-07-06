@@ -1,6 +1,6 @@
 //! docker ops port module.
 //!
-//! Contains docker port operation used by Helm command workflows.
+//! Contains docker port operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

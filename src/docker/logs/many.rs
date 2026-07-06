@@ -1,6 +1,6 @@
 //! docker logs many module.
 //!
-//! Contains docker logs many logic used by Helm command workflows.
+//! Contains docker logs many logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

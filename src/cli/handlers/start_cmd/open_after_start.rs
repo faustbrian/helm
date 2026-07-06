@@ -137,7 +137,7 @@ mod tests {
         F: FnOnce(&Path, &str) -> T,
     {
         let bin_dir = std::env::temp_dir().join(format!(
-            "helm-open-after-start-{}",
+            "stackctl-open-after-start-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("clock")
@@ -168,8 +168,8 @@ mod tests {
             container_prefix: None,
             domain_strategy: None,
             service: vec![
-                service("app", Kind::App, Some("app.helm")),
-                service("cache", Kind::Database, Some("redis.helm")),
+                service("app", Kind::App, Some("app.stackctl")),
+                service("cache", Kind::Database, Some("redis.stackctl")),
             ],
             swarm: Vec::new(),
         }

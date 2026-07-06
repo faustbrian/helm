@@ -1,6 +1,6 @@
 //! config presets object store module.
 //!
-//! Contains config presets object store logic used by Helm command workflows.
+//! Contains config presets object store logic used by Stackctl command workflows.
 
 use super::{Driver, Kind, PresetDefaults};
 

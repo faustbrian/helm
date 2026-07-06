@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn run_script_hook_executes_resolved_script() {
-        let dir = env::temp_dir().join(format!("helm-run-script-{}", std::process::id()));
+        let dir = env::temp_dir().join(format!("stackctl-run-script-{}", std::process::id()));
         drop(fs::remove_dir_all(&dir));
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("run.sh"), "printf '%s' ok; exit 0");
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn run_script_hook_reports_non_zero_exit() {
-        let dir = env::temp_dir().join(format!("helm-run-script-{}", std::process::id() + 1));
+        let dir = env::temp_dir().join(format!("stackctl-run-script-{}", std::process::id() + 1));
         drop(fs::remove_dir_all(&dir));
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("fail.sh"), "echo boom; exit 3");
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn run_script_hook_times_out_and_kills_slow_script() {
-        let dir = env::temp_dir().join(format!("helm-run-script-{}", std::process::id() + 2));
+        let dir = env::temp_dir().join(format!("stackctl-run-script-{}", std::process::id() + 2));
         drop(fs::remove_dir_all(&dir));
         fs::create_dir_all(&dir).expect("create temp dir");
         let script = write_script(&dir.join("sleep.sh"), "trap 'exit 0' TERM INT; sleep 5");
@@ -148,16 +148,18 @@ mod tests {
 
     #[test]
     fn resolve_script_path_joins_workspace_root_for_relative_paths() {
-        let root = Path::new("/tmp/helm-workspace");
-        let resolved = resolve_script_path(".helm/hooks/hook.sh", root);
-        assert_eq!(resolved, root.join(".helm/hooks/hook.sh"));
+        let root = Path::new("/tmp/stackctl-workspace");
+        let resolved = resolve_script_path(".stackctl/hooks/hook.sh", root);
+        assert_eq!(resolved, root.join(".stackctl/hooks/hook.sh"));
     }
 
     #[test]
     fn run_script_hook_dry_run_skips_execution() {
         let result = crate::docker::with_dry_run_lock(|| {
-            let dir =
-                env::temp_dir().join(format!("helm-run-script-dry-run-{}", std::process::id()));
+            let dir = env::temp_dir().join(format!(
+                "stackctl-run-script-dry-run-{}",
+                std::process::id()
+            ));
             drop(fs::remove_dir_all(&dir));
             fs::create_dir_all(&dir).expect("create temp dir");
 

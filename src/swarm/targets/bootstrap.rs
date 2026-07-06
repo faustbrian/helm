@@ -1,6 +1,6 @@
 //! swarm targets bootstrap module.
 //!
-//! Contains swarm targets bootstrap logic used by Helm command workflows.
+//! Contains swarm targets bootstrap logic used by Stackctl command workflows.
 
 use anyhow::Result;
 
@@ -37,10 +37,10 @@ pub(super) fn bootstrap_swarm_targets(
 /// Ensures target configs exist exists and is in the required state.
 pub(super) fn ensure_target_configs_exist(targets: &[ResolvedSwarmTarget]) -> Result<()> {
     for target in targets {
-        let target_config = target.root.join(".helm.toml");
+        let target_config = target.root.join(".stackctl.toml");
         if !target_config.exists() {
             anyhow::bail!(
-                "missing .helm.toml for swarm target '{}' at {}",
+                "missing .stackctl.toml for swarm target '{}' at {}",
                 target.name,
                 target.root.display()
             );
@@ -63,7 +63,7 @@ mod tests {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_nanos();
-        let base = std::env::temp_dir().join(format!("helm-swarm-bootstrap-{nonce}"));
+        let base = std::env::temp_dir().join(format!("stackctl-swarm-bootstrap-{nonce}"));
         let source = base.join("source");
         let workspace = base.join("workspace");
         let target_root = workspace.join("rate");
@@ -73,9 +73,12 @@ mod tests {
 
         run_git(["init", "--initial-branch=main"], &source)?;
         run_git(["config", "user.email", "tests@example.com"], &source)?;
-        run_git(["config", "user.name", "Helm Tests"], &source)?;
-        std::fs::write(source.join(".helm.toml"), "container_prefix = \"rate\"\n")?;
-        run_git(["add", ".helm.toml"], &source)?;
+        run_git(["config", "user.name", "Stackctl Tests"], &source)?;
+        std::fs::write(
+            source.join(".stackctl.toml"),
+            "container_prefix = \"rate\"\n",
+        )?;
+        run_git(["add", ".stackctl.toml"], &source)?;
         run_git(["commit", "-m", "init"], &source)?;
         run_git(["branch", "develop"], &source)?;
 
@@ -105,7 +108,7 @@ mod tests {
         bootstrap_swarm_targets(&config, &targets, false)?;
 
         assert!(target_root.exists());
-        assert!(target_root.join(".helm.toml").exists());
+        assert!(target_root.join(".stackctl.toml").exists());
 
         std::fs::remove_dir_all(base)?;
         Ok(())

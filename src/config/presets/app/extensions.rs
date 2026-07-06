@@ -1,6 +1,6 @@
 //! config presets app extensions module.
 //!
-//! Contains config presets app extensions logic used by Helm command workflows.
+//! Contains config presets app extensions logic used by Stackctl command workflows.
 
 pub(super) fn laravel_minimal_extensions() -> Vec<String> {
     vec![

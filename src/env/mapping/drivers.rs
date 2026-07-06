@@ -1,6 +1,6 @@
 //! env mapping drivers module.
 //!
-//! Contains env mapping drivers logic used by Helm command workflows.
+//! Contains env mapping drivers logic used by Stackctl command workflows.
 
 use std::collections::HashMap;
 

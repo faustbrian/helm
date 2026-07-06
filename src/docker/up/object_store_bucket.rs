@@ -335,7 +335,7 @@ mod tests {
     }
 
     fn with_fake_runtime_command<T>(script: &str, test: impl FnOnce() -> T) -> T {
-        let dir = std::env::temp_dir().join(format!("helm-fake-runtime-{}", unique_suffix()));
+        let dir = std::env::temp_dir().join(format!("stackctl-fake-runtime-{}", unique_suffix()));
         fs::create_dir_all(&dir).expect("create temp runtime dir");
         let binary = dir.join("docker");
         let mut file = fs::File::create(&binary).expect("create fake runtime binary");
@@ -407,7 +407,8 @@ exit 1
 
     #[test]
     fn ensure_bucket_exists_uses_container_network_localhost_endpoint() {
-        let log = std::env::temp_dir().join(format!("helm-bucket-args-{}.log", unique_suffix()));
+        let log =
+            std::env::temp_dir().join(format!("stackctl-bucket-args-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
             &format!(
@@ -433,7 +434,7 @@ exit 1
     #[test]
     fn ensure_bucket_exists_uses_container_network_for_connectivity() {
         let log =
-            std::env::temp_dir().join(format!("helm-bucket-host-map-{}.log", unique_suffix()));
+            std::env::temp_dir().join(format!("stackctl-bucket-host-map-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
             &format!(
@@ -459,7 +460,7 @@ exit 1
     #[test]
     fn ensure_bucket_exists_falls_back_to_host_gateway_when_container_network_fails() {
         let log =
-            std::env::temp_dir().join(format!("helm-bucket-fallback-{}.log", unique_suffix()));
+            std::env::temp_dir().join(format!("stackctl-bucket-fallback-{}.log", unique_suffix()));
         let log_path = log.to_string_lossy().to_string();
         with_fake_runtime_command(
             &format!(
@@ -490,8 +491,10 @@ exit 1
 
     #[test]
     fn ensure_bucket_exists_fallback_uses_published_host_port() {
-        let log =
-            std::env::temp_dir().join(format!("helm-bucket-port-fallback-{}.log", unique_suffix()));
+        let log = std::env::temp_dir().join(format!(
+            "stackctl-bucket-port-fallback-{}.log",
+            unique_suffix()
+        ));
         let log_path = log.to_string_lossy().to_string();
         let mut svc = service(Driver::Rustfs);
         svc.port = 49123;

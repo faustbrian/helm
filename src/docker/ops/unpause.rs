@@ -1,6 +1,6 @@
 //! docker ops unpause module.
 //!
-//! Contains docker unpause operation used by Helm command workflows.
+//! Contains docker unpause operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

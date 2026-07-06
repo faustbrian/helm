@@ -1,26 +1,26 @@
-# helm
+# stackctl
 
-`helm` standardizes local Laravel environments for faster setup and reliable
+`stackctl` standardizes local Laravel environments for faster setup and reliable
 daily development.
 
 ## Quick Start
 
-1. Install Helm:
+1. Install Stackctl:
 
 ```bash
-cargo install --git git@github.com:faustbrian/helm.git --bin helm --branch main --locked
+cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --branch main --locked
 ```
 
 2. Initialize config:
 
 ```bash
-helm init
+stackctl init
 ```
 
 3. Start services:
 
 ```bash
-helm start
+stackctl start
 ```
 
 ## Documentation
@@ -33,4 +33,4 @@ For a detailed usage walkthrough, jump to [`USAGE.md`](USAGE.md).
 
 ## License
 
-`helm` is licensed under MIT. See [`LICENSE.md`](LICENSE.md).
+`stackctl` is licensed under MIT. See [`LICENSE.md`](LICENSE.md).

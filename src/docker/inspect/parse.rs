@@ -1,6 +1,6 @@
 //! docker inspect parse module.
 //!
-//! Contains docker inspect parse logic used by Helm command workflows.
+//! Contains docker inspect parse logic used by Stackctl command workflows.
 
 use serde_json::Value;
 

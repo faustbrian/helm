@@ -67,7 +67,7 @@ where
     let interactive_hint = if has_tty {
         String::new()
     } else {
-        "\nno interactive terminal detected; rerun Helm from a terminal to allow sudo password prompting"
+        "\nno interactive terminal detected; rerun Stackctl from a terminal to allow sudo password prompting"
             .to_owned()
     };
 
@@ -172,7 +172,8 @@ mod tests {
             })
         };
 
-        append_hosts_entry_with_runner("app.helm", true, true, &mut runner).expect("update works");
+        append_hosts_entry_with_runner("app.stackctl", true, true, &mut runner)
+            .expect("update works");
         assert_eq!(
             calls,
             vec![
@@ -195,7 +196,8 @@ mod tests {
             })
         };
 
-        append_hosts_entry_with_runner("app.helm", false, true, &mut runner).expect("update works");
+        append_hosts_entry_with_runner("app.stackctl", false, true, &mut runner)
+            .expect("update works");
         assert_eq!(
             calls,
             vec![PrivilegeMethod::SudoNonInteractive, PrivilegeMethod::Pkexec]
@@ -206,7 +208,7 @@ mod tests {
     fn runner_reports_non_interactive_hint_when_no_tty() {
         let mut runner = |_: PrivilegeMethod, _: &str| Ok(CommandOutcome::Failure);
 
-        let err = append_hosts_entry_with_runner("app.helm", false, false, &mut runner)
+        let err = append_hosts_entry_with_runner("app.stackctl", false, false, &mut runner)
             .expect_err("expected failure");
         assert!(err.to_string().contains("no interactive terminal detected"));
     }

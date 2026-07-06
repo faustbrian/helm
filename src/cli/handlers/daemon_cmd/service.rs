@@ -1,4 +1,4 @@
-//! `helm daemon service` command handlers.
+//! `stackctl daemon service` command handlers.
 
 use crate::cli::args::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,

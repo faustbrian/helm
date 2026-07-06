@@ -1,6 +1,6 @@
 //! config api module.
 //!
-//! Contains config api logic used by Helm command workflows.
+//! Contains config api logic used by Stackctl command workflows.
 
 mod load_save;
 mod lockfile;

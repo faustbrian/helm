@@ -1,6 +1,6 @@
 //! cli handlers up cmd startup module.
 //!
-//! Contains cli handlers up cmd startup logic used by Helm command workflows.
+//! Contains cli handlers up cmd startup logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::collections::HashMap;

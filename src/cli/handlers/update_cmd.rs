@@ -1,6 +1,6 @@
 //! cli handlers update cmd module.
 //!
-//! Contains cli handlers update cmd logic used by Helm command workflows.
+//! Contains cli handlers update cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;

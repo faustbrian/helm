@@ -1,6 +1,6 @@
 //! database post restore options module.
 //!
-//! Contains typed options for Helm command post-restore workflows.
+//! Contains typed options for Stackctl command post-restore workflows.
 
 use std::path::Path;
 

@@ -1,6 +1,6 @@
 //! database sql admin create module.
 //!
-//! Contains database sql admin create logic used by Helm command workflows.
+//! Contains database sql admin create logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

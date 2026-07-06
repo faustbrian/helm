@@ -1,6 +1,6 @@
 //! cli handlers relabel cmd module.
 //!
-//! Contains cli handlers relabel cmd logic used by Helm command workflows.
+//! Contains cli handlers relabel cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;
@@ -79,7 +79,7 @@ fn determine_relabel_action(service: &config::ServiceConfig) -> Result<RelabelAc
         .is_some_and(|value| value == docker::VALUE_MANAGED_TRUE);
     if managed {
         return Ok(RelabelAction::Skip(format!(
-            "Skipped relabel because container {container_name} already has Helm labels"
+            "Skipped relabel because container {container_name} already has Stackctl labels"
         )));
     }
 
@@ -100,7 +100,9 @@ fn apply_relabel(
     output::event(
         &service.name,
         LogLevel::Info,
-        &format!("Recreating container {container_name} to apply Helm labels (status: {status})"),
+        &format!(
+            "Recreating container {container_name} to apply Stackctl labels (status: {status})"
+        ),
         Persistence::Persistent,
     );
 
@@ -109,7 +111,7 @@ fn apply_relabel(
     output::event(
         &service.name,
         LogLevel::Success,
-        &format!("Applied Helm labels to container {container_name}"),
+        &format!("Applied Stackctl labels to container {container_name}"),
         Persistence::Persistent,
     );
     Ok(())

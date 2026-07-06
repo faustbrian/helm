@@ -1,6 +1,6 @@
 //! output colorize module.
 //!
-//! Contains output colorization helpers used by Helm command workflows.
+//! Contains output colorization helpers used by Stackctl command workflows.
 
 const TOKEN_COLUMN_WIDTHS: [usize; 2] = [16, 16];
 mod payload_scan;

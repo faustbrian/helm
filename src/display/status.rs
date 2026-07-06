@@ -1,6 +1,6 @@
 //! display status module.
 //!
-//! Contains display status logic used by Helm command workflows.
+//! Contains display status logic used by Stackctl command workflows.
 
 use colored::Colorize;
 

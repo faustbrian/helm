@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn execute_hook_runs_script() {
         let bin_dir = std::env::temp_dir().join(format!(
-            "helm-hook-script-{}",
+            "stackctl-hook-script-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

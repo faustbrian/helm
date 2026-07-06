@@ -1,6 +1,6 @@
 //! config presets preset defaults module.
 //!
-//! Contains config presets preset defaults logic used by Helm command workflows.
+//! Contains config presets preset defaults logic used by Stackctl command workflows.
 
 use super::{Driver, Kind};
 

@@ -1,6 +1,6 @@
 //! cli args commands meta module.
 //!
-//! Contains cli args commands meta logic used by Helm command workflows.
+//! Contains cli args commands meta logic used by Stackctl command workflows.
 
 use clap::Args;
 

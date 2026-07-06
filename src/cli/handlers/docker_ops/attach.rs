@@ -1,6 +1,6 @@
 //! cli handlers docker ops attach module.
 //!
-//! Contains attach handler used by Helm command workflows.
+//! Contains attach handler used by Stackctl command workflows.
 
 use anyhow::Result;
 

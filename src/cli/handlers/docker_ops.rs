@@ -1,6 +1,6 @@
 //! cli handlers docker ops module.
 //!
-//! Contains docker passthrough command handlers used by Helm command workflows.
+//! Contains docker passthrough command handlers used by Stackctl command workflows.
 
 pub(super) use super::service_scope::{
     for_each_service as run_for_each_docker_service,

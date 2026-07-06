@@ -224,7 +224,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-daemon-supervisor-{}",
+            "stackctl-daemon-supervisor-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

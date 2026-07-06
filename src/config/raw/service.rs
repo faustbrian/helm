@@ -1,6 +1,6 @@
 //! config raw service module.
 //!
-//! Contains config raw service logic used by Helm command workflows.
+//! Contains config raw service logic used by Stackctl command workflows.
 
 use serde::Deserialize;
 use std::collections::HashMap;

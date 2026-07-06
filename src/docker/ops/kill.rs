@@ -1,6 +1,6 @@
 //! docker ops kill module.
 //!
-//! Contains docker kill operation used by Helm command workflows.
+//! Contains docker kill operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

@@ -1,6 +1,6 @@
 //! config api sql client flavor module.
 //!
-//! Contains config api sql client flavor logic used by Helm command workflows.
+//! Contains config api sql client flavor logic used by Stackctl command workflows.
 
 use crate::config::{Config, Driver, Kind};
 

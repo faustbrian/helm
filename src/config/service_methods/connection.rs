@@ -1,6 +1,6 @@
 //! config service methods connection module.
 //!
-//! Contains config service methods connection logic used by Helm command workflows.
+//! Contains config service methods connection logic used by Stackctl command workflows.
 
 use super::{Driver, ServiceConfig};
 
@@ -129,7 +129,7 @@ mod tests {
 
         assert_eq!(
             service.connection_url(),
-            "sqlsrv://sa:HelmSqlServerPassw0rd%21@127.0.0.1:1433/app"
+            "sqlsrv://sa:StackctlSqlServerPassw0rd%21@127.0.0.1:1433/app"
         );
         Ok(())
     }

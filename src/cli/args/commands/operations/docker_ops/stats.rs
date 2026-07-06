@@ -1,6 +1,6 @@
 //! cli args commands operations docker ops stats module.
 //!
-//! Contains stats command args used by Helm command workflows.
+//! Contains stats command args used by Stackctl command workflows.
 
 use clap::Args;
 

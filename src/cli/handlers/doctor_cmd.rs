@@ -1,6 +1,6 @@
 //! cli handlers doctor cmd module.
 //!
-//! Contains cli handlers doctor cmd logic used by Helm command workflows.
+//! Contains cli handlers doctor cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use serde::Serialize;

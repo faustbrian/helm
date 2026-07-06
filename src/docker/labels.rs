@@ -1,13 +1,13 @@
 //! docker labels module.
 //!
-//! Contains Helm Docker label keys and values used by Helm command workflows.
+//! Contains Stackctl Docker label keys and values used by Stackctl command workflows.
 
 use crate::config::Kind;
 
-pub(crate) const LABEL_MANAGED: &str = "com.helm.managed";
-pub(crate) const LABEL_SERVICE: &str = "com.helm.service";
-pub(crate) const LABEL_KIND: &str = "com.helm.kind";
-pub(crate) const LABEL_CONTAINER: &str = "com.helm.container";
+pub(crate) const LABEL_MANAGED: &str = "com.stackctl.managed";
+pub(crate) const LABEL_SERVICE: &str = "com.stackctl.service";
+pub(crate) const LABEL_KIND: &str = "com.stackctl.kind";
+pub(crate) const LABEL_CONTAINER: &str = "com.stackctl.container";
 pub(crate) const VALUE_MANAGED_TRUE: &str = "true";
 
 pub(crate) fn kind_label_value(kind: Kind) -> &'static str {

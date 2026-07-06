@@ -1,6 +1,6 @@
 //! config expansion service module.
 //!
-//! Contains config expansion service logic used by Helm command workflows.
+//! Contains config expansion service logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

@@ -1,6 +1,6 @@
 //! cli support run doctor app checks module.
 //!
-//! Contains cli support run doctor app checks logic used by Helm command workflows.
+//! Contains cli support run doctor app checks logic used by Stackctl command workflows.
 
 mod domain;
 mod octane;

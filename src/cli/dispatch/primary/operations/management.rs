@@ -66,16 +66,16 @@ mod tests {
 
     #[test]
     fn management_dispatches_stop() {
-        assert!(dispatch_result(&["helm", "stop"]).is_some());
+        assert!(dispatch_result(&["stackctl", "stop"]).is_some());
     }
 
     #[test]
     fn management_dispatches_rm() {
-        assert!(dispatch_result(&["helm", "rm"]).is_some());
+        assert!(dispatch_result(&["stackctl", "rm"]).is_some());
     }
 
     #[test]
     fn management_ignores_other_commands() {
-        assert!(dispatch_result(&["helm", "up"]).is_none());
+        assert!(dispatch_result(&["stackctl", "up"]).is_none());
     }
 }

@@ -1,6 +1,6 @@
 //! cli args commands operations docker ops cp module.
 //!
-//! Contains cp command args used by Helm command workflows.
+//! Contains cp command args used by Stackctl command workflows.
 
 use clap::Args;
 

@@ -1,6 +1,6 @@
 //! swarm injection resolver module.
 //!
-//! Contains swarm injection resolver logic used by Helm command workflows.
+//! Contains swarm injection resolver logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 
@@ -39,7 +39,7 @@ pub(super) fn resolve_injected_env_from_swarm_context(
 
         if !loaded_dependency_configs.contains_key(target_name) {
             let dependency_root = resolve_swarm_root(&context.workspace_root, &source_target.root);
-            let dependency_config_path = dependency_root.join(".helm.toml");
+            let dependency_config_path = dependency_root.join(".stackctl.toml");
             let dependency_config = super::load_config_from_path(&dependency_config_path)
                 .with_context(|| {
                     format!(

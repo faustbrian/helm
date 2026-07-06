@@ -1,6 +1,6 @@
 //! swarm injection context module.
 //!
-//! Contains swarm injection context logic used by Helm command workflows.
+//! Contains swarm injection context logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ pub(super) fn resolve_workspace_swarm_context(
     })?;
 
     loop {
-        let config_path = current.join(".helm.toml");
+        let config_path = current.join(".stackctl.toml");
         if config_path.exists() {
             let workspace_config = super::load_config_from_path(&config_path)?;
             if !workspace_config.swarm.is_empty() {

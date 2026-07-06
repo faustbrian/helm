@@ -1,6 +1,6 @@
 //! cli handlers docker ops prune module.
 //!
-//! Contains prune handler used by Helm command workflows.
+//! Contains prune handler used by Stackctl command workflows.
 
 use anyhow::Result;
 

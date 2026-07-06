@@ -81,7 +81,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-fake-docker-{}",
+            "stackctl-fake-docker-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")

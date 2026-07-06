@@ -1,6 +1,6 @@
 //! config types lockfile module.
 //!
-//! Contains config types lockfile logic used by Helm command workflows.
+//! Contains config types lockfile logic used by Stackctl command workflows.
 
 use serde::{Deserialize, Serialize};
 

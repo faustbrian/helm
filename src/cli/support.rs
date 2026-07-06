@@ -1,6 +1,6 @@
 //! cli support module.
 //!
-//! Contains cli support logic used by Helm command workflows.
+//! Contains cli support logic used by Stackctl command workflows.
 
 mod app_runtime_context;
 mod app_services;

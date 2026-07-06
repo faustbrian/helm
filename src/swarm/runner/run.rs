@@ -67,7 +67,7 @@ pub(crate) fn run_swarm(options: RunSwarmOptions<'_>) -> Result<()> {
         options.quiet,
     )?;
 
-    let helm_executable =
+    let stackctl_executable =
         std::env::current_exe().context("failed to resolve current executable")?;
     let output_mode = output_mode_for_subcommand(subcommand);
     emit_swarm_start(options.command, targets.len(), output_mode, options.quiet);
@@ -85,7 +85,7 @@ pub(crate) fn run_swarm(options: RunSwarmOptions<'_>) -> Result<()> {
         no_color: options.no_color,
         dry_run: options.dry_run,
         runtime_env: options.runtime_env,
-        helm_executable: &helm_executable,
+        stackctl_executable: &stackctl_executable,
         run_target: run_swarm_target,
     })?;
 
@@ -106,7 +106,7 @@ fn emit_swarm_start(command: &[String], target_count: usize, output_mode: Output
     }
 
     let message = format!(
-        "Running `helm {}` across {} target(s)",
+        "Running `stackctl {}` across {} target(s)",
         command.join(" "),
         target_count
     );

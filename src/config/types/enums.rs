@@ -1,11 +1,11 @@
 //! config types enums module.
 //!
-//! Contains config types enums logic used by Helm command workflows.
+//! Contains config types enums logic used by Stackctl command workflows.
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-/// Helm project archetype.
+/// Stackctl project archetype.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]

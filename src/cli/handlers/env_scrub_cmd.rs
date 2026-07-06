@@ -1,6 +1,6 @@
 //! cli handlers env scrub cmd module.
 //!
-//! Contains cli handlers env scrub cmd logic used by Helm command workflows.
+//! Contains cli handlers env scrub cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;

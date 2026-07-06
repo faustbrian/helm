@@ -1,4 +1,4 @@
-//! Swarm orchestration helpers for multi-project Helm workflows.
+//! Swarm orchestration helpers for multi-project Stackctl workflows.
 
 mod injection;
 mod runner;

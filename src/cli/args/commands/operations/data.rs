@@ -1,6 +1,6 @@
 //! cli args commands operations data module.
 //!
-//! Contains cli args commands operations data logic used by Helm command workflows.
+//! Contains cli args commands operations data logic used by Stackctl command workflows.
 
 use clap::Args;
 use std::path::PathBuf;

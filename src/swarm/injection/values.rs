@@ -1,6 +1,6 @@
 //! swarm injection values module.
 //!
-//! Contains swarm injection values logic used by Helm command workflows.
+//! Contains swarm injection values logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

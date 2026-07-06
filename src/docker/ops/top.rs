@@ -1,6 +1,6 @@
 //! docker ops top module.
 //!
-//! Contains docker top operation used by Helm command workflows.
+//! Contains docker top operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

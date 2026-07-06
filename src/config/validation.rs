@@ -1,6 +1,6 @@
 //! config validation module.
 //!
-//! Contains config validation logic used by Helm command workflows.
+//! Contains config validation logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

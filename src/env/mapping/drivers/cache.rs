@@ -1,6 +1,6 @@
 //! env mapping drivers cache module.
 //!
-//! Contains env mapping drivers cache logic used by Helm command workflows.
+//! Contains env mapping drivers cache logic used by Stackctl command workflows.
 
 use std::collections::HashMap;
 

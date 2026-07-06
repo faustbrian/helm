@@ -45,7 +45,7 @@ fn discover_dir(
         return Ok(());
     }
 
-    let config_path = dir.join(".helm.toml");
+    let config_path = dir.join(".stackctl.toml");
     if config_path.exists() {
         match config::load_config_with(config::LoadConfigPathOptions::new(None, Some(dir))) {
             Ok(_) => {
@@ -120,7 +120,7 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "helm-daemon-discovery-{name}-{}",
+            "stackctl-daemon-discovery-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -134,10 +134,10 @@ mod tests {
     fn write_project(root: &PathBuf) {
         fs::create_dir_all(root).expect("create project root");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
         )
-        .expect("write helm config");
+        .expect("write stackctl config");
     }
 
     #[test]
@@ -178,7 +178,7 @@ mod tests {
         let invalid = root.join("invalid");
         fs::create_dir_all(&invalid).expect("create invalid dir");
         fs::write(
-            invalid.join(".helm.toml"),
+            invalid.join(".stackctl.toml"),
             "schema_version = 1\nservice = []\n",
         )
         .expect("write invalid config");

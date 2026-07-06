@@ -1,6 +1,6 @@
 //! database restore process module.
 //!
-//! Contains database restore process logic used by Helm command workflows.
+//! Contains database restore process logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 use std::process::{Child, ChildStdin};

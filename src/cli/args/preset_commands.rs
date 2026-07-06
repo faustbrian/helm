@@ -1,6 +1,6 @@
 //! cli args preset commands module.
 //!
-//! Contains cli args preset commands logic used by Helm command workflows.
+//! Contains cli args preset commands logic used by Stackctl command workflows.
 
 use clap::Subcommand;
 

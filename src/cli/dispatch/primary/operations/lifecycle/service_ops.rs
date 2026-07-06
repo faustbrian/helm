@@ -147,42 +147,42 @@ mod tests {
 
     #[test]
     fn service_ops_dispatches_start() {
-        let result = dispatch_result(&["helm", "start"]);
+        let result = dispatch_result(&["stackctl", "start"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_dispatches_update() {
-        let result = dispatch_result(&["helm", "update"]);
+        let result = dispatch_result(&["stackctl", "update"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_dispatches_down() {
-        let result = dispatch_result(&["helm", "down"]);
+        let result = dispatch_result(&["stackctl", "down"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_dispatches_recreate() {
-        let result = dispatch_result(&["helm", "recreate"]);
+        let result = dispatch_result(&["stackctl", "recreate"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_dispatches_restart() {
-        let result = dispatch_result(&["helm", "restart"]);
+        let result = dispatch_result(&["stackctl", "restart"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_dispatches_relabel() {
-        let result = dispatch_result(&["helm", "relabel"]);
+        let result = dispatch_result(&["stackctl", "relabel"]);
         assert!(result.is_some());
     }
 
     #[test]
     fn service_ops_does_not_handle_other_commands() {
-        assert!(dispatch_result(&["helm", "status"]).is_none());
+        assert!(dispatch_result(&["stackctl", "status"]).is_none());
     }
 }

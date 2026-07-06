@@ -1,6 +1,6 @@
 //! output module.
 //!
-//! Contains output logic used by Helm command workflows.
+//! Contains output logic used by Stackctl command workflows.
 
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;

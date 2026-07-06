@@ -1,6 +1,6 @@
 //! cli support resolve up services module.
 //!
-//! Contains cli support resolve up services logic used by Helm command workflows.
+//! Contains cli support resolve up services logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::collections::HashMap;

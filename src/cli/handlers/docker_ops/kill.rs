@@ -1,6 +1,6 @@
 //! cli handlers docker ops kill module.
 //!
-//! Contains kill handler used by Helm command workflows.
+//! Contains kill handler used by Stackctl command workflows.
 
 use anyhow::Result;
 

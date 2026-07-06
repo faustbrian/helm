@@ -1,6 +1,6 @@
 //! cli handlers health cmd module.
 //!
-//! Contains cli handlers health cmd logic used by Helm command workflows.
+//! Contains cli handlers health cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use serde::Serialize;

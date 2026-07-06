@@ -1,6 +1,6 @@
 //! config runtime env ports module.
 //!
-//! Contains config runtime env ports logic used by Helm command workflows.
+//! Contains config runtime env ports logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

@@ -1,6 +1,6 @@
 //! swarm target exec module.
 //!
-//! Contains swarm target exec logic used by Helm command workflows.
+//! Contains swarm target exec logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -35,13 +35,13 @@ pub(super) struct SwarmRunResult {
 
 /// Executes the requested command for one swarm target.
 pub(super) fn run_swarm_target(
-    helm_executable: &Path,
+    stackctl_executable: &Path,
     target: &ResolvedSwarmTarget,
     args: &[String],
     output_mode: OutputMode,
     cancel: Option<Arc<AtomicBool>>,
 ) -> Result<SwarmRunResult> {
-    let mut command = Command::new(helm_executable);
+    let mut command = Command::new(stackctl_executable);
     command
         .args(args)
         .stdout(Stdio::piped())

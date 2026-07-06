@@ -1,6 +1,6 @@
 //! docker inspect module.
 //!
-//! Contains docker inspect logic used by Helm command workflows.
+//! Contains docker inspect logic used by Stackctl command workflows.
 
 use std::collections::HashMap;
 use std::process::Output;

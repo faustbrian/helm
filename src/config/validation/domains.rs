@@ -1,6 +1,6 @@
 //! config validation domains module.
 //!
-//! Contains config domain resolution logic used by Helm command workflows.
+//! Contains config domain resolution logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;
@@ -102,7 +102,7 @@ mod tests {
             container_prefix: Some("shipit-api".to_owned()),
             domain_strategy: Some(DomainStrategy::Directory),
             service: vec![ServiceConfig {
-                domain: Some("authored.helm".to_owned()),
+                domain: Some("authored.stackctl".to_owned()),
                 ..app("app")
             }],
             swarm: Vec::new(),
@@ -111,7 +111,10 @@ mod tests {
         validate_and_resolve_domains(&mut config, Path::new("/tmp/my-project"))
             .expect("resolve domains");
 
-        assert_eq!(config.service[0].domain.as_deref(), Some("authored.helm"));
+        assert_eq!(
+            config.service[0].domain.as_deref(),
+            Some("authored.stackctl")
+        );
         assert_eq!(config.service[0].resolved_domain, None);
     }
 }

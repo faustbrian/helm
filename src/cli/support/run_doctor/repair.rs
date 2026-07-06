@@ -1,6 +1,6 @@
 //! cli support run doctor repair module.
 //!
-//! Contains cli support run doctor repair logic used by Helm command workflows.
+//! Contains cli support run doctor repair logic used by Stackctl command workflows.
 
 use crate::config;
 use crate::docker;
@@ -148,7 +148,7 @@ mod tests {
     impl TempDoctorRepairFixture {
         fn new(restart_recovers: bool) -> Self {
             let root = std::env::temp_dir().join(format!(
-                "helm-doctor-repair-all-{}",
+                "stackctl-doctor-repair-all-{}",
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("time")

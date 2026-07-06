@@ -1,6 +1,6 @@
 //! swarm targets module.
 //!
-//! Contains swarm targets logic used by Helm command workflows.
+//! Contains swarm targets logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};

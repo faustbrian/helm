@@ -1,6 +1,6 @@
 //! env files module.
 //!
-//! Contains env files logic used by Helm command workflows.
+//! Contains env files logic used by Stackctl command workflows.
 
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Context, Result};

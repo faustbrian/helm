@@ -1,6 +1,6 @@
 //! database restore module.
 //!
-//! Contains database restore logic used by Helm command workflows.
+//! Contains database restore logic used by Stackctl command workflows.
 
 use anyhow::Result;
 use std::path::Path;

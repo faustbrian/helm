@@ -1,6 +1,6 @@
 //! docker ops events module.
 //!
-//! Contains docker events operation used by Helm command workflows.
+//! Contains docker events operation used by Stackctl command workflows.
 
 use anyhow::Result;
 

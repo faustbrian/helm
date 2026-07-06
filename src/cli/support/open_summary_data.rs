@@ -60,7 +60,7 @@ mod tests {
             api_key: None,
             region: None,
             scheme: None,
-            domain: Some("app.helm".to_owned()),
+            domain: Some("app.stackctl".to_owned()),
             domains: None,
             resolved_domain: None,
             container_port: None,
@@ -93,7 +93,7 @@ mod tests {
     {
         let id = SUMMARY_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let bin_dir = env::temp_dir().join(format!(
-            "helm-summary-{}-{}-{}",
+            "stackctl-summary-{}-{}-{}",
             std::process::id(),
             id,
             SystemTime::now()

@@ -102,7 +102,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = std::env::temp_dir().join(format!(
-            "helm-doctor-octane-{}",
+            "stackctl-doctor-octane-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("time")

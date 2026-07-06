@@ -1,6 +1,6 @@
 //! database post restore module.
 //!
-//! Contains database post restore logic used by Helm command workflows.
+//! Contains database post restore logic used by Stackctl command workflows.
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -33,7 +33,7 @@ pub(crate) fn run_laravel_post_restore(options: PostRestoreOptions<'_>) -> Resul
     Ok(())
 }
 
-/// Runs a single artisan command via `helm artisan`.
+/// Runs a single artisan command via `stackctl artisan`.
 fn run_artisan_command(
     project_root: &Path,
     restored_service: &crate::config::ServiceConfig,
@@ -70,7 +70,7 @@ fn run_artisan_command(
         None,
         Some(project_root),
     ))
-    .context("failed to load helm config for artisan post-restore hook")?;
+    .context("failed to load stackctl config for artisan post-restore hook")?;
     let app_service = crate::config::resolve_app_service(&config, None)
         .context("failed to resolve app service for artisan post-restore hook")?;
     let args = vec![
@@ -78,7 +78,7 @@ fn run_artisan_command(
         format!("--database={}", connection.name),
     ];
     crate::serve::exec_artisan(app_service, &args, false)
-        .context("Failed to execute helm artisan command")?;
+        .context("Failed to execute stackctl artisan command")?;
 
     output::event(
         "database",
@@ -95,21 +95,21 @@ fn run_artisan_command(
 
 fn running_message(artisan_command: &str, service_name: &str, connection_name: &str) -> String {
     format!(
-        "Running `helm artisan {artisan_command} --database={connection_name}` \
+        "Running `stackctl artisan {artisan_command} --database={connection_name}` \
 for restored service `{service_name}`"
     )
 }
 
 fn dry_run_message(artisan_command: &str, service_name: &str, connection_name: &str) -> String {
     format!(
-        "[dry-run] helm artisan {artisan_command} --database={connection_name} \
+        "[dry-run] stackctl artisan {artisan_command} --database={connection_name} \
 for restored service `{service_name}`"
     )
 }
 
 fn completed_message(artisan_command: &str, service_name: &str, connection_name: &str) -> String {
     format!(
-        "`helm artisan {artisan_command} --database={connection_name}` completed \
+        "`stackctl artisan {artisan_command} --database={connection_name}` completed \
 for restored service `{service_name}`"
     )
 }
@@ -132,7 +132,7 @@ mod tests {
         F: FnOnce(&Path) -> T,
     {
         let root = env::temp_dir().join(format!(
-            "helm-post-restore-{}",
+            "stackctl-post-restore-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -140,7 +140,7 @@ mod tests {
         ));
         fs::create_dir_all(root.join("config")).expect("create temp project");
         fs::write(
-            root.join(".helm.toml"),
+            root.join(".stackctl.toml"),
             "schema_version = 1\nproject_type = \"project\"\ncontainer_prefix = \"acme\"\n[[service]]\npreset = \"laravel\"\nname = \"app\"\n",
         )
         .expect("write temp config");
@@ -156,7 +156,7 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "helm-post-restore-docker-{}",
+            "stackctl-post-restore-docker-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -263,7 +263,7 @@ return [
 
     fn capture_path() -> PathBuf {
         env::temp_dir().join(format!(
-            "helm-post-restore-capture-{}",
+            "stackctl-post-restore-capture-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
@@ -332,16 +332,16 @@ return [
     fn message_helpers_serialize_expected_artisan_labels() {
         assert_eq!(
             running_message("migrate", "shipit", "mysql"),
-            "Running `helm artisan migrate --database=mysql` for restored service `shipit`"
+            "Running `stackctl artisan migrate --database=mysql` for restored service `shipit`"
         );
         assert_eq!(
             dry_run_message("schema:dump", "billing", "shipit_invoicing"),
-            "[dry-run] helm artisan schema:dump --database=shipit_invoicing \
+            "[dry-run] stackctl artisan schema:dump --database=shipit_invoicing \
 for restored service `billing`"
         );
         assert_eq!(
             completed_message("config:cache", "shipit", "mysql"),
-            "`helm artisan config:cache --database=mysql` completed for restored service `shipit`"
+            "`stackctl artisan config:cache --database=mysql` completed for restored service `shipit`"
         );
     }
 }

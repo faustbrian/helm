@@ -1,6 +1,6 @@
 //! cli handlers status cmd module.
 //!
-//! Contains cli handlers status cmd logic used by Helm command workflows.
+//! Contains cli handlers status cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

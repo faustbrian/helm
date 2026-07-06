@@ -1,6 +1,6 @@
 //! config services module.
 //!
-//! Contains config services logic used by Helm command workflows.
+//! Contains config services logic used by Stackctl command workflows.
 
 use super::Config;
 

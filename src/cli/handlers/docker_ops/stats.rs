@@ -1,6 +1,6 @@
 //! cli handlers docker ops stats module.
 //!
-//! Contains stats handler used by Helm command workflows.
+//! Contains stats handler used by Stackctl command workflows.
 
 use anyhow::Result;
 

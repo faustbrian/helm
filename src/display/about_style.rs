@@ -1,6 +1,6 @@
 //! display about style module.
 //!
-//! Contains display about style logic used by Helm command workflows.
+//! Contains display about style logic used by Stackctl command workflows.
 
 use std::borrow::Cow;
 

@@ -1,6 +1,6 @@
 //! cli support matches filter module.
 //!
-//! Contains cli support matches filter logic used by Helm command workflows.
+//! Contains cli support matches filter logic used by Stackctl command workflows.
 
 use crate::config;
 

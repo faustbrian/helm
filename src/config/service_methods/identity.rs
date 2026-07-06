@@ -1,6 +1,6 @@
 //! config service methods identity module.
 //!
-//! Contains config service methods identity logic used by Helm command workflows.
+//! Contains config service methods identity logic used by Stackctl command workflows.
 
 use anyhow::{Result, anyhow};
 

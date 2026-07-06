@@ -1,6 +1,6 @@
 //! config services lookup app module.
 //!
-//! Contains config services lookup app logic used by Helm command workflows.
+//! Contains config services lookup app logic used by Stackctl command workflows.
 
 use anyhow::Result;
 

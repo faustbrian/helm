@@ -3,14 +3,14 @@ use std::path::PathBuf;
 
 #[test]
 fn swarm_cli_defaults_to_dependency_expansion() {
-    let cli = Cli::try_parse_from(["helm", "swarm", "up"]).expect("parse swarm command");
+    let cli = Cli::try_parse_from(["stackctl", "swarm", "up"]).expect("parse swarm command");
     match cli.command {
         Commands::Swarm(args) => assert!(!args.no_deps),
         _ => panic!("expected swarm command"),
     }
 
     let cli =
-        Cli::try_parse_from(["helm", "swarm", "--no-deps", "up"]).expect("parse swarm command");
+        Cli::try_parse_from(["stackctl", "swarm", "--no-deps", "up"]).expect("parse swarm command");
     match cli.command {
         Commands::Swarm(args) => assert!(args.no_deps),
         _ => panic!("expected swarm command"),
@@ -20,7 +20,7 @@ fn swarm_cli_defaults_to_dependency_expansion() {
 #[test]
 fn swarm_cli_parses_force_flag() {
     let cli =
-        Cli::try_parse_from(["helm", "swarm", "--force", "down"]).expect("parse swarm command");
+        Cli::try_parse_from(["stackctl", "swarm", "--force", "down"]).expect("parse swarm command");
     match cli.command {
         Commands::Swarm(args) => assert!(args.force),
         _ => panic!("expected swarm command"),
@@ -29,19 +29,19 @@ fn swarm_cli_parses_force_flag() {
 
 #[test]
 fn up_and_down_cli_parse_project_dependency_flags() {
-    let up_default = Cli::try_parse_from(["helm", "up"]).expect("parse up");
+    let up_default = Cli::try_parse_from(["stackctl", "up"]).expect("parse up");
     match up_default.command {
         Commands::Up(args) => assert!(!args.no_deps),
         _ => panic!("expected up command"),
     }
 
-    let up = Cli::try_parse_from(["helm", "up", "--no-deps"]).expect("parse up");
+    let up = Cli::try_parse_from(["stackctl", "up", "--no-deps"]).expect("parse up");
     match up.command {
         Commands::Up(args) => assert!(args.no_deps),
         _ => panic!("expected up command"),
     }
 
-    let down = Cli::try_parse_from(["helm", "down", "--force"]).expect("parse down");
+    let down = Cli::try_parse_from(["stackctl", "down", "--force"]).expect("parse down");
     match down.command {
         Commands::Down(args) => {
             assert!(!args.no_deps);
@@ -53,7 +53,7 @@ fn up_and_down_cli_parse_project_dependency_flags() {
 
 #[test]
 fn up_cli_parses_publish_all_flag() {
-    let up = Cli::try_parse_from(["helm", "up", "--publish-all"]).expect("parse up");
+    let up = Cli::try_parse_from(["stackctl", "up", "--publish-all"]).expect("parse up");
     match up.command {
         Commands::Up(args) => assert!(args.publish_all),
         _ => panic!("expected up command"),
@@ -63,7 +63,7 @@ fn up_cli_parses_publish_all_flag() {
 #[test]
 fn up_cli_parses_no_wait_and_no_publish_all_flags() {
     let up =
-        Cli::try_parse_from(["helm", "up", "--no-wait", "--no-publish-all"]).expect("parse up");
+        Cli::try_parse_from(["stackctl", "up", "--no-wait", "--no-publish-all"]).expect("parse up");
     match up.command {
         Commands::Up(args) => {
             assert!(args.no_wait);
@@ -76,7 +76,7 @@ fn up_cli_parses_no_wait_and_no_publish_all_flags() {
 #[test]
 fn up_cli_parses_port_strategy_and_seed_flags() {
     let up = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "up",
         "--port-strategy",
         "stable",
@@ -95,7 +95,7 @@ fn up_cli_parses_port_strategy_and_seed_flags() {
 
 #[test]
 fn up_cli_parses_env_output_flag() {
-    let up = Cli::try_parse_from(["helm", "up", "--env-output"]).expect("parse up");
+    let up = Cli::try_parse_from(["stackctl", "up", "--env-output"]).expect("parse up");
     match up.command {
         Commands::Up(args) => assert!(args.env_output),
         _ => panic!("expected up command"),
@@ -104,7 +104,7 @@ fn up_cli_parses_env_output_flag() {
 
 #[test]
 fn up_cli_parses_seed_flag() {
-    let up = Cli::try_parse_from(["helm", "up", "--seed"]).expect("parse up");
+    let up = Cli::try_parse_from(["stackctl", "up", "--seed"]).expect("parse up");
     match up.command {
         Commands::Up(args) => assert!(args.seed),
         _ => panic!("expected up command"),
@@ -114,7 +114,7 @@ fn up_cli_parses_seed_flag() {
 #[test]
 fn swarm_cli_parses_port_strategy_and_seed_flags() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "swarm",
         "--port-strategy",
         "stable",
@@ -134,8 +134,8 @@ fn swarm_cli_parses_port_strategy_and_seed_flags() {
 
 #[test]
 fn swarm_cli_parses_env_output_flag() {
-    let cli =
-        Cli::try_parse_from(["helm", "swarm", "--env-output", "up"]).expect("parse swarm command");
+    let cli = Cli::try_parse_from(["stackctl", "swarm", "--env-output", "up"])
+        .expect("parse swarm command");
     match cli.command {
         Commands::Swarm(args) => assert!(args.env_output),
         _ => panic!("expected swarm command"),
@@ -144,10 +144,10 @@ fn swarm_cli_parses_env_output_flag() {
 
 #[test]
 fn env_cli_persist_runtime_requires_sync_and_parses_when_enabled() {
-    let invalid = Cli::try_parse_from(["helm", "env", "--persist-runtime"]);
+    let invalid = Cli::try_parse_from(["stackctl", "env", "--persist-runtime"]);
     assert!(invalid.is_err());
 
-    let valid = Cli::try_parse_from(["helm", "env", "--sync", "--persist-runtime"])
+    let valid = Cli::try_parse_from(["stackctl", "env", "--sync", "--persist-runtime"])
         .expect("parse env persist-runtime");
     match valid.command {
         Commands::Env(args) => {
@@ -162,7 +162,7 @@ fn env_cli_persist_runtime_requires_sync_and_parses_when_enabled() {
 
 #[test]
 fn env_cli_parses_generate_subcommand() {
-    let cli = Cli::try_parse_from(["helm", "env", "generate", "--output", ".env.generated"])
+    let cli = Cli::try_parse_from(["stackctl", "env", "generate", "--output", ".env.generated"])
         .expect("parse env generate");
     match cli.command {
         Commands::Env(args) => assert!(matches!(
@@ -175,14 +175,14 @@ fn env_cli_parses_generate_subcommand() {
 
 #[test]
 fn cli_parses_global_runtime_env_flag() {
-    let cli = Cli::try_parse_from(["helm", "--env", "test", "up"]).expect("parse global env");
+    let cli = Cli::try_parse_from(["stackctl", "--env", "test", "up"]).expect("parse global env");
     assert_eq!(cli.env.as_deref(), Some("test"));
 }
 
 #[test]
 fn cli_parses_global_docker_policy_flags() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "--docker-max-heavy-ops",
         "3",
         "--docker-max-build-ops",
@@ -203,47 +203,47 @@ fn cli_parses_global_docker_policy_flags() {
 
 #[test]
 fn cli_parses_global_repro_flag() {
-    let cli = Cli::try_parse_from(["helm", "--repro", "up"]).expect("parse global repro");
+    let cli = Cli::try_parse_from(["stackctl", "--repro", "up"]).expect("parse global repro");
     assert!(cli.repro);
 }
 
 #[test]
 fn cli_parses_global_container_engine_flag() {
     let cli =
-        Cli::try_parse_from(["helm", "--engine", "podman", "up"]).expect("parse global engine");
+        Cli::try_parse_from(["stackctl", "--engine", "podman", "up"]).expect("parse global engine");
     assert_eq!(cli.engine, Some(crate::config::ContainerEngine::Podman));
 }
 
 #[test]
 fn cli_parses_about_command() {
-    let cli = Cli::try_parse_from(["helm", "about"]).expect("parse about");
+    let cli = Cli::try_parse_from(["stackctl", "about"]).expect("parse about");
     assert!(matches!(cli.command, Commands::About(_)));
 }
 
 #[test]
 fn cli_parses_ls_command() {
-    let ls = Cli::try_parse_from(["helm", "ls"]).expect("parse ls");
+    let ls = Cli::try_parse_from(["stackctl", "ls"]).expect("parse ls");
     assert!(matches!(ls.command, Commands::Ls(_)));
 }
 
 #[test]
 fn cli_parses_status_alias_as_ps_command() {
-    let status = Cli::try_parse_from(["helm", "status"]).expect("parse status alias");
+    let status = Cli::try_parse_from(["stackctl", "status"]).expect("parse status alias");
     assert!(matches!(status.command, Commands::Ps(_)));
 }
 
 #[test]
 fn cli_parses_apply_and_update_commands() {
-    let apply = Cli::try_parse_from(["helm", "apply"]).expect("parse apply");
+    let apply = Cli::try_parse_from(["stackctl", "apply"]).expect("parse apply");
     assert!(matches!(apply.command, Commands::Apply(_)));
 
-    let update = Cli::try_parse_from(["helm", "update"]).expect("parse update");
+    let update = Cli::try_parse_from(["stackctl", "update"]).expect("parse update");
     assert!(matches!(update.command, Commands::Update(_)));
 }
 
 #[test]
 fn cli_parses_task_deps_bump_targets() {
-    let composer = Cli::try_parse_from(["helm", "task", "deps", "bump", "--composer"])
+    let composer = Cli::try_parse_from(["stackctl", "task", "deps", "bump", "--composer"])
         .expect("parse task deps bump composer");
     match composer.command {
         Commands::Task(args) => match args.command {
@@ -261,7 +261,7 @@ fn cli_parses_task_deps_bump_targets() {
         _ => panic!("expected task command"),
     }
 
-    let node = Cli::try_parse_from(["helm", "task", "deps", "bump", "--node"])
+    let node = Cli::try_parse_from(["stackctl", "task", "deps", "bump", "--node"])
         .expect("parse task deps bump node");
     match node.command {
         Commands::Task(args) => match args.command {
@@ -279,8 +279,8 @@ fn cli_parses_task_deps_bump_targets() {
         _ => panic!("expected task command"),
     }
 
-    let bun =
-        Cli::try_parse_from(["helm", "task", "deps", "bump", "--bun"]).expect("parse task deps");
+    let bun = Cli::try_parse_from(["stackctl", "task", "deps", "bump", "--bun"])
+        .expect("parse task deps");
     match bun.command {
         Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
@@ -297,7 +297,7 @@ fn cli_parses_task_deps_bump_targets() {
         _ => panic!("expected task command"),
     }
 
-    let deno = Cli::try_parse_from(["helm", "task", "deps", "bump", "--deno"])
+    let deno = Cli::try_parse_from(["stackctl", "task", "deps", "bump", "--deno"])
         .expect("parse task deps bump deno");
     match deno.command {
         Commands::Task(args) => match args.command {
@@ -315,8 +315,8 @@ fn cli_parses_task_deps_bump_targets() {
         _ => panic!("expected task command"),
     }
 
-    let all =
-        Cli::try_parse_from(["helm", "task", "deps", "bump", "--all"]).expect("parse task deps");
+    let all = Cli::try_parse_from(["stackctl", "task", "deps", "bump", "--all"])
+        .expect("parse task deps");
     match all.command {
         Commands::Task(args) => match args.command {
             crate::cli::args::TaskCommands::Deps(crate::cli::args::TaskDepsArgs {
@@ -336,13 +336,13 @@ fn cli_parses_task_deps_bump_targets() {
 
 #[test]
 fn cli_rejects_task_deps_bump_without_target_flag() {
-    let result = Cli::try_parse_from(["helm", "task", "deps", "bump"]);
+    let result = Cli::try_parse_from(["stackctl", "task", "deps", "bump"]);
     assert!(result.is_err());
 }
 
 #[test]
 fn cli_parses_task_deps_audit_targets() {
-    let composer = Cli::try_parse_from(["helm", "task", "deps", "audit", "--composer"])
+    let composer = Cli::try_parse_from(["stackctl", "task", "deps", "audit", "--composer"])
         .expect("parse task deps audit composer");
     match composer.command {
         Commands::Task(args) => match args.command {
@@ -360,7 +360,7 @@ fn cli_parses_task_deps_audit_targets() {
         _ => panic!("expected task command"),
     }
 
-    let bun = Cli::try_parse_from(["helm", "task", "deps", "audit", "--bun"])
+    let bun = Cli::try_parse_from(["stackctl", "task", "deps", "audit", "--bun"])
         .expect("parse task deps audit bun");
     match bun.command {
         Commands::Task(args) => match args.command {
@@ -381,7 +381,7 @@ fn cli_parses_task_deps_audit_targets() {
 
 #[test]
 fn cli_parses_task_deps_normalize_targets() {
-    let deno = Cli::try_parse_from(["helm", "task", "deps", "normalize", "--deno"])
+    let deno = Cli::try_parse_from(["stackctl", "task", "deps", "normalize", "--deno"])
         .expect("parse task deps normalize deno");
     match deno.command {
         Commands::Task(args) => match args.command {
@@ -402,7 +402,7 @@ fn cli_parses_task_deps_normalize_targets() {
 
 #[test]
 fn cli_parses_task_deps_install_all_targets() {
-    let all = Cli::try_parse_from(["helm", "task", "deps", "install", "--all"])
+    let all = Cli::try_parse_from(["stackctl", "task", "deps", "install", "--all"])
         .expect("parse task deps install all");
     match all.command {
         Commands::Task(args) => match args.command {
@@ -423,21 +423,21 @@ fn cli_parses_task_deps_install_all_targets() {
 
 #[test]
 fn cli_rejects_new_task_deps_workflows_without_target_flag() {
-    assert!(Cli::try_parse_from(["helm", "task", "deps", "audit"]).is_err());
-    assert!(Cli::try_parse_from(["helm", "task", "deps", "normalize"]).is_err());
-    assert!(Cli::try_parse_from(["helm", "task", "deps", "install"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "task", "deps", "audit"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "task", "deps", "normalize"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "task", "deps", "install"]).is_err());
 }
 
 #[test]
 fn cli_rejects_removed_connect_list_shell_commands() {
-    assert!(Cli::try_parse_from(["helm", "connect"]).is_err());
-    assert!(Cli::try_parse_from(["helm", "list"]).is_err());
-    assert!(Cli::try_parse_from(["helm", "shell"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "connect"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "list"]).is_err());
+    assert!(Cli::try_parse_from(["stackctl", "shell"]).is_err());
 }
 
 #[test]
 fn config_cli_parses_migrate_subcommand() {
-    let cli = Cli::try_parse_from(["helm", "config", "migrate"]).expect("parse config migrate");
+    let cli = Cli::try_parse_from(["stackctl", "config", "migrate"]).expect("parse config migrate");
     match cli.command {
         Commands::Config(args) => assert!(matches!(
             args.command,
@@ -449,7 +449,7 @@ fn config_cli_parses_migrate_subcommand() {
 
 #[test]
 fn doctor_cli_parses_repro_flag() {
-    let cli = Cli::try_parse_from(["helm", "doctor", "--repro"]).expect("parse doctor repro");
+    let cli = Cli::try_parse_from(["stackctl", "doctor", "--repro"]).expect("parse doctor repro");
     match cli.command {
         Commands::Doctor(args) => assert!(args.repro),
         _ => panic!("expected doctor command"),
@@ -458,7 +458,7 @@ fn doctor_cli_parses_repro_flag() {
 
 #[test]
 fn doctor_cli_parses_reachability_flag() {
-    let cli = Cli::try_parse_from(["helm", "doctor", "--reachability"])
+    let cli = Cli::try_parse_from(["stackctl", "doctor", "--reachability"])
         .expect("parse doctor reachability");
     match cli.command {
         Commands::Doctor(args) => assert!(args.reachability),
@@ -468,7 +468,7 @@ fn doctor_cli_parses_reachability_flag() {
 
 #[test]
 fn doctor_cli_parses_json_format() {
-    let cli = Cli::try_parse_from(["helm", "doctor", "--format", "json"])
+    let cli = Cli::try_parse_from(["stackctl", "doctor", "--format", "json"])
         .expect("parse doctor json format");
     match cli.command {
         Commands::Doctor(args) => assert_eq!(args.format, "json"),
@@ -478,7 +478,7 @@ fn doctor_cli_parses_json_format() {
 
 #[test]
 fn health_cli_parses_json_format() {
-    let cli = Cli::try_parse_from(["helm", "health", "--format", "json"])
+    let cli = Cli::try_parse_from(["stackctl", "health", "--format", "json"])
         .expect("parse health json format");
     match cli.command {
         Commands::Health(args) => assert_eq!(args.format, "json"),
@@ -488,7 +488,7 @@ fn health_cli_parses_json_format() {
 
 #[test]
 fn about_cli_parses_json_format() {
-    let cli = Cli::try_parse_from(["helm", "about", "--format", "json"])
+    let cli = Cli::try_parse_from(["stackctl", "about", "--format", "json"])
         .expect("parse about json format");
     match cli.command {
         Commands::About(args) => assert_eq!(args.format, "json"),
@@ -498,33 +498,33 @@ fn about_cli_parses_json_format() {
 
 #[test]
 fn lifecycle_commands_parse_profile_flag() {
-    let down = Cli::try_parse_from(["helm", "down", "--profile", "infra"]).expect("parse down");
+    let down = Cli::try_parse_from(["stackctl", "down", "--profile", "infra"]).expect("parse down");
     match down.command {
         Commands::Down(args) => assert_eq!(args.profile(), Some("infra")),
         _ => panic!("expected down command"),
     }
 
-    let stop = Cli::try_parse_from(["helm", "stop", "--profile", "data"]).expect("parse stop");
+    let stop = Cli::try_parse_from(["stackctl", "stop", "--profile", "data"]).expect("parse stop");
     match stop.command {
         Commands::Stop(args) => assert_eq!(args.profile(), Some("data")),
         _ => panic!("expected stop command"),
     }
 
-    let rm = Cli::try_parse_from(["helm", "rm", "--profile", "app"]).expect("parse rm");
+    let rm = Cli::try_parse_from(["stackctl", "rm", "--profile", "app"]).expect("parse rm");
     match rm.command {
         Commands::Rm(args) => assert_eq!(args.profile(), Some("app")),
         _ => panic!("expected rm command"),
     }
 
     let recreate =
-        Cli::try_parse_from(["helm", "recreate", "--profile", "full"]).expect("parse recreate");
+        Cli::try_parse_from(["stackctl", "recreate", "--profile", "full"]).expect("parse recreate");
     match recreate.command {
         Commands::Recreate(args) => assert_eq!(args.profile(), Some("full")),
         _ => panic!("expected recreate command"),
     }
 
     let restart =
-        Cli::try_parse_from(["helm", "restart", "--profile", "web"]).expect("parse restart");
+        Cli::try_parse_from(["stackctl", "restart", "--profile", "web"]).expect("parse restart");
     match restart.command {
         Commands::Restart(args) => assert_eq!(args.profile(), Some("web")),
         _ => panic!("expected restart command"),
@@ -533,22 +533,29 @@ fn lifecycle_commands_parse_profile_flag() {
 
 #[test]
 fn down_stop_restart_parse_repeated_service_flags() {
-    let down = Cli::try_parse_from(["helm", "down", "--service", "db", "--service", "cache"])
+    let down = Cli::try_parse_from(["stackctl", "down", "--service", "db", "--service", "cache"])
         .expect("parse down repeated service");
     match down.command {
         Commands::Down(args) => assert_eq!(args.services(), ["db", "cache"]),
         _ => panic!("expected down command"),
     }
 
-    let stop = Cli::try_parse_from(["helm", "stop", "--service", "db", "--service", "cache"])
+    let stop = Cli::try_parse_from(["stackctl", "stop", "--service", "db", "--service", "cache"])
         .expect("parse stop repeated service");
     match stop.command {
         Commands::Stop(args) => assert_eq!(args.services(), ["db", "cache"]),
         _ => panic!("expected stop command"),
     }
 
-    let restart = Cli::try_parse_from(["helm", "restart", "--service", "db", "--service", "cache"])
-        .expect("parse restart repeated service");
+    let restart = Cli::try_parse_from([
+        "stackctl",
+        "restart",
+        "--service",
+        "db",
+        "--service",
+        "cache",
+    ])
+    .expect("parse restart repeated service");
     match restart.command {
         Commands::Restart(args) => assert_eq!(args.services(), ["db", "cache"]),
         _ => panic!("expected restart command"),
@@ -558,7 +565,7 @@ fn down_stop_restart_parse_repeated_service_flags() {
 #[test]
 fn logs_cli_parses_since_until() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "logs",
         "--since",
         "5m",
@@ -577,14 +584,14 @@ fn logs_cli_parses_since_until() {
 
 #[test]
 fn cli_parses_non_interactive_global_flag() {
-    let cli =
-        Cli::try_parse_from(["helm", "--non-interactive", "up"]).expect("parse non interactive");
+    let cli = Cli::try_parse_from(["stackctl", "--non-interactive", "up"])
+        .expect("parse non interactive");
     assert!(cli.non_interactive);
 }
 
 #[test]
 fn app_runtime_commands_parse_kind_and_profile_selectors() {
-    let exec = Cli::try_parse_from(["helm", "exec", "--kind", "app", "--", "php", "-v"])
+    let exec = Cli::try_parse_from(["stackctl", "exec", "--kind", "app", "--", "php", "-v"])
         .expect("parse exec kind selector");
     match exec.command {
         Commands::Exec(args) => {
@@ -594,14 +601,14 @@ fn app_runtime_commands_parse_kind_and_profile_selectors() {
         _ => panic!("expected exec command"),
     }
 
-    let serve = Cli::try_parse_from(["helm", "serve", "--profile", "web"])
+    let serve = Cli::try_parse_from(["stackctl", "serve", "--profile", "web"])
         .expect("parse serve profile selector");
     match serve.command {
         Commands::Serve(args) => assert_eq!(args.profile(), Some("web")),
         _ => panic!("expected serve command"),
     }
 
-    let open = Cli::try_parse_from(["helm", "open", "--profile", "app", "--no-browser"])
+    let open = Cli::try_parse_from(["stackctl", "open", "--profile", "app", "--no-browser"])
         .expect("parse open profile selector");
     match open.command {
         Commands::Open(args) => assert_eq!(args.profile(), Some("app")),
@@ -611,28 +618,35 @@ fn app_runtime_commands_parse_kind_and_profile_selectors() {
 
 #[test]
 fn ops_commands_parse_profile_and_repeated_service_selectors() {
-    let pull = Cli::try_parse_from(["helm", "pull", "--profile", "infra"]).expect("parse pull");
+    let pull = Cli::try_parse_from(["stackctl", "pull", "--profile", "infra"]).expect("parse pull");
     match pull.command {
         Commands::Pull(args) => assert_eq!(args.profile(), Some("infra")),
         _ => panic!("expected pull command"),
     }
 
-    let relabel = Cli::try_parse_from(["helm", "relabel", "--service", "db", "--service", "cache"])
-        .expect("parse relabel repeated service");
+    let relabel = Cli::try_parse_from([
+        "stackctl",
+        "relabel",
+        "--service",
+        "db",
+        "--service",
+        "cache",
+    ])
+    .expect("parse relabel repeated service");
     match relabel.command {
         Commands::Relabel(args) => assert_eq!(args.services(), ["db", "cache"]),
         _ => panic!("expected relabel command"),
     }
 
     let health =
-        Cli::try_parse_from(["helm", "health", "--profile", "data"]).expect("parse health");
+        Cli::try_parse_from(["stackctl", "health", "--profile", "data"]).expect("parse health");
     match health.command {
         Commands::Health(args) => assert_eq!(args.profile(), Some("data")),
         _ => panic!("expected health command"),
     }
 
     let logs =
-        Cli::try_parse_from(["helm", "logs", "--profile", "app"]).expect("parse logs profile");
+        Cli::try_parse_from(["stackctl", "logs", "--profile", "app"]).expect("parse logs profile");
     match logs.command {
         Commands::Logs(args) => assert_eq!(args.profile(), Some("app")),
         _ => panic!("expected logs command"),
@@ -642,7 +656,7 @@ fn ops_commands_parse_profile_and_repeated_service_selectors() {
 #[test]
 fn docker_ops_parse_profile_and_repeated_services() {
     let inspect = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "inspect",
         "--service",
         "db",
@@ -653,20 +667,27 @@ fn docker_ops_parse_profile_and_repeated_services() {
     ]);
     assert!(inspect.is_err());
 
-    let inspect = Cli::try_parse_from(["helm", "inspect", "--service", "db", "--service", "cache"])
-        .expect("parse inspect repeated service");
+    let inspect = Cli::try_parse_from([
+        "stackctl",
+        "inspect",
+        "--service",
+        "db",
+        "--service",
+        "cache",
+    ])
+    .expect("parse inspect repeated service");
     match inspect.command {
         Commands::Inspect(args) => assert_eq!(args.services(), ["db", "cache"]),
         _ => panic!("expected inspect command"),
     }
 
-    let port = Cli::try_parse_from(["helm", "port", "--format", "json"]).expect("parse port");
+    let port = Cli::try_parse_from(["stackctl", "port", "--format", "json"]).expect("parse port");
     match port.command {
         Commands::Port(args) => assert_eq!(args.format, "json"),
         _ => panic!("expected port command"),
     }
 
-    let kill = Cli::try_parse_from(["helm", "kill", "--profile", "data"]).expect("parse kill");
+    let kill = Cli::try_parse_from(["stackctl", "kill", "--profile", "data"]).expect("parse kill");
     match kill.command {
         Commands::Kill(args) => assert_eq!(args.profile(), Some("data")),
         _ => panic!("expected kill command"),
@@ -676,7 +697,7 @@ fn docker_ops_parse_profile_and_repeated_services() {
 #[test]
 fn start_cli_parses_core_flags() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "start",
         "--profile",
         "app",
@@ -699,7 +720,7 @@ fn start_cli_parses_core_flags() {
 
 #[test]
 fn recreate_cli_defaults_to_wait_and_allows_no_wait_override() {
-    let recreate = Cli::try_parse_from(["helm", "recreate"]).expect("parse recreate");
+    let recreate = Cli::try_parse_from(["stackctl", "recreate"]).expect("parse recreate");
     match recreate.command {
         Commands::Recreate(args) => {
             assert!(args.should_wait());
@@ -709,7 +730,7 @@ fn recreate_cli_defaults_to_wait_and_allows_no_wait_override() {
     }
 
     let recreate_no_wait =
-        Cli::try_parse_from(["helm", "recreate", "--no-wait"]).expect("parse recreate no-wait");
+        Cli::try_parse_from(["stackctl", "recreate", "--no-wait"]).expect("parse recreate no-wait");
     match recreate_no_wait.command {
         Commands::Recreate(args) => {
             assert!(!args.should_wait());
@@ -721,13 +742,14 @@ fn recreate_cli_defaults_to_wait_and_allows_no_wait_override() {
 
 #[test]
 fn app_commands_parse_service_flag() {
-    let serve = Cli::try_parse_from(["helm", "serve", "--service", "app"]).expect("parse serve");
+    let serve =
+        Cli::try_parse_from(["stackctl", "serve", "--service", "app"]).expect("parse serve");
     match serve.command {
         Commands::Serve(args) => assert_eq!(args.service.as_deref(), Some("app")),
         _ => panic!("expected serve command"),
     }
 
-    let artisan = Cli::try_parse_from(["helm", "artisan", "--service", "app", "--", "about"])
+    let artisan = Cli::try_parse_from(["stackctl", "artisan", "--service", "app", "--", "about"])
         .expect("parse artisan");
     match artisan.command {
         Commands::Artisan(args) => assert_eq!(args.service.as_deref(), Some("app")),
@@ -738,7 +760,7 @@ fn app_commands_parse_service_flag() {
 #[test]
 fn app_artisan_cli_parses_browser_flag() {
     let artisan =
-        Cli::try_parse_from(["helm", "artisan", "--browser", "test"]).expect("parse artisan");
+        Cli::try_parse_from(["stackctl", "artisan", "--browser", "test"]).expect("parse artisan");
     match artisan.command {
         Commands::Artisan(args) => {
             assert!(args.browser);
@@ -750,7 +772,7 @@ fn app_artisan_cli_parses_browser_flag() {
 
 #[test]
 fn app_runtime_commands_default_tty_to_true() {
-    let exec = Cli::try_parse_from(["helm", "exec", "--", "php", "-v"]).expect("parse exec");
+    let exec = Cli::try_parse_from(["stackctl", "exec", "--", "php", "-v"]).expect("parse exec");
     match exec.command {
         Commands::Exec(args) => {
             assert!(args.tty);
@@ -759,7 +781,7 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected exec command"),
     }
 
-    let artisan = Cli::try_parse_from(["helm", "artisan", "about"]).expect("parse artisan");
+    let artisan = Cli::try_parse_from(["stackctl", "artisan", "about"]).expect("parse artisan");
     match artisan.command {
         Commands::Artisan(args) => {
             assert!(args.tty);
@@ -769,7 +791,7 @@ fn app_runtime_commands_default_tty_to_true() {
     }
 
     let composer =
-        Cli::try_parse_from(["helm", "composer", "--", "install"]).expect("parse composer");
+        Cli::try_parse_from(["stackctl", "composer", "--", "install"]).expect("parse composer");
     match composer.command {
         Commands::Composer(args) => {
             assert!(args.tty);
@@ -778,7 +800,8 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected composer command"),
     }
 
-    let phpstan = Cli::try_parse_from(["helm", "phpstan", "--", "analyse"]).expect("parse phpstan");
+    let phpstan =
+        Cli::try_parse_from(["stackctl", "phpstan", "--", "analyse"]).expect("parse phpstan");
     match phpstan.command {
         Commands::Phpstan(args) => {
             assert!(args.tty);
@@ -787,7 +810,7 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected phpstan command"),
     }
 
-    let ecs = Cli::try_parse_from(["helm", "ecs", "--", "check"]).expect("parse ecs");
+    let ecs = Cli::try_parse_from(["stackctl", "ecs", "--", "check"]).expect("parse ecs");
     match ecs.command {
         Commands::Ecs(args) => {
             assert!(args.tty);
@@ -797,7 +820,7 @@ fn app_runtime_commands_default_tty_to_true() {
     }
 
     let fixer =
-        Cli::try_parse_from(["helm", "php-cs-fixer", "--", "fix"]).expect("parse php-cs-fixer");
+        Cli::try_parse_from(["stackctl", "php-cs-fixer", "--", "fix"]).expect("parse php-cs-fixer");
     match fixer.command {
         Commands::PhpCsFixer(args) => {
             assert!(args.tty);
@@ -807,7 +830,7 @@ fn app_runtime_commands_default_tty_to_true() {
     }
 
     let psalm =
-        Cli::try_parse_from(["helm", "psalm", "--", "--show-info=false"]).expect("parse psalm");
+        Cli::try_parse_from(["stackctl", "psalm", "--", "--show-info=false"]).expect("parse psalm");
     match psalm.command {
         Commands::Psalm(args) => {
             assert!(args.tty);
@@ -816,7 +839,7 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected psalm command"),
     }
 
-    let pint = Cli::try_parse_from(["helm", "pint", "--", "--dirty"]).expect("parse pint");
+    let pint = Cli::try_parse_from(["stackctl", "pint", "--", "--dirty"]).expect("parse pint");
     match pint.command {
         Commands::Pint(args) => {
             assert!(args.tty);
@@ -825,7 +848,8 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected pint command"),
     }
 
-    let pest = Cli::try_parse_from(["helm", "pest", "--", "--filter=Feature"]).expect("parse pest");
+    let pest =
+        Cli::try_parse_from(["stackctl", "pest", "--", "--filter=Feature"]).expect("parse pest");
     match pest.command {
         Commands::Pest(args) => {
             assert!(args.tty);
@@ -834,8 +858,8 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected pest command"),
     }
 
-    let phpunit =
-        Cli::try_parse_from(["helm", "phpunit", "--", "--testsuite=Unit"]).expect("parse phpunit");
+    let phpunit = Cli::try_parse_from(["stackctl", "phpunit", "--", "--testsuite=Unit"])
+        .expect("parse phpunit");
     match phpunit.command {
         Commands::Phpunit(args) => {
             assert!(args.tty);
@@ -844,7 +868,8 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected phpunit command"),
     }
 
-    let rector = Cli::try_parse_from(["helm", "rector", "--", "process"]).expect("parse rector");
+    let rector =
+        Cli::try_parse_from(["stackctl", "rector", "--", "process"]).expect("parse rector");
     match rector.command {
         Commands::Rector(args) => {
             assert!(args.tty);
@@ -853,7 +878,7 @@ fn app_runtime_commands_default_tty_to_true() {
         _ => panic!("expected rector command"),
     }
 
-    let node = Cli::try_parse_from(["helm", "node", "--", "run", "dev"]).expect("parse node");
+    let node = Cli::try_parse_from(["stackctl", "node", "--", "run", "dev"]).expect("parse node");
     match node.command {
         Commands::Node(args) => {
             assert!(args.tty);
@@ -866,7 +891,7 @@ fn app_runtime_commands_default_tty_to_true() {
 #[test]
 fn node_cli_parses_package_manager_and_version_manager_flags() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "node",
         "--package-manager",
         "pnpm",
@@ -900,7 +925,7 @@ fn node_cli_parses_package_manager_and_version_manager_flags() {
 #[test]
 fn deno_cli_parses_deno_version_flag() {
     let cli = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "deno",
         "--deno-version",
         "2.2.3",
@@ -921,8 +946,16 @@ fn deno_cli_parses_deno_version_flag() {
 
 #[test]
 fn bun_cli_parses_bun_version_flag() {
-    let cli = Cli::try_parse_from(["helm", "bun", "--bun-version", "1.2.5", "--", "run", "dev"])
-        .expect("parse bun");
+    let cli = Cli::try_parse_from([
+        "stackctl",
+        "bun",
+        "--bun-version",
+        "1.2.5",
+        "--",
+        "run",
+        "dev",
+    ])
+    .expect("parse bun");
 
     match cli.command {
         Commands::Bun(args) => {
@@ -935,7 +968,7 @@ fn bun_cli_parses_bun_version_flag() {
 
 #[test]
 fn php_tool_commands_parse_arguments_like_composer() {
-    let phpstan = Cli::try_parse_from(["helm", "phpstan", "--service", "app", "--", "analyse"])
+    let phpstan = Cli::try_parse_from(["stackctl", "phpstan", "--service", "app", "--", "analyse"])
         .expect("parse phpstan");
     match phpstan.command {
         Commands::Phpstan(args) => {
@@ -945,7 +978,8 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected phpstan command"),
     }
 
-    let ecs = Cli::try_parse_from(["helm", "ecs", "--no-tty", "--", "check"]).expect("parse ecs");
+    let ecs =
+        Cli::try_parse_from(["stackctl", "ecs", "--no-tty", "--", "check"]).expect("parse ecs");
     match ecs.command {
         Commands::Ecs(args) => {
             assert!(args.tty);
@@ -955,7 +989,7 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected ecs command"),
     }
 
-    let fixer = Cli::try_parse_from(["helm", "php-cs-fixer", "--", "fix", "--dry-run"])
+    let fixer = Cli::try_parse_from(["stackctl", "php-cs-fixer", "--", "fix", "--dry-run"])
         .expect("parse php-cs-fixer");
     match fixer.command {
         Commands::PhpCsFixer(args) => {
@@ -964,7 +998,8 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected php-cs-fixer command"),
     }
 
-    let psalm = Cli::try_parse_from(["helm", "psalm", "--", "--shepherd"]).expect("parse psalm");
+    let psalm =
+        Cli::try_parse_from(["stackctl", "psalm", "--", "--shepherd"]).expect("parse psalm");
     match psalm.command {
         Commands::Psalm(args) => {
             assert_eq!(args.command, vec!["--shepherd".to_owned()]);
@@ -972,7 +1007,7 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected psalm command"),
     }
 
-    let pint = Cli::try_parse_from(["helm", "pint", "--service", "app", "--", "--dirty"])
+    let pint = Cli::try_parse_from(["stackctl", "pint", "--service", "app", "--", "--dirty"])
         .expect("parse pint");
     match pint.command {
         Commands::Pint(args) => {
@@ -982,8 +1017,8 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected pint command"),
     }
 
-    let pest =
-        Cli::try_parse_from(["helm", "pest", "--no-tty", "--", "--parallel"]).expect("parse pest");
+    let pest = Cli::try_parse_from(["stackctl", "pest", "--no-tty", "--", "--parallel"])
+        .expect("parse pest");
     match pest.command {
         Commands::Pest(args) => {
             assert!(args.tty);
@@ -993,8 +1028,8 @@ fn php_tool_commands_parse_arguments_like_composer() {
         _ => panic!("expected pest command"),
     }
 
-    let phpunit =
-        Cli::try_parse_from(["helm", "phpunit", "--", "--filter", "Unit"]).expect("parse phpunit");
+    let phpunit = Cli::try_parse_from(["stackctl", "phpunit", "--", "--filter", "Unit"])
+        .expect("parse phpunit");
     match phpunit.command {
         Commands::Phpunit(args) => {
             assert_eq!(args.command, vec!["--filter".to_owned(), "Unit".to_owned()]);
@@ -1003,7 +1038,7 @@ fn php_tool_commands_parse_arguments_like_composer() {
     }
 
     let rector =
-        Cli::try_parse_from(["helm", "rector", "--", "process", "src"]).expect("parse rector");
+        Cli::try_parse_from(["stackctl", "rector", "--", "process", "src"]).expect("parse rector");
     match rector.command {
         Commands::Rector(args) => {
             assert_eq!(args.command, vec!["process".to_owned(), "src".to_owned()]);
@@ -1014,8 +1049,8 @@ fn php_tool_commands_parse_arguments_like_composer() {
 
 #[test]
 fn app_runtime_commands_allow_disabling_tty_with_no_tty() {
-    let artisan =
-        Cli::try_parse_from(["helm", "artisan", "--no-tty", "test"]).expect("parse artisan no-tty");
+    let artisan = Cli::try_parse_from(["stackctl", "artisan", "--no-tty", "test"])
+        .expect("parse artisan no-tty");
     match artisan.command {
         Commands::Artisan(args) => {
             assert!(args.tty);
@@ -1028,7 +1063,7 @@ fn app_runtime_commands_allow_disabling_tty_with_no_tty() {
 #[test]
 fn share_cli_parses_start_status_stop_subcommands() {
     let start = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "share",
         "start",
         "--service",
@@ -1053,7 +1088,7 @@ fn share_cli_parses_start_status_stop_subcommands() {
         _ => panic!("expected share command"),
     }
 
-    let status = Cli::try_parse_from(["helm", "share", "status", "--provider", "tailscale"])
+    let status = Cli::try_parse_from(["stackctl", "share", "status", "--provider", "tailscale"])
         .expect("parse share status");
     match status.command {
         Commands::Share(args) => match args.command {
@@ -1066,7 +1101,7 @@ fn share_cli_parses_start_status_stop_subcommands() {
         _ => panic!("expected share command"),
     }
 
-    let shorthand = Cli::try_parse_from(["helm", "share", "start", "--tailscale"])
+    let shorthand = Cli::try_parse_from(["stackctl", "share", "start", "--tailscale"])
         .expect("parse share start shorthand");
     match shorthand.command {
         Commands::Share(args) => match args.command {
@@ -1080,7 +1115,7 @@ fn share_cli_parses_start_status_stop_subcommands() {
         _ => panic!("expected share command"),
     }
 
-    let expose = Cli::try_parse_from(["helm", "share", "start", "--expose"])
+    let expose = Cli::try_parse_from(["stackctl", "share", "start", "--expose"])
         .expect("parse share start expose shorthand");
     match expose.command {
         Commands::Share(args) => match args.command {
@@ -1095,8 +1130,15 @@ fn share_cli_parses_start_status_stop_subcommands() {
         _ => panic!("expected share command"),
     }
 
-    let timeout = Cli::try_parse_from(["helm", "share", "start", "--tailscale", "--timeout", "45"])
-        .expect("parse share start timeout");
+    let timeout = Cli::try_parse_from([
+        "stackctl",
+        "share",
+        "start",
+        "--tailscale",
+        "--timeout",
+        "45",
+    ])
+    .expect("parse share start timeout");
     match timeout.command {
         Commands::Share(args) => match args.command {
             crate::cli::args::ShareCommands::Start(share_args) => {
@@ -1107,7 +1149,8 @@ fn share_cli_parses_start_status_stop_subcommands() {
         _ => panic!("expected share command"),
     }
 
-    let stop = Cli::try_parse_from(["helm", "share", "stop", "--all"]).expect("parse share stop");
+    let stop =
+        Cli::try_parse_from(["stackctl", "share", "stop", "--all"]).expect("parse share stop");
     match stop.command {
         Commands::Share(args) => match args.command {
             crate::cli::args::ShareCommands::Stop(share_args) => assert!(share_args.all),
@@ -1119,7 +1162,7 @@ fn share_cli_parses_start_status_stop_subcommands() {
 
 #[test]
 fn lock_cli_parses_subcommands() {
-    let images = Cli::try_parse_from(["helm", "lock", "images"]).expect("parse lock images");
+    let images = Cli::try_parse_from(["stackctl", "lock", "images"]).expect("parse lock images");
     match images.command {
         Commands::Lock(args) => assert!(matches!(
             args.command,
@@ -1128,7 +1171,7 @@ fn lock_cli_parses_subcommands() {
         _ => panic!("expected lock command"),
     }
 
-    let verify = Cli::try_parse_from(["helm", "lock", "verify"]).expect("parse lock verify");
+    let verify = Cli::try_parse_from(["stackctl", "lock", "verify"]).expect("parse lock verify");
     match verify.command {
         Commands::Lock(args) => assert!(matches!(
             args.command,
@@ -1137,7 +1180,7 @@ fn lock_cli_parses_subcommands() {
         _ => panic!("expected lock command"),
     }
 
-    let diff = Cli::try_parse_from(["helm", "lock", "diff"]).expect("parse lock diff");
+    let diff = Cli::try_parse_from(["stackctl", "lock", "diff"]).expect("parse lock diff");
     match diff.command {
         Commands::Lock(args) => {
             assert!(matches!(args.command, crate::cli::args::LockCommands::Diff))
@@ -1148,7 +1191,7 @@ fn lock_cli_parses_subcommands() {
 
 #[test]
 fn daemon_cli_parses_subcommands() {
-    let start = Cli::try_parse_from(["helm", "daemon", "start", "--path", "/tmp/project"])
+    let start = Cli::try_parse_from(["stackctl", "daemon", "start", "--path", "/tmp/project"])
         .expect("parse daemon start");
     match start.command {
         Commands::Daemon(args) => match args.command {
@@ -1161,7 +1204,7 @@ fn daemon_cli_parses_subcommands() {
     }
 
     let watch = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "daemon",
         "watch",
         "--dir",
@@ -1198,7 +1241,7 @@ fn daemon_cli_parses_subcommands() {
     }
 
     let service_install = Cli::try_parse_from([
-        "helm",
+        "stackctl",
         "daemon",
         "service",
         "install",
@@ -1236,7 +1279,7 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
-    let status = Cli::try_parse_from(["helm", "daemon", "status", "--path", "/tmp/project"])
+    let status = Cli::try_parse_from(["stackctl", "daemon", "status", "--path", "/tmp/project"])
         .expect("parse daemon status");
     match status.command {
         Commands::Daemon(args) => match args.command {
@@ -1248,7 +1291,7 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
-    let stop = Cli::try_parse_from(["helm", "daemon", "stop", "--path", "/tmp/project"])
+    let stop = Cli::try_parse_from(["stackctl", "daemon", "stop", "--path", "/tmp/project"])
         .expect("parse daemon stop");
     match stop.command {
         Commands::Daemon(args) => match args.command {
@@ -1260,7 +1303,7 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
-    let logs = Cli::try_parse_from(["helm", "daemon", "logs", "--path", "/tmp/project"])
+    let logs = Cli::try_parse_from(["stackctl", "daemon", "logs", "--path", "/tmp/project"])
         .expect("parse daemon logs");
     match logs.command {
         Commands::Daemon(args) => match args.command {

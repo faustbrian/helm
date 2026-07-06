@@ -1,6 +1,6 @@
 //! docker up args builder module.
 //!
-//! Contains docker up args builder logic used by Helm command workflows.
+//! Contains docker up args builder logic used by Stackctl command workflows.
 
 use crate::config::ServiceConfig;
 

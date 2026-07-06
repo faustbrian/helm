@@ -1,6 +1,6 @@
 //! cli support run doctor ports module.
 //!
-//! Contains cli support run doctor ports logic used by Helm command workflows.
+//! Contains cli support run doctor ports logic used by Stackctl command workflows.
 
 use std::collections::HashMap;
 

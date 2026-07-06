@@ -2,7 +2,7 @@
 
 use crate::cli::args::PortStrategyArg;
 
-/// Builds the complete argument vector passed to each child `helm` process.
+/// Builds the complete argument vector passed to each child `stackctl` process.
 ///
 /// This function injects project-root scoping and selected runtime flags, then
 /// appends child command modifiers when not already present.

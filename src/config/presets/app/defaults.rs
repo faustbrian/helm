@@ -1,6 +1,6 @@
 //! config presets app defaults module.
 //!
-//! Contains config presets app defaults logic used by Helm command workflows.
+//! Contains config presets app defaults logic used by Stackctl command workflows.
 
 use super::super::{Driver, Kind, PresetDefaults};
 

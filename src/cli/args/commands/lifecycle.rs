@@ -1,6 +1,6 @@
 //! cli args commands lifecycle module.
 //!
-//! Contains cli args commands lifecycle logic used by Helm command workflows.
+//! Contains cli args commands lifecycle logic used by Stackctl command workflows.
 
 mod access;
 mod lifecycle_ops;

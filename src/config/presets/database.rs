@@ -1,6 +1,6 @@
 //! config presets database module.
 //!
-//! Contains config presets database logic used by Helm command workflows.
+//! Contains config presets database logic used by Stackctl command workflows.
 
 use super::{Driver, Kind, PresetDefaults};
 
@@ -76,6 +76,6 @@ fn sqlserver() -> PresetDefaults {
     defaults.name = Some("db");
     defaults.database = Some("laravel");
     defaults.username = Some("sa");
-    defaults.password = Some("HelmSqlServerPassw0rd!");
+    defaults.password = Some("StackctlSqlServerPassw0rd!");
     defaults
 }
