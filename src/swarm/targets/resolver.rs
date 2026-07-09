@@ -21,7 +21,7 @@ pub(super) fn resolve_swarm_targets(
 ) -> Result<Vec<ResolvedSwarmTarget>> {
     if config.swarm.is_empty() {
         anyhow::bail!(
-            "no swarm targets configured. Add [[swarm]] entries to .stackctl.toml in {}",
+            "no swarm targets configured. Add [[swarm]] entries to .stackctl.toml or .stackctl.yaml in {}",
             workspace_root.display()
         );
     }

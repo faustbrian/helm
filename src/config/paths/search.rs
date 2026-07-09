@@ -15,14 +15,20 @@ pub(super) fn find_project_root(start: &Path) -> Result<PathBuf> {
     let mut current = start;
 
     loop {
-        if current.join(".stackctl.toml").exists() {
+        if config_path_in_dir(current)?.is_some() {
             return Ok(current.to_path_buf());
         }
 
         current = current.parent().ok_or_else(|| {
-            anyhow!(".stackctl.toml not found in current directory or any parent directory")
+            anyhow!(
+                "no Stackctl config found (.stackctl.toml or .stackctl.yaml) in current directory or any parent directory"
+            )
         })?;
     }
+}
+
+pub(super) fn config_path_in_dir(dir: &Path) -> Result<Option<PathBuf>> {
+    resolve_config_pair(dir, ".stackctl")
 }
 
 #[cfg(test)]
@@ -45,34 +51,61 @@ fn find_config_in_path_internal(
 
     loop {
         if let Some(runtime_env_file) = runtime_env_file {
-            let runtime_path = current.join(runtime_env_file);
-            if runtime_path.exists() {
+            if let Some(runtime_path) = resolve_config_pair(current, runtime_env_file)? {
                 return Ok(runtime_path);
             }
         }
 
-        let config_path = current.join(".stackctl.toml");
-        if config_path.exists() {
+        if let Some(config_path) = config_path_in_dir(current)? {
             return Ok(config_path);
         }
 
         current = current.parent().ok_or_else(|| {
-            anyhow!(".stackctl.toml not found in current directory or any parent directory")
+            anyhow!(
+                "no Stackctl config found (.stackctl.toml or .stackctl.yaml) in current directory or any parent directory"
+            )
         })?;
+    }
+}
+
+fn resolve_config_pair(dir: &Path, base_name: &str) -> Result<Option<PathBuf>> {
+    let toml_path = dir.join(format!("{base_name}.toml"));
+    let yaml_path = dir.join(format!("{base_name}.yaml"));
+
+    match (toml_path.exists(), yaml_path.exists()) {
+        (true, true) => anyhow::bail!(
+            "found both {} and {} in {}; remove one or pass --config explicitly",
+            toml_path
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or(".stackctl.toml"),
+            yaml_path
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .unwrap_or(".stackctl.yaml"),
+            dir.display()
+        ),
+        (true, false) => Ok(Some(toml_path)),
+        (false, true) => Ok(Some(yaml_path)),
+        (false, false) => Ok(None),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
         find_config_file, find_config_in_path, find_config_in_path_with_env, find_project_root,
     };
 
+    static TEMP_TREE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     fn temp_tree() -> std::path::PathBuf {
+        let sequence = TEMP_TREE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "stackctl-path-search-{}-{}",
+            "stackctl-path-search-{}-{}-{sequence}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -127,13 +160,14 @@ mod tests {
         )
         .expect("seed env config");
 
-        let result = find_config_in_path_with_env(&nested, Some(".stackctl.testing.toml"))
+        let result = find_config_in_path_with_env(&nested, Some(".stackctl.testing"))
             .expect("find env config from nested");
         assert_eq!(result, root.join(".stackctl.testing.toml"));
     }
 
     #[test]
     fn find_config_file_uses_current_directory_when_available() {
+        let _guard = crate::config::paths::CWD_LOCK.lock().expect("cwd lock");
         let root = temp_tree();
         let cwd = std::env::current_dir().expect("capture cwd");
         let expected = root.join(".stackctl.toml");
@@ -151,5 +185,16 @@ mod tests {
             found.canonicalize().expect("canonicalize found"),
             expected.canonicalize().expect("canonicalize expected")
         );
+    }
+
+    #[test]
+    fn config_path_in_dir_returns_yaml_when_present() {
+        let root = temp_tree();
+        let expected = root.join(".stackctl.yaml");
+        fs::write(&expected, "schema_version: 1\nproject_type: project\n")
+            .expect("seed yaml config");
+
+        let found = super::config_path_in_dir(&root).expect("resolve config path");
+        assert_eq!(found, Some(expected));
     }
 }

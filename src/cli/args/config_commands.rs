@@ -6,6 +6,6 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub(crate) enum ConfigCommands {
-    /// Migrate local .stackctl.toml to the latest supported schema
+    /// Migrate local .stackctl.toml or .stackctl.yaml to the latest supported schema
     Migrate,
 }

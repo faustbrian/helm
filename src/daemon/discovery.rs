@@ -45,8 +45,7 @@ fn discover_dir(
         return Ok(());
     }
 
-    let config_path = dir.join(".stackctl.toml");
-    if config_path.exists() {
+    if config::config_path_in_dir(dir)?.is_some() {
         match config::load_config_with(config::LoadConfigPathOptions::new(None, Some(dir))) {
             Ok(_) => {
                 let project_root = config::project_root_with(config::ProjectRootPathOptions::new(
@@ -65,9 +64,7 @@ fn discover_dir(
                 }
                 return Ok(());
             }
-            Err(_) => {
-                report.invalid_configs.push(dir.to_path_buf());
-            }
+            Err(_) => report.invalid_configs.push(dir.to_path_buf()),
         }
     }
 
@@ -232,5 +229,25 @@ mod tests {
 
         assert_eq!(report.projects, vec![alpha]);
         assert_eq!(report.limited_projects, vec![beta]);
+    }
+
+    #[test]
+    fn discover_projects_finds_yaml_configs() {
+        let root = temp_root("yaml");
+        let project = root.join("project");
+        fs::create_dir_all(&project).expect("create project root");
+        fs::write(
+            project.join(".stackctl.yaml"),
+            "schema_version: 1\nproject_type: project\nservice: []\nswarm: []\n",
+        )
+        .expect("write yaml config");
+
+        let report = discover_projects(&DiscoveryOptions {
+            watch_dirs: vec![root],
+            ..DiscoveryOptions::default()
+        })
+        .expect("discover");
+
+        assert_eq!(report.projects, vec![project]);
     }
 }

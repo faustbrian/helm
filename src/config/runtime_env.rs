@@ -42,14 +42,14 @@ pub(super) fn apply_runtime_env(config: &mut Config, env_name: &str) -> Result<(
     Ok(())
 }
 
-/// Returns config override file name for an optional runtime environment.
+/// Returns config override base name for an optional runtime environment.
 pub(super) fn runtime_env_config_file_name(runtime_env: Option<&str>) -> Result<Option<String>> {
     let Some(env_name) = runtime_env else {
         return Ok(None);
     };
 
     let normalized = normalize_runtime_env_name(env_name)?;
-    Ok(Some(format!(".stackctl.{normalized}.toml")))
+    Ok(Some(format!(".stackctl.{normalized}")))
 }
 
 /// Returns the default value for env file name.

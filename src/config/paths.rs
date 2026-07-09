@@ -8,11 +8,21 @@ use std::path::{Path, PathBuf};
 mod search;
 mod template;
 
-use search::{find_config_file, find_config_in_path_with_env, find_project_root};
+use search::{
+    config_path_in_dir as search_config_path_in_dir, find_config_file,
+    find_config_in_path_with_env, find_project_root,
+};
 use template::default_config_template;
+
+#[cfg(test)]
+pub(crate) static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub(super) fn project_root() -> Result<PathBuf> {
     project_root_with(None, None)
+}
+
+pub(super) fn config_path_in_dir(dir: &Path) -> Result<Option<PathBuf>> {
+    search_config_path_in_dir(dir)
 }
 
 pub(super) fn project_root_with(
@@ -38,8 +48,11 @@ pub(super) fn init_config() -> Result<PathBuf> {
     let current_dir = std::env::current_dir().context("failed to get current directory")?;
     let config_path = current_dir.join(".stackctl.toml");
 
-    if config_path.exists() {
-        anyhow::bail!(".stackctl.toml already exists in {}", current_dir.display());
+    if config_path_in_dir(&current_dir)?.is_some() {
+        anyhow::bail!(
+            "Stackctl config already exists in {} (.stackctl.toml or .stackctl.yaml)",
+            current_dir.display()
+        );
     }
 
     let project_name = current_dir
@@ -92,6 +105,7 @@ pub(super) fn resolve_lockfile_path(
 mod tests {
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
@@ -99,14 +113,18 @@ mod tests {
     };
     use crate::config::ProjectRootPathOptions;
 
+    static TEMP_ROOT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     fn temp_root() -> PathBuf {
+        let sequence = TEMP_ROOT_COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "stackctl-config-paths-{}",
+            "stackctl-config-paths-{}-{sequence}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("system clock")
                 .as_nanos()
         ));
+        drop(fs::remove_dir_all(&root));
         fs::create_dir_all(&root).expect("create temp root");
         root
     }
@@ -144,6 +162,7 @@ mod tests {
 
     #[test]
     fn project_root_proxies_to_with_default_path_lookup() {
+        let _guard = super::CWD_LOCK.lock().expect("cwd lock");
         let root = temp_root();
         let nested = root.join("nested");
         fs::create_dir_all(&nested).expect("create nested");
@@ -166,6 +185,7 @@ mod tests {
 
     #[test]
     fn init_config_creates_default_file() {
+        let _guard = super::CWD_LOCK.lock().expect("cwd lock");
         let root = temp_root();
         let cwd = std::env::current_dir().expect("current dir");
         let original = root.join(".stackctl.toml");
@@ -186,13 +206,10 @@ mod tests {
 
     #[test]
     fn init_config_rejects_existing_file() {
+        let _guard = super::CWD_LOCK.lock().expect("cwd lock");
         let root = temp_root();
-        let existing = root.join(".stackctl.toml");
-        fs::write(
-            &existing,
-            "schema_version = 1\nproject_type = \"project\"\n",
-        )
-        .expect("seed existing");
+        let existing = root.join(".stackctl.yaml");
+        fs::write(&existing, "schema_version: 1\nproject_type: project\n").expect("seed existing");
 
         let cwd = std::env::current_dir().expect("current dir");
         std::env::set_current_dir(&root).expect("set cwd");
@@ -258,6 +275,65 @@ mod tests {
     }
 
     #[test]
+    fn resolve_config_path_supports_yaml_default_config() {
+        let root = temp_root();
+        let default_config = root.join(".stackctl.yaml");
+        fs::write(
+            &default_config,
+            "schema_version: 1\nproject_type: project\nservice: []\nswarm: []\n",
+        )
+        .expect("seed default config");
+
+        let resolved = resolve_config_path(None, Some(&root), None).expect("resolve yaml config");
+        assert_eq!(resolved, default_config);
+    }
+
+    #[test]
+    fn resolve_config_path_supports_yaml_runtime_override() {
+        let root = temp_root();
+        let env_config = root.join(".stackctl.testing.yaml");
+        let default_config = root.join(".stackctl.toml");
+        fs::write(
+            &env_config,
+            "schema_version: 1\nproject_type: project\nservice: []\nswarm: []\n",
+        )
+        .expect("seed env config");
+        fs::write(
+            &default_config,
+            "schema_version = 1\nproject_type = \"project\"\n",
+        )
+        .expect("seed default config");
+
+        let resolved = resolve_config_path_with_options(
+            ProjectRootPathOptions::new(None, Some(&root)).with_runtime_env(Some("testing")),
+        )
+        .expect("resolve yaml env config");
+        assert_eq!(resolved, env_config);
+    }
+
+    #[test]
+    fn resolve_config_path_rejects_ambiguous_default_formats() {
+        let root = temp_root();
+        fs::write(
+            root.join(".stackctl.toml"),
+            "schema_version = 1\nproject_type = \"project\"\n",
+        )
+        .expect("seed toml config");
+        fs::write(
+            root.join(".stackctl.yaml"),
+            "schema_version: 1\nproject_type: project\n",
+        )
+        .expect("seed yaml config");
+
+        let error = resolve_config_path(None, Some(&root), None).expect_err("ambiguous config");
+        assert!(
+            error
+                .to_string()
+                .contains("both .stackctl.toml and .stackctl.yaml")
+        );
+    }
+
+    #[test]
     fn resolve_lockfile_path_uses_project_root_context() {
         let root = temp_root();
         fs::write(
@@ -275,7 +351,7 @@ mod tests {
     fn project_root_with_errors_when_no_config_is_found() {
         let root = temp_root();
         let error = project_root_with(None, Some(&root)).unwrap_err();
-        assert!(error.to_string().contains(".stackctl.toml not found"));
+        assert!(error.to_string().contains("no Stackctl config found"));
     }
 
     fn resolve_config_path_with_options(

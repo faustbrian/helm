@@ -39,7 +39,14 @@ pub(super) fn resolve_injected_env_from_swarm_context(
 
         if !loaded_dependency_configs.contains_key(target_name) {
             let dependency_root = resolve_swarm_root(&context.workspace_root, &source_target.root);
-            let dependency_config_path = dependency_root.join(".stackctl.toml");
+            let dependency_config_path =
+                crate::config::config_path_in_dir(&dependency_root)?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "missing Stackctl config (.stackctl.toml or .stackctl.yaml) for swarm target '{}' at {}",
+                        target_name,
+                        dependency_root.display()
+                    )
+                })?;
             let dependency_config = super::load_config_from_path(&dependency_config_path)
                 .with_context(|| {
                     format!(

@@ -30,7 +30,7 @@ impl<'a> ProjectRootPathOptions<'a> {
     }
 }
 
-/// Returns the directory containing the `.stackctl.toml` file.
+/// Returns the directory containing the Stackctl config file.
 ///
 /// # Errors
 ///
@@ -39,7 +39,7 @@ pub fn project_root() -> Result<PathBuf> {
     paths::project_root()
 }
 
-/// Returns the directory containing `.stackctl.toml`, with optional overrides.
+/// Returns the directory containing the detected Stackctl config file.
 ///
 /// # Errors
 ///
@@ -55,4 +55,15 @@ pub fn project_root_with(options: ProjectRootPathOptions<'_>) -> Result<PathBuf>
 /// Returns an error when file exists or cannot be written.
 pub fn init_config() -> Result<PathBuf> {
     paths::init_config()
+}
+
+/// Returns the detected Stackctl config path in a single directory.
+///
+/// This checks only the provided directory and does not walk parent paths.
+///
+/// # Errors
+///
+/// Returns an error when both TOML and YAML configs are present.
+pub fn config_path_in_dir(dir: &Path) -> Result<Option<PathBuf>> {
+    paths::config_path_in_dir(dir)
 }

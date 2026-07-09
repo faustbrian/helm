@@ -26,8 +26,7 @@ pub(super) fn resolve_workspace_swarm_context(
     })?;
 
     loop {
-        let config_path = current.join(".stackctl.toml");
-        if config_path.exists() {
+        if let Some(config_path) = crate::config::config_path_in_dir(current)? {
             let workspace_config = super::load_config_from_path(&config_path)?;
             if !workspace_config.swarm.is_empty() {
                 let mut matched_target: Option<crate::config::SwarmTarget> = None;

@@ -37,10 +37,9 @@ pub(super) fn bootstrap_swarm_targets(
 /// Ensures target configs exist exists and is in the required state.
 pub(super) fn ensure_target_configs_exist(targets: &[ResolvedSwarmTarget]) -> Result<()> {
     for target in targets {
-        let target_config = target.root.join(".stackctl.toml");
-        if !target_config.exists() {
+        if crate::config::config_path_in_dir(&target.root)?.is_none() {
             anyhow::bail!(
-                "missing .stackctl.toml for swarm target '{}' at {}",
+                "missing Stackctl config (.stackctl.toml or .stackctl.yaml) for swarm target '{}' at {}",
                 target.name,
                 target.root.display()
             );

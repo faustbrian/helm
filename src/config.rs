@@ -1,6 +1,6 @@
 //! Configuration file parsing for stackctl.
 //!
-//! This module handles loading and parsing `.stackctl.toml` configuration files.
+//! This module handles loading and parsing Stackctl configuration files.
 
 #![allow(clippy::assigning_clones)] // Favor straightforward assignment in config mutation
 #![allow(clippy::double_must_use)] // Public API methods intentionally signal important results
@@ -24,10 +24,10 @@ pub(crate) use api::load_raw_config_with;
 pub use api::{
     LoadConfigPathOptions, LockfileDiff, MigrateConfigOptions, ProjectRootPathOptions,
     RawConfigPathOptions, SaveConfigPathOptions, apply_runtime_env, build_image_lock,
-    default_env_file_name, find_service, init_config, load_config, load_config_with,
-    load_container_engine_with, load_lockfile_with, lockfile_diff, migrate_config_with,
-    preferred_sql_client_flavor, preset_names, preset_preview, project_root, project_root_with,
-    resolve_app_service, resolve_service, save_config_with, save_lockfile_with,
+    config_path_in_dir, default_env_file_name, find_service, init_config, load_config,
+    load_config_with, load_container_engine_with, load_lockfile_with, lockfile_diff,
+    migrate_config_with, preferred_sql_client_flavor, preset_names, preset_preview, project_root,
+    project_root_with, resolve_app_service, resolve_service, save_config_with, save_lockfile_with,
     update_service_host_port, update_service_port, verify_lockfile_with,
 };
 pub(crate) use raw::{RawConfig, RawServiceConfig};

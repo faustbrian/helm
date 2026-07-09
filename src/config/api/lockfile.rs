@@ -33,8 +33,8 @@ pub fn build_image_lock(config: &Config) -> Result<Lockfile> {
 
 /// Loads lockfile with from persisted or external state.
 pub fn load_lockfile_with(options: ProjectRootPathOptions<'_>) -> Result<Lockfile> {
-    let path = super::toml_io::resolve_lockfile_path(options)?;
-    super::toml_io::read_toml_file(&path, "lockfile", "lockfile")
+    let path = super::config_io::resolve_lockfile_path(options)?;
+    super::config_io::read_toml_file(&path, "lockfile", "lockfile")
 }
 
 /// Saves lockfile with to persisted or external state.
@@ -42,8 +42,8 @@ pub fn save_lockfile_with(
     lockfile: &Lockfile,
     options: ProjectRootPathOptions<'_>,
 ) -> Result<PathBuf> {
-    let path = super::toml_io::resolve_lockfile_path(options)?;
-    super::toml_io::write_toml_file(&path, lockfile, "lockfile", "lockfile")?;
+    let path = super::config_io::resolve_lockfile_path(options)?;
+    super::config_io::write_toml_file(&path, lockfile, "lockfile", "lockfile")?;
     Ok(path)
 }
 

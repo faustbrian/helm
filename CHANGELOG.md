@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added dual-format Stackctl config support so project discovery, loading, and
+  saving now autodetect `.stackctl.toml` and `.stackctl.yaml` files while still
+  rejecting the `.yml` extension.
 - Added top-level `stackctl phpstan`, `stackctl ecs`, `stackctl php-cs-fixer`, and
   `stackctl psalm` wrappers so common PHP quality tools can run directly inside
   the selected app container without going through `stackctl exec`.

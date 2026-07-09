@@ -2,6 +2,7 @@
 //!
 //! Contains config api logic used by Stackctl command workflows.
 
+mod config_io;
 mod load_save;
 mod lockfile;
 mod migrate;
@@ -10,7 +11,6 @@ mod project;
 mod runtime_env;
 mod services;
 mod sql_client_flavor;
-mod toml_io;
 
 pub(crate) use load_save::load_raw_config_with;
 pub use load_save::{
@@ -23,7 +23,9 @@ pub use lockfile::{
 };
 pub use migrate::{MigrateConfigOptions, migrate_config_with};
 pub use presets::{preset_names, preset_preview};
-pub use project::{ProjectRootPathOptions, init_config, project_root, project_root_with};
+pub use project::{
+    ProjectRootPathOptions, config_path_in_dir, init_config, project_root, project_root_with,
+};
 pub use runtime_env::{apply_runtime_env, default_env_file_name};
 pub use services::{
     find_service, resolve_app_service, resolve_service, update_service_host_port,

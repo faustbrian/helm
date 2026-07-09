@@ -19,7 +19,15 @@ pub(crate) fn handle_about(
     let project_root = cli::support::workspace_root(config_path, project_root)?;
     let config_path = config_path
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| project_root.join(".stackctl.toml"));
+        .map(Ok)
+        .unwrap_or_else(|| {
+            config::config_path_in_dir(&project_root)?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "missing Stackctl config (.stackctl.toml or .stackctl.yaml) at {}",
+                    project_root.display()
+                )
+            })
+        })?;
 
     if format.eq_ignore_ascii_case("json") {
         let app_name = project_root

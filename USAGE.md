@@ -19,10 +19,10 @@ These apply to all commands.
 - `--dry-run`
   - Print planned actions without changing containers/config where supported.
 - `--config <PATH>`
-  - Use an explicit `.stackctl.toml` path.
+  - Use an explicit `.stackctl.toml` or `.stackctl.yaml` path.
   - Conflicts with `--project-root`.
 - `--project-root <DIR>`
-  - Resolve `.stackctl.toml` from a specific directory.
+  - Resolve `.stackctl.toml` or `.stackctl.yaml` from a specific directory.
 - `--env <NAME>`
   - Runtime namespace (for example `testing` / `test`).
 - `--engine <docker|podman>`
@@ -36,7 +36,7 @@ These apply to all commands.
 
 ## Runtime Engine
 
-Set a project default engine in `.stackctl.toml`:
+Set a project default engine in `.stackctl.toml` or `.stackctl.yaml`:
 
 ```toml
 container_engine = "docker" # or "podman"
@@ -50,7 +50,8 @@ Notes:
 
 ## Domain Strategy
 
-Set a project default app-domain strategy in `.stackctl.toml`:
+Set a project default app-domain strategy in `.stackctl.toml` or
+`.stackctl.yaml`:
 
 ```toml
 domain_strategy = "directory" # or "random"
