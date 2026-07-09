@@ -42,6 +42,8 @@ All notable changes to this project are documented in this file.
 
 - Renamed the project, CLI, config files, env vars, Docker labels, and
   user-facing documentation to `stackctl`.
+- Updated direct Rust dependencies in `Cargo.toml` to the latest available
+  release versions and refreshed the resolved Cargo lockfile to match.
 - Changed Rust dependencies and CI workflow action pins to their latest
   available releases, including `tabled 0.21`, refreshed transitive lockfile
   versions, and `actions/checkout@v5` in the GitHub Actions pipeline.
