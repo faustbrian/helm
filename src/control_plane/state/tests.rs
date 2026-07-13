@@ -153,6 +153,150 @@ fn migration_records_require_proof_before_destructive_phases() {
 }
 
 #[test]
+fn migration_cutover_replaces_desired_state_and_checkpoint_atomically() {
+    let database_path = temporary_database_path("migration-cutover");
+    let original_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let original_environment = managed_environment(BTreeMap::from([(
+        "DB_DATABASE".to_owned(),
+        "legacy_bill".to_owned(),
+    )]));
+    let cutover_project = project_record(
+        "/work/bill",
+        "bill",
+        &[
+            "bill-app.stackctl.localhost",
+            "bill-mailpit.stackctl.localhost",
+        ],
+    );
+    let cutover_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v8".to_owned(),
+        values: BTreeMap::from([(
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        )]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_project(&original_project)
+        .expect("persist original project");
+    store
+        .replace_managed_environment(&original_environment)
+        .expect("persist original environment");
+    for (phase, updated_at) in [
+        (MigrationPhase::Inventoried, 10),
+        (MigrationPhase::BackupVerified, 11),
+        (MigrationPhase::TargetProvisioned, 12),
+        (MigrationPhase::DataRestored, 13),
+        (MigrationPhase::TargetVerified, 14),
+    ] {
+        store
+            .record_migration(&migration_record(phase, updated_at))
+            .expect("advance migration to verified target");
+    }
+
+    store
+        .record_migration_cutover(
+            &cutover_project,
+            &cutover_environment,
+            &migration_record(MigrationPhase::Cutover, 15),
+        )
+        .expect("commit migration cutover");
+
+    assert_eq!(
+        store.projects().expect("load project"),
+        vec![cutover_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load managed environment"),
+        vec![cutover_environment]
+    );
+    assert_eq!(
+        store.migrations().expect("load migration")[0].phase(),
+        MigrationPhase::Cutover
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn rejected_migration_cutover_leaves_all_desired_state_unchanged() {
+    let database_path = temporary_database_path("migration-cutover-rollback");
+    let original_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let original_environment = managed_environment(BTreeMap::from([(
+        "DB_DATABASE".to_owned(),
+        "legacy_bill".to_owned(),
+    )]));
+    let cutover_project = project_record(
+        "/work/bill",
+        "bill",
+        &[
+            "bill-app.stackctl.localhost",
+            "bill-mailpit.stackctl.localhost",
+        ],
+    );
+    let cutover_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v8".to_owned(),
+        values: BTreeMap::from([(
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        )]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_project(&original_project)
+        .expect("persist original project");
+    store
+        .replace_managed_environment(&original_environment)
+        .expect("persist original environment");
+    for (phase, updated_at) in [
+        (MigrationPhase::Inventoried, 10),
+        (MigrationPhase::BackupVerified, 11),
+        (MigrationPhase::TargetProvisioned, 12),
+    ] {
+        store
+            .record_migration(&migration_record(phase, updated_at))
+            .expect("advance migration to provisioned target");
+    }
+
+    let error = store
+        .record_migration_cutover(
+            &cutover_project,
+            &cutover_environment,
+            &migration_record(MigrationPhase::Cutover, 15),
+        )
+        .expect_err("reject skipped migration phases");
+
+    assert_eq!(
+        error.to_string(),
+        "migration 'migration-bill' cannot advance from 'target_provisioned' to 'cutover'"
+    );
+    assert_eq!(
+        store.projects().expect("load original project"),
+        vec![original_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load original managed environment"),
+        vec![original_environment]
+    );
+    assert_eq!(
+        store.migrations().expect("load migration")[0].phase(),
+        MigrationPhase::TargetProvisioned
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn installation_and_watched_roots_survive_store_restart() {
     let database_path = temporary_database_path("installation");
     let installation = InstallationRecord::new(

@@ -12,6 +12,8 @@ mod migration_phase;
 mod migration_record;
 mod migration_record_error;
 mod migration_record_options;
+mod persist_managed_environment;
+mod persist_migration_record;
 mod persisted_migration;
 mod project_adoption_plan;
 mod project_adoption_plan_options;

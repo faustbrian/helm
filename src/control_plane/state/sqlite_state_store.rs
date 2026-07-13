@@ -1,3 +1,5 @@
+use super::persist_managed_environment::persist_managed_environment;
+use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
@@ -849,43 +851,10 @@ impl StateStore for SqliteStateStore {
         &mut self,
         environment: &ManagedEnvironmentRecord,
     ) -> Result<(), StateStoreError> {
-        let values_json = serde_json::to_string(environment.values()).map_err(|error| {
-            StateStoreError::CorruptState {
-                detail: format!("failed to encode managed environment: {error}"),
-            }
-        })?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing_lifecycle = transaction
-            .query_row(
-                "SELECT lifecycle FROM managed_environments WHERE project_id = ?1",
-                [environment.project_id()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?;
-        if existing_lifecycle.as_deref() == Some(EnvironmentLifecycle::Disabled.label())
-            && environment.lifecycle() == EnvironmentLifecycle::Active
-        {
-            return Err(StateStoreError::ProjectAdoptionRequired {
-                project_id: environment.project_id().to_owned(),
-            });
-        }
-        transaction.execute(
-            "INSERT INTO managed_environments (\n\
-                 project_id, revision, values_json, lifecycle\n\
-             ) VALUES (?1, ?2, ?3, ?4)\n\
-             ON CONFLICT(project_id) DO UPDATE SET\n\
-                 revision = excluded.revision,\n\
-                 values_json = excluded.values_json,\n\
-                 lifecycle = excluded.lifecycle",
-            params![
-                environment.project_id(),
-                environment.revision(),
-                values_json,
-                environment.lifecycle().label(),
-            ],
-        )?;
+        persist_managed_environment(&transaction, environment)?;
         transaction.commit()?;
 
         Ok(())
@@ -943,129 +912,47 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing = transaction
+        persist_migration_record(&transaction, migration)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn record_migration_cutover(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        migration: &MigrationRecord,
+    ) -> Result<(), StateStoreError> {
+        if migration.phase() != MigrationPhase::Cutover
+            || migration.project_id() != project.project_name()
+            || migration.project_id() != environment.project_id()
+            || environment.lifecycle() != EnvironmentLifecycle::Active
+        {
+            return Err(StateStoreError::InvalidMigrationCutover {
+                detail: "project, active environment, and cutover checkpoint must match".to_owned(),
+            });
+        }
+        let canonical_path = exact_path(project.canonical_path())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered_project = transaction
             .query_row(
-                "SELECT migration_id, project_id, source_revision, target_revision,
-                        source_compatibility_fingerprint,
-                        target_compatibility_fingerprint, phase,
-                        backup_reference, backup_artifact_sha256,
-                        backup_artifact_size_bytes,
-                        target_resource_id, rollback_reference,
-                        updated_at_unix_seconds
-                 FROM migrations WHERE migration_id = ?1",
-                [migration.migration_id()],
-                |row| {
-                    Ok(PersistedMigration {
-                        migration_id: row.get(0)?,
-                        project_id: row.get(1)?,
-                        source_revision: row.get(2)?,
-                        target_revision: row.get(3)?,
-                        source_compatibility_fingerprint: row.get(4)?,
-                        target_compatibility_fingerprint: row.get(5)?,
-                        phase: row.get(6)?,
-                        backup_reference: row.get(7)?,
-                        backup_artifact_sha256: row.get(8)?,
-                        backup_artifact_size_bytes: row.get(9)?,
-                        target_resource_id: row.get(10)?,
-                        rollback_reference: row.get(11)?,
-                        updated_at_unix_seconds: row.get(12)?,
-                    })
-                },
+                "SELECT project_name FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
+                |row| row.get::<_, String>(0),
             )
-            .optional()?
-            .map(PersistedMigration::into_record)
-            .transpose()?;
-
-        if let Some(existing) = existing {
-            if existing == *migration {
-                transaction.commit()?;
-                return Ok(());
-            }
-            if !migration.has_same_identity(&existing) {
-                return Err(StateStoreError::MigrationIdentityConflict {
-                    migration_id: migration.migration_id().to_owned(),
-                });
-            }
-            if !migration.preserves_evidence_from(&existing) {
-                return Err(StateStoreError::MigrationEvidenceConflict {
-                    migration_id: migration.migration_id().to_owned(),
-                });
-            }
-            if migration.updated_at_unix_seconds() < existing.updated_at_unix_seconds() {
-                return Err(StateStoreError::MigrationTimeRegression {
-                    migration_id: migration.migration_id().to_owned(),
-                });
-            }
-            if !existing.phase().can_advance_to(migration.phase()) {
-                return Err(StateStoreError::InvalidMigrationTransition {
-                    migration_id: migration.migration_id().to_owned(),
-                    from: existing.phase().label().to_owned(),
-                    to: migration.phase().label().to_owned(),
-                });
-            }
-
-            transaction.execute(
-                "UPDATE migrations SET
-                     phase = ?1,
-                     backup_reference = ?2,
-                     backup_artifact_sha256 = ?3,
-                     backup_artifact_size_bytes = ?4,
-                     target_resource_id = ?5,
-                     rollback_reference = ?6,
-                     updated_at_unix_seconds = ?7
-                 WHERE migration_id = ?8",
-                params![
-                    migration.phase().label(),
-                    migration.backup_reference(),
-                    migration.backup_artifact_sha256(),
-                    migration
-                        .backup_artifact_size_bytes()
-                        .map(|size| size as i64),
-                    migration.target_resource_id(),
-                    migration.rollback_reference(),
-                    migration.updated_at_unix_seconds(),
-                    migration.migration_id(),
-                ],
-            )?;
-        } else {
-            if migration.phase() != MigrationPhase::Inventoried {
-                return Err(StateStoreError::InvalidMigrationTransition {
-                    migration_id: migration.migration_id().to_owned(),
-                    from: "absent".to_owned(),
-                    to: migration.phase().label().to_owned(),
-                });
-            }
-            transaction.execute(
-                "INSERT INTO migrations (
-                     migration_id, project_id, source_revision, target_revision,
-                     source_compatibility_fingerprint,
-                     target_compatibility_fingerprint, phase,
-                     backup_reference, backup_artifact_sha256,
-                     backup_artifact_size_bytes, target_resource_id,
-                     rollback_reference, updated_at_unix_seconds
-                 ) VALUES (
-                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
-                 )",
-                params![
-                    migration.migration_id(),
-                    migration.project_id(),
-                    migration.source_revision(),
-                    migration.target_revision(),
-                    migration.source_compatibility_fingerprint(),
-                    migration.target_compatibility_fingerprint(),
-                    migration.phase().label(),
-                    migration.backup_reference(),
-                    migration.backup_artifact_sha256(),
-                    migration
-                        .backup_artifact_size_bytes()
-                        .map(|size| size as i64),
-                    migration.target_resource_id(),
-                    migration.rollback_reference(),
-                    migration.updated_at_unix_seconds(),
-                ],
-            )?;
+            .optional()?;
+        if registered_project.as_deref() != Some(migration.project_id()) {
+            return Err(StateStoreError::InvalidMigrationCutover {
+                detail: "the exact migration project path is not registered".to_owned(),
+            });
         }
 
+        replace_project_batch(&transaction, &[(project, canonical_path)])?;
+        persist_managed_environment(&transaction, environment)?;
+        persist_migration_record(&transaction, migration)?;
         transaction.commit()?;
 
         Ok(())

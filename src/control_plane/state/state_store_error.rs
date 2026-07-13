@@ -44,6 +44,8 @@ pub(crate) enum StateStoreError {
     },
     /// A migration checkpoint time moved backwards.
     MigrationTimeRegression { migration_id: String },
+    /// A cutover plan does not describe one exact active project transition.
+    InvalidMigrationCutover { detail: String },
     /// The requested adoption target is not the registered project path.
     ProjectAdoptionTargetMissing { project_id: String, path: PathBuf },
     /// Durable project state does not exactly match the adoption plan.
@@ -126,6 +128,9 @@ impl Display for StateStoreError {
                 formatter,
                 "migration '{migration_id}' update time predates durable state"
             ),
+            Self::InvalidMigrationCutover { detail } => {
+                write!(formatter, "invalid migration cutover: {detail}")
+            }
             Self::ProjectAdoptionTargetMissing { project_id, path } => write!(
                 formatter,
                 "project '{project_id}' cannot be adopted at '{}' because that exact target is not registered",
@@ -160,6 +165,7 @@ impl Error for StateStoreError {
             | Self::MigrationEvidenceConflict { .. }
             | Self::InvalidMigrationTransition { .. }
             | Self::MigrationTimeRegression { .. }
+            | Self::InvalidMigrationCutover { .. }
             | Self::ProjectAdoptionTargetMissing { .. }
             | Self::ProjectAdoptionStateMismatch { .. }
             | Self::CorruptState { .. } => None,

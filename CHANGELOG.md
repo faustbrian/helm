@@ -54,6 +54,9 @@ All notable changes to this project are documented in this file.
 - Added idempotent PostgreSQL migration target creation using the normal
   deterministic project database and role identity, with exact checkpoint,
   ownership, service, installation, and compatibility validation.
+- Added an atomic SQLite migration cutover transaction that replaces exact
+  project route ownership and managed environment state together with the
+  monotonic cutover checkpoint, rolling back every write on any failure.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

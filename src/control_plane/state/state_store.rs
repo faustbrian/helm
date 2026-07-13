@@ -91,6 +91,14 @@ pub(crate) trait StateStore {
     /// Records one monotonic, crash-recoverable migration checkpoint.
     fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError>;
 
+    /// Atomically switches project routes, environment, and migration proof.
+    fn record_migration_cutover(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        migration: &MigrationRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Loads migration checkpoints in stable identity order.
     fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
 }
