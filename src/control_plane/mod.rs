@@ -4,6 +4,7 @@ mod daemon;
 mod desired_state;
 mod dns_label;
 mod engine;
+mod environment_variable_key;
 mod gateway;
 mod identity_error;
 mod project_identity;
@@ -21,6 +22,7 @@ mod workload;
 
 pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
 use dns_label::DnsLabel;
+pub(crate) use environment_variable_key::is_valid_environment_variable_key;
 pub(crate) use identity_error::IdentityError;
 pub(crate) use project_identity::ProjectIdentity;
 pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};

@@ -1,8 +1,9 @@
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 
 /// The initial strict v8 service configuration boundary.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawServiceConfig {
     preset: Option<String>,
@@ -16,6 +17,22 @@ pub(crate) struct RawServiceConfig {
     command: Option<Vec<String>>,
     #[serde(default)]
     environment: BTreeMap<String, String>,
+}
+
+impl Debug for RawServiceConfig {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RawServiceConfig")
+            .field("preset", &self.preset)
+            .field("image", &self.image)
+            .field("version", &self.version)
+            .field("php_extensions", &self.php_extensions)
+            .field("depends_on", &self.depends_on)
+            .field("database", &self.database)
+            .field("command", &self.command)
+            .field("environment_keys", &self.environment.keys())
+            .finish()
+    }
 }
 
 impl RawServiceConfig {

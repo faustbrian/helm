@@ -1,6 +1,8 @@
 use super::{DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions};
 use crate::control_plane::configuration::RawProjectConfig;
-use crate::control_plane::{ProjectIdentity, RouteClaim, ServiceIdentity};
+use crate::control_plane::{
+    ProjectIdentity, RouteClaim, ServiceIdentity, is_valid_environment_variable_key,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -128,7 +130,7 @@ fn validate_environment(
     environment: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>, DesiredProjectError> {
     for (key, value) in environment {
-        if !valid_environment_key(key) {
+        if !is_valid_environment_variable_key(key) {
             return Err(invalid_service(
                 service,
                 format!("declares invalid environment key '{key}'"),
@@ -143,14 +145,6 @@ fn validate_environment(
     }
 
     Ok(environment.clone())
-}
-
-fn valid_environment_key(key: &str) -> bool {
-    let mut bytes = key.bytes();
-    bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
-        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn optional_non_empty(

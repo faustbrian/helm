@@ -1,6 +1,7 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    application_container_request,
+    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
+    application_container_request, project_process_request,
 };
 use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
@@ -107,6 +108,94 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
     );
     assert!(request.environment().contains_key("DB_PASSWORD"));
     assert!(!format!("{request:?}").contains("project-secret"));
+}
+
+#[test]
+fn project_workers_materialize_as_supervised_private_linux_containers() {
+    let project =
+        ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
+    let service =
+        crate::control_plane::ServiceIdentity::new("queue-worker").expect("service identity");
+    let plan = ProjectProcessPlan::new(ProjectProcessPlanOptions {
+        project,
+        service,
+        image_digest: concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .to_owned(),
+        source_path: PathBuf::from("/work/bill"),
+        network_name: "stackctl-private".to_owned(),
+        command: vec![
+            "php".to_owned(),
+            "artisan".to_owned(),
+            "queue:work".to_owned(),
+        ],
+        environment: BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
+    })
+    .expect("worker plan");
+    assert!(!format!("{plan:?}").contains("project-secret"));
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectProcess,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:runtime-php-84".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("worker metadata");
+
+    let request = project_process_request(ProjectProcessRequestOptions {
+        plan,
+        metadata,
+        platform: "linux/arm64".to_owned(),
+    })
+    .expect("worker request");
+
+    assert_eq!(request.name(), "stackctl-bill-queue-worker");
+    assert_eq!(
+        request.metadata().labels()["dev.stackctl.kind"],
+        "project_process"
+    );
+    assert_eq!(request.platform(), Some("linux/arm64"));
+    assert_eq!(request.network(), Some("stackctl-private"));
+    assert!(request.port_bindings().is_empty());
+    assert_eq!(request.bind_mounts()[0].source(), "/work/bill");
+    assert_eq!(request.bind_mounts()[0].target(), "/workspace");
+    assert_eq!(request.command(), ["php", "artisan", "queue:work"]);
+    assert_eq!(
+        request.restart_policy(),
+        Some(ContainerRestartPolicy::UnlessStopped)
+    );
+    assert!(!format!("{request:?}").contains("project-secret"));
+}
+
+#[test]
+fn unsafe_project_process_inputs_fail_before_engine_mutation() {
+    let project =
+        ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
+    let service = crate::control_plane::ServiceIdentity::new("worker").expect("service identity");
+
+    let error = ProjectProcessPlan::new(ProjectProcessPlanOptions {
+        project,
+        service,
+        image_digest: concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .to_owned(),
+        source_path: PathBuf::from("/work/bill"),
+        network_name: "stackctl-private".to_owned(),
+        command: vec!["php".to_owned(), "artisan".to_owned()],
+        environment: BTreeMap::from([("1INVALID".to_owned(), "value".to_owned())]),
+    })
+    .expect_err("invalid environment key");
+
+    assert_eq!(
+        error.to_string(),
+        "project process environment key '1INVALID' is invalid"
+    );
 }
 
 fn application_plan(project: &str, path: &str) -> ApplicationContainerPlan {

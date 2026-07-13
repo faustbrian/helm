@@ -3,6 +3,7 @@
 #[non_exhaustive]
 pub(crate) enum ResourceKind {
     ProjectApplication,
+    ProjectProcess,
     SharedService,
     Gateway,
     Network,
@@ -14,6 +15,7 @@ impl ResourceKind {
     pub(super) const fn label(self) -> &'static str {
         match self {
             Self::ProjectApplication => "project_application",
+            Self::ProjectProcess => "project_process",
             Self::SharedService => "shared_service",
             Self::Gateway => "gateway",
             Self::Network => "network",
@@ -25,6 +27,7 @@ impl ResourceKind {
     pub(super) fn from_label(label: &str) -> Option<Self> {
         match label {
             "project_application" => Some(Self::ProjectApplication),
+            "project_process" => Some(Self::ProjectProcess),
             "shared_service" => Some(Self::SharedService),
             "gateway" => Some(Self::Gateway),
             "network" => Some(Self::Network),

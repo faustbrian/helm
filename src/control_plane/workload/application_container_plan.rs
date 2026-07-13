@@ -1,3 +1,4 @@
+use super::validate_image_digest::validate_image_digest;
 use super::{ApplicationContainerPlanOptions, WorkloadPlanError};
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::{RouteIdentity, ServiceIdentity};
@@ -17,7 +18,7 @@ pub(crate) struct ApplicationContainerPlan {
 
 impl ApplicationContainerPlan {
     pub(crate) fn new(options: ApplicationContainerPlanOptions) -> Result<Self, WorkloadPlanError> {
-        validate_image_digest(&options.image_digest)?;
+        validate_image_digest("application", &options.image_digest)?;
 
         if options.network_name.is_empty() {
             return Err(WorkloadPlanError::new(
@@ -91,18 +92,4 @@ impl ApplicationContainerPlan {
     pub(crate) const fn gateway_route(&self) -> &GatewayRoute {
         &self.gateway_route
     }
-}
-
-fn validate_image_digest(image: &str) -> Result<(), WorkloadPlanError> {
-    let valid = image.rsplit_once("@sha256:").is_some_and(|(_, digest)| {
-        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-    });
-
-    if !valid {
-        return Err(WorkloadPlanError::new(format!(
-            "application image '{image}' must use an immutable sha256 digest"
-        )));
-    }
-
-    Ok(())
 }

@@ -54,6 +54,9 @@ services:
     database: bill
 "#;
 
+    let raw = parse_project_config(source, Path::new(CONFIG_PATH)).expect("raw desired state");
+    assert!(!format!("{raw:?}").contains("project-secret"));
+
     let desired = desired_from(source).expect("complete desired state");
     let app = desired.service("app").expect("app service");
     let database = desired.service("db").expect("database service");

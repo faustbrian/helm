@@ -32,6 +32,9 @@ All notable changes to this project are documented in this file.
 - Added strict v8 YAML process commands and deterministic environment mappings,
   including pre-mutation validation of executables, variable names, NUL bytes,
   and debug redaction of environment values.
+- Added dedicated Engine-backed project process plans for workers and schedulers,
+  with immutable Linux images, private networking, no published ports, restart supervision,
+  and secret-safe desired-plan diagnostics.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
