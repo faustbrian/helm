@@ -6,6 +6,7 @@ mod migration_error;
 mod migration_execution_result;
 mod migration_operation_error;
 mod migration_operations;
+mod postgres;
 mod run_migration;
 
 pub(crate) use migration_backup::MigrationBackup;

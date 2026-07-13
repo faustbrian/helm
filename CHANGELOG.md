@@ -30,6 +30,9 @@ All notable changes to this project are documented in this file.
 - Bound backup manifests and storage paths to exact Engine or logical resource
   identities so project databases sharing one service cannot collide or
   authorize recovery using another tenant's evidence.
+- Added direct-Engine PostgreSQL custom dumps that stream through bounded
+  memory into logical-resource recovery points, publish only after exit zero,
+  validate ownership and credentials, and remove cancelled pending artifacts.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
