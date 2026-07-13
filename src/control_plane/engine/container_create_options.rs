@@ -2,9 +2,11 @@ use super::{
     BindMount, ContainerRestartPolicy, EngineError, ImmutableImageReference,
     ManagedResourceMetadata, PortBinding,
 };
+use std::collections::BTreeMap;
+use std::fmt::{Debug, Formatter};
 
 /// Typed options required to create one owned container.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct ContainerCreateOptions {
     name: String,
     image: String,
@@ -13,6 +15,7 @@ pub(crate) struct ContainerCreateOptions {
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
     command: Vec<String>,
+    environment: BTreeMap<String, String>,
     restart_policy: Option<ContainerRestartPolicy>,
 }
 
@@ -42,6 +45,7 @@ impl ContainerCreateOptions {
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
             command: Vec::new(),
+            environment: BTreeMap::new(),
             restart_policy: None,
         })
     }
@@ -86,6 +90,30 @@ impl ContainerCreateOptions {
         Ok(self)
     }
 
+    pub(crate) fn with_environment(
+        mut self,
+        environment: BTreeMap<String, String>,
+    ) -> Result<Self, EngineError> {
+        for (key, value) in &environment {
+            if key.is_empty() || key.contains(['=', '\0']) {
+                return Err(EngineError::InvalidRequest {
+                    detail: format!("managed container environment key '{key}' is invalid"),
+                });
+            }
+            if value.contains('\0') {
+                return Err(EngineError::InvalidRequest {
+                    detail: format!(
+                        "managed container environment value for '{key}' must not contain NUL bytes"
+                    ),
+                });
+            }
+        }
+
+        self.environment = environment;
+
+        Ok(self)
+    }
+
     pub(crate) fn with_restart_policy(mut self, policy: ContainerRestartPolicy) -> Self {
         self.restart_policy = Some(policy);
         self
@@ -122,7 +150,28 @@ impl ContainerCreateOptions {
         &self.command
     }
 
+    pub(super) const fn environment(&self) -> &BTreeMap<String, String> {
+        &self.environment
+    }
+
     pub(super) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {
         self.restart_policy
+    }
+}
+
+impl Debug for ContainerCreateOptions {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContainerCreateOptions")
+            .field("name", &self.name)
+            .field("image", &self.image)
+            .field("metadata", &self.metadata)
+            .field("network", &self.network)
+            .field("port_bindings", &self.port_bindings)
+            .field("bind_mounts", &self.bind_mounts)
+            .field("command", &self.command)
+            .field("environment_keys", &self.environment.keys())
+            .field("restart_policy", &self.restart_policy)
+            .finish()
     }
 }

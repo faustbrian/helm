@@ -349,6 +349,36 @@ fn command_requests_map_to_non_privileged_structured_engine_exec() {
 }
 
 #[test]
+fn managed_container_environment_maps_to_engine_without_debug_leaks() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-shared-postgres",
+        concat!(
+            "postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::SharedService),
+    )
+    .expect("container options")
+    .with_environment(BTreeMap::from([
+        ("POSTGRES_DB".to_owned(), "postgres".to_owned()),
+        ("POSTGRES_PASSWORD".to_owned(), "root-secret".to_owned()),
+    ]))
+    .expect("container environment");
+
+    let (_, request) = create_request(&options);
+
+    assert_eq!(
+        request.env,
+        Some(vec![
+            "POSTGRES_DB=postgres".to_owned(),
+            "POSTGRES_PASSWORD=root-secret".to_owned(),
+        ])
+    );
+    assert!(!format!("{options:?}").contains("root-secret"));
+    assert!(format!("{options:?}").contains("POSTGRES_PASSWORD"));
+}
+
+#[test]
 fn command_requests_reject_ambiguous_or_unsafe_values_before_engine_access() {
     let empty_command =
         CommandRequest::new(Vec::new(), BTreeMap::new(), None).expect_err("empty command");
