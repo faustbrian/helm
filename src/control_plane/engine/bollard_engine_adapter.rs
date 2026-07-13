@@ -1,6 +1,7 @@
 use super::bounded_engine_operation::bounded_engine_operation;
 use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
 use super::{
+    CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerState, EngineError,
@@ -12,6 +13,7 @@ use super::{
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
+use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
     ContainerCreateBody, ContainerSummary, EventMessage, EventMessageTypeEnum, HostConfig, Mount,
     MountType, Network, NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum,
@@ -297,6 +299,142 @@ impl LogSource for BollardEngineAdapter {
 
             Ok(stream)
         })
+    }
+}
+
+impl CommandExecutor for BollardEngineAdapter {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        Box::pin(async move {
+            let (execution_id, started) =
+                bounded_engine_operation("start container command", request_timeout(), async {
+                    let observed = self
+                        .docker
+                        .inspect_container(container.id().as_str(), None)
+                        .await
+                        .map_err(|error| {
+                            backend_error("verify container command ownership", error)
+                        })?;
+                    verify_owned_container_labels_for(
+                        "execute a command in",
+                        container,
+                        &observed
+                            .config
+                            .and_then(|config| config.labels)
+                            .unwrap_or_default(),
+                    )?;
+
+                    let created = self
+                        .docker
+                        .create_exec(container.id().as_str(), command_create_request(request))
+                        .await
+                        .map_err(|error| backend_error("create container command", error))?;
+
+                    if created.id.is_empty() {
+                        return Err(EngineError::Backend {
+                            detail: "Engine created a container command without an ID".to_owned(),
+                        });
+                    }
+
+                    let started = self
+                        .docker
+                        .start_exec(
+                            &created.id,
+                            Some(StartExecOptions {
+                                detach: false,
+                                tty: false,
+                                output_capacity: None,
+                            }),
+                        )
+                        .await
+                        .map_err(|error| backend_error("start container command", error))?;
+
+                    Ok((CommandExecutionId::new(created.id), started))
+                })
+                .await?;
+
+            match started {
+                StartExecResults::Attached { output, input } => {
+                    let output = output.map(|result| {
+                        result
+                            .map(log_chunk)
+                            .map_err(|error| backend_error("stream container command", error))
+                    });
+                    let output: ContainerLogStream<'static> = Box::pin(output);
+
+                    Ok(CommandSession::new(
+                        execution_id,
+                        container.id().clone(),
+                        input,
+                        output,
+                    ))
+                }
+                StartExecResults::Detached => Err(EngineError::Backend {
+                    detail: "Engine detached an attached container command".to_owned(),
+                }),
+            }
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        execution_id: &'operation CommandExecutionId,
+        container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async move {
+            bounded_engine_operation("inspect container command", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_exec(execution_id.as_str())
+                    .await
+                    .map_err(|error| backend_error("inspect container command", error))?;
+
+                if observed.container_id.as_deref() != Some(container_id.as_str()) {
+                    return Err(EngineError::Backend {
+                        detail: format!(
+                            "Engine command '{}' no longer belongs to container '{}'",
+                            execution_id.as_str(),
+                            container_id.as_str()
+                        ),
+                    });
+                }
+
+                match (observed.running, observed.exit_code) {
+                    (Some(true), _) => Ok(CommandStatus::Running),
+                    (Some(false), Some(exit_code)) => Ok(CommandStatus::Exited(exit_code)),
+                    _ => Err(EngineError::Backend {
+                        detail: format!(
+                            "Engine returned incomplete status for container command '{}'",
+                            execution_id.as_str()
+                        ),
+                    }),
+                }
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn command_create_request(request: &CommandRequest) -> CreateExecOptions<String> {
+    CreateExecOptions {
+        attach_stdin: Some(true),
+        attach_stdout: Some(true),
+        attach_stderr: Some(true),
+        tty: Some(false),
+        env: Some(
+            request
+                .environment()
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect(),
+        ),
+        cmd: Some(request.arguments().to_vec()),
+        privileged: Some(false),
+        working_dir: request.working_directory().map(str::to_owned),
+        ..CreateExecOptions::default()
     }
 }
 

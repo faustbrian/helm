@@ -1,9 +1,9 @@
 use super::{
-    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
-    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
-    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail, ContainerState,
-    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
+    ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
+    ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
+    ContainerState, EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
+    LogSource, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
     NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
     ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
     ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
@@ -21,11 +21,12 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    container_event, create_request, image_pull_request, log_chunk, log_request,
-    managed_container_events_request, managed_container_list_request, managed_network_list_request,
-    managed_volume_list_request, network_create_request, observed_container, observed_network,
-    observed_volume, validate_engine_api_version, verify_owned_container_labels,
-    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
+    command_create_request, container_event, create_request, image_pull_request, log_chunk,
+    log_request, managed_container_events_request, managed_container_list_request,
+    managed_network_list_request, managed_volume_list_request, network_create_request,
+    observed_container, observed_network, observed_volume, validate_engine_api_version,
+    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -302,6 +303,82 @@ fn log_source_requires_an_owned_container_and_is_object_safe() {
         .expect("valid log chunk");
 
     assert_eq!(chunk.bytes(), b"ready\n");
+}
+
+#[test]
+fn command_requests_map_to_non_privileged_structured_engine_exec() {
+    let request = CommandRequest::new(
+        vec!["php".to_owned(), "artisan".to_owned(), "migrate".to_owned()],
+        BTreeMap::from([
+            ("APP_ENV".to_owned(), "local".to_owned()),
+            ("DB_PASSWORD".to_owned(), "secret".to_owned()),
+        ]),
+        Some("/workspace".to_owned()),
+    )
+    .expect("valid command request");
+
+    let engine_request = command_create_request(&request);
+
+    assert_eq!(
+        engine_request.cmd,
+        Some(vec![
+            "php".to_owned(),
+            "artisan".to_owned(),
+            "migrate".to_owned(),
+        ])
+    );
+    assert_eq!(
+        engine_request.env,
+        Some(vec![
+            "APP_ENV=local".to_owned(),
+            "DB_PASSWORD=secret".to_owned(),
+        ])
+    );
+    assert_eq!(engine_request.working_dir, Some("/workspace".to_owned()));
+    assert_eq!(engine_request.attach_stdin, Some(true));
+    assert_eq!(engine_request.attach_stdout, Some(true));
+    assert_eq!(engine_request.attach_stderr, Some(true));
+    assert_eq!(engine_request.tty, Some(false));
+    assert_eq!(engine_request.privileged, Some(false));
+    assert!(!format!("{request:?}").contains("secret"));
+}
+
+#[test]
+fn command_requests_reject_ambiguous_or_unsafe_values_before_engine_access() {
+    let empty_command =
+        CommandRequest::new(Vec::new(), BTreeMap::new(), None).expect_err("empty command");
+    let relative_directory = CommandRequest::new(
+        vec!["php".to_owned()],
+        BTreeMap::new(),
+        Some("workspace".to_owned()),
+    )
+    .expect_err("relative container directory");
+    let invalid_environment = CommandRequest::new(
+        vec!["php".to_owned()],
+        BTreeMap::from([("BAD=KEY".to_owned(), "value".to_owned())]),
+        None,
+    )
+    .expect_err("invalid environment key");
+
+    assert_eq!(
+        empty_command.to_string(),
+        "container command must not be empty"
+    );
+    assert_eq!(
+        relative_directory.to_string(),
+        "container command working directory 'workspace' must be absolute"
+    );
+    assert_eq!(
+        invalid_environment.to_string(),
+        "container command environment key 'BAD=KEY' is invalid"
+    );
+}
+
+#[test]
+fn command_executor_boundary_is_object_safe() {
+    fn accepts_command_executor(_executor: &dyn CommandExecutor) {}
+
+    let _ = accepts_command_executor;
 }
 
 #[test]

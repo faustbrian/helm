@@ -36,6 +36,8 @@ All notable changes to this project are documented in this file.
   filters, lifecycle and health actions, and reconnect cursor deduplication.
 - Added an ownership-validated direct-Engine log source with typed tail options
   and byte-preserving stdout, stderr, stdin, and console frames.
+- Added ownership-validated direct-Engine command execution with structured
+  non-shell requests, attached streaming I/O, exit inspection, and redacted debug output.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
