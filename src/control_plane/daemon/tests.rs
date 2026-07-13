@@ -134,6 +134,89 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
 }
 
 #[test]
+fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n    environment:\n      APP_MODE: local\n  worker:\n    preset: queue-worker\n    depends_on: [app]\n    environment:\n      WORKER_MODE: steady\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    assert_eq!(plan.applications().len(), 1);
+    assert_eq!(plan.processes().len(), 1);
+    assert_eq!(plan.processes()[0].name(), "stackctl-bill-worker");
+    assert_eq!(plan.processes()[0].image(), image);
+    assert_eq!(
+        plan.processes()[0].command(),
+        ["php", "artisan", "queue:work", "--no-interaction"]
+    );
+    assert_eq!(
+        plan.processes()[0].environment().get("APP_MODE"),
+        Some(&"local".to_owned())
+    );
+    assert_eq!(
+        plan.processes()[0].environment().get("WORKER_MODE"),
+        Some(&"steady".to_owned())
+    );
+    assert_eq!(plan.gateway().routes().len(), 1);
+}
+
+#[test]
+fn project_processes_without_one_application_dependency_block_complete_planning() {
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n  worker:\n    preset: queue-worker\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect_err("process without application dependency");
+
+    assert_eq!(
+        error.to_string(),
+        "project process 'bill-worker' must depend on exactly one project application"
+    );
+}
+
+#[test]
 fn complete_engine_plans_include_prepared_attributed_shared_routes() {
     let source = ProjectSource::new(
         PathBuf::from("/work/bill"),

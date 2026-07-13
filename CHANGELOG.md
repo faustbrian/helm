@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Connected Horizon, queue workers, and schedulers to their exact immutable
+  application runtime and source mount, with explicit application dependencies,
+  merged non-conflicting environments, preset commands, separate restart
+  policy, and durable process ownership.
 - Added exact-compatible stateless Gotenberg sharing with one disposable
   process, project-specific endpoint environments, durable consumer claims, and
   no unnecessary credentials or volumes.
