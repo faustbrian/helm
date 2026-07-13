@@ -74,4 +74,18 @@ where
     pub(crate) fn engine_mut(&mut self) -> Option<&mut Connector::Engine> {
         self.engine.as_mut()
     }
+
+    /// Reports whether this supervisor currently holds a usable adapter.
+    pub(crate) const fn is_connected(&self) -> bool {
+        self.engine.is_some()
+    }
+
+    /// Drops a failed adapter and schedules one bounded reconnect attempt.
+    pub(crate) fn invalidate(&mut self, now: Instant) -> RetryDelay {
+        self.engine = None;
+        let retry = self.retry.next_delay();
+        self.retry_state = Some((now + retry.duration(), retry));
+
+        retry
+    }
 }

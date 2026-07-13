@@ -82,7 +82,15 @@ fn engine_connection_retries_only_after_backoff_and_recovers() {
         EngineConnectionOutcome::Connected
     );
     assert_eq!(attempts.load(Ordering::Relaxed), 2);
-    assert!(supervisor.engine_mut().is_some());
+    assert!(supervisor.is_connected());
+
+    let disconnected_at = started_at + retry.duration();
+    let reconnect = supervisor.invalidate(disconnected_at);
+    assert!(!supervisor.is_connected());
+    assert!(matches!(
+        runtime.block_on(supervisor.poll(disconnected_at + reconnect.duration() / 2)),
+        EngineConnectionOutcome::BackingOff { .. }
+    ));
 }
 
 #[test]
@@ -314,6 +322,8 @@ fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
 
 #[test]
 fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
+    use super::EngineReconciliationSchedule;
+
     let root = temporary_directory("fail-closed-reconciliation");
     let project = root.join("bill");
     std::fs::create_dir(&project).expect("project directory");
@@ -336,6 +346,12 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     )
     .expect("complete scan");
     assert!(applied.was_applied());
+    let mut engine_schedule = EngineReconciliationSchedule::default();
+    engine_schedule.observe(&applied);
+    assert!(engine_schedule.may_reconcile());
+    assert!(engine_schedule.is_due());
+    engine_schedule.complete();
+    assert!(!engine_schedule.is_due());
     assert_eq!(applied.report().sources().len(), 1);
     assert_eq!(
         applied
@@ -358,6 +374,9 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     )
     .expect("incomplete scan is a durable diagnostic");
     assert!(!blocked.was_applied());
+    engine_schedule.observe(&blocked);
+    assert!(!engine_schedule.may_reconcile());
+    assert!(!engine_schedule.is_due());
     assert_eq!(blocked.report().issues().len(), 1);
 
     drop(control_plane);

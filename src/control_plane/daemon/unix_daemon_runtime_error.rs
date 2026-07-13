@@ -4,6 +4,7 @@ use super::{
     SingletonLeaseError,
 };
 use crate::control_plane::daemon::ipc::IpcError;
+use crate::control_plane::engine::EngineError;
 use crate::control_plane::state::StateStoreError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -25,6 +26,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     Ipc(IpcError),
     Watcher(FilesystemEventWatcherError),
     Installation(InstallationInitializationError),
+    EngineConfiguration(EngineError),
     AsyncRuntime(std::io::Error),
     EngineSupervisor(EngineConnectionSupervisorError),
     Reconciliation(DiscoveryReconciliationError),
@@ -50,6 +52,9 @@ impl Display for UnixDaemonRuntimeError {
             Self::Ipc(error) => Display::fmt(error, formatter),
             Self::Watcher(error) => Display::fmt(error, formatter),
             Self::Installation(error) => Display::fmt(error, formatter),
+            Self::EngineConfiguration(error) => {
+                write!(formatter, "invalid global Engine configuration: {error}")
+            }
             Self::AsyncRuntime(error) => {
                 write!(formatter, "failed to create Engine async runtime: {error}")
             }
@@ -71,6 +76,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::Ipc(error) => Some(error),
             Self::Watcher(error) => Some(error),
             Self::Installation(error) => Some(error),
+            Self::EngineConfiguration(error) => Some(error),
             Self::AsyncRuntime(error) => Some(error),
             Self::EngineSupervisor(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
@@ -107,6 +113,12 @@ impl From<FilesystemEventWatcherError> for UnixDaemonRuntimeError {
 impl From<InstallationInitializationError> for UnixDaemonRuntimeError {
     fn from(error: InstallationInitializationError) -> Self {
         Self::Installation(error)
+    }
+}
+
+impl From<EngineError> for UnixDaemonRuntimeError {
+    fn from(error: EngineError) -> Self {
+        Self::EngineConfiguration(error)
     }
 }
 

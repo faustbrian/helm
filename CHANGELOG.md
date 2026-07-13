@@ -99,6 +99,9 @@ All notable changes to this project are documented in this file.
 - Added quiet direct-Engine connection supervision to the long-running Unix
   singleton, with cancellable connection deadlines and bounded jittered retry
   while offline discovery and IPC remain available when Docker is starting.
+- Added safe singleton reconciliation for one deterministic `stackctl` Engine
+  network after complete valid registry scans, adopting only exact labeled
+  current-installation ownership and loudly blocking ambiguous network state.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

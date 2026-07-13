@@ -1,11 +1,16 @@
 use super::{
     BollardUnixEngineConnector, DaemonIterationResult, DiscoveryScheduler, EngineConnectionOutcome,
-    EngineConnectionSupervisor, FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, reconcile_watched_roots,
+    EngineConnectionSupervisor, EngineReconciliationSchedule, FilesystemEventWatcher, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
+    dispatch_daemon_request, initialize_default_installation, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
+use crate::control_plane::engine::NetworkCreateOptions;
+use crate::control_plane::network::{
+    GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
+    global_network_request, reconcile_global_network,
+};
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
@@ -18,6 +23,8 @@ pub(crate) struct UnixDaemonRuntime {
     filesystem_watcher: FilesystemEventWatcher,
     engine_runtime: tokio::runtime::Runtime,
     engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
+    global_network_request: NetworkCreateOptions,
+    engine_reconciliation: EngineReconciliationSchedule,
     control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
@@ -55,6 +62,7 @@ impl UnixDaemonRuntime {
             installation.engine_endpoint().into(),
             engine_retry,
         )?;
+        let global_network_request = global_network_request(installation.installation_id())?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
 
         Ok(Self {
@@ -63,6 +71,8 @@ impl UnixDaemonRuntime {
             filesystem_watcher,
             engine_runtime,
             engine_connection,
+            global_network_request,
+            engine_reconciliation: EngineReconciliationSchedule::default(),
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -121,10 +131,19 @@ impl UnixDaemonRuntime {
     pub(crate) fn run_forever(&mut self) {
         loop {
             let now = Instant::now();
-            self.poll_engine_connection(now);
-            if let Err(error) = self.run_iteration(now, unix_time_seconds()) {
-                tracing::error!(error = %error, "singleton daemon iteration failed");
-                self.scheduler.record_filesystem_event(Instant::now());
+            match self.run_iteration(now, unix_time_seconds()) {
+                Ok(iteration) => {
+                    if let Some(reconciliation) = iteration.reconciliation() {
+                        self.engine_reconciliation.observe(reconciliation);
+                    }
+                    if self.engine_reconciliation.may_reconcile() {
+                        self.reconcile_engine_plane(now);
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, "singleton daemon iteration failed");
+                    self.scheduler.record_filesystem_event(Instant::now());
+                }
             }
             let until_scan = self
                 .scheduler
@@ -134,7 +153,7 @@ impl UnixDaemonRuntime {
         }
     }
 
-    fn poll_engine_connection(&mut self, now: Instant) {
+    fn reconcile_engine_plane(&mut self, now: Instant) {
         match self
             .engine_runtime
             .block_on(self.engine_connection.poll(now))
@@ -146,8 +165,51 @@ impl UnixDaemonRuntime {
                     error = %detail,
                     "selected Docker Engine is unavailable; retry scheduled"
                 );
+
+                return;
             }
             EngineConnectionOutcome::Connected | EngineConnectionOutcome::BackingOff { .. } => {}
+        }
+
+        if !self.engine_connection.is_connected() || !self.engine_reconciliation.is_due() {
+            return;
+        }
+        let Some(engine) = self.engine_connection.engine_mut() else {
+            return;
+        };
+        let result = self.engine_runtime.block_on(reconcile_global_network(
+            engine,
+            GlobalNetworkReconcileOptions {
+                request: &self.global_network_request,
+                installation_id: self.global_network_request.metadata().installation_id(),
+                schema_version: self.global_network_request.metadata().schema_version(),
+            },
+        ));
+
+        match result {
+            Ok(result) => {
+                self.engine_reconciliation.complete();
+                if result.action() == GlobalNetworkReconcileAction::Created {
+                    tracing::info!(
+                        network_id = result.network().id().as_str(),
+                        "created the global Stackctl Engine network"
+                    );
+                }
+            }
+            Err(GlobalNetworkReconcileError::EngineUnavailable { action, detail }) => {
+                let retry = self.engine_connection.invalidate(now);
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    action,
+                    error = detail,
+                    "global network reconciliation lost the selected Engine; retry scheduled"
+                );
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "global Engine network reconciliation blocked");
+            }
         }
     }
 }
