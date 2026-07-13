@@ -1,10 +1,10 @@
 use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineError, EngineFuture, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
-    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
-    OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource,
+    EngineError, EngineFuture, ImageId, ImageResolver, ImmutableImageReference,
+    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
+    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
+    OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
@@ -13,10 +13,11 @@ use bollard::models::{
     VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, ListNetworksOptionsBuilder,
-    ListVolumesOptionsBuilder, RemoveVolumeOptions,
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
+    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, RemoveVolumeOptions,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
+use futures_util::TryStreamExt;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
@@ -221,6 +222,59 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .collect()
         })
     }
+}
+
+impl ImageResolver for BollardEngineAdapter {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        Box::pin(async move {
+            bounded_engine_operation("ensure immutable image", request_timeout(), async {
+                match self.docker.inspect_image(reference.as_str()).await {
+                    Ok(image) => image_id(image.id, reference),
+                    Err(BollardError::DockerResponseServerError {
+                        status_code: 404, ..
+                    }) => {
+                        self.docker
+                            .create_image(Some(image_pull_request(reference)), None, None)
+                            .try_collect::<Vec<_>>()
+                            .await
+                            .map_err(|error| backend_error("pull immutable image", error))?;
+                        let image = self
+                            .docker
+                            .inspect_image(reference.as_str())
+                            .await
+                            .map_err(|error| backend_error("inspect pulled image", error))?;
+
+                        image_id(image.id, reference)
+                    }
+                    Err(error) => Err(backend_error("inspect immutable image", error)),
+                }
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn image_pull_request(
+    reference: &ImmutableImageReference,
+) -> bollard::query_parameters::CreateImageOptions {
+    CreateImageOptionsBuilder::default()
+        .from_image(reference.as_str())
+        .build()
+}
+
+fn image_id(
+    id: Option<String>,
+    reference: &ImmutableImageReference,
+) -> Result<ImageId, EngineError> {
+    id.map(ImageId::new).ok_or_else(|| EngineError::Backend {
+        detail: format!(
+            "Engine returned immutable image '{}' without an ID",
+            reference.as_str()
+        ),
+    })
 }
 
 impl NetworkDiscovery for BollardEngineAdapter {

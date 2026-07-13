@@ -1,4 +1,7 @@
-use super::{BindMount, ContainerRestartPolicy, EngineError, ManagedResourceMetadata, PortBinding};
+use super::{
+    BindMount, ContainerRestartPolicy, EngineError, ImmutableImageReference,
+    ManagedResourceMetadata, PortBinding,
+};
 
 /// Typed options required to create one owned container.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,11 +31,7 @@ impl ContainerCreateOptions {
             });
         }
 
-        if !has_sha256_digest(&image) {
-            return Err(EngineError::InvalidRequest {
-                detail: format!("managed image '{image}' must use an immutable sha256 digest"),
-            });
-        }
+        ImmutableImageReference::new(&image)?;
 
         Ok(Self {
             name,
@@ -104,12 +103,4 @@ impl ContainerCreateOptions {
     pub(super) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {
         self.restart_policy
     }
-}
-
-fn has_sha256_digest(image: &str) -> bool {
-    let Some((_, digest)) = image.rsplit_once("@sha256:") else {
-        return false;
-    };
-
-    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

@@ -1332,6 +1332,7 @@ dependencies = [
  "clap_complete",
  "colored",
  "flate2",
+ "futures-util",
  "hex",
  "indicatif",
  "rayon",

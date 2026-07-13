@@ -30,6 +30,8 @@ All notable changes to this project are documented in this file.
   with backend-independent observations for full-state recovery.
 - Added ownership-safe network and volume handle reconstruction from complete
   current-installation labels after daemon database loss or Engine restart.
+- Added a bounded direct-Engine image resolver that accepts only sha256-pinned
+  references, reuses local content, and pulls missing immutable images by digest.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.

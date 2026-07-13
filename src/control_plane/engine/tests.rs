@@ -1,11 +1,11 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource, gateway_container_request, reconstruct_owned_container,
-    reconstruct_owned_network, reconstruct_owned_volume,
+    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, classify_observed_resource, gateway_container_request,
+    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::models::{ContainerSummary, Network, Volume};
@@ -14,10 +14,11 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    create_request, managed_container_list_request, managed_network_list_request,
-    managed_volume_list_request, network_create_request, observed_container, observed_network,
-    observed_volume, validate_engine_api_version, verify_owned_container_labels,
-    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
+    create_request, image_pull_request, managed_container_list_request,
+    managed_network_list_request, managed_volume_list_request, network_create_request,
+    observed_container, observed_network, observed_volume, validate_engine_api_version,
+    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -110,6 +111,47 @@ fn mutable_image_tags_are_rejected_before_an_engine_request() {
         error.to_string(),
         "managed image 'caddy:latest' must use an immutable sha256 digest"
     );
+}
+
+#[test]
+fn image_resolution_accepts_only_immutable_digest_references() {
+    let immutable = ImmutableImageReference::new(concat!(
+        "ghcr.io/stackctl/php@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ))
+    .expect("immutable image");
+    let error =
+        ImmutableImageReference::new("ghcr.io/stackctl/php:8.4").expect_err("mutable image tag");
+    let mut resolver = RecordingImageResolver::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+    let strategy: &mut dyn ImageResolver = &mut resolver;
+
+    let image = runtime
+        .block_on(strategy.ensure_image(&immutable))
+        .expect("resolve image");
+
+    assert_eq!(image.as_str(), "sha256:image-config");
+    assert_eq!(resolver.resolved, vec![immutable]);
+    assert_eq!(
+        error.to_string(),
+        "managed image 'ghcr.io/stackctl/php:8.4' must use an immutable sha256 digest"
+    );
+}
+
+#[test]
+fn image_pull_requests_preserve_the_complete_digest_reference() {
+    let reference = ImmutableImageReference::new(concat!(
+        "ghcr.io/stackctl/php@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ))
+    .expect("immutable image");
+
+    let request = image_pull_request(&reference);
+
+    assert_eq!(request.from_image.as_deref(), Some(reference.as_str()));
+    assert_eq!(request.tag, None);
 }
 
 #[test]
@@ -651,6 +693,23 @@ struct RecordingVolumeBackend {
 struct RecordingResourceDiscovery {
     networks: Vec<ObservedNetwork>,
     volumes: Vec<ObservedVolume>,
+}
+
+#[derive(Default)]
+struct RecordingImageResolver {
+    resolved: Vec<ImmutableImageReference>,
+}
+
+impl ImageResolver for RecordingImageResolver {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        Box::pin(async move {
+            self.resolved.push(reference.clone());
+            Ok(ImageId::new("sha256:image-config"))
+        })
+    }
 }
 
 impl NetworkDiscovery for RecordingResourceDiscovery {
