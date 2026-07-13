@@ -1,3 +1,4 @@
+mod configuration;
 mod dns_label;
 mod identity_error;
 mod project_identity;
