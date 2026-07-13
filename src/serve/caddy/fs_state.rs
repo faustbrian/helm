@@ -40,10 +40,13 @@ pub(super) fn read_caddy_state(path: &Path) -> Result<CaddyState> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{
         CaddyState, caddy_access_log_path, caddy_dir, caddy_dir_with_home, read_caddy_state,
     };
+
+    static TEMP_HOME_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
     fn write_caddy_state_and_file(
         state_path: &std::path::Path,
@@ -57,8 +60,11 @@ mod tests {
     }
 
     fn temp_home_dir() -> std::path::PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("stackctl-caddy-fs-state-{}", std::process::id()));
+        let sequence = TEMP_HOME_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "stackctl-caddy-fs-state-{}-{sequence}",
+            std::process::id()
+        ));
         drop(std::fs::remove_dir_all(&path));
         std::fs::create_dir_all(&path).expect("create temp home");
         path

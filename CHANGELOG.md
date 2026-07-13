@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Isolated concurrent legacy Caddy filesystem tests with unique temporary home
+  directories so one test cannot remove another test's active fixture.
 - Added a revisioned built-in v8 artifact catalog for preset-only services,
   including deterministic default versions, exact registry sources, and loud
   failure for unsupported versions or stale catalog locks. Application process
