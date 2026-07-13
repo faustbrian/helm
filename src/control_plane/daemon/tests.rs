@@ -2,13 +2,14 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    ImageReferenceResolution, IpcEventJournal, ProjectCommandExecutionOptions, ProjectCommandQueue,
-    ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistry,
-    ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_project_command, invalidate_engine_connection,
+    ImageReferenceResolution, IpcEventJournal, ProjectBackupExecutionOptions, ProjectBackupQueue,
+    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
+    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectBackup,
+    QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
+    execute_queued_project_backup, execute_queued_project_command, invalidate_engine_connection,
     plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_project_command_operations,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -461,10 +462,11 @@ fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands(
             .expect("claim running command"),
     );
 
-    let mut restored =
-        restore_project_command_operations(&mut store, 200).expect("restore project commands");
+    let (mut restored, backups) =
+        restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(restored.len(), 1);
+    assert_eq!(backups.len(), 0);
     let queued = restored.pop_front().expect("restored queued command");
     assert_eq!(queued.operation_id(), "queued-42");
     assert_eq!(queued.plan().arguments(), ["composer", "install"]);
@@ -484,6 +486,183 @@ fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands(
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove restart fixture");
+}
+
+#[test]
+fn daemon_restart_restores_queued_backups_without_replaying_running_backups() {
+    let root = temporary_directory("project-backup-restart");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    for (operation_id, created_at) in [("queued-backup", 100), ("running-backup", 101)] {
+        let queued = QueuedProjectBackup::new(
+            operation_id.to_owned(),
+            "bill".to_owned(),
+            "database".to_owned(),
+            "stackctl_bill_database".to_owned(),
+            "postgres_database_and_role".to_owned(),
+            "sha256:postgres-17".to_owned(),
+        )
+        .expect("backup intent");
+        let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+            operation_id: operation_id.to_owned(),
+            kind: "project_backup".to_owned(),
+            payload_json: queued.payload_json().expect("durable backup payload"),
+            status: DaemonOperationStatus::Queued,
+            created_at_unix_seconds: created_at,
+            updated_at_unix_seconds: created_at,
+        });
+        store
+            .enqueue_daemon_operation(&operation, &accepted_json, 256)
+            .expect("persist queued backup");
+    }
+    drop(
+        store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "running-backup",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 102,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim running backup"),
+    );
+
+    let (commands, mut backups) =
+        restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
+
+    assert_eq!(commands.len(), 0);
+    assert_eq!(backups.len(), 1);
+    assert_eq!(
+        backups.pop_front().expect("restored backup").operation_id(),
+        "queued-backup"
+    );
+    let events = store.daemon_events().expect("daemon events");
+    let interrupted = events.last().expect("interrupted terminal event");
+    assert_eq!(interrupted.operation_id(), "running-backup");
+    assert!(
+        interrupted
+            .kind_json()
+            .contains("project_backup_interrupted")
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove restart fixture");
+}
+
+#[test]
+fn project_backup_intent_is_secret_free_and_survives_a_durable_round_trip() {
+    let queued = QueuedProjectBackup::new(
+        "backup-42".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "stackctl_bill_database".to_owned(),
+        "postgres_database_and_role".to_owned(),
+        "sha256:postgres-17".to_owned(),
+    )
+    .expect("valid backup intent");
+
+    let payload = queued.payload_json().expect("durable backup payload");
+    assert!(!payload.contains("secret-value"));
+    let restored = QueuedProjectBackup::from_payload_json("backup-42".to_owned(), &payload)
+        .expect("restore backup intent");
+
+    assert_eq!(restored, queued);
+}
+
+#[test]
+fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() {
+    let backup_root = temporary_directory("queued-postgres-backup");
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "postgres-container",
+        "install-1",
+        "postgres-17",
+        "sha256:postgres-17",
+    )]);
+    let operation = QueuedProjectBackup::new(
+        "backup-42".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "stackctl_bill_database".to_owned(),
+        "postgres_database_and_role".to_owned(),
+        "sha256:postgres-17".to_owned(),
+    )
+    .expect("valid backup intent");
+    let logical_resource = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "stackctl_bill_database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let credential = crate::control_plane::state::CredentialRecord::new(
+        crate::control_plane::state::CredentialRecordOptions {
+            credential_id: "bill/database/primary".to_owned(),
+            project_id: Some("bill".to_owned()),
+            service_id: "database".to_owned(),
+            username: "credential-user".to_owned(),
+            secret: "secret-value".to_owned(),
+            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
+        },
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified backup");
+    assert_eq!(backup.artifact_size_bytes(), 10);
+    assert_eq!(engine.containers(), ["postgres-container"]);
+    assert_eq!(
+        engine.command_environments()[0].get("PGPASSWORD"),
+        Some(&"secret-value".to_owned())
+    );
+    let recovery_point = Path::new(backup.reference());
+    assert!(recovery_point.join("artifact.bin").is_file());
+    assert!(recovery_point.join("manifest.json").is_file());
+
+    std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
+fn project_backup_queue_is_bounded_and_rejects_duplicate_operations() {
+    let operation = QueuedProjectBackup::new(
+        "backup-42".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "stackctl_bill_database".to_owned(),
+        "postgres_database_and_role".to_owned(),
+        "sha256:postgres-17".to_owned(),
+    )
+    .expect("valid backup intent");
+    let mut queue = ProjectBackupQueue::new(1).expect("bounded queue");
+
+    queue.enqueue(operation.clone()).expect("first operation");
+    let duplicate = queue
+        .enqueue(operation)
+        .expect_err("duplicate operation must fail");
+
+    assert!(duplicate.to_string().contains("already queued"));
 }
 
 #[test]
@@ -1490,6 +1669,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1520,6 +1700,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         request: &subscription,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1580,6 +1761,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: Some(&mut resolver),
@@ -1676,6 +1858,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
         image_reference_resolution: None,
@@ -1803,6 +1986,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         request: &open,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1841,6 +2025,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         request: &poll,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1900,6 +2085,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1973,6 +2159,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2061,6 +2248,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2136,6 +2324,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2177,6 +2366,97 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
     assert!(!persisted[0].payload_json().contains("secret-value"));
     assert!(!persisted[0].payload_json().contains("DB_PASSWORD"));
     std::fs::remove_dir_all(&root).expect("remove command fixture");
+}
+
+#[test]
+fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
+    let root = temporary_directory("ipc-project-backup");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let logical = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "stackctl_bill_database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let credential = crate::control_plane::state::CredentialRecord::new(
+        crate::control_plane::state::CredentialRecordOptions {
+            credential_id: "bill/database/primary".to_owned(),
+            project_id: Some("bill".to_owned()),
+            service_id: "database".to_owned(),
+            username: "credential-user".to_owned(),
+            secret: "secret-value".to_owned(),
+            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
+        },
+    );
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "backup-42",
+        IpcPayload::BackupProjectService {
+            canonical_path: project_path,
+            service: "database".to_owned(),
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_backups = ProjectBackupQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut project_backups,
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
+        now_unix_seconds: 40_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "backup-42",
+            IpcResult::Accepted {
+                operation_id: "backup-42".to_owned(),
+            },
+        )
+    );
+    let queued = project_backups.pop_front().expect("queued project backup");
+    assert_eq!(queued.project_id(), "bill");
+    assert_eq!(queued.service_id(), "database");
+    assert_eq!(queued.logical_resource_id(), "stackctl_bill_database");
+
+    drop(control_plane);
+    let persisted = SqliteStateStore::open(&database_path)
+        .expect("reopen state store")
+        .active_daemon_operations()
+        .expect("load backup operation");
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].kind(), "project_backup");
+    assert!(!persisted[0].payload_json().contains("secret-value"));
+    assert!(!persisted[0].payload_json().contains("credential-user"));
+
+    std::fs::remove_dir_all(root).expect("remove backup fixture");
 }
 
 #[test]
@@ -2884,6 +3164,33 @@ fn observed_project_application(
     .expect("application metadata")
     .with_resource_id(service_id)
     .expect("application service identity");
+
+    crate::control_plane::engine::ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new(container_id),
+        metadata.labels(),
+    )
+}
+
+fn observed_shared_service(
+    container_id: &str,
+    installation_id: &str,
+    resource_id: &str,
+    compatibility_fingerprint: &str,
+) -> crate::control_plane::engine::ObservedContainer {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::SharedService,
+            project_id: None,
+            compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("shared-service metadata")
+    .with_resource_id(resource_id)
+    .expect("shared-service identity");
 
     crate::control_plane::engine::ObservedContainer::new(
         crate::control_plane::engine::ContainerId::new(container_id),

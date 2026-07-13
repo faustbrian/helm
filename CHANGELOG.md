@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added durable singleton PostgreSQL recovery-point operations with secret-free
+  queued identity, runtime-only credential resolution, exact owned shared-service
+  matching, direct Engine streaming, verified host artifacts, serialized Engine
+  mutation, restart-safe queued replay, and loud terminalization of ambiguous
+  in-flight backups.
 - Added explicit data-lifecycle strategy resolution for every currently shared
   authoritative service family, including logical, native, bucket-export, and
   shared-snapshot boundaries. Non-data and unknown logical kinds now fail

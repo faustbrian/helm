@@ -21,7 +21,7 @@ impl UnixDaemonRuntime {
     pub(super) fn drive_project_commands(&mut self, now: Instant, now_unix_seconds: i64) {
         self.engine_runtime.block_on(tokio::task::yield_now());
         self.publish_finished_project_command(now_unix_seconds);
-        if self.active_project_command.is_some() {
+        if self.active_project_command.is_some() || self.active_project_backup.is_some() {
             return;
         }
 

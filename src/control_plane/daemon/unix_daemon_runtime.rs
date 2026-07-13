@@ -1,13 +1,13 @@
 use super::{
-    ActiveProjectCommand, ActiveProjectLogSession, BollardUnixEngineConnector,
+    ActiveProjectBackup, ActiveProjectCommand, ActiveProjectLogSession, BollardUnixEngineConnector,
     DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
     EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
-    ImageReferenceResolution, IpcEventJournal, ProjectCommandQueue, ProjectLogSessionRegistry,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    ImageReferenceResolution, IpcEventJournal, ProjectBackupQueue, ProjectCommandQueue,
+    ProjectLogSessionRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -49,15 +49,17 @@ pub(crate) struct UnixDaemonRuntime {
     filesystem_watcher: FilesystemEventWatcher,
     pub(super) engine_runtime: tokio::runtime::Runtime,
     pub(super) engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
-    runtime_directory: PathBuf,
+    pub(super) runtime_directory: PathBuf,
     pub(super) global_network_request: NetworkCreateOptions,
     pub(super) engine_reconciliation: EngineReconciliationSchedule,
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
+    pub(super) project_backups: ProjectBackupQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
     pub(super) resource_health: ResourceHealthRegistry,
     pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
+    pub(super) active_project_backup: Option<ActiveProjectBackup>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
@@ -85,7 +87,8 @@ impl UnixDaemonRuntime {
             &runtime_directory.join("state-backups"),
             unix_time_seconds(),
         )?;
-        let project_commands = restore_project_command_operations(&mut store, unix_time_seconds())?;
+        let (project_commands, project_backups) =
+            restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
@@ -116,10 +119,12 @@ impl UnixDaemonRuntime {
             engine_reconciliation: EngineReconciliationSchedule::default(),
             event_journal,
             project_commands,
+            project_backups,
             project_logs: ProjectLogSessionRegistry::default(),
             resource_health: ResourceHealthRegistry::default(),
             active_project_logs: BTreeMap::new(),
             active_project_command: None,
+            active_project_backup: None,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -161,6 +166,7 @@ impl UnixDaemonRuntime {
                 request,
                 event_journal: &mut self.event_journal,
                 project_commands: &mut self.project_commands,
+                project_backups: &mut self.project_backups,
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
                 image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
@@ -208,11 +214,13 @@ impl UnixDaemonRuntime {
                         }
                     }
                     if !self.has_active_project_command()
+                        && !self.has_active_project_backup()
                         && self.engine_reconciliation.may_reconcile()
                     {
                         self.reconcile_engine_plane(now);
                     }
                     self.drive_project_commands(now, unix_time_seconds());
+                    self.drive_project_backups(now, unix_time_seconds());
                     self.drive_project_logs(now);
                 }
                 Err(error) => {

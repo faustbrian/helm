@@ -48,4 +48,9 @@ pub(crate) enum IpcPayload {
         command: IpcProjectCommand,
         timeout_seconds: u64,
     },
+    /// Queues one verified logical recovery point for an owned project service.
+    BackupProjectService {
+        canonical_path: PathBuf,
+        service: String,
+    },
 }

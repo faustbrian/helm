@@ -1,7 +1,8 @@
 use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
-    ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry, reconcile_watched_roots,
+    ProjectLogTarget, QueuedProjectBackup, QueuedProjectCommand, ResourceHealthRegistry,
+    reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -35,6 +36,7 @@ where
         request,
         event_journal,
         project_commands,
+        project_backups,
         project_logs,
         resource_health,
         image_reference_resolution,
@@ -382,6 +384,92 @@ where
                 {
                     drop(event_journal.append_record(event));
                 }
+
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "event_journal_failed",
+                        error.to_string(),
+                        false,
+                    )],
+                );
+            }
+
+            IpcResponse::success(
+                request.request_id(),
+                IpcResult::Accepted {
+                    operation_id: request.request_id().to_owned(),
+                },
+            )
+        }
+        IpcPayload::BackupProjectService {
+            canonical_path,
+            service,
+        } => {
+            let queued = match prepare_project_backup(
+                control_plane,
+                request.request_id(),
+                canonical_path,
+                service,
+            ) {
+                Ok(queued) => queued,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new("project_backup_invalid", message, false)],
+                    );
+                }
+            };
+            let payload_json = match queued.payload_json() {
+                Ok(payload) => payload,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new("project_backup_invalid", message, false)],
+                    );
+                }
+            };
+            if let Err(error) = project_backups.enqueue(queued) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_backup_queue_unavailable",
+                        error.to_string(),
+                        true,
+                    )],
+                );
+            }
+            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
+                .expect("accepted event serialization is infallible");
+            let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: request.request_id().to_owned(),
+                kind: "project_backup".to_owned(),
+                payload_json,
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: now_unix_seconds,
+                updated_at_unix_seconds: now_unix_seconds,
+            });
+            let accepted = match control_plane.enqueue_daemon_operation(
+                &operation,
+                &accepted_kind_json,
+                event_journal.capacity(),
+            ) {
+                Ok(event) => event,
+                Err(error) => {
+                    drop(project_backups.remove(request.request_id()));
+
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "project_backup_queue_unavailable",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = event_journal.append_record(accepted) {
+                drop(project_backups.remove(request.request_id()));
 
                 return IpcResponse::failure(
                     request.request_id(),
@@ -873,6 +961,66 @@ where
         service.as_str().to_owned(),
         plan,
     ))
+}
+
+fn prepare_project_backup<Store>(
+    control_plane: &ControlPlane<Store>,
+    operation_id: &str,
+    canonical_path: &std::path::Path,
+    service: &str,
+) -> Result<QueuedProjectBackup, String>
+where
+    Store: StateStore,
+{
+    let service = ServiceIdentity::new(service).map_err(|error| error.to_string())?;
+    let projects = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?;
+    let project = projects
+        .iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let matches = control_plane
+        .logical_resources()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|logical| {
+            logical.project_id() == project.project_name()
+                && logical.service_id() == service.as_str()
+                && logical.lifecycle() == ResourceLifecycle::Active
+        })
+        .collect::<Vec<_>>();
+    let logical = match matches.as_slice() {
+        [logical] => logical,
+        [] => {
+            return Err(format!(
+                "project '{}' service '{}' has no active logical data resource",
+                project.project_name(),
+                service.as_str()
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "project '{}' service '{}' has multiple active logical data resources",
+                project.project_name(),
+                service.as_str()
+            ));
+        }
+    };
+
+    QueuedProjectBackup::new(
+        operation_id.to_owned(),
+        project.project_name().to_owned(),
+        service.as_str().to_owned(),
+        logical.logical_resource_id().to_owned(),
+        logical.kind().to_owned(),
+        logical.compatibility_fingerprint().to_owned(),
+    )
 }
 
 fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {

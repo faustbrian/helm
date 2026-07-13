@@ -1,6 +1,7 @@
 mod adopt_project;
 mod control_plane;
 mod control_plane_error;
+mod credentials;
 mod daemon_events;
 mod daemon_operations;
 mod desired_registry;
