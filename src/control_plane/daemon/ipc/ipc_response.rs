@@ -10,6 +10,21 @@ pub(crate) struct IpcDiagnostic {
     retryable: bool,
 }
 
+impl IpcDiagnostic {
+    /// Creates one stable value-safe daemon diagnostic.
+    pub(crate) fn new(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        retryable: bool,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            retryable,
+        }
+    }
+}
+
 /// The typed outcome of one correlated IPC request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
@@ -37,6 +52,15 @@ impl IpcResponse {
             protocol_version: IPC_PROTOCOL_VERSION,
             request_id: request_id.into(),
             outcome: IpcOutcome::Success { result },
+        }
+    }
+
+    /// Creates a failed response using stable machine-readable diagnostics.
+    pub(crate) fn failure(request_id: impl Into<String>, diagnostics: Vec<IpcDiagnostic>) -> Self {
+        Self {
+            protocol_version: IPC_PROTOCOL_VERSION,
+            request_id: request_id.into(),
+            outcome: IpcOutcome::Failure { diagnostics },
         }
     }
 

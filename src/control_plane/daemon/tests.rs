@@ -1,9 +1,10 @@
 use super::{
     DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, ProjectDiscoveryOptions,
     RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
-    reconcile_watched_roots,
+    dispatch_daemon_request, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
+use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -290,6 +291,47 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     assert_eq!(projects[0].project_name(), "bill");
 
     drop(store);
+    std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
+    let root = temporary_directory("ipc-reconciliation");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new("reconcile-42", IpcPayload::Reconcile);
+
+    let response = dispatch_daemon_request(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        &request,
+        10_000,
+    );
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "reconcile-42",
+            IpcResult::Reconciled {
+                project_count: 1,
+                issue_count: 0,
+                applied: true,
+            },
+        )
+    );
+
+    drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
 }
 

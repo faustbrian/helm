@@ -78,6 +78,9 @@ All notable changes to this project are documented in this file.
 - Added bounded request/response serving on the user-only Unix daemon socket,
   with strict typed decoding, request correlation, and oversized-frame
   rejection before dispatch.
+- Replaced per-project v8 IPC reconciliation with one complete watched-root
+  operation that returns applied, project, and issue counts while converting
+  scan or transaction failures into stable correlated diagnostics.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

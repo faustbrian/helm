@@ -2,16 +2,10 @@ use super::{
     IPC_PROTOCOL_VERSION, IpcPayload, IpcRequest, IpcResponse, IpcResult, decode_request_frame,
     decode_response_frame, encode_frame,
 };
-use std::path::PathBuf;
 
 #[test]
 fn request_frames_round_trip_with_version_id_and_typed_payload() {
-    let request = IpcRequest::new(
-        "request-42",
-        IpcPayload::ReconcileProject {
-            project_path: PathBuf::from("/work/bill"),
-        },
-    );
+    let request = IpcRequest::new("request-42", IpcPayload::Reconcile);
 
     let frame = encode_frame(&request).expect("encode request");
     let decoded = decode_request_frame(&frame).expect("decode request");

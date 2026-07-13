@@ -9,4 +9,10 @@ pub(crate) enum IpcResult {
     Pong,
     /// Confirms an asynchronous operation was accepted.
     Accepted { operation_id: String },
+    /// Reports one complete watched-root reconciliation attempt.
+    Reconciled {
+        project_count: usize,
+        issue_count: usize,
+        applied: bool,
+    },
 }

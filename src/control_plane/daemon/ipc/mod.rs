@@ -11,7 +11,7 @@ pub(crate) use frame::{decode_request_frame, decode_response_frame, encode_frame
 pub(crate) use ipc_error::IpcError;
 pub(crate) use ipc_payload::IpcPayload;
 pub(crate) use ipc_request::{IPC_PROTOCOL_VERSION, IpcRequest};
-pub(crate) use ipc_response::IpcResponse;
+pub(crate) use ipc_response::{IpcDiagnostic, IpcResponse};
 pub(crate) use ipc_result::IpcResult;
 #[cfg(unix)]
 pub(crate) use unix_ipc_listener::UnixIpcListener;
