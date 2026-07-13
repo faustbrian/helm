@@ -157,6 +157,16 @@ fn derived_image_content_ids_are_valid_container_inputs() {
 }
 
 #[test]
+fn malformed_engine_image_ids_are_rejected_at_the_boundary() {
+    let error = ImageId::new("sha256:image-config").expect_err("malformed Engine image ID");
+
+    assert_eq!(
+        error.to_string(),
+        "Engine image ID 'sha256:image-config' must be a sha256 content identity"
+    );
+}
+
+#[test]
 fn image_resolution_accepts_only_immutable_digest_references() {
     let immutable = ImmutableImageReference::new(concat!(
         "ghcr.io/stackctl/php@sha256:",
@@ -178,7 +188,7 @@ fn image_resolution_accepts_only_immutable_digest_references() {
         .block_on(strategy.ensure_image(&immutable))
         .expect("resolve image");
 
-    assert_eq!(image.as_str(), "sha256:image-config");
+    assert_eq!(image.as_str(), format!("sha256:{}", "a".repeat(64)));
     assert_eq!(resolver.resolved, vec![immutable]);
     assert_eq!(
         error.to_string(),
@@ -1543,7 +1553,7 @@ impl ImageResolver for RecordingImageResolver {
     ) -> EngineFuture<'operation, ImageId> {
         Box::pin(async move {
             self.resolved.push(reference.clone());
-            Ok(ImageId::new("sha256:image-config"))
+            ImageId::new(format!("sha256:{}", "a".repeat(64)))
         })
     }
 }

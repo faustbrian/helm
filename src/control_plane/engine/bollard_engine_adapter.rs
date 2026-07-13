@@ -887,15 +887,14 @@ fn verified_built_image(
         });
     }
 
-    image
-        .id
-        .map(ImageId::new)
-        .ok_or_else(|| EngineError::Backend {
-            detail: format!(
-                "Engine returned derived image '{}' without an ID",
-                request.output_tag()
-            ),
-        })
+    let id = image.id.ok_or_else(|| EngineError::Backend {
+        detail: format!(
+            "Engine returned derived image '{}' without an ID",
+            request.output_tag()
+        ),
+    })?;
+
+    ImageId::new(id)
 }
 
 pub(super) fn image_pull_request(
@@ -910,12 +909,14 @@ fn image_id(
     id: Option<String>,
     reference: &ImmutableImageReference,
 ) -> Result<ImageId, EngineError> {
-    id.map(ImageId::new).ok_or_else(|| EngineError::Backend {
+    let id = id.ok_or_else(|| EngineError::Backend {
         detail: format!(
             "Engine returned immutable image '{}' without an ID",
             reference.as_str()
         ),
-    })
+    })?;
+
+    ImageId::new(id)
 }
 
 impl NetworkDiscovery for BollardEngineAdapter {

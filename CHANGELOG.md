@@ -100,6 +100,8 @@ All notable changes to this project are documented in this file.
   platform, PHP, Composer, JavaScript, system packages, and installer revision.
 - Allowed derived Engine content IDs as immutable container inputs while keeping
   registry pulls restricted to digest-pinned repository references.
+- Made Engine image identities validated sha256 values so malformed backend
+  responses cannot enter runtime planning or container reconciliation.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application
