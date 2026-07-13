@@ -1,7 +1,8 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
-    RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction,
+    JavaScriptRuntimeSpec, ProjectProcessPlan, ProjectProcessPlanOptions,
+    ProjectProcessRequestOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
+    RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions, WorkloadReconcileAction,
     WorkloadReconcileOptions, application_container_request, project_process_request,
     reconcile_project_application, reconcile_project_process,
 };
@@ -17,6 +18,116 @@ use crate::control_plane::state::{
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+#[test]
+fn equivalent_runtime_inputs_reuse_one_content_addressed_image() {
+    let mut first = runtime_image_options();
+    first.php_extensions = vec!["redis".to_owned(), "intl".to_owned()];
+    first.system_packages = vec!["git".to_owned(), "imagemagick".to_owned()];
+    let mut second = runtime_image_options();
+    second.php_extensions = vec!["intl".to_owned(), "redis".to_owned()];
+    second.system_packages = vec!["imagemagick".to_owned(), "git".to_owned()];
+
+    let first = RuntimeImageBuildPlan::new(first).expect("first runtime image plan");
+    let second = RuntimeImageBuildPlan::new(second).expect("second runtime image plan");
+
+    assert_eq!(
+        first.compatibility_fingerprint(),
+        second.compatibility_fingerprint()
+    );
+    assert_eq!(
+        first.request().input_digest(),
+        second.request().input_digest()
+    );
+    assert_eq!(first.request().output_tag(), second.request().output_tag());
+    assert!(first.manifest_json().contains(r#""php_version":"8.4.12""#));
+    assert!(
+        first
+            .manifest_json()
+            .contains(r#""composer_version":"2.8.10""#)
+    );
+    assert!(!first.manifest_json().contains("bill"));
+    assert!(
+        first
+            .request()
+            .dockerfile_contents()
+            .contains("/usr/local/bin/stackctl-runtime-install")
+    );
+    assert!(!first.request().dockerfile_contents().contains("curl"));
+    assert!(!first.request().dockerfile_contents().contains("http"));
+}
+
+#[test]
+fn runtime_image_fingerprint_changes_for_every_compatibility_input() {
+    let baseline =
+        RuntimeImageBuildPlan::new(runtime_image_options()).expect("baseline runtime image plan");
+    let mut base = runtime_image_options();
+    base.base_image_digest = concat!(
+        "ghcr.io/stackctl/runtime-base@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    )
+    .to_owned();
+    let mut platform = runtime_image_options();
+    platform.platform = "linux/amd64".to_owned();
+    let mut php = runtime_image_options();
+    php.php_version = "8.3.23".to_owned();
+    let mut extensions = runtime_image_options();
+    extensions.php_extensions.push("redis".to_owned());
+    let mut packages = runtime_image_options();
+    packages.system_packages.push("imagemagick".to_owned());
+    let mut composer = runtime_image_options();
+    composer.composer_version = "2.8.11".to_owned();
+    let mut javascript = runtime_image_options();
+    javascript.javascript = Some(JavaScriptRuntimeSpec::Bun {
+        version: "1.2.19".to_owned(),
+    });
+    let mut installer = runtime_image_options();
+    installer.installer_revision = "runtime-installer-v2".to_owned();
+
+    for changed in [
+        base, platform, php, extensions, packages, composer, javascript, installer,
+    ] {
+        let changed = RuntimeImageBuildPlan::new(changed).expect("changed runtime image plan");
+        assert_ne!(
+            baseline.compatibility_fingerprint(),
+            changed.compatibility_fingerprint()
+        );
+        assert_ne!(
+            baseline.request().output_tag(),
+            changed.request().output_tag()
+        );
+    }
+}
+
+#[test]
+fn runtime_image_planning_rejects_ranges_duplicates_and_unsafe_packages() {
+    let mut ranged = runtime_image_options();
+    ranged.javascript = Some(JavaScriptRuntimeSpec::Node {
+        version: ">=22".to_owned(),
+    });
+    let mut duplicate = runtime_image_options();
+    duplicate.php_extensions = vec!["intl".to_owned(), "intl".to_owned()];
+    let mut unsafe_package = runtime_image_options();
+    unsafe_package.system_packages = vec!["git;curl example.test".to_owned()];
+
+    let ranged = RuntimeImageBuildPlan::new(ranged).expect_err("mutable Node range");
+    let duplicate = RuntimeImageBuildPlan::new(duplicate).expect_err("duplicate extension");
+    let unsafe_package =
+        RuntimeImageBuildPlan::new(unsafe_package).expect_err("unsafe system package");
+
+    assert_eq!(
+        ranged.to_string(),
+        "JavaScript runtime version '>=22' must be an exact numeric version"
+    );
+    assert_eq!(
+        duplicate.to_string(),
+        "runtime image declares PHP extension 'intl' more than once"
+    );
+    assert_eq!(
+        unsafe_package.to_string(),
+        "runtime image system package 'git;curl example.test' is invalid"
+    );
+}
 
 #[test]
 fn project_applications_use_private_networking_without_host_ports() {
@@ -634,6 +745,27 @@ fn application_options(project: &str, path: &str) -> ApplicationContainerPlanOpt
         source_path: PathBuf::from(path),
         network_name: "stackctl-private".to_owned(),
         internal_http_port: 8080,
+    }
+}
+
+fn runtime_image_options() -> RuntimeImageBuildPlanOptions {
+    RuntimeImageBuildPlanOptions {
+        installation_id: "install-1".to_owned(),
+        schema_version: 8,
+        base_image_digest: concat!(
+            "ghcr.io/stackctl/runtime-base@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .to_owned(),
+        platform: "linux/arm64".to_owned(),
+        php_version: "8.4.12".to_owned(),
+        php_extensions: vec!["intl".to_owned()],
+        system_packages: vec!["git".to_owned()],
+        composer_version: "2.8.10".to_owned(),
+        javascript: Some(JavaScriptRuntimeSpec::Node {
+            version: "22.17.0".to_owned(),
+        }),
+        installer_revision: "runtime-installer-v1".to_owned(),
     }
 }
 

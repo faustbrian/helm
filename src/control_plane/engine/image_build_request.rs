@@ -84,6 +84,10 @@ impl ImageBuildRequest {
         &self.dockerfile_path
     }
 
+    pub(crate) fn dockerfile_contents(&self) -> &str {
+        &self.dockerfile_contents
+    }
+
     pub(super) fn platform(&self) -> &str {
         &self.platform
     }
