@@ -1,6 +1,74 @@
-use super::{ProjectDiscoveryOptions, SingletonLease, discover_project_sources};
+use super::{
+    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, ProjectDiscoveryOptions,
+    SingletonLease, discover_project_sources,
+};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn discovery_scheduler_coalesces_editor_events_and_bounds_continuous_writes() {
+    let start = Instant::now();
+    let options = DiscoverySchedulerOptions::new(
+        Duration::from_millis(250),
+        Duration::from_secs(2),
+        Duration::from_secs(30),
+    )
+    .expect("scheduler options");
+    let mut scheduler = DiscoveryScheduler::new(start, options);
+
+    assert_eq!(
+        scheduler.take_due(start),
+        Some(DiscoveryScanReason::Initial)
+    );
+
+    scheduler.record_filesystem_event(start + Duration::from_secs(1));
+    scheduler.record_filesystem_event(start + Duration::from_millis(1_100));
+    assert_eq!(
+        scheduler.next_deadline(),
+        start + Duration::from_millis(1_350)
+    );
+    assert_eq!(
+        scheduler.take_due(start + Duration::from_millis(1_349)),
+        None
+    );
+    assert_eq!(
+        scheduler.take_due(start + Duration::from_millis(1_350)),
+        Some(DiscoveryScanReason::FilesystemEvents)
+    );
+
+    scheduler.record_filesystem_event(start + Duration::from_secs(2));
+    for offset in [400_u64, 800, 1_200, 1_600, 2_000, 2_400] {
+        scheduler.record_filesystem_event(start + Duration::from_millis(2_000 + offset));
+    }
+    assert_eq!(scheduler.next_deadline(), start + Duration::from_secs(4));
+    assert_eq!(
+        scheduler.take_due(start + Duration::from_secs(4)),
+        Some(DiscoveryScanReason::FilesystemEvents)
+    );
+}
+
+#[test]
+fn discovery_scheduler_runs_periodic_correctness_scans_without_events() {
+    let start = Instant::now();
+    let options = DiscoverySchedulerOptions::new(
+        Duration::from_millis(250),
+        Duration::from_secs(2),
+        Duration::from_secs(30),
+    )
+    .expect("scheduler options");
+    let mut scheduler = DiscoveryScheduler::new(start, options);
+    assert_eq!(
+        scheduler.take_due(start),
+        Some(DiscoveryScanReason::Initial)
+    );
+
+    assert_eq!(scheduler.next_deadline(), start + Duration::from_secs(30));
+    assert_eq!(
+        scheduler.take_due(start + Duration::from_secs(30)),
+        Some(DiscoveryScanReason::Periodic)
+    );
+    assert_eq!(scheduler.next_deadline(), start + Duration::from_secs(60));
+}
 
 #[test]
 fn only_one_daemon_can_hold_a_user_lease() {
