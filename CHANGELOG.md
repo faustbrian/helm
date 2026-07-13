@@ -106,6 +106,8 @@ All notable changes to this project are documented in this file.
   verifies the desired revision after every gateway configuration load.
 - Added deterministic local certificate lifecycle reconciliation that preserves
   the trusted CA while renewing wildcard gateway leaf material when due.
+- Persisted certificate renewal deadlines inside atomic private bundle revisions
+  and added validated bundle loading for daemon restart recovery.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

@@ -453,6 +453,7 @@ fn certificate_bundles_persist_as_atomic_user_private_directories() {
     assert_eq!(mode(&stored.ca_private_key()), 0o600);
     assert_eq!(mode(&stored.leaf_certificate()), 0o600);
     assert_eq!(mode(&stored.leaf_private_key()), 0o600);
+    assert_eq!(mode(&stored.renew_after()), 0o600);
     assert_eq!(
         std::fs::read_to_string(stored.leaf_private_key()).expect("stored leaf key"),
         bundle.leaf_private_key_pem()
@@ -467,6 +468,47 @@ fn certificate_bundles_persist_as_atomic_user_private_directories() {
                 .contains(".tmp"))
     );
 
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
+fn certificate_bundles_load_with_their_persisted_renewal_deadline() {
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let stored = store.persist(&bundle).expect("persist certificate bundle");
+
+    let reloaded_store = FilesystemCertificateStore::new(root.clone());
+    let (loaded, restored) = reloaded_store
+        .load_directory(stored.directory())
+        .expect("load certificate bundle after restart");
+
+    assert_eq!(loaded, bundle);
+    assert_eq!(restored, stored);
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
+fn certificate_bundle_loading_rejects_a_corrupt_renewal_deadline() {
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let stored = store.persist(&bundle).expect("persist certificate bundle");
+    std::fs::write(stored.renew_after(), "not-a-timestamp\n").expect("corrupt renewal metadata");
+
+    let error = store
+        .load_directory(stored.directory())
+        .expect_err("invalid renewal deadline");
+
+    assert!(
+        error
+            .to_string()
+            .contains("renewal deadline is not a valid Unix timestamp")
+    );
     std::fs::remove_dir_all(root).expect("remove certificate test root");
 }
 

@@ -30,4 +30,8 @@ impl StoredCertificatePaths {
     pub(crate) fn leaf_private_key(&self) -> PathBuf {
         self.directory.join("wildcard.key")
     }
+
+    pub(crate) fn renew_after(&self) -> PathBuf {
+        self.directory.join("renew-after")
+    }
 }

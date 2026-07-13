@@ -3,6 +3,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use time::OffsetDateTime;
 
 /// Persists immutable certificate revisions without exposing partial bundles.
 pub(crate) struct FilesystemCertificateStore {
@@ -47,11 +48,13 @@ impl FilesystemCertificateStore {
                 )
             })?;
 
+        let renew_after = format!("{}\n", bundle.leaf_renew_after().unix_timestamp());
         let writes = [
             ("ca.crt", bundle.ca_certificate_pem()),
             ("ca.key", bundle.ca_private_key_pem()),
             ("wildcard.crt", bundle.leaf_certificate_pem()),
             ("wildcard.key", bundle.leaf_private_key_pem()),
+            ("renew-after", renew_after.as_str()),
         ];
 
         for (name, contents) in writes {
@@ -96,12 +99,87 @@ impl FilesystemCertificateStore {
             self.root.display()
         )))
     }
+
+    pub(crate) fn load_directory(
+        &self,
+        directory: &Path,
+    ) -> Result<(LocalCertificateBundle, StoredCertificatePaths), LocalCertificateError> {
+        if directory.parent() != Some(self.root.as_path()) || !is_bundle_directory(directory) {
+            return Err(LocalCertificateError::new(format!(
+                "certificate bundle directory '{}' is not an immutable revision under '{}'",
+                directory.display(),
+                self.root.display()
+            )));
+        }
+
+        let paths = StoredCertificatePaths::new(directory.to_path_buf());
+        let bundle = self.load(&paths)?;
+        let expected_directory = self
+            .root
+            .join(format!("bundle-{}", bundle_revision(&bundle)));
+        if directory != expected_directory {
+            return Err(LocalCertificateError::new(format!(
+                "certificate bundle directory '{}' does not match its contents",
+                directory.display()
+            )));
+        }
+
+        Ok((bundle, paths))
+    }
+
+    fn load(
+        &self,
+        paths: &StoredCertificatePaths,
+    ) -> Result<LocalCertificateBundle, LocalCertificateError> {
+        let ca_certificate = read_certificate_file(&paths.ca_certificate())?;
+        let ca_private_key = read_certificate_file(&paths.ca_private_key())?;
+        let leaf_certificate = read_certificate_file(&paths.leaf_certificate())?;
+        let leaf_private_key = read_certificate_file(&paths.leaf_private_key())?;
+        let renew_after_path = paths.renew_after();
+        let renew_after = read_certificate_file(&renew_after_path)?
+            .trim()
+            .parse::<i64>()
+            .map_err(|error| {
+                LocalCertificateError::new(format!(
+                    "certificate renewal deadline is not a valid Unix timestamp in '{}': {error}",
+                    renew_after_path.display()
+                ))
+            })?;
+        let renew_after = OffsetDateTime::from_unix_timestamp(renew_after).map_err(|error| {
+            LocalCertificateError::new(format!(
+                "certificate renewal deadline is outside the supported range in '{}': {error}",
+                renew_after_path.display()
+            ))
+        })?;
+
+        Ok(LocalCertificateBundle::new(
+            ca_certificate,
+            ca_private_key,
+            leaf_certificate,
+            leaf_private_key,
+            renew_after,
+        ))
+    }
+}
+
+fn is_bundle_directory(directory: &Path) -> bool {
+    let Some(name) = directory.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let Some(revision) = name.strip_prefix("bundle-") else {
+        return false;
+    };
+
+    revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn bundle_revision(bundle: &LocalCertificateBundle) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bundle.ca_certificate_pem().as_bytes());
+    hasher.update(bundle.ca_private_key_pem().as_bytes());
     hasher.update(bundle.leaf_certificate_pem().as_bytes());
+    hasher.update(bundle.leaf_private_key_pem().as_bytes());
+    hasher.update(bundle.leaf_renew_after().unix_timestamp().to_be_bytes());
 
     hex::encode(hasher.finalize())
 }
@@ -111,11 +189,13 @@ fn verify_existing_bundle(
     directory: &Path,
     bundle: &LocalCertificateBundle,
 ) -> Result<StoredCertificatePaths, LocalCertificateError> {
+    let renew_after = format!("{}\n", bundle.leaf_renew_after().unix_timestamp());
     let expected = [
         ("ca.crt", bundle.ca_certificate_pem()),
         ("ca.key", bundle.ca_private_key_pem()),
         ("wildcard.crt", bundle.leaf_certificate_pem()),
         ("wildcard.key", bundle.leaf_private_key_pem()),
+        ("renew-after", renew_after.as_str()),
     ];
 
     for (name, contents) in expected {
@@ -132,6 +212,10 @@ fn verify_existing_bundle(
     }
 
     Ok(StoredCertificatePaths::new(directory.to_path_buf()))
+}
+
+fn read_certificate_file(path: &Path) -> Result<String, LocalCertificateError> {
+    fs::read_to_string(path).map_err(|error| io_error("read certificate bundle file", path, error))
 }
 
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> LocalCertificateError {
