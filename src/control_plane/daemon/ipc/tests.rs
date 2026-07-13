@@ -2,8 +2,9 @@ use super::{
     IPC_PROTOCOL_VERSION, IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions,
     IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind, IpcLogChunk,
     IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream, IpcPayload,
-    IpcProjectCommand, IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
-    IpcResponse, IpcResult, decode_request_frame, decode_response_frame, encode_frame,
+    IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -67,6 +68,44 @@ fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
     let json = serde_json::to_string(&snapshot).expect("benchmark JSON");
     assert!(json.contains("\"memory_usage_bytes\":67108864"));
     assert!(!json.contains("null"));
+}
+
+#[test]
+fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
+    let request = IpcRequest::new(
+        "prune-plan-42",
+        IpcPayload::PlanPostgresPrune {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+        },
+    );
+    let plan = IpcPostgresPrunePlan::new(IpcPostgresPrunePlanOptions {
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        credential_id: "bill/database/postgresql".to_owned(),
+        recovery_point_id: "backup-42".to_owned(),
+        confirmation_token: "a".repeat(64),
+    })
+    .expect("IPC prune plan");
+    let response = IpcResponse::success("prune-plan-42", IpcResult::PostgresPrunePlan { plan });
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
+    let json = serde_json::to_string(&response).expect("response JSON");
+    assert!(!json.contains("secret"));
+    assert!(!json.contains("/backups/"));
 }
 
 #[test]

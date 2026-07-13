@@ -5,6 +5,7 @@
 mod backup;
 mod benchmark;
 mod migration_decision;
+mod prune;
 mod restore;
 mod service;
 mod trust;
@@ -29,6 +30,7 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Backup(backup_args) => backup::handle_daemon_backup(backup_args),
         DaemonCommands::Backups(backups_args) => handle_daemon_backups(backups_args),
         DaemonCommands::Restore(restore_args) => restore::handle_daemon_restore(restore_args),
+        DaemonCommands::Prune(prune_args) => prune::handle_daemon_prune(prune_args),
         DaemonCommands::Migration(migration) => handle_daemon_migration(migration),
         DaemonCommands::Trust(trust_args) => trust::handle_daemon_trust(trust_args),
     }

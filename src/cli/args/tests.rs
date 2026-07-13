@@ -966,6 +966,27 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+
+    let prune = Cli::parse_from([
+        "stackctl",
+        "daemon",
+        "prune",
+        "plan",
+        "bill",
+        "database",
+        "backup-42",
+    ]);
+    if let commands::Commands::Daemon(args) = prune.command {
+        let commands::DaemonCommands::Prune(args) = args.command else {
+            panic!("expected daemon prune command");
+        };
+        let commands::DaemonPruneCommands::Plan(args) = args.command;
+        assert_eq!(args.project_id, "bill");
+        assert_eq!(args.service_id, "database");
+        assert_eq!(args.recovery_point_id, "backup-42");
+    } else {
+        panic!("expected daemon command");
+    }
 }
 
 #[test]

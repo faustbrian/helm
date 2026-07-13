@@ -1,10 +1,11 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
-    DataLifecycleStrategyError, DeletionDecision, PruneAuthorization, RestoreTarget,
-    RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
-    resolve_data_lifecycle_strategy, restore_verified_backup, store_backup_artifact,
-    store_backup_artifact_for_identity, store_backup_artifact_from_async_reader,
-    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
+    DataLifecycleStrategyError, DeletionDecision, PostgresLogicalPrunePlan,
+    PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget, RestoreTargetError,
+    evaluate_deletion, open_stored_backup_artifact, resolve_data_lifecycle_strategy,
+    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
+    store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
+    verify_backup_artifact, verify_stored_backup_artifact,
 };
 
 #[test]
@@ -56,9 +57,121 @@ fn lifecycle_strategy_resolution_fails_loudly_for_non_data_and_unknown_kinds() {
     );
 }
 use crate::control_plane::state::{
-    LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
 };
+
+#[test]
+fn postgres_prune_plan_binds_exact_retained_state_backup_and_confirmation() {
+    let logical = prune_logical(ResourceLifecycle::Orphaned, Some(10_000));
+    let credential = prune_credential(CredentialLifecycle::Disabled);
+    let recovery = prune_recovery_point("backup-42", "a");
+
+    let first = PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-42",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery),
+    })
+    .expect("safe prune plan");
+    let second = PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-42",
+        project_registered: false,
+        logical_resources: &[logical],
+        credentials: &[credential],
+        recovery_points: &[recovery],
+    })
+    .expect("deterministic prune plan");
+
+    assert_eq!(first, second);
+    assert_eq!(first.logical_resource_id(), "stackctl_bill_database");
+    assert_eq!(first.shared_resource_id(), "postgres-shared-17");
+    assert_eq!(first.credential_id(), "bill/database/postgresql");
+    assert_eq!(first.recovery_point_id(), "backup-42");
+    assert_eq!(first.confirmation_token().len(), 64);
+    assert!(
+        first
+            .confirmation_token()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    );
+}
+
+#[test]
+fn postgres_prune_plan_refuses_active_ambiguous_or_unverified_state() {
+    let orphaned = prune_logical(ResourceLifecycle::Orphaned, Some(10_000));
+    let active = prune_logical(ResourceLifecycle::Active, None);
+    let disabled = prune_credential(CredentialLifecycle::Disabled);
+    let active_credential = prune_credential(CredentialLifecycle::Active);
+    let recovery = prune_recovery_point("backup-42", "a");
+
+    for (label, options) in [
+        (
+            "registered project",
+            PostgresLogicalPrunePlanOptions {
+                installation_id: "install-1",
+                project_id: "bill",
+                service_id: "database",
+                recovery_point_id: "backup-42",
+                project_registered: true,
+                logical_resources: std::slice::from_ref(&orphaned),
+                credentials: std::slice::from_ref(&disabled),
+                recovery_points: std::slice::from_ref(&recovery),
+            },
+        ),
+        (
+            "active logical resource",
+            PostgresLogicalPrunePlanOptions {
+                installation_id: "install-1",
+                project_id: "bill",
+                service_id: "database",
+                recovery_point_id: "backup-42",
+                project_registered: false,
+                logical_resources: std::slice::from_ref(&active),
+                credentials: std::slice::from_ref(&disabled),
+                recovery_points: std::slice::from_ref(&recovery),
+            },
+        ),
+        (
+            "active credential",
+            PostgresLogicalPrunePlanOptions {
+                installation_id: "install-1",
+                project_id: "bill",
+                service_id: "database",
+                recovery_point_id: "backup-42",
+                project_registered: false,
+                logical_resources: std::slice::from_ref(&orphaned),
+                credentials: std::slice::from_ref(&active_credential),
+                recovery_points: std::slice::from_ref(&recovery),
+            },
+        ),
+        (
+            "wrong recovery point",
+            PostgresLogicalPrunePlanOptions {
+                installation_id: "install-1",
+                project_id: "bill",
+                service_id: "database",
+                recovery_point_id: "backup-other",
+                project_registered: false,
+                logical_resources: std::slice::from_ref(&orphaned),
+                credentials: std::slice::from_ref(&disabled),
+                recovery_points: std::slice::from_ref(&recovery),
+            },
+        ),
+    ] {
+        let error = PostgresLogicalPrunePlan::new(options).expect_err(label);
+
+        assert!(!error.is_empty());
+    }
+}
 
 #[test]
 fn active_resources_are_never_garbage_collected() {
@@ -932,4 +1045,49 @@ fn logical_resource_of_kind(kind: &str) -> LogicalResourceRecord {
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
     })
+}
+
+fn prune_logical(
+    lifecycle: ResourceLifecycle,
+    orphaned_at_unix_seconds: Option<i64>,
+) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired-v1".to_owned(),
+        lifecycle,
+        orphaned_at_unix_seconds,
+    })
+}
+
+fn prune_credential(lifecycle: CredentialLifecycle) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/postgresql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database_role".to_owned(),
+        secret: "redacted-test-secret".to_owned(),
+        lifecycle,
+    })
+}
+
+fn prune_recovery_point(id: &str, checksum_character: &str) -> RecoveryPointRecord {
+    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: id.to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: format!("/backups/{id}"),
+        artifact_sha256: checksum_character.repeat(64),
+        artifact_size_bytes: 1_024,
+        created_at_unix_seconds: 9_000,
+        verified_at_unix_seconds: 9_001,
+    })
+    .expect("valid recovery point")
 }

@@ -110,6 +110,24 @@ source compatibility fingerprint, checksum, creation time, and restore
 requirements. Migration does not switch routes or environment until restore and
 readiness verification pass. Rollback material remains until confirmation.
 
+PostgreSQL logical deletion starts with an effect-free explicit plan:
+
+```text
+stackctl daemon prune plan <project-id> <service-id> <recovery-point-id>
+```
+
+The project must already be unregistered, the exact database-and-role logical
+resource must be orphaned, its credential must be disabled, and the selected
+immutable recovery point must match the logical identity and compatibility
+fingerprint. The daemon returns a secret-free plan and a stable confirmation
+token bound to the installation, retained state, orphan timestamp, and verified
+artifact evidence. It never chooses a recovery point, repairs ambiguous state,
+or mutates the Engine while planning. Destructive execution is unavailable
+until its separately queued adapter revalidates the same token and invariants.
+Other logical service kinds fail closed until they have service-specific backup
+and deletion adapters; Stackctl does not reinterpret container removal as data
+deletion.
+
 Uninstall offers keep-data and delete-data modes. Delete-data enumerates owned
 resources, verifies installation labels, checks backup policy, and requires
 explicit destructive approval.

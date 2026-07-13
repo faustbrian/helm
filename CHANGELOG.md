@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added effect-free PostgreSQL logical prune planning for exact orphaned state,
+  requiring an explicitly selected matching recovery point and returning a
+  stable secret-free confirmation token over typed singleton IPC. Ambiguous,
+  active, unsupported, or unverified retained state fails closed.
 - Added a requirement-level v8 completion audit that separates implemented
   repository behavior from missing live, platform, migration, and benchmark
   evidence.

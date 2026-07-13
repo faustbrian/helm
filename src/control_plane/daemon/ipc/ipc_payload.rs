@@ -32,6 +32,12 @@ pub(crate) enum IpcPayload {
     },
     /// Reads durable verified recovery points for one registered project.
     ProjectRecoveryPoints { canonical_path: PathBuf },
+    /// Plans an exact retained PostgreSQL tenant deletion without mutation.
+    PlanPostgresPrune {
+        project_id: String,
+        service_id: String,
+        recovery_point_id: String,
+    },
     /// Explicitly exports daemon-owned values for one exact registered project.
     ProjectEnvironment { canonical_path: PathBuf },
     /// Opens one ownership-scoped, bounded in-memory container log session.

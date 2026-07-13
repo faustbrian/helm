@@ -18,9 +18,9 @@ use crate::control_plane::application::{ControlPlane, ProjectSource, plan_projec
 use crate::control_plane::daemon::ipc::{
     IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions, IpcBenchmarkSnapshot,
     IpcBenchmarkTcpPort, IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
-    IpcMigrationDecision, IpcMigrationStatus, IpcOutputStream, IpcPayload, IpcProjectCommand,
-    IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
-    IpcResponse, IpcResult,
+    IpcMigrationDecision, IpcMigrationStatus, IpcOutcome, IpcOutputStream, IpcPayload,
+    IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle,
+    IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
@@ -2242,7 +2242,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
     });
-    let crate::control_plane::daemon::ipc::IpcOutcome::Success {
+    let IpcOutcome::Success {
         result: IpcResult::Events {
             events,
             latest_sequence,
@@ -3123,6 +3123,143 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
     assert!(!persisted[0].payload_json().contains("credential-user"));
 
     std::fs::remove_dir_all(root).expect("remove backup fixture");
+}
+
+#[test]
+fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("ipc-postgres-prune-plan");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: "runtime-only-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: root.join("backups/backup-42.dump").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("initialize installation");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("persist recovery point");
+    store
+        .orphan_project(&project_path, 40_000)
+        .expect("orphan project");
+    let logical_before = store
+        .logical_resources()
+        .expect("logical state before plan");
+    let credentials_before = store.credentials().expect("credential state before plan");
+    let recovery_before = store
+        .recovery_points("bill")
+        .expect("recovery state before plan");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "prune-plan-42",
+        IpcPayload::PlanPostgresPrune {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_100,
+    });
+
+    let IpcOutcome::Success {
+        result: IpcResult::PostgresPrunePlan { plan },
+    } = response.outcome()
+    else {
+        panic!("expected PostgreSQL prune plan: {response:?}");
+    };
+    assert_eq!(plan.project_id(), "bill");
+    assert_eq!(plan.service_id(), "database");
+    assert_eq!(plan.logical_resource_id(), "stackctl_bill_database");
+    assert_eq!(plan.shared_resource_id(), "postgres-17");
+    assert_eq!(plan.recovery_point_id(), "backup-42");
+    assert_eq!(plan.confirmation_token().len(), 64);
+    assert_eq!(
+        control_plane
+            .logical_resources()
+            .expect("logical state after plan"),
+        logical_before
+    );
+    assert_eq!(
+        control_plane
+            .credentials()
+            .expect("credential state after plan"),
+        credentials_before
+    );
+    assert_eq!(
+        control_plane
+            .recovery_points("bill")
+            .expect("recovery state after plan"),
+        recovery_before
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove prune-plan fixture");
 }
 
 #[test]

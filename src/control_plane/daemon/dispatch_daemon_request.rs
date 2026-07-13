@@ -2,7 +2,7 @@ use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
     ProjectLogTarget, QueuedMigrationDecision, QueuedProjectBackup, QueuedProjectCommand,
-    QueuedProjectRestore, QueuedProjectRestoreOptions, ResourceHealthRegistry,
+    QueuedProjectRestore, QueuedProjectRestoreOptions, ResourceHealthRegistry, plan_postgres_prune,
     reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
@@ -369,6 +369,23 @@ where
                 ),
             }
         }
+        IpcPayload::PlanPostgresPrune {
+            project_id,
+            service_id,
+            recovery_point_id,
+        } => match plan_postgres_prune(control_plane, project_id, service_id, recovery_point_id) {
+            Ok(plan) => {
+                IpcResponse::success(request.request_id(), IpcResult::PostgresPrunePlan { plan })
+            }
+            Err(message) => IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "postgres_prune_plan_failed",
+                    message,
+                    false,
+                )],
+            ),
+        },
         IpcPayload::ProjectEnvironment { canonical_path } => {
             match project_environment(control_plane, canonical_path) {
                 Ok(environment) => IpcResponse::success(
