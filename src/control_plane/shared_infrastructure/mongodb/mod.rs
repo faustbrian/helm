@@ -5,6 +5,7 @@ pub(crate) use mongodb_shared_instance_plan::MongoDbSharedInstancePlan;
 pub(crate) use mongodb_shared_instance_plan_options::MongoDbSharedInstancePlanOptions;
 pub(crate) use plan_mongodb_project_resources::plan_mongodb_project_resources;
 pub(crate) use provision_mongodb_logical_resource::provision_mongodb_logical_resource;
+pub(crate) use reconcile_mongodb_project_resources::reconcile_mongodb_project_resources;
 
 mod mongodb_logical_resource_plan;
 mod mongodb_plan_error;
@@ -13,3 +14,4 @@ mod mongodb_shared_instance_plan;
 mod mongodb_shared_instance_plan_options;
 mod plan_mongodb_project_resources;
 mod provision_mongodb_logical_resource;
+mod reconcile_mongodb_project_resources;

@@ -12,7 +12,8 @@ use super::{
     plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_postgres_logical_resource, reconcile_postgres_project_resources,
+    provision_postgres_logical_resource, reconcile_mongodb_project_resources,
+    reconcile_mysql_project_resources, reconcile_postgres_project_resources,
     reconcile_shared_service, reconcile_shared_volume, reload_rabbitmq_definitions,
     reload_redis_acl, revoke_rabbitmq_project_access, store_credential_secret,
     store_rabbitmq_definitions, store_redis_acl_snapshot,
@@ -581,6 +582,47 @@ fn mongodb_project_resources_compose_user_credential_and_environment() {
     );
     assert!(!format!("{project:?}").contains("project-secret"));
     assert!(!format!("{project:?}").contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_project_reconciliation_converges_instance_and_database_user() {
+    let (instance, _) = mongodb_instance();
+    let project = plan_mongodb_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MongoDB project resources");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_mongodb_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile MongoDB project resources");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    let input = String::from_utf8(
+        engine
+            .command_input
+            .lock()
+            .expect("MongoDB command input")
+            .clone(),
+    )
+    .expect("MongoDB script UTF-8");
+    assert!(input.contains("project-secret"));
+    assert!(input.contains("mongo-root"));
 }
 
 #[test]
@@ -1747,6 +1789,65 @@ fn mysql_project_resources_isolate_schema_user_and_application_environment() {
         Some(&instance.container().name().to_owned())
     );
     assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[test]
+fn mysql_project_reconciliation_converges_instance_and_schema_user() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let instance = MySqlSharedInstancePlan::new(
+        &shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mysql-root".to_owned()),
+        },
+    )
+    .expect("MySQL instance");
+    let project = plan_mysql_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MySQL project resources");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_mysql_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile MySQL project resources");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert!(
+        String::from_utf8(
+            engine
+                .command_input
+                .lock()
+                .expect("MySQL command input")
+                .clone()
+        )
+        .expect("MySQL SQL UTF-8")
+        .contains("project-secret")
+    );
 }
 
 #[test]

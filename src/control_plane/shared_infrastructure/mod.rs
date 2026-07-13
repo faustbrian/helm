@@ -13,12 +13,12 @@ pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
 pub(crate) use mongodb::{
     MongoDbLogicalResourcePlan, MongoDbPlanError, MongoDbProjectResources,
     MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions, plan_mongodb_project_resources,
-    provision_mongodb_logical_resource,
+    provision_mongodb_logical_resource, reconcile_mongodb_project_resources,
 };
 pub(crate) use mysql::{
     MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlProjectResources,
     MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, plan_mysql_project_resources,
-    provision_mysql_logical_resource,
+    provision_mysql_logical_resource, reconcile_mysql_project_resources,
 };
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;

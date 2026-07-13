@@ -112,6 +112,8 @@ All notable changes to this project are documented in this file.
   ownership before mutation and replaces drifted containers without deleting data.
 - Composed PostgreSQL instance reconciliation with idempotent attached database
   and role provisioning for stable project credentials and managed environments.
+- Composed MySQL/MariaDB and MongoDB shared-instance reconciliation with isolated
+  schema/database users provisioned through bounded attached Engine commands.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application
