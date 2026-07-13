@@ -5,11 +5,11 @@ use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerResourceMetrics,
-    ContainerState, EngineError, EngineFuture, HealthObserver, ImageId, ImageResolver,
-    ImmutableImageReference, LogChunk, LogSource, LogStreamKind, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    ContainerState, EngineError, EngineFuture, HealthObserver, ImageBuildRequest, ImageBuilder,
+    ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
+    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
+    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
+    OwnedVolume, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource,
 };
 use bollard::container::LogOutput;
@@ -23,17 +23,19 @@ use bollard::models::{
     VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder,
-    ListContainersOptionsBuilder, ListNetworksOptionsBuilder, ListVolumesOptionsBuilder,
-    LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions, StatsOptionsBuilder,
+    BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
+    CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder, ListContainersOptionsBuilder,
+    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder,
+    RemoveVolumeOptions, StatsOptionsBuilder,
 };
-use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
+use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full};
 use futures_util::{StreamExt, TryStreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
+const IMAGE_BUILD_TIMEOUT_SECONDS: u64 = 1_800;
 const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
     major_version: 1,
     minor_version: 41,
@@ -781,6 +783,103 @@ impl ImageResolver for BollardEngineAdapter {
     }
 }
 
+impl ImageBuilder for BollardEngineAdapter {
+    fn build_image<'operation>(
+        &'operation self,
+        request: &'operation ImageBuildRequest,
+    ) -> EngineFuture<'operation, ImageId> {
+        Box::pin(async move {
+            bounded_engine_operation("build derived image", image_build_timeout(), async {
+                match self.docker.inspect_image(request.output_tag()).await {
+                    Ok(image) => return verified_built_image(image, request, "reuse"),
+                    Err(BollardError::DockerResponseServerError {
+                        status_code: 404, ..
+                    }) => {}
+                    Err(error) => {
+                        return Err(backend_error("inspect derived image cache", error));
+                    }
+                }
+
+                let events = self
+                    .docker
+                    .build_image(
+                        build_image_options(request),
+                        None,
+                        Some(body_full(request.context_tar().to_vec().into())),
+                    )
+                    .try_collect::<Vec<_>>()
+                    .await
+                    .map_err(|error| backend_error("build derived image", error))?;
+
+                if let Some(detail) = events.into_iter().find_map(|event| event.error_detail) {
+                    return Err(EngineError::Backend {
+                        detail: detail
+                            .message
+                            .unwrap_or_else(|| "Engine derived image build failed".to_owned()),
+                    });
+                }
+
+                let image = self
+                    .docker
+                    .inspect_image(request.output_tag())
+                    .await
+                    .map_err(|error| backend_error("inspect built derived image", error))?;
+
+                verified_built_image(image, request, "use")
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn build_image_options(request: &ImageBuildRequest) -> BuildImageOptions {
+    let labels = request.labels().into_iter().collect::<HashMap<_, _>>();
+
+    BuildImageOptionsBuilder::default()
+        .dockerfile(request.dockerfile_path())
+        .t(request.output_tag())
+        .pull("false")
+        .rm(true)
+        .forcerm(true)
+        .labels(&labels)
+        .networkmode("none")
+        .platform(request.platform())
+        .build()
+}
+
+fn verified_built_image(
+    image: bollard::models::ImageInspect,
+    request: &ImageBuildRequest,
+    action: &'static str,
+) -> Result<ImageId, EngineError> {
+    let labels = image
+        .config
+        .and_then(|config| config.labels)
+        .unwrap_or_default();
+
+    if !request
+        .labels()
+        .iter()
+        .all(|(key, value)| labels.get(key) == Some(value))
+    {
+        return Err(EngineError::OwnershipMismatch {
+            action,
+            resource_kind: "image",
+            resource_id: request.output_tag().to_owned(),
+        });
+    }
+
+    image
+        .id
+        .map(ImageId::new)
+        .ok_or_else(|| EngineError::Backend {
+            detail: format!(
+                "Engine returned derived image '{}' without an ID",
+                request.output_tag()
+            ),
+        })
+}
+
 pub(super) fn image_pull_request(
     reference: &ImmutableImageReference,
 ) -> bollard::query_parameters::CreateImageOptions {
@@ -1178,6 +1277,10 @@ async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {
 
 const fn request_timeout() -> Duration {
     Duration::from_secs(REQUEST_TIMEOUT_SECONDS)
+}
+
+const fn image_build_timeout() -> Duration {
+    Duration::from_secs(IMAGE_BUILD_TIMEOUT_SECONDS)
 }
 
 pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), EngineError> {

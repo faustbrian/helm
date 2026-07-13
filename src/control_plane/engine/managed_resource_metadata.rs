@@ -98,4 +98,8 @@ impl ManagedResourceMetadata {
     pub(crate) const fn schema_version(&self) -> u32 {
         self.schema_version
     }
+
+    pub(crate) const fn kind(&self) -> ResourceKind {
+        self.kind
+    }
 }

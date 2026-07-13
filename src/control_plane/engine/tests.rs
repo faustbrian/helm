@@ -3,13 +3,13 @@ use super::{
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
     ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture, HealthObserver,
-    ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
-    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, ResourceMetrics, RetentionClass,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
-    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
-    reconstruct_owned_volume,
+    ImageBuildRequest, ImageBuilder, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
+    LogSource, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
+    VolumeManager, classify_observed_resource, gateway_container_request,
+    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -25,12 +25,12 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    command_create_request, container_event, container_health, container_resource_metrics,
-    create_request, image_pull_request, log_chunk, log_request, managed_container_events_request,
-    managed_container_list_request, managed_network_list_request, managed_volume_list_request,
-    network_create_request, observed_container, observed_network, observed_volume,
-    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_create_request,
+    build_image_options, command_create_request, container_event, container_health,
+    container_resource_metrics, create_request, image_pull_request, log_chunk, log_request,
+    managed_container_events_request, managed_container_list_request, managed_network_list_request,
+    managed_volume_list_request, network_create_request, observed_container, observed_network,
+    observed_volume, validate_engine_api_version, verify_owned_container_labels,
+    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -528,6 +528,86 @@ fn resource_metrics_boundary_is_object_safe() {
     fn accepts_resource_metrics(_metrics: &dyn ResourceMetrics) {}
 
     let _ = accepts_resource_metrics;
+}
+
+#[test]
+fn image_build_requests_are_content_addressed_labeled_and_offline() {
+    let metadata = global_metadata(ResourceKind::Build);
+    let request = ImageBuildRequest::new(
+        vec![0x01, 0x02, 0x03],
+        "Dockerfile".to_owned(),
+        concat!(
+            "FROM ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            "COPY . /workspace\n"
+        )
+        .to_owned(),
+        "linux/arm64".to_owned(),
+        metadata.clone(),
+    )
+    .expect("valid immutable build");
+
+    let options = build_image_options(&request);
+    let labels = options.labels.expect("build labels");
+
+    assert_eq!(options.dockerfile, "Dockerfile");
+    assert_eq!(options.t.as_deref(), Some(request.output_tag()));
+    assert_eq!(options.networkmode.as_deref(), Some("none"));
+    assert_eq!(options.pull.as_deref(), Some("false"));
+    assert_eq!(options.remote, None);
+    assert!(options.rm);
+    assert!(options.forcerm);
+    assert_eq!(options.platform, "linux/arm64");
+    assert!(request.output_tag().starts_with("stackctl-build:"));
+    assert_eq!(
+        labels.get("dev.stackctl.build-input"),
+        Some(&request.input_digest().to_owned())
+    );
+    for (key, value) in metadata.labels() {
+        assert_eq!(labels.get(&key), Some(&value));
+    }
+    assert!(!format!("{request:?}").contains("01, 02, 03"));
+}
+
+#[test]
+fn image_build_requests_reject_mutable_bases_and_remote_additions() {
+    let mutable_base = ImageBuildRequest::new(
+        vec![1],
+        "Dockerfile".to_owned(),
+        "FROM php:8.4\n".to_owned(),
+        "linux/amd64".to_owned(),
+        global_metadata(ResourceKind::Build),
+    )
+    .expect_err("mutable base image");
+    let remote_add = ImageBuildRequest::new(
+        vec![1],
+        "Dockerfile".to_owned(),
+        concat!(
+            "FROM php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            "ADD https://example.test/installer.sh /tmp/installer.sh\n"
+        )
+        .to_owned(),
+        "linux/amd64".to_owned(),
+        global_metadata(ResourceKind::Build),
+    )
+    .expect_err("remote ADD");
+
+    assert_eq!(
+        mutable_base.to_string(),
+        "image build base 'php:8.4' must use an immutable sha256 digest"
+    );
+    assert_eq!(
+        remote_add.to_string(),
+        "image build Dockerfile must not ADD remote URLs"
+    );
+}
+
+#[test]
+fn image_builder_boundary_is_object_safe() {
+    fn accepts_image_builder(_builder: &dyn ImageBuilder) {}
+
+    let _ = accepts_image_builder;
 }
 
 #[test]

@@ -42,6 +42,8 @@ All notable changes to this project are documented in this file.
   missing, stopped, unverified, starting, healthy, and unhealthy containers.
 - Added ownership-validated direct-Engine resource sampling with deterministic
   CPU basis points plus memory, process, and aggregated network measurements.
+- Added content-addressed direct-Engine derived image builds with immutable base
+  validation, mandatory ownership labels, offline networking, and cache verification.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
