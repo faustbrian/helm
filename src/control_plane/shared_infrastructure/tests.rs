@@ -3,12 +3,13 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition, RedisAclProject,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
     plan_postgres_project_resources, plan_redis_project_resources, plan_shared_instances,
     provision_mysql_logical_resource, provision_postgres_logical_resource, reload_redis_acl,
-    store_redis_acl_snapshot,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -239,6 +240,109 @@ fn rabbitmq_definitions_reject_deterministic_identity_collisions() {
         error.to_string(),
         "RabbitMQ user 'st_bill_api_broker' is defined more than once"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn rabbitmq_definitions_store_is_private_hash_only_and_atomically_replaceable() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-rabbitmq-definitions-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    let initial = RabbitMqDefinitions::new(Vec::new()).expect("initial definitions");
+    let replacement = RabbitMqDefinitions::new(vec![
+        RabbitMqProjectDefinition::new(
+            "bill",
+            "broker",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("project definition"),
+    ])
+    .expect("replacement definitions");
+
+    let stored = store_rabbitmq_definitions(&initial, &root).expect("initial store");
+    store_rabbitmq_definitions(&replacement, &root).expect("replacement store");
+
+    assert_eq!(stored.directory(), root);
+    assert_eq!(stored.mount_directory(), root.join("mounted"));
+    assert_eq!(stored.config_file(), root.join("mounted/rabbitmq.conf"));
+    assert_eq!(
+        stored.definitions_file(),
+        root.join("mounted/definitions.json")
+    );
+    assert_eq!(
+        std::fs::read_to_string(stored.config_file()).expect("RabbitMQ config"),
+        "definitions.import_backend = local_filesystem\n\
+         definitions.local.path = /etc/stackctl/rabbitmq/definitions.json\n\
+         definitions.skip_if_unchanged = true\n"
+    );
+    let contents =
+        std::fs::read_to_string(stored.definitions_file()).expect("RabbitMQ definitions");
+    assert_eq!(contents.as_bytes(), replacement.contents());
+    assert!(!contents.contains("project-secret"));
+    assert_eq!(
+        std::fs::metadata(stored.directory())
+            .expect("private root")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(stored.mount_directory())
+            .expect("mount directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    assert_eq!(
+        std::fs::metadata(stored.definitions_file())
+            .expect("definitions file")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove RabbitMQ fixture");
+}
+
+#[test]
+fn rabbitmq_materializes_one_private_persistent_definition_backed_instance() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "broker",
+        rabbitmq_profile("4"),
+    )])
+    .pop()
+    .expect("shared RabbitMQ plan");
+    let plan = RabbitMqSharedInstancePlan::new(
+        &shared,
+        RabbitMqSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:rabbitmq-v1".to_owned(),
+            definitions_directory: "/private/rabbitmq/mounted".into(),
+        },
+    )
+    .expect("RabbitMQ instance");
+
+    assert!(plan.container().name().starts_with("stackctl-shared-"));
+    assert_eq!(plan.container().image(), shared.profile().image_digest());
+    assert_eq!(plan.config_mount_target(), "/etc/stackctl/rabbitmq");
+    assert_eq!(plan.data_mount_target(), "/var/lib/rabbitmq");
+    assert_eq!(plan.config_file(), "/etc/stackctl/rabbitmq/rabbitmq.conf");
+    assert_eq!(plan.node_name(), "rabbit@localhost");
+    assert!(plan.volume().is_some());
+    let debug = format!("{:?}", plan.container());
+    assert!(debug.contains("/private/rabbitmq/mounted"));
+    assert!(debug.contains("read_only: true"));
+    assert!(debug.contains("RABBITMQ_CONFIG_FILE"));
+    assert!(debug.contains("RABBITMQ_NODENAME"));
 }
 
 #[test]
@@ -1003,6 +1107,20 @@ fn cache_profile(
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid cache compatibility profile")
+}
+
+fn rabbitmq_profile(major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: "rabbitmq".to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("rabbitmq@sha256:{}", "d".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::VirtualHostAndUser,
+        platform_architecture: Some("linux/arm64".to_owned()),
+    })
+    .expect("valid RabbitMQ compatibility profile")
 }
 
 fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {

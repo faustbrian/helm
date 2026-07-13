@@ -128,6 +128,9 @@ All notable changes to this project are documented in this file.
 - Added deterministic RabbitMQ core definitions with project-isolated virtual
   hosts and users, official salted SHA-256 password encoding, collision
   rejection, stable ordering, and no raw credentials in rendered JSON.
+- Added executable RabbitMQ shared-instance plans with atomic hash-only
+  definitions mounts, core boot import, stable node identity, private
+  networking, pinned Linux images, and retained broker data volumes.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
