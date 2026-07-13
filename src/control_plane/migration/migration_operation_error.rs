@@ -1,0 +1,24 @@
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+
+/// A value-safe failure from one resource-specific migration operation.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct MigrationOperationError {
+    detail: String,
+}
+
+impl MigrationOperationError {
+    pub(crate) fn new(detail: impl Into<String>) -> Self {
+        Self {
+            detail: detail.into(),
+        }
+    }
+}
+
+impl Display for MigrationOperationError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.detail)
+    }
+}
+
+impl Error for MigrationOperationError {}

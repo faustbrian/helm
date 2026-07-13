@@ -40,6 +40,9 @@ All notable changes to this project are documented in this file.
   artifact reference, target, readiness, and rollback evidence before reversible
   cutover and rejects skipped phases, identity drift, proof replacement, and
   terminal-state changes.
+- Added a crash-resumable migration coordinator that advances only completed
+  backup, target, restore, verification, and cutover checkpoints, retains v7
+  rollback material, and requires explicit confirmation before source retirement.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

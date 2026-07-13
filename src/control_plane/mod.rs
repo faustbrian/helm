@@ -7,6 +7,7 @@ mod engine;
 mod environment_variable_key;
 mod gateway;
 mod identity_error;
+mod migration;
 mod project_identity;
 mod registry_conflict;
 mod retention;
