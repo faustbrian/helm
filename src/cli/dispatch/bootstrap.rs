@@ -60,6 +60,11 @@ pub(super) fn handle_setup_commands(
         return Ok(true);
     }
 
+    #[cfg(unix)]
+    if handlers::handle_v8_project_command(cli, context)? {
+        return Ok(true);
+    }
+
     Ok(false)
 }
 

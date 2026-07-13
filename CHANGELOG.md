@@ -6,8 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added durable typed project-command IPC for Composer, Node, Bun, and declared
-  hooks, with exact owned-application resolution, serialized background Engine
+- Added strict v8 YAML dispatch for Composer, Bun, and Node package-manager
+  commands through the singleton IPC boundary, with exact service selection,
+  resumable binary-safe output, declarative runtime-version enforcement, and
+  explicit npm, pnpm, or Yarn execution instead of changing `stackctl node`
+  into a raw Node.js invocation.
+- Added durable typed project-command IPC for Composer, Node package managers,
+  Bun, and declared hooks, with exact owned-application resolution, serialized
+  background Engine
   execution, binary-safe stdout/stderr events, bounded operation retention, and
   restart recovery that resumes queued work but never ambiguously replays a
   command that was already running.

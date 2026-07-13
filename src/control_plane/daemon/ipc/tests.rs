@@ -1,6 +1,7 @@
 use super::{
-    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcPayload, IpcProjectCommand, IpcRequest,
-    IpcResponse, IpcResult, decode_request_frame, decode_response_frame, encode_frame,
+    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcNodePackageManager, IpcPayload,
+    IpcProjectCommand, IpcRequest, IpcResponse, IpcResult, decode_request_frame,
+    decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::path::PathBuf;
@@ -42,6 +43,27 @@ fn project_command_requests_preserve_typed_non_shell_arguments() {
             service: "app".to_owned(),
             command: IpcProjectCommand::Composer {
                 arguments: vec!["install".to_owned(), "--no-interaction".to_owned()],
+            },
+            timeout_seconds: 300,
+        },
+    );
+
+    let frame = encode_frame(&request).expect("encode command request");
+    let decoded = decode_request_frame(&frame).expect("decode command request");
+
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn node_package_manager_requests_preserve_the_exact_known_executable() {
+    let request = IpcRequest::new(
+        "command-node-42",
+        IpcPayload::RunProjectCommand {
+            canonical_path: PathBuf::from("/work/bill"),
+            service: "app".to_owned(),
+            command: IpcProjectCommand::NodePackageManager {
+                package_manager: IpcNodePackageManager::Pnpm,
+                arguments: vec!["run".to_owned(), "build".to_owned()],
             },
             timeout_seconds: 300,
         },

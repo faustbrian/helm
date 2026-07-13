@@ -256,10 +256,11 @@ fn project_tools_and_hooks_are_structured_container_commands() {
             vec!["composer", "install", "--no-interaction"],
         ),
         (
-            ProjectCommand::Node {
-                arguments: vec!["scripts/build.mjs".to_owned()],
+            ProjectCommand::NodePackageManager {
+                package_manager: super::NodePackageManager::Pnpm,
+                arguments: vec!["run".to_owned(), "build".to_owned()],
             },
-            vec!["node", "scripts/build.mjs"],
+            vec!["pnpm", "run", "build"],
         ),
         (
             ProjectCommand::Bun {
@@ -377,8 +378,9 @@ fn project_commands_execute_through_attached_engine_sessions() {
     let plan = ProjectCommandPlan::new(ProjectCommandPlanOptions {
         project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
             .expect("project identity"),
-        command: ProjectCommand::Node {
-            arguments: vec!["scripts/build.mjs".to_owned()],
+        command: ProjectCommand::NodePackageManager {
+            package_manager: super::NodePackageManager::Npm,
+            arguments: vec!["run".to_owned(), "build".to_owned()],
         },
         environment: BTreeMap::new(),
         input: Vec::new(),
@@ -413,7 +415,7 @@ fn project_commands_execute_through_attached_engine_sessions() {
             .lock()
             .expect("command arguments")
             .as_slice(),
-        &[vec!["node".to_owned(), "scripts/build.mjs".to_owned()]]
+        &[vec!["npm".to_owned(), "run".to_owned(), "build".to_owned()]]
     );
 }
 

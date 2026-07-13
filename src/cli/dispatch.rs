@@ -12,7 +12,7 @@ use crate::docker;
 use crate::output;
 
 mod bootstrap;
-mod context;
+pub(crate) mod context;
 mod primary;
 mod secondary;
 

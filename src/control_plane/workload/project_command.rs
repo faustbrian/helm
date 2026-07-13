@@ -1,12 +1,15 @@
 use std::fmt::{Debug, Formatter};
 
+use super::NodePackageManager;
+
 /// One user-facing tool or declarative hook executed inside an application.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) enum ProjectCommand {
     Composer {
         arguments: Vec<String>,
     },
-    Node {
+    NodePackageManager {
+        package_manager: NodePackageManager,
         arguments: Vec<String>,
     },
     Bun {
@@ -22,7 +25,10 @@ impl Debug for ProjectCommand {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let (kind, name, argument_count) = match self {
             Self::Composer { arguments } => ("composer", None, arguments.len()),
-            Self::Node { arguments } => ("node", None, arguments.len()),
+            Self::NodePackageManager {
+                package_manager: _,
+                arguments,
+            } => ("node_package_manager", None, arguments.len()),
             Self::Bun { arguments } => ("bun", None, arguments.len()),
             Self::Hook { name, arguments } => ("hook", Some(name), arguments.len()),
         };
@@ -43,9 +49,13 @@ impl ProjectCommand {
                 "Composer".to_owned(),
                 prefixed_arguments("composer", arguments),
             )),
-            Self::Node { arguments } => {
-                Ok(("Node".to_owned(), prefixed_arguments("node", arguments)))
-            }
+            Self::NodePackageManager {
+                package_manager,
+                arguments,
+            } => Ok((
+                "Node package manager".to_owned(),
+                prefixed_arguments(package_manager.executable(), arguments),
+            )),
             Self::Bun { arguments } => Ok(("Bun".to_owned(), prefixed_arguments("bun", arguments))),
             Self::Hook { name, arguments } => {
                 if !valid_hook_name(&name) {

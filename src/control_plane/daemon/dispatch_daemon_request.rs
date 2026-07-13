@@ -383,7 +383,21 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
         IpcProjectCommand::Composer { arguments } => ProjectCommand::Composer {
             arguments: arguments.clone(),
         },
-        IpcProjectCommand::Node { arguments } => ProjectCommand::Node {
+        IpcProjectCommand::NodePackageManager {
+            package_manager,
+            arguments,
+        } => ProjectCommand::NodePackageManager {
+            package_manager: match package_manager {
+                super::ipc::IpcNodePackageManager::Npm => {
+                    crate::control_plane::workload::NodePackageManager::Npm
+                }
+                super::ipc::IpcNodePackageManager::Pnpm => {
+                    crate::control_plane::workload::NodePackageManager::Pnpm
+                }
+                super::ipc::IpcNodePackageManager::Yarn => {
+                    crate::control_plane::workload::NodePackageManager::Yarn
+                }
+            },
             arguments: arguments.clone(),
         },
         IpcProjectCommand::Bun { arguments } => ProjectCommand::Bun {

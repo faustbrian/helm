@@ -8,6 +8,7 @@ mod application_container_request_options;
 mod immutable_project_application_options;
 mod immutable_project_application_plan;
 mod javascript_runtime_spec;
+mod node_package_manager;
 mod orphaned_project_workload_options;
 mod plan_immutable_project_application;
 mod plan_project_process_operation;
@@ -46,6 +47,7 @@ pub(crate) use application_container_request_options::ApplicationContainerReques
 pub(crate) use immutable_project_application_options::ImmutableProjectApplicationOptions;
 pub(crate) use immutable_project_application_plan::ImmutableProjectApplicationPlan;
 pub(crate) use javascript_runtime_spec::JavaScriptRuntimeSpec;
+pub(crate) use node_package_manager::NodePackageManager;
 pub(crate) use orphaned_project_workload_options::OrphanedProjectWorkloadOptions;
 pub(crate) use plan_immutable_project_application::plan_immutable_project_application;
 pub(crate) use plan_project_process_operation::plan_project_process_operation;

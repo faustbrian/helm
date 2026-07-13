@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::IpcNodePackageManager;
+
 /// A safe user-facing tool invocation transported without shell parsing.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -8,7 +10,8 @@ pub(crate) enum IpcProjectCommand {
     Composer {
         arguments: Vec<String>,
     },
-    Node {
+    NodePackageManager {
+        package_manager: IpcNodePackageManager,
         arguments: Vec<String>,
     },
     Bun {
