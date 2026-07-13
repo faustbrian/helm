@@ -2,17 +2,17 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue,
-    ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
-    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
-    ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ImageReferenceResolution, IpcEventJournal, MigrationDecisionExecutionOptions,
+    MigrationDecisionQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
+    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
+    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedProjectBackup, QueuedProjectCommand,
     QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
     SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
-    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
-    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
-    publish_project_restore_result, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_daemon_operation_queues,
+    execute_queued_migration_decision, execute_queued_project_backup,
+    execute_queued_project_command, execute_queued_project_restore, invalidate_engine_connection,
+    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -1029,15 +1029,15 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 service_id: "database".to_owned(),
                 logical_resource_id: source.logical_resource_id().to_owned(),
                 kind: source.kind().to_owned(),
-                compatibility_fingerprint: fingerprint,
+                compatibility_fingerprint: fingerprint.clone(),
             })
             .expect("restore intent"),
-            shared,
+            shared: shared.clone(),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
             state_database_path: database_path.clone(),
-            backup_root,
+            backup_root: backup_root.clone(),
             updated_at_unix_seconds: 40_002,
             timeout: Duration::from_secs(30),
         },
@@ -1065,6 +1065,44 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     );
     assert!(engine.stopped().is_empty());
     assert!(engine.removed().is_empty());
+
+    drop(store);
+    let decision = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0x55),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "confirm-42".to_owned(),
+                "restore-42".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Confirm,
+            )
+            .expect("confirmation decision"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 40_003,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(decision.outcome(), &Ok(MigrationExecutionResult::Confirmed));
+    let store = SqliteStateStore::open(&database_path).expect("reopen confirmed state");
+    assert_eq!(
+        store.migrations().expect("confirmed migration")[0].phase(),
+        MigrationPhase::Confirmed
+    );
+    assert_eq!(
+        engine
+            .command_environments()
+            .last()
+            .expect("source retirement command")
+            .get("PGPASSWORD"),
+        Some(&"source-admin".to_owned())
+    );
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove restore fixture");

@@ -1,3 +1,4 @@
+mod active_migration_decision;
 mod active_project_backup;
 mod active_project_command;
 mod active_project_log_session;
@@ -26,6 +27,7 @@ mod engine_reconciliation_plan_error;
 mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
 mod execute_project_logs;
+mod execute_queued_migration_decision;
 mod execute_queued_project_backup;
 mod execute_queued_project_command;
 mod execute_queued_project_restore;
@@ -36,6 +38,8 @@ mod initialize_default_installation;
 mod installation_initialization_error;
 mod invalidate_engine_connection;
 mod ipc;
+mod migration_decision_execution_options;
+mod migration_decision_execution_result;
 mod migration_decision_queue;
 mod migration_decision_queue_error;
 mod persisted_project_command;
@@ -63,6 +67,7 @@ mod project_restore_execution_options;
 mod project_restore_execution_result;
 mod project_restore_queue;
 mod project_restore_queue_error;
+mod publish_migration_decision_result;
 mod publish_project_backup_result;
 mod publish_project_command_result;
 mod publish_project_restore_result;
@@ -85,6 +90,8 @@ mod run_unix_daemon_watch;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
+mod unix_daemon_migration_decisions;
+#[cfg(unix)]
 mod unix_daemon_project_backups;
 #[cfg(unix)]
 mod unix_daemon_project_commands;
@@ -101,6 +108,7 @@ mod unix_daemon_runtime_options;
 mod unix_daemon_watch_options;
 mod validate_project_workload_adoption;
 
+pub(crate) use active_migration_decision::ActiveMigrationDecision;
 pub(crate) use active_project_backup::ActiveProjectBackup;
 pub(crate) use active_project_command::ActiveProjectCommand;
 pub(crate) use active_project_log_session::ActiveProjectLogSession;
@@ -134,6 +142,7 @@ pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
 pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
 pub(crate) use execute_project_logs::execute_project_logs;
+pub(crate) use execute_queued_migration_decision::execute_queued_migration_decision;
 pub(crate) use execute_queued_project_backup::execute_queued_project_backup;
 pub(crate) use execute_queued_project_command::execute_queued_project_command;
 pub(crate) use execute_queued_project_restore::execute_queued_project_restore;
@@ -151,6 +160,8 @@ pub(crate) use ipc::{
     IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
     send_unix_request,
 };
+pub(crate) use migration_decision_execution_options::MigrationDecisionExecutionOptions;
+pub(crate) use migration_decision_execution_result::MigrationDecisionExecutionResult;
 pub(crate) use migration_decision_queue::MigrationDecisionQueue;
 pub(crate) use migration_decision_queue_error::MigrationDecisionQueueError;
 pub(crate) use persisted_project_command::PersistedProjectCommand;
@@ -178,6 +189,7 @@ pub(crate) use project_restore_execution_options::ProjectRestoreExecutionOptions
 pub(crate) use project_restore_execution_result::ProjectRestoreExecutionResult;
 pub(crate) use project_restore_queue::ProjectRestoreQueue;
 pub(crate) use project_restore_queue_error::ProjectRestoreQueueError;
+pub(crate) use publish_migration_decision_result::publish_migration_decision_result;
 pub(crate) use publish_project_backup_result::publish_project_backup_result;
 pub(crate) use publish_project_command_result::publish_project_command_result;
 pub(crate) use publish_project_restore_result::publish_project_restore_result;

@@ -1,7 +1,7 @@
 use super::ipc::IpcEventKind;
 use super::{
-    ActiveProjectRestore, EngineConnectionOutcome, ProjectRestoreExecutionOptions,
-    UnixDaemonRuntime, execute_queued_project_restore, publish_project_restore_result,
+    ActiveMigrationDecision, EngineConnectionOutcome, MigrationDecisionExecutionOptions,
+    UnixDaemonRuntime, execute_queued_migration_decision, publish_migration_decision_result,
 };
 use crate::control_plane::shared_infrastructure::{
     OsCredentialEntropy, SharedInstancePlan, resolve_execution_shared_instances,
@@ -9,22 +9,22 @@ use crate::control_plane::shared_infrastructure::{
 use crate::control_plane::state::{DaemonOperationStatus, DaemonOperationTransitionOptions};
 use std::time::{Duration, Instant};
 
-const PROJECT_RESTORE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const MIGRATION_DECISION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 impl UnixDaemonRuntime {
-    /// Reports whether a retained restore is mutating Engine and durable state.
-    pub(super) const fn has_active_project_restore(&self) -> bool {
-        self.active_project_restore.is_some()
+    /// Reports whether an explicit migration decision is in flight.
+    pub(super) const fn has_active_migration_decision(&self) -> bool {
+        self.active_migration_decision.is_some()
     }
 
-    /// Advances one exact recovery point without overlapping Engine mutation.
-    pub(super) fn drive_project_restores(&mut self, now: Instant, now_unix_seconds: i64) {
+    /// Advances one exact confirm or rollback without overlapping mutation.
+    pub(super) fn drive_migration_decisions(&mut self, now: Instant, now_unix_seconds: i64) {
         self.engine_runtime.block_on(tokio::task::yield_now());
-        self.publish_finished_project_restore(now_unix_seconds);
-        if self.active_project_restore.is_some()
+        self.publish_finished_migration_decision(now_unix_seconds);
+        if self.active_migration_decision.is_some()
+            || self.active_project_restore.is_some()
             || self.active_project_command.is_some()
             || self.active_project_backup.is_some()
-            || self.active_migration_decision.is_some()
         {
             return;
         }
@@ -34,12 +34,12 @@ impl UnixDaemonRuntime {
             .block_on(self.engine_connection.poll(now))
         {
             EngineConnectionOutcome::Unavailable { retry, detail } => {
-                if self.project_restores.len() > 0 {
+                if self.migration_decisions.len() > 0 {
                     tracing::debug!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         error = %detail,
-                        "project restore is waiting for the selected Engine"
+                        "migration decision is waiting for the selected Engine"
                     );
                 }
 
@@ -51,17 +51,17 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine().cloned() else {
             return;
         };
-        let Some(operation) = self.project_restores.front() else {
+        let Some(operation) = self.migration_decisions.front() else {
             return;
         };
-        let Some(shared) = self.project_restore_shared_plan(operation) else {
+        let Some(shared) = self.migration_decision_shared_plan(operation) else {
             return;
         };
         let operation_id = operation.operation_id().to_owned();
         let shared = match shared {
             Ok(shared) => shared,
             Err(message) => {
-                self.reject_queued_project_restore(&operation_id, &message, now_unix_seconds);
+                self.reject_queued_migration_decision(&operation_id, &message, now_unix_seconds);
 
                 return;
             }
@@ -80,19 +80,19 @@ impl UnixDaemonRuntime {
             tracing::error!(
                 operation_id,
                 error = %error,
-                "project restore could not claim its durable queue entry"
+                "migration decision could not claim its durable queue entry"
             );
 
             return;
         }
         let operation = self
-            .project_restores
+            .migration_decisions
             .pop_front()
-            .expect("durably claimed project restore remains queued");
-        let task = self.engine_runtime.spawn(execute_queued_project_restore(
+            .expect("durably claimed migration decision remains queued");
+        let task = self.engine_runtime.spawn(execute_queued_migration_decision(
             engine,
             OsCredentialEntropy,
-            ProjectRestoreExecutionOptions {
+            MigrationDecisionExecutionOptions {
                 operation,
                 shared,
                 installation_id: self
@@ -105,18 +105,45 @@ impl UnixDaemonRuntime {
                 state_database_path: self.options.state_database_path.clone(),
                 backup_root: self.runtime_directory.join("backups"),
                 updated_at_unix_seconds: now_unix_seconds,
-                timeout: PROJECT_RESTORE_TIMEOUT,
+                timeout: MIGRATION_DECISION_TIMEOUT,
             },
         ));
-        self.active_project_restore = Some(ActiveProjectRestore::new(operation_id, task));
+        self.active_migration_decision = Some(ActiveMigrationDecision::new(operation_id, task));
         self.engine_runtime.block_on(tokio::task::yield_now());
     }
 
-    fn project_restore_shared_plan(
+    fn migration_decision_shared_plan(
         &self,
-        operation: &super::QueuedProjectRestore,
+        operation: &super::QueuedMigrationDecision,
     ) -> Option<Result<SharedInstancePlan, String>> {
         let execution = self.engine_reconciliation.execution_plan()?;
+        let checkpoint = match self.control_plane.migrations() {
+            Ok(migrations) => {
+                let matches = migrations
+                    .into_iter()
+                    .filter(|migration| {
+                        migration.migration_id() == operation.migration_id()
+                            && migration.project_id() == operation.project_id()
+                    })
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [checkpoint] => checkpoint.clone(),
+                    [] => {
+                        return Some(Err(format!(
+                            "migration '{}' has no exact durable checkpoint",
+                            operation.migration_id()
+                        )));
+                    }
+                    _ => {
+                        return Some(Err(format!(
+                            "migration '{}' matched multiple durable checkpoints",
+                            operation.migration_id()
+                        )));
+                    }
+                }
+            }
+            Err(error) => return Some(Err(error.to_string())),
+        };
         let platform = match super::unix_daemon_runtime::runtime_linux_platform() {
             Ok(platform) => platform,
             Err(error) => return Some(Err(error)),
@@ -129,34 +156,34 @@ impl UnixDaemonRuntime {
             .into_iter()
             .filter(|plan| {
                 plan.profile().implementation() == "postgresql"
-                    && plan.fingerprint().as_str() == operation.compatibility_fingerprint()
+                    && plan.fingerprint().as_str() == checkpoint.source_compatibility_fingerprint()
             })
             .collect::<Vec<_>>();
         Some(match matches.as_slice() {
             [shared] => Ok(shared.clone()),
             [] => Err(format!(
-                "recovery point '{}' has no exact PostgreSQL compatibility plan",
-                operation.recovery_point_id()
+                "migration '{}' has no exact source compatibility plan",
+                operation.migration_id()
             )),
             _ => Err(format!(
-                "recovery point '{}' matched multiple PostgreSQL compatibility plans",
-                operation.recovery_point_id()
+                "migration '{}' matched multiple source compatibility plans",
+                operation.migration_id()
             )),
         })
     }
 
-    fn reject_queued_project_restore(
+    fn reject_queued_migration_decision(
         &mut self,
         operation_id: &str,
         message: &str,
         now_unix_seconds: i64,
     ) {
         let event = IpcEventKind::Failed {
-            code: "project_restore_plan_invalid".to_owned(),
+            code: "migration_decision_plan_invalid".to_owned(),
             message: message.to_owned(),
         };
         let kind_json = serde_json::to_string(&event)
-            .expect("project restore plan failure serialization is infallible");
+            .expect("migration decision plan failure serialization is infallible");
         match self
             .control_plane
             .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -168,51 +195,51 @@ impl UnixDaemonRuntime {
                 event_retention_limit: self.event_journal.capacity(),
             }) {
             Ok(Some(record)) => {
-                self.project_restores.remove(operation_id);
+                self.migration_decisions.remove(operation_id);
                 if let Err(error) = self.event_journal.append_record(record) {
-                    tracing::error!(operation_id, error = %error, "restore rejection journal failed");
+                    tracing::error!(operation_id, error = %error, "decision rejection journal failed");
                 }
             }
-            Ok(None) => tracing::error!(operation_id, "restore rejection omitted its event"),
+            Ok(None) => tracing::error!(operation_id, "decision rejection omitted its event"),
             Err(error) => tracing::error!(
                 operation_id,
                 error = %error,
-                "restore rejection persistence failed"
+                "decision rejection persistence failed"
             ),
         }
     }
 
-    fn publish_finished_project_restore(&mut self, now_unix_seconds: i64) {
+    fn publish_finished_migration_decision(&mut self, now_unix_seconds: i64) {
         if !self
-            .active_project_restore
+            .active_migration_decision
             .as_ref()
-            .is_some_and(ActiveProjectRestore::is_finished)
+            .is_some_and(ActiveMigrationDecision::is_finished)
         {
             return;
         }
         let active = self
-            .active_project_restore
+            .active_migration_decision
             .take()
-            .expect("finished project restore was present");
+            .expect("finished migration decision was present");
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
-                if let Err(error) = publish_project_restore_result(
+                if let Err(error) = publish_migration_decision_result(
                     &mut self.control_plane,
                     &mut self.event_journal,
                     result,
                     now_unix_seconds,
                 ) {
-                    tracing::error!(operation_id, error, "project restore persistence failed");
+                    tracing::error!(operation_id, error, "migration decision persistence failed");
                 }
             }
             Err(error) => {
                 let event = IpcEventKind::Failed {
-                    code: "project_restore_task_failed".to_owned(),
+                    code: "migration_decision_task_failed".to_owned(),
                     message: error.to_string(),
                 };
                 let kind_json = serde_json::to_string(&event)
-                    .expect("project restore task failure serialization is infallible");
+                    .expect("migration decision task failure serialization is infallible");
                 if let Err(persistence_error) = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,
@@ -226,7 +253,7 @@ impl UnixDaemonRuntime {
                     tracing::error!(
                         operation_id,
                         error = %persistence_error,
-                        "project restore task failure persistence failed"
+                        "migration decision task failure persistence failed"
                     );
                 }
             }

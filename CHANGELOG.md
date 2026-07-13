@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added asynchronous confirm-or-rollback execution that reconstructs exact
+  source and retained-target ownership from durable migration checkpoints,
+  serializes decisions against all other Engine mutation, retires PostgreSQL
+  source access only after confirmation, and atomically restores the previous
+  managed environment while retaining the target on rollback.
 - Added typed confirm-or-rollback admission for exact cutover migrations, with
   project ownership validation, secret-free durable payloads, bounded queuing,
   queued replay after restart, and loud terminalization of ambiguous decisions

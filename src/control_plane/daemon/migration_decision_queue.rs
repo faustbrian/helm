@@ -48,6 +48,10 @@ impl MigrationDecisionQueue {
         self.pending.pop_front()
     }
 
+    pub(crate) fn front(&self) -> Option<&QueuedMigrationDecision> {
+        self.pending.front()
+    }
+
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedMigrationDecision> {
         let index = self
             .pending
