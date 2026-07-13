@@ -22,6 +22,14 @@ pub(crate) enum StateStoreError {
     InstallationAlreadyInitialized { existing_installation_id: String },
     /// A credential identity is already owned by a different project service.
     CredentialOwnershipConflict { credential_id: String },
+    /// A resource identity cannot silently change immutable ownership metadata.
+    ResourceOwnershipConflict { resource_id: String },
+    /// Generic reconciliation cannot reactivate retained project data.
+    ResourceAdoptionRequired { resource_id: String },
+    /// Explicit adoption references no durable resource.
+    ResourceAdoptionMissing { resource_id: String },
+    /// Explicit adoption must describe an active target state.
+    InvalidResourceAdoption { resource_id: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
 }
@@ -59,6 +67,22 @@ impl Display for StateStoreError {
                 formatter,
                 "credential '{credential_id}' is already owned by a different project service"
             ),
+            Self::ResourceOwnershipConflict { resource_id } => write!(
+                formatter,
+                "resource '{resource_id}' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
+            ),
+            Self::ResourceAdoptionRequired { resource_id } => write!(
+                formatter,
+                "resource '{resource_id}' is orphaned or retained; explicit adoption is required before reactivation"
+            ),
+            Self::ResourceAdoptionMissing { resource_id } => write!(
+                formatter,
+                "resource '{resource_id}' cannot be adopted because no durable record exists"
+            ),
+            Self::InvalidResourceAdoption { resource_id } => write!(
+                formatter,
+                "resource '{resource_id}' adoption target must be active with no orphan timestamp"
+            ),
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
             }
@@ -75,6 +99,10 @@ impl Error for StateStoreError {
             | Self::RouteOwnershipConflict { .. }
             | Self::InstallationAlreadyInitialized { .. }
             | Self::CredentialOwnershipConflict { .. }
+            | Self::ResourceOwnershipConflict { .. }
+            | Self::ResourceAdoptionRequired { .. }
+            | Self::ResourceAdoptionMissing { .. }
+            | Self::InvalidResourceAdoption { .. }
             | Self::CorruptState { .. } => None,
         }
     }

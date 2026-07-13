@@ -211,6 +211,173 @@ fn complete_resource_ownership_survives_store_restart() {
 }
 
 #[test]
+fn resource_upsert_rejects_immutable_ownership_drift_atomically() {
+    let database_path = temporary_database_path("resource-ownership-conflict");
+    let first = resource_record("container-first", "bill", ResourceRetention::Persistent);
+    let second = resource_record("container-second", "shop", ResourceRetention::Persistent);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(&[first.clone(), second.clone()])
+        .expect("persist initial resources");
+    let updated_first = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: first.resource_id().to_owned(),
+        installation_id: first.installation_id().to_owned(),
+        kind: first.kind().to_owned(),
+        compatibility_fingerprint: first.compatibility_fingerprint().to_owned(),
+        project_id: first.project_id().map(str::to_owned),
+        schema_version: first.schema_version(),
+        desired_revision: "sha256:desired-v2".to_owned(),
+        retention: first.retention(),
+        lifecycle: ResourceLifecycle::Retained,
+        orphaned_at_unix_seconds: Some(20_000),
+    });
+    let forged_second = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: second.resource_id().to_owned(),
+        installation_id: "foreign-installation".to_owned(),
+        kind: second.kind().to_owned(),
+        compatibility_fingerprint: second.compatibility_fingerprint().to_owned(),
+        project_id: second.project_id().map(str::to_owned),
+        schema_version: second.schema_version(),
+        desired_revision: "sha256:forged".to_owned(),
+        retention: second.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+
+    let error = store
+        .upsert_resources(&[updated_first, forged_second])
+        .expect_err("ownership drift");
+
+    assert_eq!(
+        error.to_string(),
+        "resource 'container-second' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
+    );
+    assert_eq!(
+        store.resources().expect("unchanged resources"),
+        vec![first, second]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn generic_resource_upsert_cannot_reactivate_orphaned_data() {
+    let database_path = temporary_database_path("resource-adoption-required");
+    let active = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let orphaned = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: active.resource_id().to_owned(),
+        installation_id: active.installation_id().to_owned(),
+        kind: active.kind().to_owned(),
+        compatibility_fingerprint: active.compatibility_fingerprint().to_owned(),
+        project_id: active.project_id().map(str::to_owned),
+        schema_version: active.schema_version(),
+        desired_revision: active.desired_revision().to_owned(),
+        retention: active.retention(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(20_000),
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(std::slice::from_ref(&orphaned))
+        .expect("persist orphan");
+
+    let error = store
+        .upsert_resources(std::slice::from_ref(&active))
+        .expect_err("implicit adoption");
+
+    assert_eq!(
+        error.to_string(),
+        "resource 'container-bill' is orphaned or retained; explicit adoption is required before reactivation"
+    );
+    assert_eq!(store.resources().expect("retained orphan"), vec![orphaned]);
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn explicit_resource_adoption_reactivates_only_exact_durable_ownership() {
+    let database_path = temporary_database_path("resource-adoption");
+    let active = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let orphaned = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: active.resource_id().to_owned(),
+        installation_id: active.installation_id().to_owned(),
+        kind: active.kind().to_owned(),
+        compatibility_fingerprint: active.compatibility_fingerprint().to_owned(),
+        project_id: active.project_id().map(str::to_owned),
+        schema_version: active.schema_version(),
+        desired_revision: active.desired_revision().to_owned(),
+        retention: active.retention(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(20_000),
+    });
+    let adopted = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: active.resource_id().to_owned(),
+        installation_id: active.installation_id().to_owned(),
+        kind: active.kind().to_owned(),
+        compatibility_fingerprint: active.compatibility_fingerprint().to_owned(),
+        project_id: active.project_id().map(str::to_owned),
+        schema_version: active.schema_version(),
+        desired_revision: "sha256:adopted-v2".to_owned(),
+        retention: active.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(std::slice::from_ref(&orphaned))
+        .expect("persist orphan");
+
+    store
+        .adopt_resources(std::slice::from_ref(&adopted))
+        .expect("explicit adoption");
+
+    assert_eq!(store.resources().expect("adopted resource"), vec![adopted]);
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn explicit_resource_adoption_rejects_missing_or_incompatible_records() {
+    let database_path = temporary_database_path("resource-adoption-conflict");
+    let existing = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let incompatible = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: existing.resource_id().to_owned(),
+        installation_id: existing.installation_id().to_owned(),
+        kind: existing.kind().to_owned(),
+        compatibility_fingerprint: "sha256:different-runtime".to_owned(),
+        project_id: existing.project_id().map(str::to_owned),
+        schema_version: existing.schema_version(),
+        desired_revision: existing.desired_revision().to_owned(),
+        retention: existing.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(std::slice::from_ref(&existing))
+        .expect("persist resource");
+
+    let error = store
+        .adopt_resources(std::slice::from_ref(&incompatible))
+        .expect_err("incompatible adoption");
+
+    assert_eq!(
+        error.to_string(),
+        "resource 'container-bill' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
+    );
+    assert_eq!(
+        store.resources().expect("unchanged resource"),
+        vec![existing]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn unregistering_a_project_atomically_orphans_only_its_resources() {
     let database_path = temporary_database_path("project-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);

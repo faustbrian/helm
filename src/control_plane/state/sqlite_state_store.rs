@@ -380,6 +380,18 @@ impl StateStore for SqliteStateStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         for resource in resources {
+            if let Some(existing) = load_resource_ownership(&transaction, resource.resource_id())? {
+                if !existing.matches(resource) {
+                    return Err(StateStoreError::ResourceOwnershipConflict {
+                        resource_id: resource.resource_id().to_owned(),
+                    });
+                }
+                if !existing.is_active() && resource.lifecycle() == ResourceLifecycle::Active {
+                    return Err(StateStoreError::ResourceAdoptionRequired {
+                        resource_id: resource.resource_id().to_owned(),
+                    });
+                }
+            }
             transaction.execute(
                 "INSERT INTO resources (\n\
                      resource_id, installation_id, kind, compatibility_fingerprint,\n\
@@ -387,13 +399,7 @@ impl StateStore for SqliteStateStore {
                      lifecycle, orphaned_at_unix_seconds\n\
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)\n\
                  ON CONFLICT(resource_id) DO UPDATE SET\n\
-                     installation_id = excluded.installation_id,\n\
-                     kind = excluded.kind,\n\
-                     compatibility_fingerprint = excluded.compatibility_fingerprint,\n\
-                     project_id = excluded.project_id,\n\
-                     resource_schema_version = excluded.resource_schema_version,\n\
                      desired_revision = excluded.desired_revision,\n\
-                     retention = excluded.retention,\n\
                      lifecycle = excluded.lifecycle,\n\
                      orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
                 params![
@@ -411,6 +417,44 @@ impl StateStore for SqliteStateStore {
             )?;
         }
 
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn adopt_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        for resource in resources {
+            if resource.lifecycle() != ResourceLifecycle::Active
+                || resource.orphaned_at_unix_seconds().is_some()
+            {
+                return Err(StateStoreError::InvalidResourceAdoption {
+                    resource_id: resource.resource_id().to_owned(),
+                });
+            }
+            let existing = load_resource_ownership(&transaction, resource.resource_id())?
+                .ok_or_else(|| StateStoreError::ResourceAdoptionMissing {
+                    resource_id: resource.resource_id().to_owned(),
+                })?;
+            if !existing.matches(resource) {
+                return Err(StateStoreError::ResourceOwnershipConflict {
+                    resource_id: resource.resource_id().to_owned(),
+                });
+            }
+        }
+
+        for resource in resources {
+            transaction.execute(
+                "UPDATE resources
+                 SET desired_revision = ?1, lifecycle = 'active',
+                     orphaned_at_unix_seconds = NULL
+                 WHERE resource_id = ?2",
+                params![resource.desired_revision(), resource.resource_id()],
+            )?;
+        }
         transaction.commit()?;
 
         Ok(())
@@ -637,6 +681,57 @@ impl StateStore for SqliteStateStore {
             )
             .collect()
     }
+}
+
+struct PersistedResourceOwnership {
+    installation_id: String,
+    kind: String,
+    compatibility_fingerprint: String,
+    project_id: Option<String>,
+    schema_version: i64,
+    retention: String,
+    lifecycle: String,
+}
+
+impl PersistedResourceOwnership {
+    fn matches(&self, resource: &ResourceRecord) -> bool {
+        self.installation_id == resource.installation_id()
+            && self.kind == resource.kind()
+            && self.compatibility_fingerprint == resource.compatibility_fingerprint()
+            && self.project_id.as_deref() == resource.project_id()
+            && self.schema_version == i64::from(resource.schema_version())
+            && self.retention == resource.retention().label()
+    }
+
+    fn is_active(&self) -> bool {
+        self.lifecycle == ResourceLifecycle::Active.label()
+    }
+}
+
+fn load_resource_ownership(
+    connection: &Connection,
+    resource_id: &str,
+) -> Result<Option<PersistedResourceOwnership>, StateStoreError> {
+    connection
+        .query_row(
+            "SELECT installation_id, kind, compatibility_fingerprint, project_id,
+                    resource_schema_version, retention, lifecycle
+             FROM resources WHERE resource_id = ?1",
+            [resource_id],
+            |row| {
+                Ok(PersistedResourceOwnership {
+                    installation_id: row.get(0)?,
+                    kind: row.get(1)?,
+                    compatibility_fingerprint: row.get(2)?,
+                    project_id: row.get(3)?,
+                    schema_version: row.get(4)?,
+                    retention: row.get(5)?,
+                    lifecycle: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
 }
 
 fn load_credential(
