@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added attributed Mailpit convergence with exact compatibility grouping,
+  replay-stable SMTP identities, deterministic bcrypt authentication, one
+  persistent physical process, project-specific mail environments, and
+  `{project}-mailpit.stackctl.localhost` routes in the atomic gateway snapshot.
 - Added RabbitMQ shared-instance convergence with exact compatibility grouping,
   replay-stable project credentials, one atomically published hash-only
   definitions snapshot, isolated vhost/user pairs, persistent physical and

@@ -17,10 +17,15 @@ pub(crate) fn plan_engine_reconciliation(
     options: EngineReconciliationPlanOptions<'_>,
 ) -> Result<EngineReconciliationPlan, EngineReconciliationPlanError> {
     let mut applications = Vec::new();
-    let mut routes = Vec::new();
+    let mut routes = options.shared_routes.to_vec();
 
     for service in options.execution.services() {
-        if service.strategy() == ServiceDeploymentStrategy::SharedByCompatibility
+        let is_shared = matches!(
+            service.strategy(),
+            ServiceDeploymentStrategy::SharedByCompatibility
+                | ServiceDeploymentStrategy::SharedWithAttribution
+        );
+        if is_shared
             && options
                 .prepared_shared_services
                 .iter()

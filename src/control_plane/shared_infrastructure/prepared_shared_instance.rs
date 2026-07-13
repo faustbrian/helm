@@ -1,7 +1,8 @@
 use super::{
-    PreparedMySqlSharedInstance, PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
-    PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance,
+    PreparedMailpitSharedInstance, PreparedMySqlSharedInstance, PreparedObjectStoreSharedInstance,
+    PreparedPostgresSharedInstance, PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance,
 };
+use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::state::ManagedEnvironmentRecord;
 
 /// Backend-specific prepared state hidden behind one daemon strategy boundary.
@@ -11,6 +12,7 @@ pub(crate) enum PreparedSharedInstance {
     Redis(PreparedRedisSharedInstance),
     ObjectStore(PreparedObjectStoreSharedInstance),
     RabbitMq(PreparedRabbitMqSharedInstance),
+    Mailpit(PreparedMailpitSharedInstance),
 }
 
 impl PreparedSharedInstance {
@@ -82,6 +84,20 @@ impl PreparedSharedInstance {
                     )
                 })
                 .collect(),
+            Self::Mailpit(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| {
+                    (
+                        project
+                            .credential()
+                            .project_id()
+                            .expect("project Mailpit credential owner")
+                            .to_owned(),
+                        project.credential().service_id().to_owned(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -112,6 +128,18 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| project.environment())
                 .collect(),
+            Self::Mailpit(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| project.environment())
+                .collect(),
+        }
+    }
+
+    pub(crate) fn routes(&self) -> Vec<GatewayRoute> {
+        match self {
+            Self::Mailpit(prepared) => prepared.routes(),
+            _ => Vec::new(),
         }
     }
 }

@@ -14,10 +14,12 @@ pub(crate) use gotenberg::{
 };
 pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use mailpit::{
-    MailpitAuthenticationSnapshot, MailpitPlanError, MailpitProjectDefinition,
-    MailpitProjectResources, MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions,
+    MailpitAuthenticationSnapshot, MailpitPlanError, MailpitPreparationError,
+    MailpitPreparationOptions, MailpitProjectDefinition, MailpitProjectResources,
+    MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions, PreparedMailpitSharedInstance,
     StoredMailpitAuthenticationPaths, plan_mailpit_project_resources,
-    reconcile_mailpit_authentication, store_mailpit_authentication,
+    prepare_mailpit_shared_instances, reconcile_mailpit_authentication,
+    reconcile_prepared_mailpit_instance, store_mailpit_authentication,
 };
 pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
 pub(crate) use mongodb::{

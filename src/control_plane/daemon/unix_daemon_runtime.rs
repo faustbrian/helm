@@ -260,9 +260,14 @@ impl UnixDaemonRuntime {
             .iter()
             .flat_map(PreparedSharedInstance::service_identities)
             .collect::<Vec<_>>();
+        let shared_routes = prepared_shared
+            .iter()
+            .flat_map(PreparedSharedInstance::routes)
+            .collect::<Vec<_>>();
         let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
             execution,
             prepared_shared_services: &prepared_shared_services,
+            shared_routes: &shared_routes,
             managed_environments: &managed_environments,
             installation_id: self.global_network_request.metadata().installation_id(),
             schema_version: self.global_network_request.metadata().schema_version(),

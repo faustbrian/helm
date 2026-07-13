@@ -7,6 +7,7 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
+use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::path::{Path, PathBuf};
@@ -113,6 +114,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        shared_routes: &[],
         managed_environments: &[],
         installation_id: "install-1",
         schema_version: 8,
@@ -129,6 +131,47 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
         plan.gateway().routes()[0].domain(),
         "bill-app.stackctl.localhost"
     );
+}
+
+#[test]
+fn complete_engine_plans_include_prepared_attributed_shared_routes() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        concat!(
+            "schema_version: 8\nproject: bill\nservices:\n  mailpit:\n",
+            "    preset: mailpit\n    version: \"1\"\n",
+            "    image: axllent/mailpit@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        )
+        .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let prepared = vec![("bill".to_owned(), "mailpit".to_owned())];
+    let shared_routes = vec![
+        GatewayRoute::new(
+            "bill-mailpit.stackctl.localhost",
+            "http://stackctl-shared-mailpit:8025",
+        )
+        .expect("shared route"),
+    ];
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &prepared,
+        shared_routes: &shared_routes,
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    assert!(plan.applications().is_empty());
+    assert_eq!(plan.gateway().routes(), shared_routes);
 }
 
 #[test]
@@ -151,6 +194,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        shared_routes: &[],
         managed_environments: &[],
         installation_id: "install-1",
         schema_version: 8,
@@ -169,6 +213,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &prepared,
+        shared_routes: &[],
         managed_environments: &[],
         installation_id: "install-1",
         schema_version: 8,

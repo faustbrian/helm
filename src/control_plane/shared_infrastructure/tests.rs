@@ -80,6 +80,23 @@ fn shared_database_source(
     )
 }
 
+fn shared_preset_source(
+    directory: &str,
+    project: &str,
+    service: &str,
+    preset: &str,
+    version: &str,
+    image: &str,
+) -> ProjectSource {
+    ProjectSource::new(
+        PathBuf::from(directory),
+        PathBuf::from(format!("{directory}/.stackctl.yaml")),
+        format!(
+            "schema_version: 8\nproject: {project}\nservices:\n  {service}:\n    preset: {preset}\n    version: \"{version}\"\n    image: {image}\n"
+        ),
+    )
+}
+
 struct FixedCredentialEntropy(u8);
 
 impl CredentialEntropy for FixedCredentialEntropy {
@@ -579,6 +596,126 @@ fn rabbitmq_strategy_publishes_isolated_vhosts_for_two_projects() {
     assert!(definitions.contains("st_bill_db"));
     assert!(definitions.contains("st_shop_db"));
     assert!(!definitions.contains(&first_password));
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove strategy state");
+}
+
+#[cfg(unix)]
+#[test]
+fn mailpit_strategy_attributes_smtp_and_ui_access_for_two_projects() {
+    let image = concat!(
+        "axllent/mailpit@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_preset_source("/work/bill", "bill", "mailpit", "mailpit", "1", image),
+        shared_preset_source("/work/shop", "shop", "mailpit", "mailpit", "1", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mailpit-strategy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("strategy state directory");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("MAIL_PASSWORD")
+        .expect("first project password")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared[0].profile().implementation(), "mailpit");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(prepared[0].routes().len(), 2);
+    assert_eq!(
+        prepared[0].routes()[0].domain(),
+        "bill-mailpit.stackctl.localhost"
+    );
+    assert_eq!(
+        prepared[0].routes()[1].domain(),
+        "shop-mailpit.stackctl.localhost"
+    );
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("MAIL_PASSWORD")
+            .expect("replayed project password"),
+        &first_password
+    );
+    assert_eq!(store.credentials().expect("durable credentials").len(), 2);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("commands")
+            .is_empty()
+    );
+    let identity = shared[0]
+        .fingerprint()
+        .as_str()
+        .strip_prefix("sha256:")
+        .expect("fingerprint identity");
+    let authentication = std::fs::read_to_string(
+        root.join("shared")
+            .join(identity)
+            .join("mailpit-authentication/mounted/smtp-passwords"),
+    )
+    .expect("Mailpit authentication");
+    assert!(authentication.contains("st_bill_mailpit:$2b$"));
+    assert!(authentication.contains("st_shop_mailpit:$2b$"));
+    assert!(!authentication.contains(&first_password));
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove strategy state");

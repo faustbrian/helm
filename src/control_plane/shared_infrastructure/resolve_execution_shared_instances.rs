@@ -12,11 +12,13 @@ pub(crate) fn resolve_execution_shared_instances(
 ) -> Result<Vec<SharedInstancePlan>, SharedDemandPlanError> {
     let mut requests = Vec::new();
 
-    for service in execution
-        .services()
-        .iter()
-        .filter(|service| service.strategy() == ServiceDeploymentStrategy::SharedByCompatibility)
-    {
+    for service in execution.services().iter().filter(|service| {
+        matches!(
+            service.strategy(),
+            ServiceDeploymentStrategy::SharedByCompatibility
+                | ServiceDeploymentStrategy::SharedWithAttribution
+        )
+    }) {
         let preset = service.desired().preset().ok_or_else(|| {
             invalid(format!(
                 "shared service '{}-{}' requires an explicit implementation preset",
@@ -32,6 +34,7 @@ pub(crate) fn resolve_execution_shared_instances(
             "valkey" => "valkey",
             "minio" => "minio",
             "rabbitmq" => "rabbitmq",
+            "mailpit" => "mailpit",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",
@@ -72,6 +75,7 @@ pub(crate) fn resolve_execution_shared_instances(
                 "redis" | "valkey" => IsolationCapability::AclAndPrefix,
                 "minio" => IsolationCapability::BucketAndPolicy,
                 "rabbitmq" => IsolationCapability::VirtualHostAndUser,
+                "mailpit" => IsolationCapability::None,
                 _ => IsolationCapability::DatabaseAndRole,
             },
             platform_architecture: Some(platform.to_owned()),

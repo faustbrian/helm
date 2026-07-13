@@ -1,7 +1,8 @@
 use super::{
-    CredentialEntropy, MySqlPreparationOptions, ObjectStorePreparationOptions,
-    PostgresPreparationOptions, PreparedSharedInstance, RabbitMqPreparationOptions,
-    RedisPreparationOptions, SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
+    CredentialEntropy, MailpitPreparationOptions, MySqlPreparationOptions,
+    ObjectStorePreparationOptions, PostgresPreparationOptions, PreparedSharedInstance,
+    RabbitMqPreparationOptions, RedisPreparationOptions, SharedInstancePlan,
+    SharedPreparationError, SharedPreparationOptions, prepare_mailpit_shared_instances,
     prepare_mysql_shared_instances, prepare_object_store_shared_instances,
     prepare_postgres_shared_instances, prepare_rabbitmq_shared_instances,
     prepare_redis_shared_instances,
@@ -95,6 +96,21 @@ where
             .pop()
             .map(PreparedSharedInstance::RabbitMq)
             .ok_or_else(|| invalid("RabbitMQ strategy returned no prepared instance")),
+            "mailpit" => prepare_mailpit_shared_instances(
+                store,
+                std::slice::from_ref(instance),
+                entropy,
+                MailpitPreparationOptions {
+                    installation_id: options.installation_id,
+                    network_name: options.network_name,
+                    schema_version: options.schema_version,
+                    state_directory: options.state_directory,
+                },
+            )
+            .map_err(invalid)?
+            .pop()
+            .map(PreparedSharedInstance::Mailpit)
+            .ok_or_else(|| invalid("Mailpit strategy returned no prepared instance")),
             implementation => Err(invalid(format!(
                 "shared implementation '{implementation}' has no registered preparation strategy"
             ))),
