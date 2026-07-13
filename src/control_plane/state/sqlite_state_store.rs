@@ -1,5 +1,6 @@
 use super::{ProjectRecord, StateStore, StateStoreError};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 const CURRENT_SCHEMA_VERSION: u32 = 1;
@@ -77,47 +78,62 @@ impl SqliteStateStore {
 }
 
 impl StateStore for SqliteStateStore {
-    fn replace_project(&mut self, project: &ProjectRecord) -> Result<(), StateStoreError> {
-        let canonical_path = exact_path(project.canonical_path())?;
+    fn replace_projects(&mut self, projects: &[ProjectRecord]) -> Result<(), StateStoreError> {
+        let exact_projects = projects
+            .iter()
+            .map(|project| exact_path(project.canonical_path()).map(|path| (project, path)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let batch_paths = exact_projects
+            .iter()
+            .map(|(_, path)| *path)
+            .collect::<BTreeSet<_>>();
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        for domain in project.route_domains() {
-            let existing_path = transaction
-                .query_row(
-                    "SELECT canonical_path FROM route_claims WHERE domain = ?1",
-                    [domain],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?;
+        for (project, canonical_path) in &exact_projects {
+            for domain in project.route_domains() {
+                let existing_path = transaction
+                    .query_row(
+                        "SELECT canonical_path FROM route_claims WHERE domain = ?1",
+                        [domain],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?;
 
-            if let Some(existing_path) = existing_path {
-                if existing_path != canonical_path {
-                    return Err(StateStoreError::RouteOwnershipConflict {
-                        domain: domain.clone(),
-                        existing_path: PathBuf::from(existing_path),
-                        requested_path: project.canonical_path().to_path_buf(),
-                    });
+                if let Some(existing_path) = existing_path {
+                    if existing_path != *canonical_path
+                        && !batch_paths.contains(existing_path.as_str())
+                    {
+                        return Err(StateStoreError::RouteOwnershipConflict {
+                            domain: domain.clone(),
+                            existing_path: PathBuf::from(existing_path),
+                            requested_path: project.canonical_path().to_path_buf(),
+                        });
+                    }
                 }
             }
         }
 
-        transaction.execute(
-            "INSERT INTO projects (canonical_path, project_name) VALUES (?1, ?2)\n\
-             ON CONFLICT(canonical_path) DO UPDATE SET project_name = excluded.project_name",
-            params![canonical_path, project.project_name()],
-        )?;
-        transaction.execute(
-            "DELETE FROM route_claims WHERE canonical_path = ?1",
-            [canonical_path],
-        )?;
-
-        for domain in project.route_domains() {
+        for (project, canonical_path) in &exact_projects {
             transaction.execute(
-                "INSERT INTO route_claims (domain, canonical_path) VALUES (?1, ?2)",
-                params![domain, canonical_path],
+                "INSERT INTO projects (canonical_path, project_name) VALUES (?1, ?2)\n\
+                 ON CONFLICT(canonical_path) DO UPDATE SET project_name = excluded.project_name",
+                params![canonical_path, project.project_name()],
             )?;
+            transaction.execute(
+                "DELETE FROM route_claims WHERE canonical_path = ?1",
+                [canonical_path],
+            )?;
+        }
+
+        for (project, canonical_path) in exact_projects {
+            for domain in project.route_domains() {
+                transaction.execute(
+                    "INSERT INTO route_claims (domain, canonical_path) VALUES (?1, ?2)",
+                    params![domain, canonical_path],
+                )?;
+            }
         }
 
         transaction.commit()?;

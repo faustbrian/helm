@@ -1,3 +1,4 @@
+mod application;
 mod configuration;
 mod daemon;
 mod desired_state;

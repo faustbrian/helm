@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
   stale-PID-independent recovery, and user-only Unix permissions.
 - Added a versioned v8 local IPC frame contract with typed requests, request
   IDs, cancellation, strict decoding, and a user-only Unix socket listener.
+- Added a v8 multi-project application boundary that plans the complete
+  discovered registry before atomically persisting any project ownership.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
