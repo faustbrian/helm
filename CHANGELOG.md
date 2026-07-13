@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a bounded MySQL/MariaDB restore adapter that re-verifies exact durable
+  recovery identity, checksum, size, tenant ownership, and isolated target
+  ownership before streaming through the flavor-specific in-container client.
 - Added daemon-owned MySQL and MariaDB logical backups using flavor-specific
   dump clients inside the exact owned shared container, consistent streaming
   flags, runtime-only tenant credentials, private immutable artifact storage,

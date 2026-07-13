@@ -26,7 +26,9 @@ use crate::control_plane::daemon::ipc::{
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
-use crate::control_plane::migration::MigrationExecutionResult;
+use crate::control_plane::migration::{
+    MigrationExecutionResult, MySqlRestoreOptions, restore_mysql_database,
+};
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
@@ -992,12 +994,11 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
 
     let backup_root = temporary_directory("queued-mysql-backup");
     let fingerprint = format!("sha256:{}", "b".repeat(64));
-    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
-        "mysql-container",
-        "install-1",
-        "mysql-8",
-        &fingerprint,
-    )]);
+    let observed = observed_shared_service("mysql-container", "install-1", "mysql-8", &fingerprint);
+    let container =
+        crate::control_plane::engine::reconstruct_owned_container(&observed, "install-1", 8)
+            .expect("owned MySQL container");
+    let engine = RecordingProjectCommandEngine::new(vec![observed]);
     let operation = QueuedProjectBackup::new(
         "backup-mysql".to_owned(),
         "bill".to_owned(),
@@ -1035,8 +1036,8 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
         engine.clone(),
         ProjectBackupExecutionOptions {
             operation,
-            logical_resource: Ok(logical_resource),
-            credential: Ok(credential),
+            logical_resource: Ok(logical_resource.clone()),
+            credential: Ok(credential.clone()),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1057,6 +1058,50 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
     let recovery_point = Path::new(backup.reference());
     assert!(recovery_point.join("artifact.bin").is_file());
     assert!(recovery_point.join("manifest.json").is_file());
+
+    let checkpoint = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "restore-mysql".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:desired".to_owned(),
+        target_revision: "sha256:target".to_owned(),
+        source_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::TargetProvisioned,
+        backup_reference: Some(backup.reference().to_owned()),
+        backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+        backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+        target_resource_id: Some("stackctl_bill_database".to_owned()),
+        rollback_reference: Some("mysql-8".to_owned()),
+        updated_at_unix_seconds: 40_001,
+    })
+    .expect("MySQL restore checkpoint");
+
+    runtime
+        .block_on(restore_mysql_database(
+            &engine,
+            &container,
+            &MySqlRestoreOptions {
+                flavor: crate::control_plane::shared_infrastructure::MySqlFlavor::MySql,
+                checkpoint: &checkpoint,
+                source_logical_resource: &logical_resource,
+                credential: &credential,
+                installation_id: "install-1",
+                target_database_name: "stackctl_bill_database",
+                verified_at_unix_seconds: 40_002,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("verified MySQL restore");
+
+    assert_eq!(engine.command_arguments()[1][0], "mysql");
+    assert!(
+        engine.command_arguments()[1].contains(&"--database=stackctl_bill_database".to_owned())
+    );
+    assert_eq!(
+        engine.command_environments()[1].get("MYSQL_PWD"),
+        Some(&"secret-value".to_owned())
+    );
+    assert_eq!(engine.command_inputs()[1], b"installed\n");
 
     std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
 }
