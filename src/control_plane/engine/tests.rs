@@ -1,11 +1,14 @@
 use super::{
-    ContainerCreateOptions, ContainerId, ContainerLifecycle, ContainerState, EngineFuture,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedResourceOwnership,
-    ResourceKind, RetentionClass, classify_observed_resource,
+    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
+    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+    ObservedResourceOwnership, ResourceKind, RetentionClass, classify_observed_resource,
 };
+use bollard::models::ContainerSummary;
 use std::collections::BTreeMap;
 
-use super::bollard_engine_adapter::create_request;
+use super::bollard_engine_adapter::{
+    create_request, managed_container_list_request, observed_container,
+};
 
 #[test]
 fn managed_metadata_generates_complete_reserved_ownership_labels() {
@@ -184,6 +187,69 @@ fn unsupported_resource_schema_is_not_treated_as_owned() {
     );
 }
 
+#[test]
+fn managed_container_rescan_includes_stopped_objects_and_filters_by_marker() {
+    let request = managed_container_list_request();
+
+    assert!(request.all);
+    assert_eq!(
+        request.filters,
+        Some(std::collections::HashMap::from([(
+            "label".to_owned(),
+            vec!["dev.stackctl.managed=true".to_owned()],
+        )]))
+    );
+}
+
+#[test]
+fn engine_container_summaries_map_to_backend_independent_observations() {
+    let labels = project_metadata(ResourceKind::ProjectApplication)
+        .labels()
+        .into_iter()
+        .collect();
+    let summary = ContainerSummary {
+        id: Some("container-1".to_owned()),
+        labels: Some(labels),
+        ..ContainerSummary::default()
+    };
+
+    let observed = observed_container(summary).expect("complete Engine summary");
+
+    assert_eq!(observed.id().as_str(), "container-1");
+    assert_eq!(
+        classify_observed_resource(observed.labels(), "install-1", 8),
+        ObservedResourceOwnership::Owned(project_metadata(ResourceKind::ProjectApplication))
+    );
+}
+
+#[test]
+fn engine_summaries_without_ids_fail_instead_of_disappearing() {
+    let error = observed_container(ContainerSummary::default()).expect_err("missing ID");
+
+    assert_eq!(
+        error.to_string(),
+        "Engine returned a managed container without an ID"
+    );
+}
+
+#[test]
+fn container_discovery_is_an_object_safe_rescan_strategy() {
+    let mut backend = RecordingContainerBackend::default();
+    backend.observed.push(ObservedContainer::new(
+        ContainerId::new("container-1"),
+        project_metadata(ResourceKind::ProjectApplication).labels(),
+    ));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let observed = runtime
+        .block_on(discover_through_strategy(&backend))
+        .expect("discover containers");
+
+    assert_eq!(observed, backend.observed);
+}
+
 fn project_metadata(kind: ResourceKind) -> ManagedResourceMetadata {
     ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
@@ -217,9 +283,22 @@ fn create_through_strategy<'operation>(
     strategy.create(options)
 }
 
+fn discover_through_strategy(
+    strategy: &dyn ContainerDiscovery,
+) -> EngineFuture<'_, Vec<ObservedContainer>> {
+    strategy.discover_managed()
+}
+
 #[derive(Default)]
 struct RecordingContainerBackend {
     created: Vec<ContainerCreateOptions>,
+    observed: Vec<ObservedContainer>,
+}
+
+impl ContainerDiscovery for RecordingContainerBackend {
+    fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
 }
 
 impl ContainerLifecycle for RecordingContainerBackend {

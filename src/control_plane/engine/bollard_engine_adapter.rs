@@ -1,12 +1,12 @@
 use super::{
-    ContainerCreateOptions, ContainerId, ContainerLifecycle, ContainerState, EngineError,
-    EngineFuture,
+    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
+    EngineError, EngineFuture, ObservedContainer,
 };
 use bollard::errors::Error as BollardError;
-use bollard::models::ContainerCreateBody;
-use bollard::query_parameters::CreateContainerOptionsBuilder;
+use bollard::models::{ContainerCreateBody, ContainerSummary};
+use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
 use bollard::{API_DEFAULT_VERSION, Docker};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
@@ -130,6 +130,20 @@ impl ContainerLifecycle for BollardEngineAdapter {
     }
 }
 
+impl ContainerDiscovery for BollardEngineAdapter {
+    fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async move {
+            self.docker
+                .list_containers(Some(managed_container_list_request()))
+                .await
+                .map_err(|error| backend_error("list managed containers", error))?
+                .into_iter()
+                .map(observed_container)
+                .collect()
+        })
+    }
+}
+
 pub(super) fn create_request(
     options: &ContainerCreateOptions,
 ) -> (
@@ -152,6 +166,33 @@ pub(super) fn create_request(
     };
 
     (query, body)
+}
+
+pub(super) fn managed_container_list_request() -> bollard::query_parameters::ListContainersOptions {
+    let filters = HashMap::from([(
+        "label".to_owned(),
+        vec!["dev.stackctl.managed=true".to_owned()],
+    )]);
+
+    ListContainersOptionsBuilder::default()
+        .all(true)
+        .filters(&filters)
+        .build()
+}
+
+pub(super) fn observed_container(
+    summary: ContainerSummary,
+) -> Result<ObservedContainer, EngineError> {
+    let id = summary.id.ok_or_else(|| EngineError::Backend {
+        detail: "Engine returned a managed container without an ID".to_owned(),
+    })?;
+    let labels = summary
+        .labels
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+    Ok(ObservedContainer::new(ContainerId::new(id), labels))
 }
 
 fn backend_error(action: &str, error: BollardError) -> EngineError {

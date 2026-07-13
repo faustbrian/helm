@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a narrow v8 container discovery capability with direct Engine API
+  rescans, managed-label filtering, and backend-independent observations.
 - Added v8 observed-resource ownership classification that reconstructs complete
   labels while isolating unmanaged, foreign, incompatible, and malformed objects.
 - Added strict v8 project, service, and route identities that preserve valid
