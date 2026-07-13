@@ -48,6 +48,8 @@ mod v8_env_cmd;
 #[cfg(unix)]
 mod v8_legacy_fallback_guard;
 #[cfg(unix)]
+mod v8_open_cmd;
+#[cfg(unix)]
 mod v8_project;
 #[cfg(unix)]
 mod v8_project_command;
@@ -114,6 +116,8 @@ pub(crate) use url_cmd::handle_url;
 pub(crate) use v8_env_cmd::handle_v8_env;
 #[cfg(unix)]
 pub(crate) use v8_legacy_fallback_guard::reject_v8_legacy_fallback;
+#[cfg(unix)]
+pub(crate) use v8_open_cmd::handle_v8_open;
 #[cfg(unix)]
 pub(crate) use v8_project_command::handle_v8_project_command;
 #[cfg(unix)]

@@ -76,6 +76,11 @@ pub(super) fn handle_setup_commands(
     }
 
     #[cfg(unix)]
+    if handlers::handle_v8_open(cli, context)? {
+        return Ok(true);
+    }
+
+    #[cfg(unix)]
     if handlers::handle_v8_project_command(cli, context)? {
         return Ok(true);
     }

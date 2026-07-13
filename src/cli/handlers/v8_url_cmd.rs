@@ -46,7 +46,7 @@ pub(crate) fn handle_v8_url(cli: &Cli, context: &CliDispatchContext<'_>) -> Resu
     Ok(true)
 }
 
-fn select_routes(
+pub(super) fn select_routes(
     status: &IpcProjectStatus,
     services: &[String],
     selected_service: Option<&str>,
@@ -84,7 +84,7 @@ fn select_routes(
     Ok(routes)
 }
 
-fn render_routes(
+pub(super) fn render_routes(
     writer: &mut impl Write,
     routes: &[(String, String)],
     single_service: bool,

@@ -60,6 +60,7 @@ pub(crate) use for_each_service::{
 };
 pub(crate) use matches_filter::matches_filter;
 pub(crate) use open_in_browser::open_in_browser;
+pub(crate) use open_in_browser::try_open_in_browser;
 #[cfg(test)]
 pub(crate) use open_in_browser::with_open_command;
 pub(crate) use open_summary_data::open_summary_data;

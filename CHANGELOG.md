@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict v8 `open` using only daemon-published HTTPS routes, with exact
+  service or all-route selection, machine-readable output, explicit platform
+  opener failures, and no legacy curl, database-port, or health-path probing.
 - Added typed strict v8 execution for Deno and the whitelisted PHPStan, ECS,
   PHP-CS-Fixer, Psalm, Pint, Pest, PHPUnit, and Rector project tools through
   owned application containers, with exact arguments and declarative runtime

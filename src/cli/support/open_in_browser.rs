@@ -4,6 +4,8 @@
 
 use std::process::Command;
 
+use anyhow::{Context, Result, bail};
+
 #[cfg(test)]
 thread_local! {
     static FAKE_OPEN_COMMAND: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
@@ -34,8 +36,20 @@ fn default_open_command() -> String {
 }
 
 pub(crate) fn open_in_browser(url: &str) {
+    drop(try_open_in_browser(url));
+}
+
+pub(crate) fn try_open_in_browser(url: &str) -> Result<()> {
     let command = open_command();
-    open_in_browser_with_command(url, &command);
+    let status = Command::new(&command)
+        .arg(url)
+        .status()
+        .with_context(|| format!("failed to start platform URL opener '{command}'"))?;
+    if !status.success() {
+        bail!("platform URL opener '{command}' exited with status {status}");
+    }
+
+    Ok(())
 }
 
 fn open_in_browser_with_command(url: &str, command: &str) {
@@ -69,11 +83,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::open_in_browser_with_command;
+    use super::{open_in_browser_with_command, try_open_in_browser, with_open_command};
     use std::fs;
     use std::io::Write;
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    #[cfg(unix)]
+    fn checked_open_reports_platform_command_failures() {
+        let error = with_open_command("false", || {
+            try_open_in_browser("https://bill-app.stackctl.localhost")
+                .expect_err("platform opener failure")
+        });
+
+        assert!(error.to_string().contains("exited with status"));
+    }
 
     fn with_fake_binary<F: FnOnce(&Path, &str)>(name: &str, body: F) {
         let base = std::env::temp_dir();
