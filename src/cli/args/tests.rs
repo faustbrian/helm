@@ -881,6 +881,13 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
+    let benchmark = Cli::parse_from(["stackctl", "daemon", "benchmark"]);
+    if let commands::Commands::Daemon(args) = benchmark.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Benchmark));
+    } else {
+        panic!("expected daemon command");
+    }
+
     let adopt = Cli::parse_from(["stackctl", "daemon", "adopt", "/work/bill"]);
     if let commands::Commands::Daemon(args) = adopt.command {
         let commands::DaemonCommands::Adopt(args) = args.command else {

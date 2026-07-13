@@ -52,3 +52,37 @@ Thresholds may be tightened by evidence, not weakened merely to pass.
 Keep the harness under `scripts/` and result summaries under
 `docs/v8/benchmarks/`. Results distinguish the unavoidable Docker Desktop/WSL
 VM baseline from Stackctl workload consumption.
+
+Build the release candidate, prepare and fully reconcile one scenario, then run:
+
+```sh
+STACKCTL_BENCHMARK_ENGINE='Docker Desktop' \
+STACKCTL_BENCHMARK_ENGINE_VERSION='exact-version' \
+STACKCTL_BENCHMARK_ENGINE_BACKEND='Linux VM identity' \
+STACKCTL_BENCHMARK_ENGINE_LIMITS='cpu=...,memory=...' \
+STACKCTL_BENCHMARK_FILESYSTEM='exact sharing mode' \
+STACKCTL_BENCHMARK_HOST_METRICS_FILE='external-host-metrics.txt' \
+./scripts/benchmark-v8.sh v8-forty-compatible \
+  docs/v8/benchmarks/<platform>-<revision>-v8-forty-compatible
+```
+
+`stackctl daemon benchmark` requests each sample from the authoritative daemon.
+The daemon discovers current managed containers through the typed Engine API,
+proves current-installation ownership, samples normalized CPU, memory, process,
+and network counters, and includes only published ports belonging to those exact
+containers. Foreign installations are excluded. Ambiguous ownership, a missing
+metric, Engine unavailability, or a partial sample fails the command.
+
+The harness never invokes or parses `docker` or `podman`. Host and Engine-VM
+baseline metrics are outside the container API and must be captured by a
+platform-appropriate independent tool, then supplied through
+`STACKCTL_BENCHMARK_HOST_METRICS_FILE`; the harness rejects a missing artifact.
+The Engine-only and v7 scenarios must be captured with that same independent
+collector because the v8 daemon correctly refuses to claim ownership of v7 or
+foreign containers. Never interpret their absence from a v8 snapshot as zero
+resource use.
+
+The harness refuses to overwrite a result directory. Commit raw samples,
+metadata, external host/VM samples, and a human-readable threshold comparison.
+Do not use an Engine baseline captured with different VM limits or filesystem
+settings.

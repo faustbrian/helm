@@ -3,6 +3,7 @@
 //! Contains pre-config daemon command routing used by Stackctl command workflows.
 
 mod backup;
+mod benchmark;
 mod migration_decision;
 mod restore;
 mod service;
@@ -23,6 +24,7 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Service(service_args) => service::handle_daemon_service(service_args),
         DaemonCommands::Status => handle_daemon_status(),
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
+        DaemonCommands::Benchmark => benchmark::handle_daemon_benchmark(),
         DaemonCommands::Adopt(adopt) => handle_daemon_adopt(adopt),
         DaemonCommands::Backup(backup_args) => backup::handle_daemon_backup(backup_args),
         DaemonCommands::Backups(backups_args) => handle_daemon_backups(backups_args),

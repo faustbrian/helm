@@ -3,8 +3,10 @@ mod active_project_backup;
 mod active_project_command;
 mod active_project_log_session;
 mod active_project_restore;
+mod benchmark_snapshot_provider;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
+mod collect_benchmark_snapshot;
 mod daemon_iteration_result;
 mod daemon_request_dispatch_options;
 #[cfg(unix)]
@@ -17,6 +19,7 @@ mod discovery_scheduler;
 mod discovery_scheduler_error;
 mod discovery_scheduler_options;
 mod dispatch_daemon_request;
+mod engine_benchmark_snapshot_provider;
 mod engine_connection_outcome;
 mod engine_connection_supervisor;
 mod engine_connection_supervisor_error;
@@ -118,8 +121,10 @@ pub(crate) use singleton_lease_error::SingletonLeaseError;
 
 #[cfg(test)]
 mod tests;
+pub(crate) use benchmark_snapshot_provider::BenchmarkSnapshotProvider;
 #[cfg(unix)]
 pub(crate) use bollard_unix_engine_connector::BollardUnixEngineConnector;
+pub(crate) use collect_benchmark_snapshot::collect_benchmark_snapshot;
 pub(crate) use daemon_iteration_result::DaemonIterationResult;
 pub(crate) use daemon_request_dispatch_options::DaemonRequestDispatchOptions;
 #[cfg(unix)]
@@ -132,6 +137,7 @@ pub(crate) use discovery_scheduler::DiscoveryScheduler;
 pub(crate) use discovery_scheduler_error::DiscoverySchedulerError;
 pub(crate) use discovery_scheduler_options::DiscoverySchedulerOptions;
 pub(crate) use dispatch_daemon_request::dispatch_daemon_request;
+pub(crate) use engine_benchmark_snapshot_provider::EngineBenchmarkSnapshotProvider;
 pub(crate) use engine_connection_outcome::EngineConnectionOutcome;
 pub(crate) use engine_connection_supervisor::EngineConnectionSupervisor;
 pub(crate) use engine_connection_supervisor_error::EngineConnectionSupervisorError;

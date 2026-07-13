@@ -1,8 +1,9 @@
 use super::{
-    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,
-    IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand,
-    IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
-    decode_request_frame, decode_response_frame, encode_frame,
+    IPC_PROTOCOL_VERSION, IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions,
+    IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind, IpcLogChunk,
+    IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream, IpcPayload,
+    IpcProjectCommand, IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+    IpcResponse, IpcResult, decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -19,6 +20,53 @@ fn request_frames_round_trip_with_version_id_and_typed_payload() {
     assert_eq!(decoded, request);
     assert_eq!(decoded.protocol_version(), IPC_PROTOCOL_VERSION);
     assert_eq!(decoded.request_id(), "request-42");
+}
+
+#[test]
+fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
+    let request = IpcRequest::new("benchmark-42", IpcPayload::BenchmarkSnapshot);
+    let snapshot = IpcBenchmarkSnapshot::new(
+        10_000,
+        40,
+        vec![
+            IpcBenchmarkContainerMetrics::new(IpcBenchmarkContainerMetricsOptions {
+                container_id: "gateway-container".to_owned(),
+                resource_kind: "gateway".to_owned(),
+                project_id: None,
+                resource_id: None,
+                cpu_usage_basis_points: 125,
+                memory_usage_bytes: 64 * 1_024 * 1_024,
+                process_count: 8,
+                network_received_bytes: 1_000,
+                network_transmitted_bytes: 2_000,
+                published_tcp_ports: vec![
+                    IpcBenchmarkTcpPort::new("127.0.0.1".to_owned(), 443).expect("published port"),
+                ],
+            })
+            .expect("container sample"),
+        ],
+    )
+    .expect("snapshot");
+    let response = IpcResponse::success(
+        "benchmark-42",
+        IpcResult::BenchmarkSnapshot {
+            snapshot: snapshot.clone(),
+        },
+    );
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
+    let json = serde_json::to_string(&snapshot).expect("benchmark JSON");
+    assert!(json.contains("\"memory_usage_bytes\":67108864"));
+    assert!(!json.contains("null"));
 }
 
 #[test]

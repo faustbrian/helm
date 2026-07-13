@@ -12,6 +12,8 @@ pub(crate) enum IpcPayload {
     Ping,
     /// Requests one complete reconciliation of every authoritative watched root.
     Reconcile,
+    /// Samples exact owned workload-plane resources without mutating them.
+    BenchmarkSnapshot,
     /// Resolves exact mutable registry sources through the selected Engine.
     ResolveImageReferences {
         references: BTreeMap<String, String>,

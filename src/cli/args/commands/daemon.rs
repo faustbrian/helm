@@ -42,6 +42,8 @@ pub(crate) enum DaemonCommands {
     Status,
     /// Request one immediate complete watched-root reconciliation
     Reconcile,
+    /// Emit one read-only JSON snapshot of owned Engine resource usage
+    Benchmark,
     /// Explicitly reactivate the exact retained state for one project
     Adopt(DaemonAdoptArgs),
     /// Create a verified recovery point for one project data service

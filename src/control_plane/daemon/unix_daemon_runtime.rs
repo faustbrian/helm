@@ -1,15 +1,16 @@
 use super::{
     ActiveMigrationDecision, ActiveProjectBackup, ActiveProjectCommand, ActiveProjectLogSession,
     ActiveProjectRestore, BollardUnixEngineConnector, DaemonIterationResult,
-    DaemonRequestDispatchOptions, DiscoveryScheduler, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineImageReferenceResolution, EngineReconciliationPlanOptions,
-    EngineReconciliationSchedule, FilesystemEventWatcher, ImageReferenceResolution,
-    IpcEventJournal, MigrationDecisionQueue, ProjectBackupQueue, ProjectCommandQueue,
-    ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
-    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_daemon_operation_queues, validate_project_workload_adoption,
+    DaemonRequestDispatchOptions, DiscoveryScheduler, EngineBenchmarkSnapshotProvider,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
+    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
+    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, ProjectBackupQueue,
+    ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -168,6 +169,17 @@ impl UnixDaemonRuntime {
             .engine()
             .cloned()
             .map(|engine| EngineImageReferenceResolution::new(&self.engine_runtime, engine));
+        let mut benchmark_snapshot = self.engine_connection.engine().cloned().map(|engine| {
+            EngineBenchmarkSnapshotProvider::new(
+                &self.engine_runtime,
+                engine,
+                self.global_network_request
+                    .metadata()
+                    .installation_id()
+                    .to_owned(),
+                self.global_network_request.metadata().schema_version(),
+            )
+        });
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
                 control_plane: &mut self.control_plane,
@@ -180,6 +192,10 @@ impl UnixDaemonRuntime {
                 migration_decisions: &mut self.migration_decisions,
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
+                benchmark_snapshot: benchmark_snapshot.as_mut().map(|provider| {
+                    let provider: &mut dyn super::BenchmarkSnapshotProvider = provider;
+                    provider
+                }),
                 image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
                     let resolver: &mut dyn ImageReferenceResolution = resolver;
                     resolver

@@ -1,6 +1,6 @@
 use super::{
-    DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
-    DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
+    BenchmarkSnapshotProvider, DaemonRequestDispatchOptions, DiscoveryScanReason,
+    DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionExecutionOptions,
     MigrationDecisionQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
@@ -8,15 +8,16 @@ use super::{
     ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedProjectBackup, QueuedProjectCommand,
     QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
-    execute_queued_migration_decision, execute_queued_project_backup,
+    SingletonLease, collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_migration_decision, execute_queued_project_backup,
     execute_queued_project_command, execute_queued_project_restore, invalidate_engine_connection,
     plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
+    IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions, IpcBenchmarkSnapshot,
+    IpcBenchmarkTcpPort, IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
     IpcMigrationDecision, IpcMigrationStatus, IpcOutputStream, IpcPayload, IpcProjectCommand,
     IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
     IpcResponse, IpcResult,
@@ -2203,6 +2204,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
@@ -2236,6 +2238,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
     });
@@ -2272,6 +2275,109 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 }
 
 #[test]
+fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
+    let root = temporary_directory("ipc-benchmark-snapshot");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new("benchmark-42", IpcPayload::BenchmarkSnapshot);
+    let snapshot = IpcBenchmarkSnapshot::new(
+        10_000,
+        0,
+        vec![
+            IpcBenchmarkContainerMetrics::new(IpcBenchmarkContainerMetricsOptions {
+                container_id: "container-gateway".to_owned(),
+                resource_kind: "gateway".to_owned(),
+                project_id: None,
+                resource_id: None,
+                cpu_usage_basis_points: 125,
+                memory_usage_bytes: 64 * 1_024 * 1_024,
+                process_count: 8,
+                network_received_bytes: 1_000,
+                network_transmitted_bytes: 2_000,
+                published_tcp_ports: vec![
+                    IpcBenchmarkTcpPort::new("127.0.0.1".to_owned(), 443).expect("TCP port"),
+                ],
+            })
+            .expect("container metrics"),
+        ],
+    )
+    .expect("benchmark snapshot");
+    let mut provider = FixedBenchmarkSnapshotProvider {
+        snapshot: snapshot.clone(),
+        requests: Vec::new(),
+    };
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut IpcEventJournal::default(),
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: Some(&mut provider),
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success("benchmark-42", IpcResult::BenchmarkSnapshot { snapshot })
+    );
+    assert_eq!(provider.requests, vec![(0, 10_000)]);
+    assert!(
+        control_plane
+            .resources()
+            .expect("unchanged resources")
+            .is_empty()
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove benchmark fixture");
+}
+
+#[test]
+fn benchmark_collection_samples_only_exact_current_installation_ownership() {
+    let engine = RecordingProjectCommandEngine::new(vec![
+        observed_project_application("container-app", "install-1", "bill", "app"),
+        observed_project_application("foreign-app", "install-2", "shop", "app"),
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let snapshot = runtime
+        .block_on(collect_benchmark_snapshot(
+            &engine,
+            "install-1",
+            8,
+            40,
+            10_000,
+        ))
+        .expect("complete benchmark snapshot");
+
+    assert_eq!(snapshot.project_count(), 40);
+    assert_eq!(snapshot.observed_at_unix_seconds(), 10_000);
+    assert_eq!(snapshot.containers().len(), 1);
+    let container = &snapshot.containers()[0];
+    assert_eq!(container.container_id(), "container-app");
+    assert_eq!(container.resource_kind(), "project_application");
+    assert_eq!(container.project_id(), Some("bill"));
+    assert_eq!(container.resource_id(), Some("app"));
+    assert_eq!(container.cpu_usage_basis_points(), 125);
+    assert_eq!(container.memory_usage_bytes(), 64 * 1_024 * 1_024);
+    assert_eq!(container.process_count(), 8);
+    assert_eq!(container.network_received_bytes(), 1_000);
+    assert_eq!(container.network_transmitted_bytes(), 2_000);
+    assert_eq!(container.published_tcp_ports().len(), 1);
+    assert_eq!(container.published_tcp_ports()[0].host_port(), 443);
+}
+
+#[test]
 fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
     let root = temporary_directory("ipc-image-resolution");
     let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
@@ -2299,6 +2405,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: Some(&mut resolver),
         now_unix_seconds: 10_000,
     });
@@ -2398,6 +2505,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
@@ -2528,6 +2636,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
@@ -2569,6 +2678,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
     });
@@ -2631,6 +2741,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
@@ -2707,6 +2818,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 20_000,
     });
@@ -2798,6 +2910,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 20_000,
     });
@@ -2876,6 +2989,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 30_000,
     });
@@ -2979,6 +3093,7 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
     });
@@ -3077,6 +3192,7 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
     });
@@ -3182,6 +3298,7 @@ fn daemon_migration_decision_persists_one_exact_operator_choice() {
         migration_decisions: &mut decisions,
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_100,
     });
@@ -3548,6 +3665,24 @@ struct RecordingImageReferenceResolution {
     requests: Vec<BTreeMap<String, String>>,
 }
 
+struct FixedBenchmarkSnapshotProvider {
+    snapshot: IpcBenchmarkSnapshot,
+    requests: Vec<(usize, i64)>,
+}
+
+impl BenchmarkSnapshotProvider for FixedBenchmarkSnapshotProvider {
+    fn snapshot(
+        &mut self,
+        project_count: usize,
+        observed_at_unix_seconds: i64,
+    ) -> Result<IpcBenchmarkSnapshot, String> {
+        self.requests
+            .push((project_count, observed_at_unix_seconds));
+
+        Ok(self.snapshot.clone())
+    }
+}
+
 impl ImageReferenceResolution for RecordingImageReferenceResolution {
     fn resolve(
         &mut self,
@@ -3662,6 +3797,50 @@ impl crate::control_plane::engine::ContainerDiscovery for RecordingProjectComman
         Vec<crate::control_plane::engine::ObservedContainer>,
     > {
         Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::PublishedPortDiscovery for RecordingProjectCommandEngine {
+    fn discover_published_tcp_ports(
+        &self,
+    ) -> crate::control_plane::engine::EngineFuture<
+        '_,
+        Vec<crate::control_plane::engine::PublishedPortBinding>,
+    > {
+        let bindings = self
+            .observed
+            .iter()
+            .map(|container| {
+                crate::control_plane::engine::PublishedPortBinding::new(
+                    container.id().as_str(),
+                    container.id().as_str(),
+                    "127.0.0.1".parse().expect("loopback address"),
+                    443,
+                )
+                .expect("published port")
+            })
+            .collect();
+        Box::pin(async move { Ok(bindings) })
+    }
+}
+
+impl crate::control_plane::engine::ResourceMetrics for RecordingProjectCommandEngine {
+    fn sample_resources<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::ContainerResourceMetrics,
+    > {
+        Box::pin(async {
+            Ok(crate::control_plane::engine::ContainerResourceMetrics::new(
+                Some(125),
+                Some(64 * 1_024 * 1_024),
+                Some(8),
+                Some(1_000),
+                Some(2_000),
+            ))
+        })
     }
 }
 

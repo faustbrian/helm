@@ -19,6 +19,9 @@ lint:
 audit-v8-host-dependencies:
     ./scripts/audit-v8-host-dependencies.sh
 
+benchmark-v8 scenario output samples="12" interval="5":
+    ./scripts/benchmark-v8.sh {{scenario}} {{output}} {{samples}} {{interval}}
+
 fmt:
     rustup run nightly cargo fmt
 

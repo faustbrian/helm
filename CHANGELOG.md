@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added ownership-scoped Engine benchmark snapshots and a non-overwriting raw
+  sample harness that never parses Docker or Podman CLI output.
 - Added full-suite Linux and macOS x86_64/arm64 CI coverage plus an explicit
   platform matrix that keeps unverified and Windows combinations unsupported.
 - Added a CI-enforced v8 host-dependency audit that rejects direct process

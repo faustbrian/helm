@@ -1,6 +1,6 @@
 use super::{
-    IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcProjectStatus, IpcRecoveryPoint,
+    IpcBenchmarkSnapshot, IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,
+    IpcMigrationStatus, IpcProjectStatus, IpcRecoveryPoint,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,6 +20,8 @@ pub(crate) enum IpcResult {
         issue_count: usize,
         applied: bool,
     },
+    /// Returns one complete normalized sample of current owned containers.
+    BenchmarkSnapshot { snapshot: IpcBenchmarkSnapshot },
     /// Returns immutable manifest references keyed by the caller's exact IDs.
     ImageReferencesResolved {
         references: BTreeMap<String, String>,

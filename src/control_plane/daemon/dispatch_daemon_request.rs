@@ -43,6 +43,7 @@ where
         migration_decisions,
         project_logs,
         resource_health,
+        benchmark_snapshot,
         image_reference_resolution,
         now_unix_seconds,
     } = options;
@@ -115,6 +116,45 @@ where
                         vec![IpcDiagnostic::new("reconciliation_failed", message, true)],
                     )
                 }
+            }
+        }
+        IpcPayload::BenchmarkSnapshot => {
+            let project_count = match control_plane.projects() {
+                Ok(projects) => projects.len(),
+                Err(error) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "benchmark_snapshot_failed",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            match benchmark_snapshot {
+                Some(provider) => match provider.snapshot(project_count, now_unix_seconds) {
+                    Ok(snapshot) => IpcResponse::success(
+                        request.request_id(),
+                        IpcResult::BenchmarkSnapshot { snapshot },
+                    ),
+                    Err(message) => IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "benchmark_snapshot_failed",
+                            message,
+                            true,
+                        )],
+                    ),
+                },
+                None => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "benchmark_engine_unavailable",
+                        "the selected Engine is unavailable for a complete benchmark sample",
+                        true,
+                    )],
+                ),
             }
         }
         IpcPayload::ResolveImageReferences { references } => {
