@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Limited deterministic gateway route ownership to project applications,
+  attribution-aware shared UIs, and explicit custom-image services so database,
+  queue, and scheduler services no longer reserve nonexistent HTTP domains.
 - Added checksum verification for the runtime installer artifact and included
   its exact bytes in content-addressed derived-image build contexts, removing
   the undocumented requirement that base images provide an implicit installer.

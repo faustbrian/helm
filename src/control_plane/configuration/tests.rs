@@ -327,6 +327,37 @@ services:
 }
 
 #[test]
+fn desired_routes_exclude_non_http_service_strategies() {
+    let source = r#"
+schema_version: 8
+project: bill
+services:
+  app:
+    preset: laravel
+  db:
+    preset: postgres
+  cache:
+    preset: valkey
+  worker:
+    preset: queue-worker
+  scheduler:
+    preset: scheduler
+  mailpit:
+    preset: mailpit
+"#;
+
+    let desired = desired_from(source).expect("valid desired project");
+
+    assert_eq!(
+        desired.route_domains(),
+        [
+            "bill-app.stackctl.localhost",
+            "bill-mailpit.stackctl.localhost"
+        ]
+    );
+}
+
+#[test]
 fn dependency_order_is_independent_of_yaml_map_order() {
     let first = r#"
 schema_version: 8

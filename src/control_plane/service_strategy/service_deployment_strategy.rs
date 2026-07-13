@@ -10,3 +10,10 @@ pub(crate) enum ServiceDeploymentStrategy {
     ProjectProcess,
     Ephemeral,
 }
+
+impl ServiceDeploymentStrategy {
+    /// Whether this strategy produces one deterministic user-facing HTTP route.
+    pub(crate) const fn claims_gateway_route(self) -> bool {
+        matches!(self, Self::ProjectApplication | Self::SharedWithAttribution)
+    }
+}

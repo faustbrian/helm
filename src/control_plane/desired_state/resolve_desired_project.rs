@@ -34,10 +34,11 @@ pub(crate) fn resolve_desired_project(
             .collect::<Result<Vec<_>, _>>()?;
 
         let preset = optional_non_empty(name, "preset", raw_service.preset())?;
-        if let Some(preset) = &preset {
-            resolve_service_deployment_strategy(preset)
-                .map_err(|error| invalid_service(name, error.to_string()))?;
-        }
+        let deployment_strategy = preset
+            .as_deref()
+            .map(resolve_service_deployment_strategy)
+            .transpose()
+            .map_err(|error| invalid_service(name, error.to_string()))?;
         let image = optional_non_empty(name, "image", raw_service.image())?;
         if preset.is_none() && image.is_none() {
             return Err(invalid_service(
@@ -74,6 +75,7 @@ pub(crate) fn resolve_desired_project(
                 identity,
                 dependencies,
                 preset,
+                deployment_strategy,
                 image,
                 version,
                 php_extensions,
@@ -88,6 +90,7 @@ pub(crate) fn resolve_desired_project(
     let startup_order = resolve_startup_order(&services)?;
     let route_claims = services
         .values()
+        .filter(|service| service.claims_gateway_route())
         .map(|service| {
             RouteClaim::new(
                 project_directory.to_path_buf(),
