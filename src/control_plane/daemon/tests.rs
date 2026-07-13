@@ -12,9 +12,9 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus, IpcOutputStream,
-    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
+    IpcOutputStream, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
@@ -1629,7 +1629,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
             shared_resource_id: "postgres-17".to_owned(),
             project_id: "bill".to_owned(),
             service_id: "db".to_owned(),
-            kind: "postgresql".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
             compatibility_fingerprint: "sha256:postgres-17".to_owned(),
             desired_revision: "sha256:desired".to_owned(),
             lifecycle: ResourceLifecycle::Active,
@@ -1691,13 +1691,14 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
                             Some(9_998),
                             false,
                         ),
-                        IpcResourceStatus::new(
+                        IpcResourceStatus::with_data_lifecycle(
                             "db".to_owned(),
-                            "postgresql".to_owned(),
+                            "postgres_database_and_role".to_owned(),
                             IpcResourceLifecycle::Active,
                             IpcResourceHealth::Unknown,
                             Some(9_800),
                             true,
+                            IpcDataLifecycle::LogicalResource,
                         ),
                     ],
                 ),

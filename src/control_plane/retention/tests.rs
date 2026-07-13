@@ -1,10 +1,60 @@
 use super::{
-    BackupArtifactManifest, BackupResourceIdentity, DeletionDecision, PruneAuthorization,
-    RestoreTarget, RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
-    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
-    store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
-    verify_backup_artifact, verify_stored_backup_artifact,
+    BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
+    DataLifecycleStrategyError, DeletionDecision, PruneAuthorization, RestoreTarget,
+    RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
+    resolve_data_lifecycle_strategy, restore_verified_backup, store_backup_artifact,
+    store_backup_artifact_for_identity, store_backup_artifact_from_async_reader,
+    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
 };
+
+#[test]
+fn logical_data_kinds_select_explicit_lifecycle_strategies() {
+    for (kind, expected) in [
+        (
+            "postgres_database_and_role",
+            DataLifecycleStrategy::PostgreSqlLogical,
+        ),
+        ("mysql_database", DataLifecycleStrategy::MySqlLogical),
+        ("mariadb_database", DataLifecycleStrategy::MySqlLogical),
+        ("mongodb_database", DataLifecycleStrategy::MongoDbLogical),
+        ("sqlserver_database", DataLifecycleStrategy::SqlServerNative),
+        (
+            "rabbitmq_vhost_user",
+            DataLifecycleStrategy::RabbitMqDefinitions,
+        ),
+        (
+            "minio_bucket_policy",
+            DataLifecycleStrategy::ObjectStoreBucketExport,
+        ),
+        (
+            "redis_acl_prefix",
+            DataLifecycleStrategy::SharedKeyValueSnapshot,
+        ),
+    ] {
+        assert_eq!(
+            resolve_data_lifecycle_strategy(&logical_resource_of_kind(kind)),
+            Ok(expected),
+        );
+    }
+    assert!(DataLifecycleStrategy::SharedKeyValueSnapshot.requires_shared_instance_scope());
+    assert!(!DataLifecycleStrategy::PostgreSqlLogical.requires_shared_instance_scope());
+}
+
+#[test]
+fn lifecycle_strategy_resolution_fails_loudly_for_non_data_and_unknown_kinds() {
+    assert_eq!(
+        resolve_data_lifecycle_strategy(&logical_resource_of_kind("mailpit_smtp_identity")),
+        Err(DataLifecycleStrategyError::NonAuthoritative {
+            kind: "mailpit_smtp_identity".to_owned(),
+        }),
+    );
+    assert_eq!(
+        resolve_data_lifecycle_strategy(&logical_resource_of_kind("future_database")),
+        Err(DataLifecycleStrategyError::UnknownKind {
+            kind: "future_database".to_owned(),
+        }),
+    );
+}
 use crate::control_plane::state::{
     LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord,
     ResourceRecordOptions, ResourceRetention,
@@ -864,6 +914,20 @@ fn logical_resource(logical_resource_id: &str, project_id: &str) -> LogicalResou
         service_id: "database".to_owned(),
         kind: "postgres_database_and_role".to_owned(),
         compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+}
+
+fn logical_resource_of_kind(kind: &str) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/data".to_owned(),
+        shared_resource_id: "shared-service".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: kind.to_owned(),
+        compatibility_fingerprint: "sha256:compatibility".to_owned(),
         desired_revision: "sha256:desired".to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,

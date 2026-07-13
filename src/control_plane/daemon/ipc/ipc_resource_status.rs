@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{IpcResourceHealth, IpcResourceLifecycle};
+use super::{IpcDataLifecycle, IpcResourceHealth, IpcResourceLifecycle};
 
 /// One secret-free durable resource projection returned to IPC clients.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -12,6 +12,7 @@ pub(crate) struct IpcResourceStatus {
     health: IpcResourceHealth,
     observed_at_unix_seconds: Option<i64>,
     shared: bool,
+    data_lifecycle: IpcDataLifecycle,
 }
 
 impl IpcResourceStatus {
@@ -30,6 +31,27 @@ impl IpcResourceStatus {
             health,
             observed_at_unix_seconds,
             shared,
+            data_lifecycle: IpcDataLifecycle::None,
+        }
+    }
+
+    pub(crate) const fn with_data_lifecycle(
+        service: String,
+        kind: String,
+        lifecycle: IpcResourceLifecycle,
+        health: IpcResourceHealth,
+        observed_at_unix_seconds: Option<i64>,
+        shared: bool,
+        data_lifecycle: IpcDataLifecycle,
+    ) -> Self {
+        Self {
+            service,
+            kind,
+            lifecycle,
+            health,
+            observed_at_unix_seconds,
+            shared,
+            data_lifecycle,
         }
     }
 
@@ -55,5 +77,9 @@ impl IpcResourceStatus {
 
     pub(crate) const fn shared(&self) -> bool {
         self.shared
+    }
+
+    pub(crate) const fn data_lifecycle(&self) -> IpcDataLifecycle {
+        self.data_lifecycle
     }
 }

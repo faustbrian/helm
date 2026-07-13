@@ -1,4 +1,5 @@
 mod frame;
+mod ipc_data_lifecycle;
 mod ipc_error;
 mod ipc_event;
 mod ipc_event_journal;
@@ -26,6 +27,7 @@ mod send_unix_request;
 mod unix_ipc_listener;
 
 pub(crate) use frame::{decode_request_frame, decode_response_frame, encode_frame};
+pub(crate) use ipc_data_lifecycle::IpcDataLifecycle;
 pub(crate) use ipc_error::IpcError;
 pub(crate) use ipc_event::IpcEvent;
 pub(crate) use ipc_event_journal::IpcEventJournal;

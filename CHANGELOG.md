@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit data-lifecycle strategy resolution for every currently shared
+  authoritative service family, including logical, native, bucket-export, and
+  shared-snapshot boundaries. Non-data and unknown logical kinds now fail
+  loudly instead of falling through to a generic container backup path, and
+  strict v8 status exposes whether recovery is tenant-scoped or instance-wide.
 - Added `stackctl daemon migration status` over typed singleton IPC so users
   can inspect exact project-scoped durable migration phases, verified-backup
   state, and confirmation requirements without exposing recovery paths,

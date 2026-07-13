@@ -43,7 +43,7 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
     }
     writeln!(
         writer,
-        "SERVICE\tKIND\tSCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT"
+        "SERVICE\tKIND\tSCOPE\tDATA_SCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT"
     )?;
     for resource in status.resources() {
         let scope = if resource.shared() {
@@ -53,10 +53,11 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
         };
         writeln!(
             writer,
-            "{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
             resource.service(),
             resource.kind(),
             scope,
+            resource.data_lifecycle().as_str(),
             resource.lifecycle().as_str(),
             resource.health().as_str(),
             resource
@@ -71,7 +72,8 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
 mod tests {
     use super::render_table;
     use crate::control_plane::{
-        IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+        IpcDataLifecycle, IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle,
+        IpcResourceStatus,
     };
 
     #[test]
@@ -88,13 +90,14 @@ mod tests {
                     Some(10_000),
                     false,
                 ),
-                IpcResourceStatus::new(
+                IpcResourceStatus::with_data_lifecycle(
                     "db".to_owned(),
                     "postgresql".to_owned(),
                     IpcResourceLifecycle::Active,
                     IpcResourceHealth::Unknown,
                     None,
                     true,
+                    IpcDataLifecycle::LogicalResource,
                 ),
             ],
         );
@@ -106,9 +109,9 @@ mod tests {
             String::from_utf8(output).expect("utf8 status"),
             "PROJECT\tbill\n\
              ROUTE\tbill-app.stackctl.localhost\n\
-             SERVICE\tKIND\tSCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT\n\
-             app\tproject_application\tproject\tactive\thealthy\t10000\n\
-             db\tpostgresql\tshared\tactive\tunknown\t-\n"
+             SERVICE\tKIND\tSCOPE\tDATA_SCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT\n\
+             app\tproject_application\tproject\tnone\tactive\thealthy\t10000\n\
+             db\tpostgresql\tshared\tlogical_resource\tactive\tunknown\t-\n"
         );
     }
 }

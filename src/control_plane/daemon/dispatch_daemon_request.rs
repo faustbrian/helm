@@ -5,8 +5,8 @@ use super::{
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationStatus, IpcPayload,
-    IpcProjectCommand, IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle,
+    IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationStatus,
+    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle,
     IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
@@ -737,19 +737,31 @@ where
             .into_iter()
             .filter(|resource| resource.project_id() == project.project_name())
             .map(|resource| {
+                let data_lifecycle = match crate::control_plane::retention::resolve_data_lifecycle_strategy(&resource) {
+                    Ok(strategy) if strategy.requires_shared_instance_scope() => {
+                        IpcDataLifecycle::SharedInstance
+                    }
+                    Ok(_) => IpcDataLifecycle::LogicalResource,
+                    Err(crate::control_plane::retention::DataLifecycleStrategyError::NonAuthoritative { .. }) => {
+                        IpcDataLifecycle::None
+                    }
+                    Err(error) => return Err(error.to_string()),
+                };
                 let (health, observed_at) = ipc_resource_health(
                     resource_health.observation(resource.shared_resource_id()),
                     now_unix_seconds,
                 );
-                IpcResourceStatus::new(
+                Ok(IpcResourceStatus::with_data_lifecycle(
                     resource.service_id().to_owned(),
                     resource.kind().to_owned(),
                     ipc_resource_lifecycle(resource.lifecycle()),
                     health,
                     observed_at,
                     true,
-                )
-            }),
+                    data_lifecycle,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?,
     );
     resources.sort_by(|left, right| {
         left.service()
