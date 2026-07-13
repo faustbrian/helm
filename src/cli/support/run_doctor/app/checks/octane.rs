@@ -49,9 +49,13 @@ pub(in crate::cli::support::run_doctor::app) fn check_octane_runtime(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use crate::{config::Driver, config::Kind, config::ServiceConfig, docker};
 
     use super::check_octane_runtime;
+
+    static FAKE_DOCKER_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn service() -> ServiceConfig {
         ServiceConfig {
@@ -102,11 +106,12 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = std::env::temp_dir().join(format!(
-            "stackctl-doctor-octane-{}",
+            "stackctl-doctor-octane-{}-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            FAKE_DOCKER_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&bin_dir).expect("create temp dir");
 

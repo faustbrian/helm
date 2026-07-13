@@ -84,7 +84,10 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static FAKE_CURL_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn make_target(driver: Driver) -> ServiceConfig {
         ServiceConfig {
@@ -135,11 +138,12 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = PathBuf::from("/tmp").join(format!(
-            "stackctl-serve-health-{}",
+            "stackctl-serve-health-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            FAKE_CURL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&bin_dir).expect("temp dir");
         let curl = bin_dir.join("curl");
@@ -165,11 +169,12 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = PathBuf::from("/tmp").join(format!(
-            "stackctl-serve-health-script-{}",
+            "stackctl-serve-health-script-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            FAKE_CURL_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&bin_dir).expect("temp dir");
         let curl = bin_dir.join("curl");

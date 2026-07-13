@@ -111,12 +111,15 @@ mod tests {
     use std::env;
     use std::fs;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::SystemTime;
     use std::time::UNIX_EPOCH;
 
     use crate::config::{Driver, Kind, ServiceConfig};
     use crate::docker;
     use crate::docker::ops::PruneOptions;
+
+    static FAKE_DOCKER_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn service(name: &str, kind: Kind, driver: Driver) -> ServiceConfig {
         ServiceConfig {
@@ -167,11 +170,12 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "stackctl-ops-{}",
+            "stackctl-ops-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            FAKE_DOCKER_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&bin_dir).expect("fake docker dir");
         let binary = bin_dir.join("docker");

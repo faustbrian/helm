@@ -125,18 +125,22 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEMP_PATH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn with_temp_project<F, T>(database_php: &str, test: F) -> T
     where
         F: FnOnce(&Path) -> T,
     {
         let root = env::temp_dir().join(format!(
-            "stackctl-post-restore-{}",
+            "stackctl-post-restore-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            TEMP_PATH_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(root.join("config")).expect("create temp project");
         fs::write(
@@ -156,11 +160,12 @@ mod tests {
         F: FnOnce() -> T,
     {
         let bin_dir = env::temp_dir().join(format!(
-            "stackctl-post-restore-docker-{}",
+            "stackctl-post-restore-docker-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            TEMP_PATH_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&bin_dir).expect("create fake docker dir");
         let binary = bin_dir.join("docker");
@@ -263,11 +268,12 @@ return [
 
     fn capture_path() -> PathBuf {
         env::temp_dir().join(format!(
-            "stackctl-post-restore-capture-{}",
+            "stackctl-post-restore-capture-{}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time")
-                .as_nanos()
+                .as_nanos(),
+            TEMP_PATH_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ))
     }
 

@@ -608,6 +608,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed parallel Docker, post-restore, health, and doctor tests reusing the same
+  temporary path when the system clock returns an identical timestamp.
 - Fixed CI `clippy` failures in daemon and artisan runtime helpers by
   removing panic-prone `expect()` usage from production code and marking
   the long-running daemon supervisor loop as intentional.
