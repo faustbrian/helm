@@ -32,6 +32,8 @@ All notable changes to this project are documented in this file.
 - Added strict v8 YAML process commands and deterministic environment mappings,
   including pre-mutation validation of executables, variable names, NUL bytes,
   and debug redaction of environment values.
+- Added a bundled draft 2020-12 JSON Schema for the complete strict v8 project
+  YAML shape, including DNS identities, string versions, commands, and environment values.
 - Added dedicated Engine-backed project process plans for workers and schedulers,
   with immutable Linux images, private networking, no published ports, restart supervision,
   and secret-safe desired-plan diagnostics.

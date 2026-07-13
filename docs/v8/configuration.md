@@ -49,6 +49,10 @@ path. A versioned JSON Schema is published for editors. Map order does not
 affect the plan; dependencies are topologically ordered with explicit cycle
 diagnostics.
 
+The v8 editor contract is bundled at
+`schemas/stackctl-project-v8.schema.json` and identifies itself as
+`https://stackctl.dev/schemas/project/v8.json`.
+
 ## Project identity and routes
 
 The project name is explicit `project` when present; otherwise it is the exact

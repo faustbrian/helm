@@ -1,8 +1,37 @@
-use super::parse_project_config;
+use super::{parse_project_config, project_config_schema};
 use crate::control_plane::resolve_desired_project;
 use std::path::Path;
 
 const CONFIG_PATH: &str = "/work/bill/.stackctl.yaml";
+
+#[test]
+fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {
+    let schema: serde_json::Value =
+        serde_json::from_str(project_config_schema()).expect("valid bundled JSON Schema");
+
+    assert_eq!(
+        schema["$id"],
+        "https://stackctl.dev/schemas/project/v8.json"
+    );
+    assert_eq!(schema["properties"]["schema_version"]["const"], 8);
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["$defs"]["dnsLabel"]["pattern"],
+        "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    );
+    assert_eq!(
+        schema["properties"]["services"]["propertyNames"]["$ref"],
+        "#/$defs/dnsLabel"
+    );
+    assert_eq!(
+        schema["$defs"]["service"]["properties"]["version"]["type"],
+        "string"
+    );
+    assert_eq!(
+        schema["$defs"]["service"]["properties"]["environment"]["propertyNames"]["pattern"],
+        "^[A-Za-z_][A-Za-z0-9_]*$"
+    );
+}
 
 #[test]
 fn parses_the_canonical_v8_service_mapping_without_coercion() {
