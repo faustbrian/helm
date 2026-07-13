@@ -1,7 +1,7 @@
 use super::{
     PreparedMailpitSharedInstance, PreparedMongoDbSharedInstance, PreparedMySqlSharedInstance,
     PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
-    PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance,
+    PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance, PreparedSqlServerSharedInstance,
 };
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::state::ManagedEnvironmentRecord;
@@ -15,6 +15,7 @@ pub(crate) enum PreparedSharedInstance {
     RabbitMq(PreparedRabbitMqSharedInstance),
     Mailpit(PreparedMailpitSharedInstance),
     MongoDb(PreparedMongoDbSharedInstance),
+    SqlServer(PreparedSqlServerSharedInstance),
 }
 
 impl PreparedSharedInstance {
@@ -114,6 +115,20 @@ impl PreparedSharedInstance {
                     )
                 })
                 .collect(),
+            Self::SqlServer(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| {
+                    (
+                        project
+                            .credential()
+                            .project_id()
+                            .expect("project SQL Server credential owner")
+                            .to_owned(),
+                        project.credential().service_id().to_owned(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -150,6 +165,11 @@ impl PreparedSharedInstance {
                 .map(|project| project.environment())
                 .collect(),
             Self::MongoDb(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| project.environment())
+                .collect(),
+            Self::SqlServer(prepared) => prepared
                 .projects()
                 .iter()
                 .map(|project| project.environment())

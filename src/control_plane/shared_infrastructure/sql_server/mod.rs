@@ -1,17 +1,27 @@
 pub(crate) use plan_sql_server_project_resources::plan_sql_server_project_resources;
+pub(crate) use prepare_sql_server_shared_instances::prepare_sql_server_shared_instances;
+pub(crate) use prepared_sql_server_shared_instance::PreparedSqlServerSharedInstance;
 pub(crate) use provision_sql_server_logical_resource::provision_sql_server_logical_resource;
+pub(crate) use reconcile_prepared_sql_server_instance::reconcile_prepared_sql_server_instance;
 pub(crate) use reconcile_sql_server_project_resources::reconcile_sql_server_project_resources;
 pub(crate) use sql_server_logical_resource_plan::SqlServerLogicalResourcePlan;
 pub(crate) use sql_server_plan_error::SqlServerPlanError;
+pub(crate) use sql_server_preparation_error::SqlServerPreparationError;
+pub(crate) use sql_server_preparation_options::SqlServerPreparationOptions;
 pub(crate) use sql_server_project_resources::SqlServerProjectResources;
 pub(crate) use sql_server_shared_instance_plan::SqlServerSharedInstancePlan;
 pub(crate) use sql_server_shared_instance_plan_options::SqlServerSharedInstancePlanOptions;
 
 mod plan_sql_server_project_resources;
+mod prepare_sql_server_shared_instances;
+mod prepared_sql_server_shared_instance;
 mod provision_sql_server_logical_resource;
+mod reconcile_prepared_sql_server_instance;
 mod reconcile_sql_server_project_resources;
 mod sql_server_logical_resource_plan;
 mod sql_server_plan_error;
+mod sql_server_preparation_error;
+mod sql_server_preparation_options;
 mod sql_server_project_resources;
 mod sql_server_shared_instance_plan;
 mod sql_server_shared_instance_plan_options;

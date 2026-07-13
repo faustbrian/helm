@@ -3,10 +3,11 @@ use super::{
     MySqlPreparationOptions, ObjectStorePreparationOptions, PostgresPreparationOptions,
     PreparedSharedInstance, RabbitMqPreparationOptions, RedisPreparationOptions,
     SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
-    prepare_mailpit_shared_instances, prepare_mongodb_shared_instances,
-    prepare_mysql_shared_instances, prepare_object_store_shared_instances,
-    prepare_postgres_shared_instances, prepare_rabbitmq_shared_instances,
-    prepare_redis_shared_instances,
+    SqlServerPreparationOptions, prepare_mailpit_shared_instances,
+    prepare_mongodb_shared_instances, prepare_mysql_shared_instances,
+    prepare_object_store_shared_instances, prepare_postgres_shared_instances,
+    prepare_rabbitmq_shared_instances, prepare_redis_shared_instances,
+    prepare_sql_server_shared_instances,
 };
 use crate::control_plane::state::StateStore;
 
@@ -127,6 +128,20 @@ where
             .pop()
             .map(PreparedSharedInstance::MongoDb)
             .ok_or_else(|| invalid("MongoDB strategy returned no prepared instance")),
+            "sqlserver" => prepare_sql_server_shared_instances(
+                store,
+                std::slice::from_ref(instance),
+                entropy,
+                SqlServerPreparationOptions {
+                    installation_id: options.installation_id,
+                    network_name: options.network_name,
+                    schema_version: options.schema_version,
+                },
+            )
+            .map_err(invalid)?
+            .pop()
+            .map(PreparedSharedInstance::SqlServer)
+            .ok_or_else(|| invalid("SQL Server strategy returned no prepared instance")),
             implementation => Err(invalid(format!(
                 "shared implementation '{implementation}' has no registered preparation strategy"
             ))),

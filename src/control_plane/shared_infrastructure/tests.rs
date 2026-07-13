@@ -97,6 +97,16 @@ fn shared_preset_source(
     )
 }
 
+fn shared_sql_server_source(directory: &str, project: &str, image: &str) -> ProjectSource {
+    ProjectSource::new(
+        PathBuf::from(directory),
+        PathBuf::from(format!("{directory}/.stackctl.yaml")),
+        format!(
+            "schema_version: 8\nproject: {project}\nservices:\n  db:\n    preset: sqlserver\n    version: \"2022\"\n    image: {image}\n    environment:\n      ACCEPT_EULA: \"Y\"\n"
+        ),
+    )
+}
+
 struct FixedCredentialEntropy(u8);
 
 impl CredentialEntropy for FixedCredentialEntropy {
@@ -396,6 +406,120 @@ fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove strategy state");
+}
+
+#[test]
+fn sql_server_strategy_requires_explicit_eula_acceptance() {
+    let image = concat!(
+        "mcr.microsoft.com/mssql/server@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[shared_database_source(
+        "/work/bill",
+        "bill",
+        "sqlserver",
+        "2022",
+        image,
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let error = resolve_execution_shared_instances(&execution, "linux/amd64")
+        .expect_err("missing EULA acceptance");
+
+    assert_eq!(
+        error.to_string(),
+        "shared SQL Server service 'bill-db' requires environment.ACCEPT_EULA: \"Y\""
+    );
+}
+
+#[test]
+fn sql_server_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
+    let image = concat!(
+        "mcr.microsoft.com/mssql/server@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_sql_server_source("/work/bill", "bill", image),
+        shared_sql_server_source("/work/shop", "shop", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/amd64")
+        .expect("shared execution instances");
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-sqlserver-strategy-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: database_path.parent().expect("state directory"),
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("DB_PASSWORD")
+        .expect("first project password")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: database_path.parent().expect("state directory"),
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared[0].profile().implementation(), "sqlserver");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("DB_PASSWORD")
+            .expect("replayed project password"),
+        &first_password
+    );
+    assert!(first_password.starts_with("St1"));
+    assert_eq!(store.credentials().expect("durable credentials").len(), 3);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+
+    drop(store);
+    std::fs::remove_file(database_path).expect("remove state store");
 }
 
 #[cfg(unix)]

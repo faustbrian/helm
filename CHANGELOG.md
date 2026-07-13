@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added SQL Server shared-instance convergence with explicit YAML EULA
+  acceptance, edition-aware compatibility grouping, policy-compliant stable
+  credentials, isolated databases/logins, persistent physical/logical
+  ownership, and managed `sqlsrv` environments.
 - Added MongoDB shared-instance convergence with exact compatibility grouping,
   stable bootstrap and project credentials, a private read-only bootstrap
   secret mount, isolated database users, persistent physical/logical ownership,

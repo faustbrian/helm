@@ -2,7 +2,7 @@ use super::{
     CompatibilityFingerprintOptions, CompatibilityProfile, IsolationCapability, PersistenceMode,
     SharedDemandPlanError, SharedInstancePlan, SharedServiceRequest, plan_shared_instances,
 };
-use crate::control_plane::{ExecutionPlan, ServiceDeploymentStrategy};
+use crate::control_plane::{ExecutionPlan, ServiceDeploymentStrategy, ServiceExecutionPlan};
 use std::collections::BTreeMap;
 
 /// Groups resolved shared-service demand by its exact compatibility identity.
@@ -29,6 +29,7 @@ pub(crate) fn resolve_execution_shared_instances(
         let implementation = match preset {
             "postgres" | "pg" | "pgsql" => "postgresql",
             "mongodb" => "mongodb",
+            "sqlserver" | "mssql" => "sqlserver",
             "mysql" => "mysql",
             "mariadb" | "maria" => "mariadb",
             "redis" => "redis",
@@ -65,12 +66,13 @@ pub(crate) fn resolve_execution_shared_instances(
                 service.service().as_str()
             ))
         })?;
+        let immutable_settings = immutable_settings(service, implementation)?;
         let profile = CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
             implementation: implementation.to_owned(),
             major_version: version.to_owned(),
             image_digest: image.to_owned(),
             extensions: Vec::new(),
-            immutable_settings: BTreeMap::new(),
+            immutable_settings,
             persistence: PersistenceMode::Persistent,
             isolation: match implementation {
                 "redis" | "valkey" => IsolationCapability::AclAndPrefix,
@@ -90,6 +92,41 @@ pub(crate) fn resolve_execution_shared_instances(
     }
 
     Ok(plan_shared_instances(requests))
+}
+
+fn immutable_settings(
+    service: &ServiceExecutionPlan,
+    implementation: &str,
+) -> Result<BTreeMap<String, String>, SharedDemandPlanError> {
+    if implementation != "sqlserver" {
+        return Ok(BTreeMap::new());
+    }
+    let environment = service.desired().environment();
+    if environment.get("ACCEPT_EULA").map(String::as_str) != Some("Y") {
+        return Err(invalid(format!(
+            "shared SQL Server service '{}-{}' requires environment.ACCEPT_EULA: \"Y\"",
+            service.project().as_str(),
+            service.service().as_str()
+        )));
+    }
+    if let Some(key) = environment
+        .keys()
+        .find(|key| !matches!(key.as_str(), "ACCEPT_EULA" | "MSSQL_PID"))
+    {
+        return Err(invalid(format!(
+            "shared SQL Server service '{}-{}' declares unsupported environment key '{key}'",
+            service.project().as_str(),
+            service.service().as_str()
+        )));
+    }
+
+    Ok(BTreeMap::from([(
+        "edition".to_owned(),
+        environment
+            .get("MSSQL_PID")
+            .cloned()
+            .unwrap_or_else(|| "Developer".to_owned()),
+    )]))
 }
 
 fn invalid(error: impl std::fmt::Display) -> SharedDemandPlanError {
