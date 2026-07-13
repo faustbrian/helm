@@ -1,4 +1,4 @@
-use super::{MigrationBackup, MigrationOperationError};
+use super::{MigrationBackup, MigrationCutoverPlan, MigrationOperationError};
 use crate::control_plane::state::MigrationRecord;
 use std::future::Future;
 use std::pin::Pin;
@@ -31,13 +31,13 @@ pub(crate) trait MigrationOperations {
         target_resource_id: &'operation str,
     ) -> MigrationFuture<'operation, ()>;
 
-    /// Atomically switches environment and routes and must be replay-safe.
-    fn cutover<'operation>(
+    /// Produces exact desired state for an atomic, replay-safe cutover.
+    fn plan_cutover<'operation>(
         &'operation mut self,
         checkpoint: &'operation MigrationRecord,
         target_resource_id: &'operation str,
         rollback_reference: &'operation str,
-    ) -> MigrationFuture<'operation, ()>;
+    ) -> MigrationFuture<'operation, MigrationCutoverPlan>;
 
     fn rollback<'operation>(
         &'operation mut self,

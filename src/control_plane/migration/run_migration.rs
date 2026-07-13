@@ -108,19 +108,22 @@ pub(crate) async fn execute_migration(
                     checkpoint.rollback_reference(),
                     "verified checkpoint has no rollback reference",
                 )?;
-                operations
-                    .cutover(&checkpoint, &target_resource_id, &rollback_reference)
+                let cutover = operations
+                    .plan_cutover(&checkpoint, &target_resource_id, &rollback_reference)
                     .await
                     .map_err(|source| operation_error("cutover", source))?;
-                persist(
-                    store,
-                    next_options(
-                        inventory,
-                        &checkpoint,
-                        MigrationPhase::Cutover,
-                        updated_at_unix_seconds,
-                    ),
-                )?
+                let cutover_checkpoint = checkpoint_from_options(next_options(
+                    inventory,
+                    &checkpoint,
+                    MigrationPhase::Cutover,
+                    updated_at_unix_seconds,
+                ))?;
+                store.record_migration_cutover(
+                    cutover.project(),
+                    cutover.environment(),
+                    &cutover_checkpoint,
+                )?;
+                cutover_checkpoint
             }
             MigrationPhase::Cutover => {
                 return Ok(MigrationExecutionResult::AwaitingConfirmation);
@@ -279,13 +282,18 @@ fn persist(
     store: &mut dyn StateStore,
     options: MigrationRecordOptions,
 ) -> Result<MigrationRecord, MigrationError> {
-    let checkpoint =
-        MigrationRecord::new(options).map_err(|error| MigrationError::InvalidCheckpoint {
-            detail: error.to_string(),
-        })?;
+    let checkpoint = checkpoint_from_options(options)?;
     store.record_migration(&checkpoint)?;
 
     Ok(checkpoint)
+}
+
+fn checkpoint_from_options(
+    options: MigrationRecordOptions,
+) -> Result<MigrationRecord, MigrationError> {
+    MigrationRecord::new(options).map_err(|error| MigrationError::InvalidCheckpoint {
+        detail: error.to_string(),
+    })
 }
 
 fn required(value: Option<&str>, detail: &str) -> Result<String, MigrationError> {

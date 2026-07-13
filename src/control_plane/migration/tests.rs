@@ -1,10 +1,13 @@
 use super::{
-    MigrationBackup, MigrationExecutionResult, MigrationFuture, MigrationOperations,
-    confirm_migration, execute_migration, rollback_migration,
+    MigrationBackup, MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture,
+    MigrationOperations, confirm_migration, execute_migration, rollback_migration,
 };
 use crate::control_plane::state::{
-    MigrationPhase, MigrationRecord, MigrationRecordOptions, SqliteStateStore, StateStore,
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, SqliteStateStore,
+    StateStore,
 };
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -13,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 fn migration_executes_to_reversible_cutover_without_retiring_v7() {
     run_test(async {
         let database_path = temporary_database_path("execute");
-        let mut store = SqliteStateStore::open(&database_path).expect("open state");
+        let mut store = migration_store(&database_path);
         let mut operations = RecordingMigrationOperations::default();
 
         let result = execute_migration(&mut store, &inventory(), &mut operations, 100)
@@ -48,6 +51,14 @@ fn migration_executes_to_reversible_cutover_without_retiring_v7() {
             records[0].rollback_reference(),
             Some("v7:container/database")
         );
+        assert_eq!(
+            store.projects().expect("load project"),
+            vec![cutover_project()]
+        );
+        assert_eq!(
+            store.managed_environments().expect("load environment"),
+            vec![cutover_environment()]
+        );
 
         drop(store);
         remove_database(&database_path);
@@ -58,7 +69,7 @@ fn migration_executes_to_reversible_cutover_without_retiring_v7() {
 fn migration_resumes_from_the_last_durable_checkpoint_after_failure() {
     run_test(async {
         let database_path = temporary_database_path("resume");
-        let mut store = SqliteStateStore::open(&database_path).expect("open state");
+        let mut store = migration_store(&database_path);
         let mut failing = RecordingMigrationOperations {
             fail_restore: true,
             ..RecordingMigrationOperations::default()
@@ -103,7 +114,7 @@ fn migration_resumes_from_the_last_durable_checkpoint_after_failure() {
 fn confirmation_is_the_only_path_that_retires_the_v7_source() {
     run_test(async {
         let database_path = temporary_database_path("confirm");
-        let mut store = SqliteStateStore::open(&database_path).expect("open state");
+        let mut store = migration_store(&database_path);
         execute_migration(
             &mut store,
             &inventory(),
@@ -134,7 +145,7 @@ fn confirmation_is_the_only_path_that_retires_the_v7_source() {
 fn failed_cutover_retains_verified_target_and_replays_only_cutover() {
     run_test(async {
         let database_path = temporary_database_path("cutover-resume");
-        let mut store = SqliteStateStore::open(&database_path).expect("open state");
+        let mut store = migration_store(&database_path);
         let mut failing = RecordingMigrationOperations {
             fail_cutover: true,
             ..RecordingMigrationOperations::default()
@@ -151,6 +162,14 @@ fn failed_cutover_retains_verified_target_and_replays_only_cutover() {
         assert_eq!(
             store.migrations().expect("verified checkpoint")[0].phase(),
             MigrationPhase::TargetVerified
+        );
+        assert_eq!(
+            store.projects().expect("original project"),
+            vec![original_project()]
+        );
+        assert_eq!(
+            store.managed_environments().expect("original environment"),
+            vec![original_environment()]
         );
 
         let mut resumed = RecordingMigrationOperations::default();
@@ -179,7 +198,7 @@ fn migration_backup_requires_complete_verified_evidence() {
 fn explicit_rollback_retains_proof_and_becomes_terminal() {
     run_test(async {
         let database_path = temporary_database_path("rollback");
-        let mut store = SqliteStateStore::open(&database_path).expect("open state");
+        let mut store = migration_store(&database_path);
         execute_migration(
             &mut store,
             &inventory(),
@@ -223,6 +242,58 @@ fn inventory() -> MigrationRecord {
         updated_at_unix_seconds: 99,
     })
     .expect("valid migration plan")
+}
+
+fn original_project() -> ProjectRecord {
+    ProjectRecord::new(
+        PathBuf::from("/work/bill"),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    )
+}
+
+fn cutover_project() -> ProjectRecord {
+    ProjectRecord::new(
+        PathBuf::from("/work/bill"),
+        "bill".to_owned(),
+        vec![
+            "bill-app.stackctl.localhost".to_owned(),
+            "bill-mailpit.stackctl.localhost".to_owned(),
+        ],
+    )
+}
+
+fn original_environment() -> ManagedEnvironmentRecord {
+    ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v7".to_owned(),
+        values: BTreeMap::from([("DB_DATABASE".to_owned(), "legacy_bill".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    })
+}
+
+fn cutover_environment() -> ManagedEnvironmentRecord {
+    ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v8".to_owned(),
+        values: BTreeMap::from([(
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        )]),
+        lifecycle: EnvironmentLifecycle::Active,
+    })
+}
+
+fn migration_store(database_path: &Path) -> SqliteStateStore {
+    let mut store = SqliteStateStore::open(database_path).expect("open state");
+    store
+        .replace_project(&original_project())
+        .expect("persist original project");
+    store
+        .replace_managed_environment(&original_environment())
+        .expect("persist original environment");
+
+    store
 }
 
 #[derive(Default)]
@@ -290,12 +361,12 @@ impl MigrationOperations for RecordingMigrationOperations {
         Box::pin(async { Ok(()) })
     }
 
-    fn cutover<'operation>(
+    fn plan_cutover<'operation>(
         &'operation mut self,
         migration: &'operation MigrationRecord,
         _target_resource_id: &'operation str,
         _rollback_reference: &'operation str,
-    ) -> MigrationFuture<'operation, ()> {
+    ) -> MigrationFuture<'operation, MigrationCutoverPlan> {
         self.calls.push("cutover");
         self.received_phases.push(migration.phase());
         let fail = self.fail_cutover;
@@ -303,7 +374,7 @@ impl MigrationOperations for RecordingMigrationOperations {
             if fail {
                 Err(super::MigrationOperationError::new("route swap failed"))
             } else {
-                Ok(())
+                MigrationCutoverPlan::new(cutover_project(), cutover_environment())
             }
         })
     }

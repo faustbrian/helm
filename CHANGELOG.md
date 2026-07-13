@@ -57,6 +57,9 @@ All notable changes to this project are documented in this file.
 - Added an atomic SQLite migration cutover transaction that replaces exact
   project route ownership and managed environment state together with the
   monotonic cutover checkpoint, rolling back every write on any failure.
+- Changed migration operations to return validated cutover desired state so
+  the coordinator, rather than resource adapters, owns its atomic persistence
+  and resumes directly from the committed checkpoint after a daemon restart.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
