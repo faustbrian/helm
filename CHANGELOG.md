@@ -10,6 +10,11 @@ All notable changes to this project are documented in this file.
   groups and credentials resolve before mutation, each physical instance starts
   once, tenants provision before dependent apps, and merged ownership plus
   environment state publishes before gateway routes.
+- Made PostgreSQL tenant ownership reference the stable persistent volume rather
+  than an ephemeral process, and persist both the shared container and volume as
+  durable physical ownership before dependent applications start. Replaced
+  backend process identities are retained explicitly instead of remaining
+  falsely active.
 - Added an atomic state transaction for publishing logical shared-service
   ownership together with its complete project environment, rolling back both
   on identity conflicts or adoption requirements.

@@ -1,4 +1,5 @@
 use super::{PostgresProjectResources, PostgresSharedInstancePlan};
+use crate::control_plane::shared_infrastructure::SharedServiceReconcileResult;
 use crate::control_plane::state::{
     LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle,
 };
@@ -28,8 +29,12 @@ impl PreparedPostgresSharedInstance {
     pub(crate) fn logical_record(
         &self,
         project: &PostgresProjectResources,
-        shared_resource_id: &str,
+        shared: &SharedServiceReconcileResult,
     ) -> LogicalResourceRecord {
+        let shared_resource_id = shared
+            .volume()
+            .map(|volume| volume.volume().name())
+            .unwrap_or_else(|| shared.container().id().as_str());
         LogicalResourceRecord::new(LogicalResourceRecordOptions {
             logical_resource_id: project.logical().credential_id().to_owned(),
             shared_resource_id: shared_resource_id.to_owned(),

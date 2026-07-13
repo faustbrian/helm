@@ -49,6 +49,13 @@ pub(crate) trait StateStore {
     /// Upserts observed ownership without implicitly deleting missing resources.
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
 
+    /// Replaces active physical identities within each exact ownership scope.
+    fn reconcile_resources(
+        &mut self,
+        resources: &[ResourceRecord],
+        replaced_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError>;
+
     /// Atomically reactivates exact retained state for one registered project.
     fn adopt_project(&mut self, adoption: &ProjectAdoptionPlan) -> Result<(), StateStoreError>;
 

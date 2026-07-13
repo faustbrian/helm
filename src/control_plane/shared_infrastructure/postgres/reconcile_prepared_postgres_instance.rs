@@ -1,4 +1,7 @@
-use super::{PreparedPostgresSharedInstance, provision_postgres_logical_resource};
+use super::{
+    PreparedPostgresReconcileResult, PreparedPostgresSharedInstance,
+    provision_postgres_logical_resource,
+};
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
     VolumeManager,
@@ -6,7 +9,6 @@ use crate::control_plane::engine::{
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions, reconcile_shared_service,
 };
-use crate::control_plane::state::LogicalResourceRecord;
 
 /// Converges one physical PostgreSQL process and all isolated tenants once.
 pub(crate) async fn reconcile_prepared_postgres_instance<Engine>(
@@ -14,7 +16,7 @@ pub(crate) async fn reconcile_prepared_postgres_instance<Engine>(
     prepared: &PreparedPostgresSharedInstance,
     installation_id: &str,
     schema_version: u32,
-) -> Result<Vec<LogicalResourceRecord>, SharedInfrastructureReconcileError>
+) -> Result<PreparedPostgresReconcileResult, SharedInfrastructureReconcileError>
 where
     Engine: CommandExecutor
         + ContainerDiscovery
@@ -47,8 +49,8 @@ where
             action: "PostgreSQL logical resource provisioning".to_owned(),
             detail: error.to_string(),
         })?;
-        logical.push(prepared.logical_record(project, shared.container().id().as_str()));
+        logical.push(prepared.logical_record(project, &shared));
     }
 
-    Ok(logical)
+    Ok(PreparedPostgresReconcileResult::new(shared, logical))
 }

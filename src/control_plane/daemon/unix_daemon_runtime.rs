@@ -323,6 +323,7 @@ impl UnixDaemonRuntime {
             );
         }
 
+        let mut physical_resources = Vec::new();
         let mut provisioned = BTreeMap::<String, Vec<_>>::new();
         for prepared in &prepared_postgres {
             let logical = self
@@ -353,12 +354,22 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
-            for logical in logical {
+            physical_resources.extend(logical.physical_resources().iter().cloned());
+            for logical in logical.logical_resources() {
                 provisioned
                     .entry(logical.project_id().to_owned())
                     .or_default()
-                    .push(logical);
+                    .push(logical.clone());
             }
+        }
+        if let Err(error) = self
+            .control_plane
+            .record_resources(&physical_resources, unix_time_seconds())
+        {
+            self.engine_reconciliation.complete();
+            tracing::error!(error = %error, "physical shared ownership publication blocked");
+
+            return;
         }
         for (project_id, logical) in provisioned {
             let Some(environment) = managed_environments

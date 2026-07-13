@@ -892,6 +892,42 @@ fn generic_resource_upsert_cannot_reactivate_orphaned_data() {
 }
 
 #[test]
+fn physical_reconciliation_retires_replaced_backend_identities() {
+    let database_path = temporary_database_path("resource-replacement");
+    let old = resource_record("postgres-old", "bill", ResourceRetention::Persistent);
+    let current = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "postgres-current".to_owned(),
+        installation_id: old.installation_id().to_owned(),
+        kind: old.kind().to_owned(),
+        compatibility_fingerprint: old.compatibility_fingerprint().to_owned(),
+        project_id: old.project_id().map(str::to_owned),
+        schema_version: old.schema_version(),
+        desired_revision: "sha256:desired-v2".to_owned(),
+        retention: old.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(std::slice::from_ref(&old))
+        .expect("persist old backend identity");
+
+    store
+        .reconcile_resources(std::slice::from_ref(&current), 12_345)
+        .expect("reconcile replacement");
+
+    let resources = store.resources().expect("reconciled resources");
+    assert_eq!(resources.len(), 2);
+    assert_eq!(resources[0], current);
+    assert_eq!(resources[1].resource_id(), "postgres-old");
+    assert_eq!(resources[1].lifecycle(), ResourceLifecycle::Retained);
+    assert_eq!(resources[1].orphaned_at_unix_seconds(), Some(12_345));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn unregistering_a_project_atomically_orphans_only_its_resources() {
     let database_path = temporary_database_path("project-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);

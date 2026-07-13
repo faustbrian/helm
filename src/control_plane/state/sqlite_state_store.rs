@@ -464,6 +464,85 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    fn reconcile_resources(
+        &mut self,
+        resources: &[ResourceRecord],
+        replaced_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        for resource in resources {
+            if let Some(existing) = load_resource_ownership(&transaction, resource.resource_id())? {
+                if !existing.matches(resource) {
+                    return Err(StateStoreError::ResourceOwnershipConflict {
+                        resource_id: resource.resource_id().to_owned(),
+                    });
+                }
+                if !existing.is_active() && resource.lifecycle() == ResourceLifecycle::Active {
+                    return Err(StateStoreError::ResourceAdoptionRequired {
+                        resource_id: resource.resource_id().to_owned(),
+                    });
+                }
+            }
+        }
+
+        for resource in resources {
+            transaction.execute(
+                "UPDATE resources
+                 SET lifecycle = ?1, orphaned_at_unix_seconds = ?2
+                 WHERE installation_id = ?3
+                   AND kind = ?4
+                   AND compatibility_fingerprint = ?5
+                   AND project_id IS ?6
+                   AND resource_schema_version = ?7
+                   AND retention = ?8
+                   AND lifecycle = ?9
+                   AND resource_id <> ?10",
+                params![
+                    ResourceLifecycle::Retained.label(),
+                    replaced_at_unix_seconds,
+                    resource.installation_id(),
+                    resource.kind(),
+                    resource.compatibility_fingerprint(),
+                    resource.project_id(),
+                    resource.schema_version(),
+                    resource.retention().label(),
+                    ResourceLifecycle::Active.label(),
+                    resource.resource_id(),
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO resources (
+                     resource_id, installation_id, kind, compatibility_fingerprint,
+                     project_id, resource_schema_version, desired_revision, retention,
+                     lifecycle, orphaned_at_unix_seconds
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT(resource_id) DO UPDATE SET
+                     desired_revision = excluded.desired_revision,
+                     lifecycle = excluded.lifecycle,
+                     orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
+                params![
+                    resource.resource_id(),
+                    resource.installation_id(),
+                    resource.kind(),
+                    resource.compatibility_fingerprint(),
+                    resource.project_id(),
+                    resource.schema_version(),
+                    resource.desired_revision(),
+                    resource.retention().label(),
+                    resource.lifecycle().label(),
+                    resource.orphaned_at_unix_seconds(),
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn adopt_project(&mut self, adoption: &ProjectAdoptionPlan) -> Result<(), StateStoreError> {
         let canonical_path = exact_path(adoption.canonical_path())?;
         let transaction = self

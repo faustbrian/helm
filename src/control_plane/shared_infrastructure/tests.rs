@@ -245,9 +245,20 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
         ))
         .expect("prepared PostgreSQL reconciliation");
 
-    assert_eq!(logical.len(), 2);
-    assert_eq!(logical[0].project_id(), "bill");
-    assert_eq!(logical[1].project_id(), "shop");
+    assert_eq!(logical.physical_resources().len(), 2);
+    assert_eq!(logical.physical_resources()[0].kind(), "shared_service");
+    assert_eq!(logical.physical_resources()[1].kind(), "volume");
+    assert_eq!(logical.logical_resources().len(), 2);
+    assert_eq!(logical.logical_resources()[0].project_id(), "bill");
+    assert_eq!(logical.logical_resources()[1].project_id(), "shop");
+    assert_eq!(
+        logical.logical_resources()[0].shared_resource_id(),
+        prepared[0]
+            .instance()
+            .volume()
+            .expect("persistent PostgreSQL volume")
+            .name()
+    );
     assert_eq!(engine.created_containers.len(), 1);
     assert_eq!(engine.started_containers.len(), 1);
     assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);

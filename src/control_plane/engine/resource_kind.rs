@@ -13,7 +13,7 @@ pub(crate) enum ResourceKind {
 }
 
 impl ResourceKind {
-    pub(super) const fn label(self) -> &'static str {
+    pub(crate) const fn label(self) -> &'static str {
         match self {
             Self::ProjectApplication => "project_application",
             Self::ProjectProcess => "project_process",

@@ -3,8 +3,9 @@ use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, PostgresPreparationError, PostgresPreparationOptions,
     PreparedPostgresSharedInstance, SharedInstancePlan, prepare_postgres_shared_instances,
 };
-use crate::control_plane::state::LogicalResourceRecord;
-use crate::control_plane::state::{ManagedEnvironmentRecord, ProjectRecord, StateStore};
+use crate::control_plane::state::{
+    LogicalResourceRecord, ManagedEnvironmentRecord, ProjectRecord, ResourceRecord, StateStore,
+};
 use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
@@ -49,6 +50,16 @@ where
     ) -> Result<(), ControlPlaneError> {
         self.state_store
             .record_logical_environment(resources, environment)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn record_resources(
+        &mut self,
+        resources: &[ResourceRecord],
+        replaced_at_unix_seconds: i64,
+    ) -> Result<(), ControlPlaneError> {
+        self.state_store
+            .reconcile_resources(resources, replaced_at_unix_seconds)
             .map_err(Into::into)
     }
 

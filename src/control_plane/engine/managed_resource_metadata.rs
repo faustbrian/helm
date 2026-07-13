@@ -140,6 +140,10 @@ impl ManagedResourceMetadata {
         &self.compatibility_fingerprint
     }
 
+    pub(crate) fn desired_revision(&self) -> &str {
+        &self.desired_revision
+    }
+
     pub(crate) const fn retention(&self) -> RetentionClass {
         self.retention
     }
