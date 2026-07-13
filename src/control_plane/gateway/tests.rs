@@ -1,9 +1,15 @@
 use super::{
-    CaddyGatewayProvider, CaddyUnixAdminClient, GatewayConfiguration, GatewayDocumentLoader,
-    GatewayError, GatewayFuture, GatewayRoute, GatewaySnapshot, render_caddy_document,
+    CaddyGatewayProvider, GatewayConfiguration, GatewayDocumentLoader, GatewayError, GatewayFuture,
+    GatewayRoute, GatewaySnapshot, render_caddy_document, store_caddy_bootstrap,
 };
 use serde_json::Value;
 use std::path::Path;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+#[cfg(unix)]
+use super::CaddyUnixAdminClient;
 
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -142,6 +148,60 @@ fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
     );
     assert!(json.pointer("/apps/pki").is_none());
     assert_eq!(document.revision(), snapshot.revision());
+}
+
+#[cfg(unix)]
+#[test]
+fn caddy_bootstrap_is_atomic_private_and_idempotent() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-gateway-bootstrap-{}-{}",
+        std::process::id(),
+        unique_test_value()
+    ));
+    let config_path = root.join("config/config.json");
+    let runtime_directory = root.join("run");
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).unwrap();
+    let document = render_caddy_document(
+        &snapshot,
+        Path::new("/etc/stackctl/tls/leaf.pem"),
+        Path::new("/etc/stackctl/tls/leaf-key.pem"),
+        Path::new("/run/stackctl/admin.sock"),
+    )
+    .unwrap();
+
+    let stored = store_caddy_bootstrap(&document, &config_path, &runtime_directory)
+        .expect("store bootstrap");
+    store_caddy_bootstrap(&document, &config_path, &runtime_directory).expect("repeat bootstrap");
+
+    assert_eq!(stored.config_path(), config_path);
+    assert_eq!(stored.runtime_directory(), runtime_directory);
+    assert_eq!(
+        stored.admin_socket_path(),
+        runtime_directory.join("admin.sock")
+    );
+    assert_eq!(std::fs::read(&config_path).unwrap(), document.bytes());
+
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            std::fs::metadata(&config_path)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(&runtime_directory)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+
+    std::fs::remove_dir_all(root).expect("remove bootstrap directory");
 }
 
 #[test]

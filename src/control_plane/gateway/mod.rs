@@ -11,6 +11,8 @@ mod gateway_error;
 mod gateway_route;
 mod gateway_snapshot;
 mod render_caddy_document;
+mod store_caddy_bootstrap;
+mod stored_gateway_bootstrap_paths;
 
 pub(crate) use caddy_gateway_document::CaddyGatewayDocument;
 pub(crate) use caddy_gateway_provider::CaddyGatewayProvider;
@@ -22,3 +24,5 @@ pub(crate) use gateway_error::GatewayError;
 pub(crate) use gateway_route::GatewayRoute;
 pub(crate) use gateway_snapshot::GatewaySnapshot;
 pub(crate) use render_caddy_document::render_caddy_document;
+pub(crate) use store_caddy_bootstrap::store_caddy_bootstrap;
+pub(crate) use stored_gateway_bootstrap_paths::StoredGatewayBootstrapPaths;
