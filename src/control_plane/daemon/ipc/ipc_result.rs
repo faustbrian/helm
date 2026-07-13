@@ -1,6 +1,6 @@
 use super::{
     IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcProjectStatus,
+    IpcProjectStatus, IpcRecoveryPoint,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -30,6 +30,10 @@ pub(crate) enum IpcResult {
     ProjectStatus { project: IpcProjectStatus },
     /// Returns stable migration checkpoints without credentials or recovery paths.
     ProjectMigrations { migrations: Vec<IpcMigrationStatus> },
+    /// Returns immutable verified recovery evidence newest-first.
+    ProjectRecoveryPoints {
+        recovery_points: Vec<IpcRecoveryPoint>,
+    },
     /// Returns explicitly requested managed values over the user-only channel.
     ProjectEnvironment { environment: IpcManagedEnvironment },
     /// Returns one bounded ordered page without persisting application logs.

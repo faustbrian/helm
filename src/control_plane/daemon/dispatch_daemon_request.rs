@@ -7,8 +7,8 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
     IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle,
-    IpcResourceStatus, IpcResponse, IpcResult,
+    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRecoveryPoint, IpcResourceHealth,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -177,6 +177,53 @@ where
                     vec![IpcDiagnostic::new(
                         "project_migrations_failed",
                         message,
+                        false,
+                    )],
+                ),
+            }
+        }
+        IpcPayload::ProjectRecoveryPoints { canonical_path } => {
+            let projects = match control_plane.projects() {
+                Ok(projects) => projects,
+                Err(error) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "recovery_points_unavailable",
+                            error.to_string(),
+                            false,
+                        )],
+                    );
+                }
+            };
+            let Some(project) = projects
+                .iter()
+                .find(|project| project.canonical_path() == canonical_path)
+            else {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_not_registered",
+                        format!(
+                            "project path '{}' is not registered",
+                            canonical_path.display()
+                        ),
+                        false,
+                    )],
+                );
+            };
+            match control_plane.recovery_points(project.project_name()) {
+                Ok(points) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::ProjectRecoveryPoints {
+                        recovery_points: points.iter().map(IpcRecoveryPoint::from).collect(),
+                    },
+                ),
+                Err(error) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "recovery_points_unavailable",
+                        error.to_string(),
                         false,
                     )],
                 ),

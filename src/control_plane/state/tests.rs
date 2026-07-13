@@ -3,8 +3,9 @@ use super::{
     EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
     LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
     MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
-    ProjectAdoptionPlanOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
+    StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,8 +17,69 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 12);
+    assert_eq!(store.schema_version().expect("schema version"), 13);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn recovery_points_are_immutable_idempotent_and_project_scoped() {
+    let database_path = temporary_database_path("recovery-points");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    let point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: "/state/backups/backup-42".to_owned(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 1_024,
+        created_at_unix_seconds: 40_000,
+        verified_at_unix_seconds: 40_001,
+    })
+    .expect("valid recovery point");
+
+    store
+        .record_recovery_point(&point)
+        .expect("record recovery point");
+    store
+        .record_recovery_point(&point)
+        .expect("idempotent replay");
+
+    assert_eq!(
+        store
+            .recovery_points("bill")
+            .expect("project recovery points"),
+        vec![point.clone()]
+    );
+    assert!(
+        store
+            .recovery_points("other")
+            .expect("other project recovery points")
+            .is_empty()
+    );
+    let replacement = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: "/state/backups/backup-42".to_owned(),
+        artifact_sha256: "b".repeat(64),
+        artifact_size_bytes: 1_024,
+        created_at_unix_seconds: 40_000,
+        verified_at_unix_seconds: 40_001,
+    })
+    .expect("valid conflicting recovery point");
+    let error = store
+        .record_recovery_point(&replacement)
+        .expect_err("immutable evidence must not change");
+    assert!(error.to_string().contains("immutable evidence"));
 
     drop(store);
     remove_database(&database_path);
@@ -1629,7 +1691,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 12);
+    assert_eq!(store.schema_version().expect("schema version"), 13);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -1685,7 +1747,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 12);
+    assert_eq!(store.schema_version().expect("schema version"), 13);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -1729,7 +1791,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 12);
+    assert_eq!(store.schema_version().expect("schema version"), 13);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);

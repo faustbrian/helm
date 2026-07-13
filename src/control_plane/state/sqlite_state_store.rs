@@ -10,14 +10,15 @@ use super::{
     DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
     EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
     LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    MigrationPhase, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord,
+    RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 12;
+const CURRENT_SCHEMA_VERSION: u32 = 13;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -258,6 +259,32 @@ impl SqliteStateStore {
                  ) STRICT;
                  CREATE INDEX daemon_operations_active_idx
                      ON daemon_operations(status, created_at_unix_seconds);",
+            )?;
+        }
+
+        if found < 13 {
+            transaction.execute_batch(
+                "CREATE TABLE recovery_points (
+                     recovery_point_id TEXT PRIMARY KEY NOT NULL
+                         CHECK(length(recovery_point_id) > 0),
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                     service_id TEXT NOT NULL CHECK(length(service_id) > 0),
+                     logical_resource_id TEXT NOT NULL
+                         CHECK(length(logical_resource_id) > 0),
+                     resource_kind TEXT NOT NULL CHECK(length(resource_kind) > 0),
+                     compatibility_fingerprint TEXT NOT NULL
+                         CHECK(length(compatibility_fingerprint) > 0),
+                     reference TEXT NOT NULL CHECK(length(reference) > 0),
+                     artifact_sha256 TEXT NOT NULL CHECK(length(artifact_sha256) = 64),
+                     artifact_size_bytes INTEGER NOT NULL
+                         CHECK(artifact_size_bytes > 0),
+                     created_at_unix_seconds INTEGER NOT NULL
+                         CHECK(created_at_unix_seconds >= 0),
+                     verified_at_unix_seconds INTEGER NOT NULL
+                         CHECK(verified_at_unix_seconds >= created_at_unix_seconds)
+                 ) STRICT;
+                 CREATE INDEX recovery_points_project_idx
+                     ON recovery_points(project_id, created_at_unix_seconds DESC);",
             )?;
         }
 
@@ -1272,6 +1299,159 @@ impl StateStore for SqliteStateStore {
         persisted
             .into_iter()
             .map(PersistedMigration::into_record)
+            .collect()
+    }
+
+    fn record_recovery_point(
+        &mut self,
+        recovery_point: &RecoveryPointRecord,
+    ) -> Result<(), StateStoreError> {
+        let size = i64::try_from(recovery_point.artifact_size_bytes()).map_err(|_| {
+            StateStoreError::CorruptState {
+                detail: "recovery point artifact size exceeds SQLite limits".to_owned(),
+            }
+        })?;
+        let existing = self
+            .connection
+            .query_row(
+                "SELECT project_id, service_id, logical_resource_id, resource_kind,
+                        compatibility_fingerprint, reference, artifact_sha256,
+                        artifact_size_bytes, created_at_unix_seconds,
+                        verified_at_unix_seconds
+                 FROM recovery_points WHERE recovery_point_id = ?1",
+                [recovery_point.recovery_point_id()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, i64>(9)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some(existing) = existing {
+            let matches = existing.0 == recovery_point.project_id()
+                && existing.1 == recovery_point.service_id()
+                && existing.2 == recovery_point.logical_resource_id()
+                && existing.3 == recovery_point.resource_kind()
+                && existing.4 == recovery_point.compatibility_fingerprint()
+                && existing.5 == recovery_point.reference()
+                && existing.6 == recovery_point.artifact_sha256()
+                && existing.7 == size
+                && existing.8 == recovery_point.created_at_unix_seconds()
+                && existing.9 == recovery_point.verified_at_unix_seconds();
+            if matches {
+                return Ok(());
+            }
+
+            return Err(StateStoreError::RecoveryPointEvidenceConflict {
+                recovery_point_id: recovery_point.recovery_point_id().to_owned(),
+            });
+        }
+        self.connection.execute(
+            "INSERT INTO recovery_points (
+                 recovery_point_id, project_id, service_id, logical_resource_id,
+                 resource_kind, compatibility_fingerprint, reference,
+                 artifact_sha256, artifact_size_bytes, created_at_unix_seconds,
+                 verified_at_unix_seconds
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                recovery_point.recovery_point_id(),
+                recovery_point.project_id(),
+                recovery_point.service_id(),
+                recovery_point.logical_resource_id(),
+                recovery_point.resource_kind(),
+                recovery_point.compatibility_fingerprint(),
+                recovery_point.reference(),
+                recovery_point.artifact_sha256(),
+                size,
+                recovery_point.created_at_unix_seconds(),
+                recovery_point.verified_at_unix_seconds(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    fn recovery_points(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<RecoveryPointRecord>, StateStoreError> {
+        if project_id.is_empty() {
+            return Err(StateStoreError::CorruptState {
+                detail: "recovery point project ID must not be empty".to_owned(),
+            });
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT recovery_point_id, project_id, service_id,
+                    logical_resource_id, resource_kind, compatibility_fingerprint,
+                    reference, artifact_sha256, artifact_size_bytes,
+                    created_at_unix_seconds, verified_at_unix_seconds
+             FROM recovery_points WHERE project_id = ?1
+             ORDER BY created_at_unix_seconds DESC, recovery_point_id DESC",
+        )?;
+        let persisted = statement
+            .query_map([project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(
+                |(
+                    recovery_point_id,
+                    project_id,
+                    service_id,
+                    logical_resource_id,
+                    resource_kind,
+                    compatibility_fingerprint,
+                    reference,
+                    artifact_sha256,
+                    artifact_size_bytes,
+                    created_at_unix_seconds,
+                    verified_at_unix_seconds,
+                )| {
+                    let artifact_size_bytes = u64::try_from(artifact_size_bytes).map_err(|_| {
+                        StateStoreError::CorruptState {
+                            detail: "recovery point contains an invalid artifact size".to_owned(),
+                        }
+                    })?;
+                    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+                        recovery_point_id,
+                        project_id,
+                        service_id,
+                        logical_resource_id,
+                        resource_kind,
+                        compatibility_fingerprint,
+                        reference,
+                        artifact_sha256,
+                        artifact_size_bytes,
+                        created_at_unix_seconds,
+                        verified_at_unix_seconds,
+                    })
+                    .map_err(|detail| StateStoreError::CorruptState { detail })
+                },
+            )
             .collect()
     }
 

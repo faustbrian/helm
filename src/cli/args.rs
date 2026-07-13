@@ -31,10 +31,10 @@ pub(crate) use commands::TaskCommands;
 pub(crate) use commands::TaskDepsArgs;
 pub(crate) use commands::TaskDepsCommands;
 pub(crate) use commands::{
-    DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonCommands, DaemonMigrationArgs,
-    DaemonMigrationCommands, DaemonMigrationStatusArgs, DaemonServiceArgs, DaemonServiceCommands,
-    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonTrustArgs, DaemonTrustCommands,
-    DaemonWatchArgs,
+    DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
+    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationStatusArgs, DaemonServiceArgs,
+    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonTrustArgs,
+    DaemonTrustCommands, DaemonWatchArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;

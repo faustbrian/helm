@@ -4,6 +4,7 @@
 
 mod adopt;
 mod backup;
+mod backups;
 mod migration;
 mod service;
 mod trust;
@@ -13,6 +14,7 @@ use std::path::PathBuf;
 
 pub(crate) use adopt::DaemonAdoptArgs;
 pub(crate) use backup::DaemonBackupArgs;
+pub(crate) use backups::DaemonBackupsArgs;
 pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationStatusArgs,
 };
@@ -41,6 +43,8 @@ pub(crate) enum DaemonCommands {
     Adopt(DaemonAdoptArgs),
     /// Create a verified recovery point for one project data service
     Backup(DaemonBackupArgs),
+    /// List verified recovery points for one project
+    Backups(DaemonBackupsArgs),
     /// Inspect reversible resource migrations
     Migration(DaemonMigrationArgs),
     /// Manage trust for the singleton Stackctl certificate authority

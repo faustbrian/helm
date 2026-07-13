@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file.
 - Added `stackctl daemon backup <service> [path]` to queue an exact logical
   recovery point, follow its ordered daemon events to completion, and report
   the verified host recovery path, byte size, and SHA-256 evidence.
+- Added an immutable SQLite recovery-point catalog with exact project, service,
+  logical-resource, compatibility, path, checksum, size, creation, and
+  verification evidence. `stackctl daemon backups [path]` lists that durable
+  catalog instead of relying on bounded operation events or directory guesses.
 - Added explicit data-lifecycle strategy resolution for every currently shared
   authoritative service family, including logical, native, bucket-export, and
   shared-snapshot boundaries. Non-data and unknown logical kinds now fail

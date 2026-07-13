@@ -39,6 +39,8 @@ pub(crate) enum StateStoreError {
     MigrationIdentityConflict { migration_id: String },
     /// Backup, target, or rollback evidence changed after being recorded.
     MigrationEvidenceConflict { migration_id: String },
+    /// Verified recovery evidence cannot change after publication.
+    RecoveryPointEvidenceConflict { recovery_point_id: String },
     /// A migration checkpoint skipped, regressed, or changed a terminal phase.
     InvalidMigrationTransition {
         migration_id: String,
@@ -138,6 +140,10 @@ impl Display for StateStoreError {
                 formatter,
                 "migration '{migration_id}' durable evidence cannot be replaced"
             ),
+            Self::RecoveryPointEvidenceConflict { recovery_point_id } => write!(
+                formatter,
+                "recovery point '{recovery_point_id}' immutable evidence cannot be replaced"
+            ),
             Self::InvalidMigrationTransition {
                 migration_id,
                 from,
@@ -212,6 +218,7 @@ impl Error for StateStoreError {
             | Self::InvalidProjectAdoption { .. }
             | Self::MigrationIdentityConflict { .. }
             | Self::MigrationEvidenceConflict { .. }
+            | Self::RecoveryPointEvidenceConflict { .. }
             | Self::InvalidMigrationTransition { .. }
             | Self::MigrationTimeRegression { .. }
             | Self::InvalidMigrationTarget { .. }

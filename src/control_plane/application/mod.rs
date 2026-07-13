@@ -11,6 +11,7 @@ mod plan_project_registry;
 mod project_command_state;
 mod project_source;
 mod reconcile_logical_environment;
+mod recovery_points;
 mod registry_plan_error;
 
 pub(crate) use control_plane::ControlPlane;

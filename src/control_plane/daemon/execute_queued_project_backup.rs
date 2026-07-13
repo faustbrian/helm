@@ -13,12 +13,12 @@ pub(crate) async fn execute_queued_project_backup<E>(
 where
     E: CommandExecutor + ContainerDiscovery,
 {
-    let operation_id = options.operation.operation_id().to_owned();
+    let created_at_unix_seconds = options.created_at_unix_seconds;
     let outcome = execute(&engine, &options)
         .await
         .map_err(|error| error.to_string());
 
-    ProjectBackupExecutionResult::new(operation_id, outcome)
+    ProjectBackupExecutionResult::new(options.operation, created_at_unix_seconds, outcome)
 }
 
 async fn execute<E>(

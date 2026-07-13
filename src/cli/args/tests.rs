@@ -912,6 +912,16 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+
+    let backups = Cli::parse_from(["stackctl", "daemon", "backups", "/work/bill"]);
+    if let commands::Commands::Daemon(args) = backups.command {
+        let commands::DaemonCommands::Backups(args) = args.command else {
+            panic!("expected daemon backups command");
+        };
+        assert_eq!(args.path, PathBuf::from("/work/bill"));
+    } else {
+        panic!("expected daemon command");
+    }
 }
 
 #[test]

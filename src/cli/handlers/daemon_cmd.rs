@@ -7,8 +7,8 @@ mod service;
 mod trust;
 
 use crate::cli::args::{
-    DaemonAdoptArgs, DaemonArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,
-    DaemonMigrationStatusArgs, DaemonWatchArgs,
+    DaemonAdoptArgs, DaemonArgs, DaemonBackupsArgs, DaemonCommands, DaemonMigrationArgs,
+    DaemonMigrationCommands, DaemonMigrationStatusArgs, DaemonWatchArgs,
 };
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
@@ -23,9 +23,65 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
         DaemonCommands::Adopt(adopt) => handle_daemon_adopt(adopt),
         DaemonCommands::Backup(backup_args) => backup::handle_daemon_backup(backup_args),
+        DaemonCommands::Backups(backups_args) => handle_daemon_backups(backups_args),
         DaemonCommands::Migration(migration) => handle_daemon_migration(migration),
         DaemonCommands::Trust(trust_args) => trust::handle_daemon_trust(trust_args),
     }
+}
+
+#[cfg(unix)]
+fn handle_daemon_backups(args: &DaemonBackupsArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let canonical_path = std::fs::canonicalize(&args.path)?;
+    let response = send_singleton_request(IpcPayload::ProjectRecoveryPoints { canonical_path })?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::ProjectRecoveryPoints { recovery_points },
+        } => {
+            if recovery_points.is_empty() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    "No verified recovery points exist for this project",
+                    Persistence::Persistent,
+                );
+            }
+            for point in recovery_points {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "{}: service={}, recovery_point={}, bytes={}, sha256={}, created_at={}, verified_at={}",
+                        point.recovery_point_id(),
+                        point.service(),
+                        point.recovery_point(),
+                        point.artifact_size_bytes(),
+                        point.artifact_sha256(),
+                        point.created_at_unix_seconds(),
+                        point.verified_at_unix_seconds(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
+
+            Ok(())
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let diagnostic = diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("recovery-point listing failed: {diagnostic}")
+        }
+        outcome => anyhow::bail!("unexpected recovery-point response: {outcome:?}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_backups(_args: &DaemonBackupsArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
