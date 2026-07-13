@@ -1,6 +1,6 @@
 use super::{
     DiscoveryReconciliationError, DiscoverySchedulerError, FilesystemEventWatcherError,
-    SingletonLeaseError,
+    InstallationInitializationError, SingletonLeaseError,
 };
 use crate::control_plane::daemon::ipc::IpcError;
 use crate::control_plane::state::StateStoreError;
@@ -23,6 +23,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     State(StateStoreError),
     Ipc(IpcError),
     Watcher(FilesystemEventWatcherError),
+    Installation(InstallationInitializationError),
     Reconciliation(DiscoveryReconciliationError),
     Scheduler(DiscoverySchedulerError),
 }
@@ -44,6 +45,7 @@ impl Display for UnixDaemonRuntimeError {
             Self::State(error) => Display::fmt(error, formatter),
             Self::Ipc(error) => Display::fmt(error, formatter),
             Self::Watcher(error) => Display::fmt(error, formatter),
+            Self::Installation(error) => Display::fmt(error, formatter),
             Self::Reconciliation(error) => Display::fmt(error, formatter),
             Self::Scheduler(error) => Display::fmt(error, formatter),
         }
@@ -59,6 +61,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::State(error) => Some(error),
             Self::Ipc(error) => Some(error),
             Self::Watcher(error) => Some(error),
+            Self::Installation(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
             Self::Scheduler(error) => Some(error),
         }
@@ -86,6 +89,12 @@ impl From<IpcError> for UnixDaemonRuntimeError {
 impl From<FilesystemEventWatcherError> for UnixDaemonRuntimeError {
     fn from(error: FilesystemEventWatcherError) -> Self {
         Self::Watcher(error)
+    }
+}
+
+impl From<InstallationInitializationError> for UnixDaemonRuntimeError {
+    fn from(error: InstallationInitializationError) -> Self {
+        Self::Installation(error)
     }
 }
 

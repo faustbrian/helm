@@ -239,6 +239,47 @@ mod tests {
             })
             .expect("load v8 project");
         assert_eq!(project_name, "project-a");
+        let installation = connection
+            .query_row(
+                "SELECT installation_id, engine_provider, engine_endpoint FROM installation",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .expect("load v8 installation");
+        assert_eq!(installation.1, "docker");
+        assert!(
+            !installation.0.is_empty(),
+            "installation identity must be persisted"
+        );
+        assert!(
+            !installation.2.is_empty(),
+            "Engine endpoint must be persisted"
+        );
+        drop(connection);
+
+        super::handle_daemon_watch_with_runtime_directory(
+            &DaemonWatchArgs {
+                dir: vec![watch_root.clone()],
+                once: true,
+                interval: 1,
+            },
+            &runtime_directory,
+        )
+        .expect("watch once after restart");
+        let connection = rusqlite::Connection::open(runtime_directory.join("state.sqlite3"))
+            .expect("reopen v8 state");
+        let restarted_installation_id = connection
+            .query_row("SELECT installation_id FROM installation", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("load restarted v8 installation");
+        assert_eq!(restarted_installation_id, installation.0);
 
         drop(connection);
         fs::remove_dir_all(watch_root).expect("remove watch root");

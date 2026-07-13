@@ -1,7 +1,7 @@
 use super::{
     DaemonIterationResult, DiscoveryScheduler, FilesystemEventWatcher, SingletonLease,
     UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    reconcile_watched_roots,
+    initialize_default_installation, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -36,7 +36,8 @@ impl UnixDaemonRuntime {
         remove_stale_socket(&options.socket_path)?;
         let listener = UnixIpcListener::bind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
-        let store = SqliteStateStore::open(&options.state_database_path)?;
+        let mut store = SqliteStateStore::open(&options.state_database_path)?;
+        initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
 

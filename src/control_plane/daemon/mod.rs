@@ -11,6 +11,8 @@ mod discovery_scheduler_options;
 mod dispatch_daemon_request;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
+mod initialize_default_installation;
+mod installation_initialization_error;
 mod ipc;
 mod project_discovery_error;
 mod project_discovery_issue;
@@ -52,6 +54,8 @@ pub(crate) use discovery_scheduler_options::DiscoverySchedulerOptions;
 pub(crate) use dispatch_daemon_request::dispatch_daemon_request;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
+pub(crate) use initialize_default_installation::initialize_default_installation;
+pub(crate) use installation_initialization_error::InstallationInitializationError;
 #[cfg(unix)]
 pub(crate) use ipc::{
     IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,

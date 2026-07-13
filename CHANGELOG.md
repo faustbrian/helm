@@ -93,6 +93,9 @@ All notable changes to this project are documented in this file.
 - Added bounded native watched-root notifications to the singleton daemon,
   feeding the existing debounce scheduler while retaining periodic complete
   scans as the correctness fallback.
+- Added first-run singleton installation initialization with one cryptographic
+  installation identity and one persisted platform-default Docker endpoint,
+  reusing both exactly across daemon restarts without engine auto-switching.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
