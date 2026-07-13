@@ -81,6 +81,9 @@ All notable changes to this project are documented in this file.
 - Replaced per-project v8 IPC reconciliation with one complete watched-root
   operation that returns applied, project, and issue counts while converting
   scan or transaction failures into stable correlated diagnostics.
+- Added a Unix singleton daemon runtime that exclusively owns its private
+  state, lease, and IPC paths, performs scheduled complete reconciliation,
+  serves bounded requests, and safely recovers only stale socket files.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

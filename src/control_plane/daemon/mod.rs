@@ -1,3 +1,4 @@
+mod daemon_iteration_result;
 mod discover_project_sources;
 mod discovery_reconciliation_error;
 mod discovery_reconciliation_result;
@@ -18,12 +19,19 @@ mod retry_backoff_options;
 mod retry_delay;
 mod singleton_lease;
 mod singleton_lease_error;
+#[cfg(unix)]
+mod unix_daemon_runtime;
+#[cfg(unix)]
+mod unix_daemon_runtime_error;
+#[cfg(unix)]
+mod unix_daemon_runtime_options;
 
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
 #[cfg(test)]
 mod tests;
+pub(crate) use daemon_iteration_result::DaemonIterationResult;
 pub(crate) use discover_project_sources::discover_project_sources;
 pub(crate) use discovery_reconciliation_error::DiscoveryReconciliationError;
 pub(crate) use discovery_reconciliation_result::DiscoveryReconciliationResult;
@@ -41,3 +49,9 @@ pub(crate) use retry_backoff::RetryBackoff;
 pub(crate) use retry_backoff_error::RetryBackoffError;
 pub(crate) use retry_backoff_options::RetryBackoffOptions;
 pub(crate) use retry_delay::RetryDelay;
+#[cfg(unix)]
+pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
+#[cfg(unix)]
+pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
+#[cfg(unix)]
+pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;

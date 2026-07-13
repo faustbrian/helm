@@ -337,6 +337,139 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 
 #[cfg(unix)]
 #[test]
+fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
+    use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+    use crate::control_plane::daemon::ipc::{decode_response_frame, encode_frame};
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let root = std::env::temp_dir().join(format!(
+        "s8r-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("runtime test root");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let runtime_directory = root.join("runtime");
+    let database_path = runtime_directory.join("state.sqlite3");
+    std::fs::create_dir(&runtime_directory).expect("runtime directory");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    drop(store);
+    let socket_path = runtime_directory.join("daemon.sock");
+    let options = UnixDaemonRuntimeOptions {
+        state_database_path: database_path,
+        lease_path: runtime_directory.join("daemon.lock"),
+        socket_path: socket_path.clone(),
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        scheduler_options: DiscoverySchedulerOptions::new(
+            Duration::from_millis(250),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        )
+        .expect("scheduler options"),
+        idle_poll_interval: Duration::from_millis(10),
+    };
+    let now = Instant::now();
+    let mut runtime = UnixDaemonRuntime::new(options.clone(), now).expect("singleton runtime");
+    let competing_error = match UnixDaemonRuntime::new(options, now) {
+        Ok(_) => panic!("a second singleton runtime must not start"),
+        Err(error) => error,
+    };
+    assert!(
+        competing_error
+            .to_string()
+            .contains("another Stackctl daemon owns")
+    );
+    assert!(socket_path.exists());
+    let request = IpcRequest::new("ping-runtime", IpcPayload::Ping);
+    let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
+    client
+        .write_all(&encode_frame(&request).expect("encode request"))
+        .expect("write request");
+
+    let iteration = runtime
+        .run_iteration(now, 10_000)
+        .expect("daemon iteration");
+
+    let mut response_frame = Vec::new();
+    BufReader::new(client)
+        .read_until(b'\n', &mut response_frame)
+        .expect("read response");
+    assert_eq!(
+        decode_response_frame(&response_frame).expect("decode response"),
+        IpcResponse::success("ping-runtime", IpcResult::Pong)
+    );
+    assert_eq!(iteration.scan_reason(), Some(DiscoveryScanReason::Initial));
+    assert!(
+        iteration
+            .reconciliation()
+            .expect("initial reconciliation")
+            .was_applied()
+    );
+    assert_eq!(iteration.request(), Some(&request));
+
+    drop(runtime);
+    std::fs::remove_dir_all(&root).expect("remove runtime fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn singleton_unix_runtime_never_deletes_a_non_socket_endpoint() {
+    use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+
+    let root = std::env::temp_dir().join(format!(
+        "s8f-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("runtime test root");
+    let socket_path = root.join("daemon.sock");
+    std::fs::write(&socket_path, "must-survive").expect("endpoint sentinel");
+    let options = UnixDaemonRuntimeOptions {
+        state_database_path: root.join("state.sqlite3"),
+        lease_path: root.join("daemon.lock"),
+        socket_path: socket_path.clone(),
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        scheduler_options: DiscoverySchedulerOptions::new(
+            Duration::from_millis(250),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        )
+        .expect("scheduler options"),
+        idle_poll_interval: Duration::from_millis(10),
+    };
+
+    let error = match UnixDaemonRuntime::new(options, Instant::now()) {
+        Ok(_) => panic!("regular endpoint file must be preserved"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("is not an owned Unix socket"));
+    assert_eq!(
+        std::fs::read_to_string(&socket_path).expect("read endpoint sentinel"),
+        "must-survive"
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove runtime fixture");
+}
+
+#[cfg(unix)]
+#[test]
 fn watched_root_scan_never_follows_a_symlinked_project_config() {
     use std::os::unix::fs::symlink;
 
