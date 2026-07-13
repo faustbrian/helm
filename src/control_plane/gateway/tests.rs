@@ -2,11 +2,11 @@ use super::{
     CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayConfigurationAction,
     GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPlaneOptions,
     GatewayPortAvailability, GatewayPortProbe, GatewayReadinessOptions, GatewayReconcileAction,
-    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, LocalhostResolver,
-    SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway,
-    reconcile_gateway_configuration, reconcile_gateway_plane, render_caddy_document,
-    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
-    wait_for_gateway_ready,
+    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, GlobalGatewayRequestOptions,
+    LocalhostResolver, SystemGatewayPortProbe, global_gateway_request, preflight_gateway_ports,
+    reconcile_gateway, reconcile_gateway_configuration, reconcile_gateway_plane,
+    render_caddy_document, store_caddy_bootstrap, verify_gateway_ports_available,
+    verify_stackctl_localhost_resolution, wait_for_gateway_ready,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
@@ -32,6 +32,34 @@ use super::CaddyUnixAdminClient;
 
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[test]
+fn production_gateway_request_pins_official_caddy_and_global_ownership() {
+    let request = global_gateway_request(GlobalGatewayRequestOptions {
+        installation_id: "install-1".to_owned(),
+        tls_directory: "/state/tls/bundle".into(),
+        bootstrap_config_path: "/state/gateway/config.json".into(),
+        admin_runtime_directory: "/state/gateway/run".into(),
+    })
+    .expect("production gateway request");
+
+    assert_eq!(request.name(), "stackctl-gateway");
+    assert_eq!(
+        request.image(),
+        concat!(
+            "caddy@sha256:",
+            "af5fdcd76f2db5e4e974ee92f96ee8c0fc3edb55bd4ba5032547cbf3f65e486d"
+        )
+    );
+    assert_eq!(request.network(), Some("stackctl"));
+    assert_eq!(
+        request.command(),
+        ["caddy", "run", "--config", "/etc/stackctl/config.json"]
+    );
+    assert_eq!(request.metadata().installation_id(), "install-1");
+    assert_eq!(request.metadata().kind(), ResourceKind::Gateway);
+    assert_eq!(request.metadata().resource_id(), Some("gateway"));
+}
 
 #[cfg(unix)]
 use tokio::net::UnixListener;

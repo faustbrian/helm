@@ -102,6 +102,9 @@ All notable changes to this project are documented in this file.
 - Added safe singleton reconciliation for one deterministic `stackctl` Engine
   network after complete valid registry scans, adopting only exact labeled
   current-installation ownership and loudly blocking ambiguous network state.
+- Added the production singleton gateway request using the official Caddy
+  2.11.4 multi-platform manifest by immutable digest, with the image command
+  contract, global network, loopback ports, and ownership fixed in core code.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
