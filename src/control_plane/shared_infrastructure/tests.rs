@@ -3,9 +3,17 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     PersistenceMode, PostgresLogicalResourcePlan, PostgresSharedInstancePlan,
     PostgresSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
-    plan_shared_instances,
+    plan_shared_instances, provision_postgres_logical_resource,
 };
+use crate::control_plane::engine::{
+    CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
+    ContainerId, ContainerLogStream, EngineFuture, ObservedContainer, OwnedContainer,
+    reconstruct_owned_container,
+};
+use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
+use tokio::io::AsyncReadExt;
 
 #[test]
 fn equivalent_postgres_profiles_share_one_fingerprint() {
@@ -241,6 +249,59 @@ fn postgres_eighteen_uses_the_new_parent_volume_mount() {
     assert_eq!(plan.data_mount_target(), "/var/lib/postgresql");
 }
 
+#[test]
+fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL logical plan");
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::SharedService,
+            project_id: None,
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("owned metadata");
+    let observed =
+        ObservedContainer::new(ContainerId::new("postgres-container"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_postgres_logical_resource(
+            &executor, &container, &plan,
+        ))
+        .expect("provision PostgreSQL resource");
+    runtime.block_on(tokio::task::yield_now());
+
+    let stdin = executor.stdin.lock().expect("recorded stdin").clone();
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(
+        String::from_utf8(stdin)
+            .expect("SQL UTF-8")
+            .contains("project-secret")
+    );
+    assert!(!request_debug.contains("project-secret"));
+    assert!(request_debug.contains("argument_count: 5"));
+}
+
 struct SequentialEntropy;
 
 impl CredentialEntropy for SequentialEntropy {
@@ -250,6 +311,52 @@ impl CredentialEntropy for SequentialEntropy {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingPostgresExecutor {
+    stdin: Arc<Mutex<Vec<u8>>>,
+    request_debug: Arc<Mutex<String>>,
+}
+
+impl CommandExecutor for RecordingPostgresExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        let stdin = Arc::clone(&self.stdin);
+        *self.request_debug.lock().expect("request debug lock") = format!("{request:?}");
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(16 * 1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read provisioning stdin");
+                *stdin.lock().expect("stdin lock") = bytes;
+            });
+            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("exec-1"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(0)) })
     }
 }
 

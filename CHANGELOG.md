@@ -97,6 +97,8 @@ All notable changes to this project are documented in this file.
   profile ownership, private networking, secrets, restart, and platform policy.
 - Added version-aware PostgreSQL persistence targets, retaining the legacy data
   directory through 17 and using the official parent mount for 18 and newer.
+- Added bounded attached PostgreSQL logical-resource execution that streams
+  secret SQL over stdin, drains output, and requires a successful exit status.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

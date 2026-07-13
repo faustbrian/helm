@@ -14,7 +14,7 @@ pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
     PostgresLogicalResourcePlan, PostgresPlanError, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions,
+    PostgresSharedInstancePlanOptions, provision_postgres_logical_resource,
 };
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_request::SharedServiceRequest;
