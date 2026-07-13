@@ -28,6 +28,7 @@ pub(crate) fn resolve_execution_shared_instances(
         })?;
         let implementation = match preset {
             "postgres" | "pg" | "pgsql" => "postgresql",
+            "mongodb" => "mongodb",
             "mysql" => "mysql",
             "mariadb" | "maria" => "mariadb",
             "redis" => "redis",

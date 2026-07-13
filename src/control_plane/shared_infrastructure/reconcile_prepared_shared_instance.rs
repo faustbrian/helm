@@ -1,8 +1,9 @@
 use super::{
     PreparedSharedInstance, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
-    reconcile_prepared_mailpit_instance, reconcile_prepared_mysql_instance,
-    reconcile_prepared_object_store_instance, reconcile_prepared_postgres_instance,
-    reconcile_prepared_rabbitmq_instance, reconcile_prepared_redis_instance,
+    reconcile_prepared_mailpit_instance, reconcile_prepared_mongodb_instance,
+    reconcile_prepared_mysql_instance, reconcile_prepared_object_store_instance,
+    reconcile_prepared_postgres_instance, reconcile_prepared_rabbitmq_instance,
+    reconcile_prepared_redis_instance,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -52,6 +53,10 @@ where
         }
         PreparedSharedInstance::Mailpit(prepared) => {
             reconcile_prepared_mailpit_instance(engine, prepared, installation_id, schema_version)
+                .await
+        }
+        PreparedSharedInstance::MongoDb(prepared) => {
+            reconcile_prepared_mongodb_instance(engine, prepared, installation_id, schema_version)
                 .await
         }
     }

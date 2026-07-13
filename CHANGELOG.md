@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added MongoDB shared-instance convergence with exact compatibility grouping,
+  stable bootstrap and project credentials, a private read-only bootstrap
+  secret mount, isolated database users, persistent physical/logical ownership,
+  and managed MongoDB environments.
 - Added attributed Mailpit convergence with exact compatibility grouping,
   replay-stable SMTP identities, deterministic bcrypt authentication, one
   persistent physical process, project-specific mail environments, and

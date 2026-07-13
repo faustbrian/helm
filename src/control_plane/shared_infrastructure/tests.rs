@@ -283,6 +283,123 @@ fn mysql_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
 
 #[cfg(unix)]
 #[test]
+fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
+    let image = concat!(
+        "mongo@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_database_source("/work/bill", "bill", "mongodb", "8", image),
+        shared_database_source("/work/shop", "shop", "mongodb", "8", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mongodb-strategy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("strategy state directory");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("MONGODB_PASSWORD")
+        .expect("first project password")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared[0].profile().implementation(), "mongodb");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("MONGODB_PASSWORD")
+            .expect("replayed project password"),
+        &first_password
+    );
+    let credentials = store.credentials().expect("durable credentials");
+    assert_eq!(credentials.len(), 3);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+    let identity = shared[0]
+        .fingerprint()
+        .as_str()
+        .strip_prefix("sha256:")
+        .expect("fingerprint identity");
+    let secret_file = root
+        .join("shared")
+        .join(identity)
+        .join("mongodb-secrets/root-password");
+    let bootstrap = credentials
+        .iter()
+        .find(|credential| credential.project_id().is_none())
+        .expect("bootstrap credential");
+    assert_eq!(
+        std::fs::read_to_string(&secret_file).expect("bootstrap secret file"),
+        bootstrap.secret()
+    );
+    assert_eq!(
+        std::fs::metadata(secret_file)
+            .expect("bootstrap secret metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove strategy state");
+}
+
+#[cfg(unix)]
+#[test]
 fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
     let image = concat!(
         "redis@sha256:",
