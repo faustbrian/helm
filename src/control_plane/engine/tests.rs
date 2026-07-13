@@ -8,7 +8,7 @@ use super::{
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
     NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
     OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, ResourceMetrics, RetentionClass,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
     gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
     reconstruct_owned_volume,
 };
@@ -376,6 +376,39 @@ fn managed_container_environment_maps_to_engine_without_debug_leaks() {
     );
     assert!(!format!("{options:?}").contains("root-secret"));
     assert!(format!("{options:?}").contains("POSTGRES_PASSWORD"));
+}
+
+#[test]
+fn managed_named_volumes_remain_distinct_from_host_bind_mounts() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-shared-postgres",
+        concat!(
+            "postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::SharedService),
+    )
+    .expect("container options")
+    .with_volume_mount(
+        VolumeMount::read_write("stackctl-postgres-data", "/var/lib/postgresql/data")
+            .expect("named volume mount"),
+    );
+
+    let (_, request) = create_request(&options);
+    let mounts = request
+        .host_config
+        .expect("host config")
+        .mounts
+        .expect("mounts");
+
+    assert_eq!(mounts.len(), 1);
+    assert_eq!(mounts[0].typ, Some(bollard::models::MountType::VOLUME));
+    assert_eq!(mounts[0].source.as_deref(), Some("stackctl-postgres-data"));
+    assert_eq!(
+        mounts[0].target.as_deref(),
+        Some("/var/lib/postgresql/data")
+    );
+    assert_eq!(mounts[0].read_only, Some(false));
 }
 
 #[test]

@@ -57,6 +57,8 @@ All notable changes to this project are documented in this file.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
+- Added typed named-volume container mounts distinct from host bind mounts so
+  persistent shared-service data stays Engine-owned and retention-aware.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added durable v8 project credentials with redacted diagnostics, stable

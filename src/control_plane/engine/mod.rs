@@ -55,6 +55,7 @@ mod retention_class;
 mod volume_create_options;
 mod volume_discovery;
 mod volume_manager;
+mod volume_mount;
 
 pub(crate) use bind_mount::BindMount;
 pub(crate) use bollard_engine_adapter::BollardEngineAdapter;
@@ -112,6 +113,7 @@ pub(crate) use retention_class::RetentionClass;
 pub(crate) use volume_create_options::VolumeCreateOptions;
 pub(crate) use volume_discovery::VolumeDiscovery;
 pub(crate) use volume_manager::VolumeManager;
+pub(crate) use volume_mount::VolumeMount;
 
 #[cfg(test)]
 mod tests;

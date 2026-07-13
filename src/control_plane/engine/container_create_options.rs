@@ -1,6 +1,6 @@
 use super::{
     BindMount, ContainerRestartPolicy, EngineError, ImmutableImageReference,
-    ManagedResourceMetadata, PortBinding,
+    ManagedResourceMetadata, PortBinding, VolumeMount,
 };
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
@@ -14,6 +14,7 @@ pub(crate) struct ContainerCreateOptions {
     network: Option<String>,
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
+    volume_mounts: Vec<VolumeMount>,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
     restart_policy: Option<ContainerRestartPolicy>,
@@ -44,6 +45,7 @@ impl ContainerCreateOptions {
             network: None,
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
+            volume_mounts: Vec::new(),
             command: Vec::new(),
             environment: BTreeMap::new(),
             restart_policy: None,
@@ -71,6 +73,11 @@ impl ContainerCreateOptions {
 
     pub(crate) fn with_bind_mount(mut self, mount: BindMount) -> Self {
         self.bind_mounts.push(mount);
+        self
+    }
+
+    pub(crate) fn with_volume_mount(mut self, mount: VolumeMount) -> Self {
+        self.volume_mounts.push(mount);
         self
     }
 
@@ -146,6 +153,10 @@ impl ContainerCreateOptions {
         &self.bind_mounts
     }
 
+    pub(super) fn volume_mounts(&self) -> &[VolumeMount] {
+        &self.volume_mounts
+    }
+
     pub(super) fn command(&self) -> &[String] {
         &self.command
     }
@@ -169,6 +180,7 @@ impl Debug for ContainerCreateOptions {
             .field("network", &self.network)
             .field("port_bindings", &self.port_bindings)
             .field("bind_mounts", &self.bind_mounts)
+            .field("volume_mounts", &self.volume_mounts)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
             .field("restart_policy", &self.restart_policy)

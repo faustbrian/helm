@@ -1171,22 +1171,29 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         });
     }
 
+    let mounts = options
+        .bind_mounts()
+        .iter()
+        .map(|mount| Mount {
+            source: Some(mount.source().to_owned()),
+            target: Some(mount.target().to_owned()),
+            typ: Some(MountType::BIND),
+            read_only: Some(mount.is_read_only()),
+            ..Mount::default()
+        })
+        .chain(options.volume_mounts().iter().map(|mount| Mount {
+            source: Some(mount.source().to_owned()),
+            target: Some(mount.target().to_owned()),
+            typ: Some(MountType::VOLUME),
+            read_only: Some(mount.is_read_only()),
+            ..Mount::default()
+        }))
+        .collect::<Vec<_>>();
+
     HostConfig {
         network_mode: options.network().map(str::to_owned),
         port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
-        mounts: (!options.bind_mounts().is_empty()).then(|| {
-            options
-                .bind_mounts()
-                .iter()
-                .map(|mount| Mount {
-                    source: Some(mount.source().to_owned()),
-                    target: Some(mount.target().to_owned()),
-                    typ: Some(MountType::BIND),
-                    read_only: Some(mount.is_read_only()),
-                    ..Mount::default()
-                })
-                .collect()
-        }),
+        mounts: (!mounts.is_empty()).then_some(mounts),
         restart_policy: options.restart_policy().map(|policy| match policy {
             super::ContainerRestartPolicy::UnlessStopped => RestartPolicy {
                 name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
