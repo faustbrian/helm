@@ -143,6 +143,20 @@ fn mutable_image_tags_are_rejected_before_an_engine_request() {
 }
 
 #[test]
+fn derived_image_content_ids_are_valid_container_inputs() {
+    let image_id = format!("sha256:{}", "a".repeat(64));
+
+    let options = ContainerCreateOptions::new(
+        "stackctl-bill-app",
+        image_id.clone(),
+        project_metadata(ResourceKind::ProjectApplication),
+    )
+    .expect("local immutable image ID");
+
+    assert_eq!(options.image(), image_id);
+}
+
+#[test]
 fn image_resolution_accepts_only_immutable_digest_references() {
     let immutable = ImmutableImageReference::new(concat!(
         "ghcr.io/stackctl/php@sha256:",
@@ -151,6 +165,9 @@ fn image_resolution_accepts_only_immutable_digest_references() {
     .expect("immutable image");
     let error =
         ImmutableImageReference::new("ghcr.io/stackctl/php:8.4").expect_err("mutable image tag");
+    let local_id = format!("sha256:{}", "a".repeat(64));
+    let local_id_error =
+        ImmutableImageReference::new(local_id.clone()).expect_err("local content ID pull");
     let mut resolver = RecordingImageResolver::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -166,6 +183,10 @@ fn image_resolution_accepts_only_immutable_digest_references() {
     assert_eq!(
         error.to_string(),
         "managed image 'ghcr.io/stackctl/php:8.4' must use an immutable sha256 digest"
+    );
+    assert_eq!(
+        local_id_error.to_string(),
+        format!("managed image '{local_id}' must use an immutable sha256 digest")
     );
 }
 

@@ -169,6 +169,16 @@ fn mutable_application_images_fail_before_engine_planning() {
 }
 
 #[test]
+fn application_plans_accept_derived_engine_content_ids() {
+    let mut options = application_options("bill", "/work/bill");
+    options.image_digest = format!("sha256:{}", "a".repeat(64));
+
+    let plan = ApplicationContainerPlan::new(options).expect("derived image content ID");
+
+    assert_eq!(plan.image_digest(), format!("sha256:{}", "a".repeat(64)));
+}
+
+#[test]
 fn relative_application_source_paths_fail_before_engine_mutation() {
     let mut options = application_options("bill", "/work/bill");
     options.source_path = PathBuf::from("relative/bill");

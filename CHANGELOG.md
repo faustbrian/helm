@@ -98,6 +98,8 @@ All notable changes to this project are documented in this file.
   the validated Dockerfile is exactly the one sent to the direct Engine API.
 - Added deterministic offline runtime-image plans keyed by pinned base, Linux
   platform, PHP, Composer, JavaScript, system packages, and installer revision.
+- Allowed derived Engine content IDs as immutable container inputs while keeping
+  registry pulls restricted to digest-pinned repository references.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

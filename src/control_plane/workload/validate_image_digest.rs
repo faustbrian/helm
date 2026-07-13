@@ -1,11 +1,8 @@
 use super::WorkloadPlanError;
+use crate::control_plane::engine::is_immutable_image_identity;
 
 pub(super) fn validate_image_digest(workload: &str, image: &str) -> Result<(), WorkloadPlanError> {
-    let valid = image.rsplit_once("@sha256:").is_some_and(|(_, digest)| {
-        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-    });
-
-    if !valid {
+    if !is_immutable_image_identity(image) {
         return Err(WorkloadPlanError::new(format!(
             "{workload} image '{image}' must use an immutable sha256 digest"
         )));

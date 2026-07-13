@@ -1,6 +1,6 @@
 use super::{
-    BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ImmutableImageReference,
-    ManagedResourceMetadata, PortBinding, VolumeMount,
+    BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ManagedResourceMetadata,
+    PortBinding, VolumeMount, is_immutable_image_identity,
 };
 use crate::control_plane::is_valid_environment_variable_key;
 use std::collections::BTreeMap;
@@ -39,7 +39,11 @@ impl ContainerCreateOptions {
             });
         }
 
-        ImmutableImageReference::new(&image)?;
+        if !is_immutable_image_identity(&image) {
+            return Err(EngineError::InvalidRequest {
+                detail: format!("managed image '{image}' must use an immutable sha256 digest"),
+            });
+        }
 
         Ok(Self {
             name,
