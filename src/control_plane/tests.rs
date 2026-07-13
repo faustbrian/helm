@@ -1,4 +1,7 @@
-use super::{ProjectIdentity, RouteClaim, RouteIdentity, ServiceIdentity, validate_route_claims};
+use super::{
+    KNOWN_SERVICE_PRESETS, ProjectIdentity, RouteClaim, RouteIdentity, ServiceDeploymentStrategy,
+    ServiceIdentity, resolve_service_deployment_strategy, validate_route_claims,
+};
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -104,6 +107,90 @@ fn composite_name_collision_fails_instead_of_receiving_a_fallback_domain() {
     assert_eq!(
         error.conflicts()[0].domain(),
         "bill-app-admin.stackctl.localhost"
+    );
+}
+
+#[test]
+fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
+    let cases = [
+        ("mongodb", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("postgres", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("pg", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("pgsql", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("mysql", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("mariadb", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "sqlserver",
+            ServiceDeploymentStrategy::SharedByCompatibility,
+        ),
+        ("mssql", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("redis", ServiceDeploymentStrategy::SharedByCompatibility),
+        ("valkey", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "dragonfly",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        ("memcached", ServiceDeploymentStrategy::DedicatedProject),
+        ("minio", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "garage",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        ("localstack", ServiceDeploymentStrategy::DedicatedProject),
+        ("rustfs", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "opensearch",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        (
+            "elasticsearch",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        (
+            "meilisearch",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        (
+            "typesense",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+        ("frankenphp", ServiceDeploymentStrategy::ProjectApplication),
+        ("laravel", ServiceDeploymentStrategy::ProjectApplication),
+        ("reverb", ServiceDeploymentStrategy::ProjectApplication),
+        ("horizon", ServiceDeploymentStrategy::ProjectProcess),
+        ("queue-worker", ServiceDeploymentStrategy::ProjectProcess),
+        ("queue", ServiceDeploymentStrategy::ProjectProcess),
+        ("scheduler", ServiceDeploymentStrategy::ProjectProcess),
+        ("dusk", ServiceDeploymentStrategy::Ephemeral),
+        ("selenium", ServiceDeploymentStrategy::Ephemeral),
+        ("gotenberg", ServiceDeploymentStrategy::SharedStateless),
+        ("mailhog", ServiceDeploymentStrategy::SharedWithAttribution),
+        ("mailpit", ServiceDeploymentStrategy::SharedWithAttribution),
+        ("rabbitmq", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "soketi",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
+    ];
+
+    assert_eq!(
+        cases.map(|(preset, _)| preset),
+        KNOWN_SERVICE_PRESETS,
+        "the strategy matrix and editor preset catalog must move together"
+    );
+
+    for (preset, expected) in cases {
+        assert_eq!(
+            resolve_service_deployment_strategy(preset).expect("known preset"),
+            expected,
+            "preset {preset}"
+        );
+    }
+    assert_eq!(
+        resolve_service_deployment_strategy("invented")
+            .expect_err("unknown preset")
+            .to_string(),
+        "unknown v8 service preset 'invented'"
     );
 }
 

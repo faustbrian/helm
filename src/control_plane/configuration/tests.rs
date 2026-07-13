@@ -1,5 +1,5 @@
 use super::{parse_project_config, project_config_schema};
-use crate::control_plane::resolve_desired_project;
+use crate::control_plane::{KNOWN_SERVICE_PRESETS, resolve_desired_project};
 use std::path::Path;
 
 const CONFIG_PATH: &str = "/work/bill/.stackctl.yaml";
@@ -30,6 +30,15 @@ fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {
     assert_eq!(
         schema["$defs"]["service"]["properties"]["environment"]["propertyNames"]["pattern"],
         "^[A-Za-z_][A-Za-z0-9_]*$"
+    );
+    assert_eq!(
+        schema["$defs"]["preset"]["enum"]
+            .as_array()
+            .expect("preset enum")
+            .iter()
+            .map(|value| value.as_str().expect("preset string"))
+            .collect::<Vec<_>>(),
+        KNOWN_SERVICE_PRESETS
     );
 }
 
@@ -181,6 +190,23 @@ services:
             .expect_err("duplicate extension")
             .to_string(),
         "service 'app' declares PHP extension 'redis' more than once"
+    );
+}
+
+#[test]
+fn desired_state_rejects_presets_without_an_explicit_v8_strategy() {
+    let source = r#"
+schema_version: 8
+services:
+  app:
+    preset: invented
+"#;
+
+    assert_eq!(
+        desired_from(source)
+            .expect_err("unknown preset")
+            .to_string(),
+        "service 'app' unknown v8 service preset 'invented'"
     );
 }
 
@@ -359,7 +385,7 @@ services:
     preset: laravel
     depends_on: [worker]
   worker:
-    preset: worker
+    preset: queue-worker
     depends_on: [app]
 "#;
 

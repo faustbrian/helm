@@ -44,6 +44,10 @@ container. Provisioning a logical resource must not restart a compatible
 shared instance. Changing an immutable compatibility field creates a new
 instance and explicit migration, never an in-place reinterpretation.
 
+This matrix is enforced by the closed v8 service deployment strategy resolver.
+Unknown presets fail, aliases resolve identically, and every "share only after"
+entry remains dedicated until its isolation acceptance tests are implemented.
+
 Removing a project disables credentials where safe and orphans logical data. It
 never deletes shared volumes or project data automatically. Deleting the last
 reference may stop a shared container, but retained data requires explicit

@@ -29,6 +29,8 @@ All notable changes to this project are documented in this file.
   scans, editor-event debounce, and a bounded settle deadline for continuous writes.
 - Added per-resource deterministic equal-jitter exponential retry state with
   explicit recovery reset and an absolute maximum delay.
+- Added a closed deployment-strategy resolver for every current preset and alias,
+  defaulting conditional sharing to dedicated until isolation is proven.
 - Added complete-scan project reconciliation that validates the full registry before
   atomically registering discoveries and orphaning every project whose config vanished.
 - Added executable dedicated application-container requests with exact ownership,

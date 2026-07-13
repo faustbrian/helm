@@ -2,6 +2,7 @@ use super::{DesiredProject, DesiredProjectError, DesiredService, DesiredServiceO
 use crate::control_plane::configuration::RawProjectConfig;
 use crate::control_plane::{
     ProjectIdentity, RouteClaim, ServiceIdentity, is_valid_environment_variable_key,
+    resolve_service_deployment_strategy,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -33,6 +34,10 @@ pub(crate) fn resolve_desired_project(
             .collect::<Result<Vec<_>, _>>()?;
 
         let preset = optional_non_empty(name, "preset", raw_service.preset())?;
+        if let Some(preset) = &preset {
+            resolve_service_deployment_strategy(preset)
+                .map_err(|error| invalid_service(name, error.to_string()))?;
+        }
         let image = optional_non_empty(name, "image", raw_service.image())?;
         if preset.is_none() && image.is_none() {
             return Err(invalid_service(
