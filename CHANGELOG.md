@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added durable per-service workload ownership scopes, transactional SQLite
+  migration, application and worker ownership publication, and safe orphan
+  convergence that stops removed project workloads without deleting retained
+  containers or data.
 - Connected Horizon, queue workers, and schedulers to their exact immutable
   application runtime and source mount, with explicit application dependencies,
   merged non-conflicting environments, preset commands, separate restart

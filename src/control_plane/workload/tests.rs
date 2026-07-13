@@ -1,12 +1,13 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, ProjectCommand, ProjectCommandPlan,
-    ProjectCommandPlanOptions, ProjectProcessPlan, ProjectProcessPlanOptions,
-    ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
-    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
-    plan_immutable_project_application, project_process_request, reconcile_project_application,
-    reconcile_project_process, reconcile_project_runtime, run_project_command,
+    ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, OrphanedProjectWorkloadOptions,
+    ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
+    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions,
+    RuntimeEnvironment, RuntimeEnvironmentOptions, RuntimeImageBuildPlan,
+    RuntimeImageBuildPlanOptions, WorkloadReconcileAction, WorkloadReconcileOptions,
+    application_container_request, plan_immutable_project_application, project_process_request,
+    reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
+    run_project_command, stop_orphaned_project_workloads, workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -19,6 +20,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
 };
 use crate::control_plane::{ProjectIdentity, ServiceIdentity, resolve_execution_plan};
 use sha2::{Digest, Sha256};
@@ -671,6 +673,10 @@ fn project_application_reconciliation_creates_and_starts_missing_runtime() {
     assert_eq!(result.action(), WorkloadReconcileAction::Created);
     assert_eq!(engine.created, vec![request]);
     assert_eq!(engine.started.len(), 1);
+    let resource = workload_resource_record(&result);
+    assert_eq!(resource.resource_id(), result.container().id().as_str());
+    assert_eq!(resource.scope_id(), Some("app"));
+    assert_eq!(resource.project_id(), Some("bill"));
 }
 
 #[test]
@@ -766,7 +772,7 @@ fn project_application_reconciliation_rejects_duplicate_owned_runtimes() {
 
     assert_eq!(
         error.to_string(),
-        "project 'bill' owns 2 application containers; refusing to guess"
+        "project 'bill' application 'app' owns 2 containers; refusing to guess"
     );
     assert!(engine.created.is_empty());
 }
@@ -793,6 +799,52 @@ fn project_process_reconciliation_creates_and_starts_a_missing_worker() {
     assert_eq!(result.action(), WorkloadReconcileAction::Created);
     assert_eq!(engine.created, vec![request]);
     assert_eq!(engine.started.len(), 1);
+}
+
+#[test]
+fn orphaned_project_workloads_are_stopped_without_deleting_their_containers() {
+    let request = application_request("sha256:desired-v1");
+    let observed = ObservedContainer::new(
+        ContainerId::new("bill-app-container"),
+        request.metadata().labels(),
+    );
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "bill-app-container".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication.label().to_owned(),
+        compatibility_fingerprint: request.metadata().compatibility_fingerprint().to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: request.metadata().desired_revision().to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+    .with_scope_id("app");
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![observed],
+        state: ContainerState::Running,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let stopped = runtime
+        .block_on(stop_orphaned_project_workloads(
+            &mut engine,
+            OrphanedProjectWorkloadOptions {
+                resources: &[resource],
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("stop orphaned workloads");
+
+    assert_eq!(stopped, 1);
+    assert_eq!(engine.stopped.len(), 1);
+    assert_eq!(engine.stopped[0].id().as_str(), "bill-app-container");
+    assert!(engine.removed.is_empty());
 }
 
 #[test]
@@ -968,7 +1020,9 @@ fn application_request(desired_revision: &str) -> ContainerCreateOptions {
             desired_revision: desired_revision.to_owned(),
             retention: RetentionClass::Disposable,
         })
-        .expect("application metadata"),
+        .expect("application metadata")
+        .with_resource_id("app")
+        .expect("application resource identity"),
         platform: "linux/arm64".to_owned(),
         command: vec!["stackctl-runtime".to_owned(), "serve".to_owned()],
         environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
@@ -1277,6 +1331,8 @@ fn runtime_application_metadata(runtime_image: &RuntimeImageBuildPlan) -> Manage
         retention: RetentionClass::Disposable,
     })
     .expect("application metadata")
+    .with_resource_id("app")
+    .expect("application resource identity")
 }
 
 fn project_application_metadata(
@@ -1293,6 +1349,8 @@ fn project_application_metadata(
         retention: RetentionClass::Disposable,
     })
     .expect("project application metadata")
+    .with_resource_id("app")
+    .expect("project application resource identity")
 }
 
 fn project_runtime_options<'plan>(

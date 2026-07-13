@@ -218,13 +218,14 @@ fn validate_request(
                 detail: "project workload reconciliation requires a project owner".to_owned(),
             })?;
     let resource_id = match expected_kind {
-        ResourceKind::ProjectApplication if metadata.resource_id().is_none() => None,
-        ResourceKind::ProjectProcess => Some(
+        ResourceKind::ProjectApplication | ResourceKind::ProjectProcess => Some(
             metadata
                 .resource_id()
                 .ok_or_else(|| WorkloadReconcileError::InvalidRequest {
-                    detail: "project process reconciliation requires a resource identity"
-                        .to_owned(),
+                    detail: format!(
+                        "{} reconciliation requires a resource identity",
+                        kind_name(expected_kind)
+                    ),
                 })?
                 .to_owned(),
         ),
@@ -257,9 +258,9 @@ fn duplicate_detail(
     count: usize,
 ) -> String {
     match (kind, resource_id) {
-        (ResourceKind::ProjectApplication, None) => {
-            format!("project '{project_id}' owns {count} application containers; refusing to guess")
-        }
+        (ResourceKind::ProjectApplication, Some(resource_id)) => format!(
+            "project '{project_id}' application '{resource_id}' owns {count} containers; refusing to guess"
+        ),
         (ResourceKind::ProjectProcess, Some(resource_id)) => format!(
             "project '{project_id}' process '{resource_id}' owns {count} containers; refusing to guess"
         ),

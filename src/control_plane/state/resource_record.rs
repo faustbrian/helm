@@ -4,15 +4,30 @@ use super::{ResourceLifecycle, ResourceRecordOptions, ResourceRetention};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResourceRecord {
     options: ResourceRecordOptions,
+    scope_id: Option<String>,
 }
 
 impl ResourceRecord {
     pub(crate) fn new(options: ResourceRecordOptions) -> Self {
-        Self { options }
+        Self {
+            options,
+            scope_id: None,
+        }
+    }
+
+    /// Assigns the stable desired-resource slot represented by a backend ID.
+    pub(crate) fn with_scope_id(mut self, scope_id: impl Into<String>) -> Self {
+        self.scope_id = Some(scope_id.into());
+
+        self
     }
 
     pub(crate) fn resource_id(&self) -> &str {
         &self.options.resource_id
+    }
+
+    pub(crate) fn scope_id(&self) -> Option<&str> {
+        self.scope_id.as_deref()
     }
 
     pub(crate) fn installation_id(&self) -> &str {

@@ -16,7 +16,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 9);
+    assert_eq!(store.schema_version().expect("schema version"), 10);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -928,6 +928,76 @@ fn physical_reconciliation_retires_replaced_backend_identities() {
 }
 
 #[test]
+fn project_resource_reconciliation_retires_the_same_scope_across_runtime_changes() {
+    let database_path = temporary_database_path("project-resource-scope-replacement");
+    let old = resource_record("application-old", "bill", ResourceRetention::Disposable)
+        .with_scope_id("app");
+    let current = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "application-current".to_owned(),
+        installation_id: old.installation_id().to_owned(),
+        kind: old.kind().to_owned(),
+        compatibility_fingerprint: "sha256:runtime-v2".to_owned(),
+        project_id: old.project_id().map(str::to_owned),
+        schema_version: old.schema_version(),
+        desired_revision: "sha256:desired-v2".to_owned(),
+        retention: old.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(std::slice::from_ref(&old))
+        .expect("persist old application");
+
+    store
+        .reconcile_resources(std::slice::from_ref(&current), 12_345)
+        .expect("reconcile changed application runtime");
+
+    let resources = store.resources().expect("reconciled resources");
+    assert_eq!(resources.len(), 2);
+    assert_eq!(resources[0], current);
+    assert_eq!(resources[1].resource_id(), "application-old");
+    assert_eq!(resources[1].lifecycle(), ResourceLifecycle::Retained);
+    assert_eq!(resources[1].orphaned_at_unix_seconds(), Some(12_345));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn project_resource_reconciliation_keeps_distinct_service_scopes_active() {
+    let database_path = temporary_database_path("project-resource-distinct-scopes");
+    let application =
+        resource_record("application", "bill", ResourceRetention::Disposable).with_scope_id("app");
+    let worker = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "worker".to_owned(),
+        installation_id: application.installation_id().to_owned(),
+        kind: application.kind().to_owned(),
+        compatibility_fingerprint: application.compatibility_fingerprint().to_owned(),
+        project_id: application.project_id().map(str::to_owned),
+        schema_version: application.schema_version(),
+        desired_revision: application.desired_revision().to_owned(),
+        retention: application.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("worker");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .reconcile_resources(&[application.clone(), worker.clone()], 12_345)
+        .expect("reconcile project services");
+
+    assert_eq!(
+        store.resources().expect("active project services"),
+        vec![application, worker]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn unregistering_a_project_atomically_orphans_only_its_resources() {
     let database_path = temporary_database_path("project-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
@@ -1328,7 +1398,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 9);
+    assert_eq!(store.schema_version().expect("schema version"), 10);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -1349,7 +1419,22 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
     let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
     connection
         .execute_batch(
-            "CREATE TABLE credentials (\n\
+            "CREATE TABLE resources (\n\
+                 resource_id TEXT PRIMARY KEY NOT NULL,\n\
+                 installation_id TEXT NOT NULL,\n\
+                 kind TEXT NOT NULL,\n\
+                 compatibility_fingerprint TEXT NOT NULL,\n\
+                 project_id TEXT,\n\
+                 resource_schema_version INTEGER NOT NULL\n\
+                     CHECK(resource_schema_version > 0),\n\
+                 desired_revision TEXT NOT NULL,\n\
+                 retention TEXT NOT NULL\n\
+                     CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
+                 lifecycle TEXT NOT NULL\n\
+                     CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
+                 orphaned_at_unix_seconds INTEGER\n\
+             ) STRICT;\n\
+             CREATE TABLE credentials (\n\
                  credential_id TEXT PRIMARY KEY NOT NULL,\n\
                  project_id TEXT NOT NULL CHECK(length(project_id) > 0),\n\
                  service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
@@ -1369,10 +1454,57 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 9);
+    assert_eq!(store.schema_version().expect("schema version"), 10);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
+    let database_path = temporary_database_path("v9-resource-scope-migration");
+    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
+    connection
+        .execute_batch(
+            "CREATE TABLE resources (\n\
+                 resource_id TEXT PRIMARY KEY NOT NULL,\n\
+                 installation_id TEXT NOT NULL,\n\
+                 kind TEXT NOT NULL,\n\
+                 compatibility_fingerprint TEXT NOT NULL,\n\
+                 project_id TEXT,\n\
+                 resource_schema_version INTEGER NOT NULL\n\
+                     CHECK(resource_schema_version > 0),\n\
+                 desired_revision TEXT NOT NULL,\n\
+                 retention TEXT NOT NULL\n\
+                     CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
+                 lifecycle TEXT NOT NULL\n\
+                     CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
+                 orphaned_at_unix_seconds INTEGER\n\
+             ) STRICT;\n\
+             INSERT INTO resources VALUES (\n\
+                 'shared-postgres', 'install-1', 'shared_service',\n\
+                 'sha256:postgres-17', NULL, 8, 'sha256:desired-v1',\n\
+                 'persistent', 'active', NULL\n\
+             );\n\
+             PRAGMA user_version = 9;",
+        )
+        .expect("seed version-nine resources");
+    drop(connection);
+
+    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
+    let resources = store.resources().expect("preserved resources");
+
+    assert_eq!(store.schema_version().expect("schema version"), 10);
+    assert_eq!(resources.len(), 1);
+    assert_eq!(resources[0].resource_id(), "shared-postgres");
+    assert_eq!(resources[0].scope_id(), None);
+    assert_eq!(
+        resources[0].compatibility_fingerprint(),
+        "sha256:postgres-17"
     );
 
     drop(store);

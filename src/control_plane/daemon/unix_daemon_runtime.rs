@@ -26,8 +26,9 @@ use crate::control_plane::state::{
 };
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
-    WorkloadReconcileError, WorkloadReconcileOptions, reconcile_project_application,
-    reconcile_project_process,
+    OrphanedProjectWorkloadOptions, WorkloadReconcileError, WorkloadReconcileOptions,
+    reconcile_project_application, reconcile_project_process, stop_orphaned_project_workloads,
+    workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -396,6 +397,50 @@ impl UnixDaemonRuntime {
             }
         }
 
+        let durable_resources = match self.control_plane.resources() {
+            Ok(resources) => resources,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "durable resource inventory blocked");
+
+                return;
+            }
+        };
+        let stopped = self
+            .engine_runtime
+            .block_on(stop_orphaned_project_workloads(
+                engine,
+                OrphanedProjectWorkloadOptions {
+                    resources: &durable_resources,
+                    installation_id: self.global_network_request.metadata().installation_id(),
+                    schema_version: self.global_network_request.metadata().schema_version(),
+                },
+            ));
+        match stopped {
+            Ok(stopped) if stopped > 0 => {
+                tracing::info!(stopped, "stopped orphaned project workloads");
+            }
+            Ok(_) => {}
+            Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                let retry = self.engine_connection.invalidate(now);
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %error,
+                    "orphan workload reconciliation lost the selected Engine; retry scheduled"
+                );
+
+                return;
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "orphan workload reconciliation blocked");
+
+                return;
+            }
+        }
+
+        let mut workload_resources = Vec::new();
         for application in engine_plan.applications() {
             let result = self.engine_runtime.block_on(reconcile_project_application(
                 engine,
@@ -406,20 +451,23 @@ impl UnixDaemonRuntime {
                 },
             ));
             match result {
-                Ok(result) => tracing::debug!(
-                    project = application
-                        .request()
-                        .metadata()
-                        .project_id()
-                        .unwrap_or_default(),
-                    service = application
-                        .request()
-                        .metadata()
-                        .resource_id()
-                        .unwrap_or_default(),
-                    action = ?result.action(),
-                    "project application reconciliation completed"
-                ),
+                Ok(result) => {
+                    workload_resources.push(workload_resource_record(&result));
+                    tracing::debug!(
+                        project = application
+                            .request()
+                            .metadata()
+                            .project_id()
+                            .unwrap_or_default(),
+                        service = application
+                            .request()
+                            .metadata()
+                            .resource_id()
+                            .unwrap_or_default(),
+                        action = ?result.action(),
+                        "project application reconciliation completed"
+                    );
+                }
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
                     let retry = self.engine_connection.invalidate(now);
                     tracing::debug!(
@@ -450,12 +498,15 @@ impl UnixDaemonRuntime {
                 },
             ));
             match result {
-                Ok(result) => tracing::debug!(
-                    project = process.metadata().project_id().unwrap_or_default(),
-                    service = process.metadata().resource_id().unwrap_or_default(),
-                    action = ?result.action(),
-                    "project process reconciliation completed"
-                ),
+                Ok(result) => {
+                    workload_resources.push(workload_resource_record(&result));
+                    tracing::debug!(
+                        project = process.metadata().project_id().unwrap_or_default(),
+                        service = process.metadata().resource_id().unwrap_or_default(),
+                        action = ?result.action(),
+                        "project process reconciliation completed"
+                    );
+                }
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
                     let retry = self.engine_connection.invalidate(now);
                     tracing::debug!(
@@ -474,6 +525,15 @@ impl UnixDaemonRuntime {
                     return;
                 }
             }
+        }
+        if let Err(error) = self
+            .control_plane
+            .record_resources(&workload_resources, unix_time_seconds())
+        {
+            self.engine_reconciliation.complete();
+            tracing::error!(error = %error, "project workload ownership publication blocked");
+
+            return;
         }
 
         let container_user = format!(

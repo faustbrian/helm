@@ -16,7 +16,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 9;
+const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -220,6 +220,15 @@ impl SqliteStateStore {
         if found < 9 {
             transaction
                 .execute_batch("ALTER TABLE migrations ADD COLUMN backup_reference TEXT;")?;
+        }
+
+        if found < 10 {
+            transaction.execute_batch(
+                "ALTER TABLE resources ADD COLUMN scope_id TEXT
+                     CHECK(scope_id IS NULL OR length(scope_id) > 0);
+                 CREATE INDEX resources_scope_idx
+                     ON resources(installation_id, kind, project_id, scope_id);",
+            )?;
         }
 
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
@@ -436,16 +445,17 @@ impl StateStore for SqliteStateStore {
             }
             transaction.execute(
                 "INSERT INTO resources (\n\
-                     resource_id, installation_id, kind, compatibility_fingerprint,\n\
+                     resource_id, scope_id, installation_id, kind, compatibility_fingerprint,\n\
                      project_id, resource_schema_version, desired_revision, retention,\n\
                      lifecycle, orphaned_at_unix_seconds\n\
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)\n\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)\n\
                  ON CONFLICT(resource_id) DO UPDATE SET\n\
                      desired_revision = excluded.desired_revision,\n\
                      lifecycle = excluded.lifecycle,\n\
                      orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
                 params![
                     resource.resource_id(),
+                    resource.scope_id(),
                     resource.installation_id(),
                     resource.kind(),
                     resource.compatibility_fingerprint(),
@@ -494,17 +504,25 @@ impl StateStore for SqliteStateStore {
                  SET lifecycle = ?1, orphaned_at_unix_seconds = ?2
                  WHERE installation_id = ?3
                    AND kind = ?4
-                   AND compatibility_fingerprint = ?5
-                   AND project_id IS ?6
-                   AND resource_schema_version = ?7
-                   AND retention = ?8
-                   AND lifecycle = ?9
-                   AND resource_id <> ?10",
+                   AND (
+                       (?5 IS NOT NULL AND scope_id = ?5)
+                       OR (
+                           ?5 IS NULL
+                           AND scope_id IS NULL
+                           AND compatibility_fingerprint = ?6
+                       )
+                   )
+                   AND project_id IS ?7
+                   AND resource_schema_version = ?8
+                   AND retention = ?9
+                   AND lifecycle = ?10
+                   AND resource_id <> ?11",
                 params![
                     ResourceLifecycle::Retained.label(),
                     replaced_at_unix_seconds,
                     resource.installation_id(),
                     resource.kind(),
+                    resource.scope_id(),
                     resource.compatibility_fingerprint(),
                     resource.project_id(),
                     resource.schema_version(),
@@ -515,16 +533,17 @@ impl StateStore for SqliteStateStore {
             )?;
             transaction.execute(
                 "INSERT INTO resources (
-                     resource_id, installation_id, kind, compatibility_fingerprint,
+                     resource_id, scope_id, installation_id, kind, compatibility_fingerprint,
                      project_id, resource_schema_version, desired_revision, retention,
                      lifecycle, orphaned_at_unix_seconds
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                  ON CONFLICT(resource_id) DO UPDATE SET
                      desired_revision = excluded.desired_revision,
                      lifecycle = excluded.lifecycle,
                      orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
                 params![
                     resource.resource_id(),
+                    resource.scope_id(),
                     resource.installation_id(),
                     resource.kind(),
                     resource.compatibility_fingerprint(),
@@ -661,7 +680,7 @@ impl StateStore for SqliteStateStore {
         let mut statement = self.connection.prepare(
             "SELECT resource_id, installation_id, kind, compatibility_fingerprint,\n\
                     project_id, resource_schema_version, desired_revision, retention,\n\
-                    lifecycle, orphaned_at_unix_seconds\n\
+                    lifecycle, orphaned_at_unix_seconds, scope_id\n\
              FROM resources ORDER BY resource_id",
         )?;
         let rows = statement.query_map([], |row| {
@@ -676,6 +695,7 @@ impl StateStore for SqliteStateStore {
                 row.get::<_, String>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })?;
         let persisted = rows.collect::<Result<Vec<_>, _>>()?;
@@ -694,6 +714,7 @@ impl StateStore for SqliteStateStore {
                     retention,
                     lifecycle,
                     orphaned_at_unix_seconds,
+                    scope_id,
                 )| {
                     let schema_version = u32::try_from(schema_version).map_err(|_| {
                         StateStoreError::CorruptState {
@@ -717,7 +738,7 @@ impl StateStore for SqliteStateStore {
                         }
                     })?;
 
-                    Ok(ResourceRecord::new(ResourceRecordOptions {
+                    let resource = ResourceRecord::new(ResourceRecordOptions {
                         resource_id,
                         installation_id,
                         kind,
@@ -728,7 +749,12 @@ impl StateStore for SqliteStateStore {
                         retention,
                         lifecycle,
                         orphaned_at_unix_seconds,
-                    }))
+                    });
+
+                    Ok(match scope_id {
+                        Some(scope_id) => resource.with_scope_id(scope_id),
+                        None => resource,
+                    })
                 },
             )
             .collect()
@@ -1224,6 +1250,7 @@ fn orphan_project_state(
 }
 
 struct PersistedResourceOwnership {
+    scope_id: Option<String>,
     installation_id: String,
     kind: String,
     compatibility_fingerprint: String,
@@ -1236,6 +1263,7 @@ struct PersistedResourceOwnership {
 impl PersistedResourceOwnership {
     fn matches(&self, resource: &ResourceRecord) -> bool {
         self.installation_id == resource.installation_id()
+            && self.scope_id.as_deref() == resource.scope_id()
             && self.kind == resource.kind()
             && self.compatibility_fingerprint == resource.compatibility_fingerprint()
             && self.project_id.as_deref() == resource.project_id()
@@ -1254,19 +1282,20 @@ fn load_resource_ownership(
 ) -> Result<Option<PersistedResourceOwnership>, StateStoreError> {
     connection
         .query_row(
-            "SELECT installation_id, kind, compatibility_fingerprint, project_id,
+            "SELECT scope_id, installation_id, kind, compatibility_fingerprint, project_id,
                     resource_schema_version, retention, lifecycle
              FROM resources WHERE resource_id = ?1",
             [resource_id],
             |row| {
                 Ok(PersistedResourceOwnership {
-                    installation_id: row.get(0)?,
-                    kind: row.get(1)?,
-                    compatibility_fingerprint: row.get(2)?,
-                    project_id: row.get(3)?,
-                    schema_version: row.get(4)?,
-                    retention: row.get(5)?,
-                    lifecycle: row.get(6)?,
+                    scope_id: row.get(0)?,
+                    installation_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    compatibility_fingerprint: row.get(3)?,
+                    project_id: row.get(4)?,
+                    schema_version: row.get(5)?,
+                    retention: row.get(6)?,
+                    lifecycle: row.get(7)?,
                 })
             },
         )

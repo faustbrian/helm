@@ -34,6 +34,11 @@ where
         self.state_store.managed_environments().map_err(Into::into)
     }
 
+    /// Loads durable physical ownership for lifecycle reconciliation.
+    pub(crate) fn resources(&self) -> Result<Vec<ResourceRecord>, ControlPlaneError> {
+        self.state_store.resources().map_err(Into::into)
+    }
+
     pub(crate) fn prepare_shared(
         &mut self,
         shared: &[SharedInstancePlan],
