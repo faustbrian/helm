@@ -5,8 +5,8 @@ use super::{
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan,
     RedisSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
-    plan_mysql_project_resources, plan_postgres_project_resources, plan_shared_instances,
-    provision_mysql_logical_resource, provision_postgres_logical_resource,
+    plan_mysql_project_resources, plan_postgres_project_resources, plan_redis_project_resources,
+    plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
     store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
@@ -346,6 +346,57 @@ fn redis_and_valkey_materialize_as_separate_private_acl_backed_instances() {
     assert!(!format!("{:?}", redis.container()).contains("redis-admin"));
     assert_eq!(redis.bootstrap_credential().username(), "stackctl_admin");
     assert_eq!(redis.bootstrap_credential().project_id(), None);
+}
+
+#[test]
+fn redis_project_resources_compose_acl_credential_and_managed_environment() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let instance = RedisSharedInstancePlan::new(
+        &shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: "/private/redis-acl".into(),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+
+    let project = plan_redis_project_resources(
+        "bill",
+        "cache",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("Redis project resources");
+
+    assert_eq!(project.acl().username(), "st_bill_cache");
+    assert_eq!(project.acl().prefix(), "stackctl:bill:cache:");
+    assert_eq!(project.credential().credential_id(), "bill/cache/redis");
+    assert_eq!(project.credential().username(), "st_bill_cache");
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            (
+                "REDIS_HOST".to_owned(),
+                instance.container().name().to_owned()
+            ),
+            ("REDIS_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("REDIS_PORT".to_owned(), "6379".to_owned()),
+            ("REDIS_PREFIX".to_owned(), "stackctl:bill:cache:".to_owned()),
+            ("REDIS_USERNAME".to_owned(), "st_bill_cache".to_owned()),
+        ])
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
 }
 
 #[test]

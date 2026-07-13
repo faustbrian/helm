@@ -1,16 +1,20 @@
+pub(crate) use plan_redis_project_resources::plan_redis_project_resources;
 pub(crate) use redis_acl_project::RedisAclProject;
 pub(crate) use redis_acl_snapshot::RedisAclSnapshot;
 pub(crate) use redis_flavor::RedisFlavor;
 pub(crate) use redis_plan_error::RedisPlanError;
+pub(crate) use redis_project_resources::RedisProjectResources;
 pub(crate) use redis_shared_instance_plan::RedisSharedInstancePlan;
 pub(crate) use redis_shared_instance_plan_options::RedisSharedInstancePlanOptions;
 pub(crate) use store_redis_acl_snapshot::store_redis_acl_snapshot;
 pub(crate) use stored_redis_acl_paths::StoredRedisAclPaths;
 
+mod plan_redis_project_resources;
 mod redis_acl_project;
 mod redis_acl_snapshot;
 mod redis_flavor;
 mod redis_plan_error;
+mod redis_project_resources;
 mod redis_shared_instance_plan;
 mod redis_shared_instance_plan_options;
 mod store_redis_acl_snapshot;

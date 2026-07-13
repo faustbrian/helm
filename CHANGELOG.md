@@ -119,6 +119,9 @@ All notable changes to this project are documented in this file.
 - Added separate Redis and Valkey shared-instance plans with hash-only readable
   ACL mounts, private networking, pinned Linux images, explicit persistence,
   retained data volumes, and no credentials in container arguments.
+- Added Redis-compatible project composition with deterministic ACL identities,
+  stable durable credentials, isolated key prefixes, and complete managed
+  application connection environments for shared cache containers.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

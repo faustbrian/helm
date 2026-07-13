@@ -5,8 +5,10 @@ use sha2::{Digest, Sha256};
 use std::fmt::{Debug, Formatter};
 
 /// One project-scoped user in a complete Redis-compatible ACL snapshot.
+#[derive(Clone)]
 pub(crate) struct RedisAclProject {
     username: String,
+    prefix: String,
     key_pattern: String,
     channel_pattern: String,
     secret: CredentialSecret,
@@ -28,18 +30,24 @@ impl RedisAclProject {
             project_id.as_str().replace('-', "_"),
             service_id.as_str().replace('-', "_")
         );
-        let prefix = format!("stackctl:{}:{}:*", project_id.as_str(), service_id.as_str());
+        let prefix = format!("stackctl:{}:{}:", project_id.as_str(), service_id.as_str());
+        let pattern = format!("{prefix}*");
 
         Ok(Self {
             username,
-            key_pattern: prefix.clone(),
-            channel_pattern: prefix,
+            prefix,
+            key_pattern: pattern.clone(),
+            channel_pattern: pattern,
             secret,
         })
     }
 
     pub(crate) fn username(&self) -> &str {
         &self.username
+    }
+
+    pub(crate) fn prefix(&self) -> &str {
+        &self.prefix
     }
 
     pub(super) fn acl_line(&self) -> String {
@@ -63,6 +71,7 @@ impl Debug for RedisAclProject {
         formatter
             .debug_struct("RedisAclProject")
             .field("username", &self.username)
+            .field("prefix", &self.prefix)
             .field("key_pattern", &self.key_pattern)
             .field("channel_pattern", &self.channel_pattern)
             .field("secret", &"[REDACTED]")

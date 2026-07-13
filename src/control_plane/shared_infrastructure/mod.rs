@@ -23,8 +23,9 @@ pub(crate) use postgres::{
     provision_postgres_logical_resource,
 };
 pub(crate) use redis::{
-    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisSharedInstancePlan,
-    RedisSharedInstancePlanOptions, StoredRedisAclPaths, store_redis_acl_snapshot,
+    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,
+    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, StoredRedisAclPaths,
+    plan_redis_project_resources, store_redis_acl_snapshot,
 };
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_request::SharedServiceRequest;
