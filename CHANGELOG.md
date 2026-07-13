@@ -122,6 +122,9 @@ All notable changes to this project are documented in this file.
 - Added Redis-compatible project composition with deterministic ACL identities,
   stable durable credentials, isolated key prefixes, and complete managed
   application connection environments for shared cache containers.
+- Added bounded live Redis and Valkey ACL reloads with implementation-specific
+  CLI authentication environments, explicit server-error exit propagation, and
+  raw admin credentials excluded from command arguments and diagnostics.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

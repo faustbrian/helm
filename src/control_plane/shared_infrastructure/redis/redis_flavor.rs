@@ -27,4 +27,18 @@ impl RedisFlavor {
             Self::Valkey => "valkey-server",
         }
     }
+
+    pub(super) const fn client_executable(self) -> &'static str {
+        match self {
+            Self::Redis => "redis-cli",
+            Self::Valkey => "valkey-cli",
+        }
+    }
+
+    pub(super) const fn client_auth_environment_key(self) -> &'static str {
+        match self {
+            Self::Redis => "REDISCLI_AUTH",
+            Self::Valkey => "VALKEYCLI_AUTH",
+        }
+    }
 }

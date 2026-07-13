@@ -7,7 +7,7 @@ use super::{
     RedisSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
     plan_mysql_project_resources, plan_postgres_project_resources, plan_redis_project_resources,
     plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
-    store_redis_acl_snapshot,
+    reload_redis_acl, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -176,8 +176,8 @@ fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
         snapshot.contents(),
         "user default off resetpass resetkeys resetchannels -@all\n\
          user stackctl_admin on resetpass #16175223c8ddce5ace0493c948569c211b03c4c6bb3d3e484434999448cffe01 resetkeys ~* resetchannels &* +@all\n\
-         user st_bill_cache on resetpass #fdb34f0710b2f482f4eb9dded04a6777f64c7388e42b0553ad43b26e126b029c resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n\
-         user st_shop_cache on resetpass #3c655a3878fd8e4145a5facca30188ce74792ddff5d57aaf2203bbe74a940cb5 resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n"
+         user st_bill_cache on resetpass #fdb34f0710b2f482f4eb9dded04a6777f64c7388e42b0553ad43b26e126b029c resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous\n\
+         user st_shop_cache on resetpass #3c655a3878fd8e4145a5facca30188ce74792ddff5d57aaf2203bbe74a940cb5 resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous\n"
     );
     assert!(!snapshot.contents().contains("secret"));
     assert_eq!(
@@ -397,6 +397,51 @@ fn redis_project_resources_compose_acl_credential_and_managed_environment() {
         ])
     );
     assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[test]
+fn redis_acl_reload_uses_environment_auth_and_checks_command_status() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let instance = RedisSharedInstancePlan::new(
+        &shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: "/private/redis-acl".into(),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+    let container = owned_shared_container("redis-container", "sha256:redis-8");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(reload_redis_acl(&executor, &container, &instance))
+        .expect("reload Redis ACL");
+    runtime.block_on(tokio::task::yield_now());
+
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(request_debug.contains("argument_count: 6"));
+    assert!(request_debug.contains("REDISCLI_AUTH"));
+    assert!(!request_debug.contains("redis-admin"));
+    assert!(executor.stdin.lock().expect("recorded stdin").is_empty());
 }
 
 #[test]

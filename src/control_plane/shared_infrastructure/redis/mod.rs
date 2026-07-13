@@ -6,6 +6,7 @@ pub(crate) use redis_plan_error::RedisPlanError;
 pub(crate) use redis_project_resources::RedisProjectResources;
 pub(crate) use redis_shared_instance_plan::RedisSharedInstancePlan;
 pub(crate) use redis_shared_instance_plan_options::RedisSharedInstancePlanOptions;
+pub(crate) use reload_redis_acl::reload_redis_acl;
 pub(crate) use store_redis_acl_snapshot::store_redis_acl_snapshot;
 pub(crate) use stored_redis_acl_paths::StoredRedisAclPaths;
 
@@ -17,5 +18,6 @@ mod redis_plan_error;
 mod redis_project_resources;
 mod redis_shared_instance_plan;
 mod redis_shared_instance_plan_options;
+mod reload_redis_acl;
 mod store_redis_acl_snapshot;
 mod stored_redis_acl_paths;

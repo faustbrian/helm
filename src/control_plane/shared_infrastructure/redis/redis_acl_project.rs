@@ -53,7 +53,8 @@ impl RedisAclProject {
     pub(super) fn acl_line(&self) -> String {
         format!(
             "user {} on resetpass #{} resetkeys ~{} resetchannels &{} -@all \
-             +@read +@write +@connection +@transaction +@pubsub +@scripting",
+             +@read +@write +@connection +@transaction +@pubsub +@scripting \
+             -@admin -@dangerous",
             self.username,
             password_hash(self.secret.expose()),
             self.key_pattern,
