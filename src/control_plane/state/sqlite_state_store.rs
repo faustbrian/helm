@@ -1,8 +1,8 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
     EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
@@ -422,22 +422,30 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
-    fn adopt_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
+    fn adopt_project(&mut self, adoption: &ProjectAdoptionPlan) -> Result<(), StateStoreError> {
+        let canonical_path = exact_path(adoption.canonical_path())?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered_project = transaction
+            .query_row(
+                "SELECT project_name FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if registered_project.as_deref() != Some(adoption.project_id()) {
+            return Err(StateStoreError::ProjectAdoptionTargetMissing {
+                project_id: adoption.project_id().to_owned(),
+                path: adoption.canonical_path().to_path_buf(),
+            });
+        }
 
-        for resource in resources {
-            if resource.lifecycle() != ResourceLifecycle::Active
-                || resource.orphaned_at_unix_seconds().is_some()
-            {
-                return Err(StateStoreError::InvalidResourceAdoption {
-                    resource_id: resource.resource_id().to_owned(),
-                });
-            }
+        for resource in adoption.resources() {
             let existing = load_resource_ownership(&transaction, resource.resource_id())?
-                .ok_or_else(|| StateStoreError::ResourceAdoptionMissing {
-                    resource_id: resource.resource_id().to_owned(),
+                .ok_or_else(|| StateStoreError::ProjectAdoptionStateMismatch {
+                    project_id: adoption.project_id().to_owned(),
+                    detail: format!("resource '{}' is missing", resource.resource_id()),
                 })?;
             if !existing.matches(resource) {
                 return Err(StateStoreError::ResourceOwnershipConflict {
@@ -445,8 +453,41 @@ impl StateStore for SqliteStateStore {
                 });
             }
         }
+        for credential_id in adoption.credential_ids() {
+            let owner = transaction
+                .query_row(
+                    "SELECT project_id FROM credentials WHERE credential_id = ?1",
+                    [credential_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()?;
+            if owner.flatten().as_deref() != Some(adoption.project_id()) {
+                return Err(StateStoreError::ProjectAdoptionStateMismatch {
+                    project_id: adoption.project_id().to_owned(),
+                    detail: format!(
+                        "credential '{credential_id}' is missing or owned by another project"
+                    ),
+                });
+            }
+        }
+        let environment_revision = transaction
+            .query_row(
+                "SELECT revision FROM managed_environments WHERE project_id = ?1",
+                [adoption.project_id()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if environment_revision.as_deref() != Some(adoption.environment_revision()) {
+            return Err(StateStoreError::ProjectAdoptionStateMismatch {
+                project_id: adoption.project_id().to_owned(),
+                detail: format!(
+                    "managed environment revision '{}' is not retained",
+                    adoption.environment_revision()
+                ),
+            });
+        }
 
-        for resource in resources {
+        for resource in adoption.resources() {
             transaction.execute(
                 "UPDATE resources
                  SET desired_revision = ?1, lifecycle = 'active',
@@ -455,6 +496,16 @@ impl StateStore for SqliteStateStore {
                 params![resource.desired_revision(), resource.resource_id()],
             )?;
         }
+        for credential_id in adoption.credential_ids() {
+            transaction.execute(
+                "UPDATE credentials SET lifecycle = 'active' WHERE credential_id = ?1",
+                [credential_id],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE managed_environments SET lifecycle = 'active' WHERE project_id = ?1",
+            [adoption.project_id()],
+        )?;
         transaction.commit()?;
 
         Ok(())
@@ -614,6 +665,20 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing_lifecycle = transaction
+            .query_row(
+                "SELECT lifecycle FROM managed_environments WHERE project_id = ?1",
+                [environment.project_id()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if existing_lifecycle.as_deref() == Some(EnvironmentLifecycle::Disabled.label())
+            && environment.lifecycle() == EnvironmentLifecycle::Active
+        {
+            return Err(StateStoreError::ProjectAdoptionRequired {
+                project_id: environment.project_id().to_owned(),
+            });
+        }
         transaction.execute(
             "INSERT INTO managed_environments (\n\
                  project_id, revision, values_json, lifecycle\n\

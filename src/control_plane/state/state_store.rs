@@ -1,6 +1,6 @@
 use super::{
-    CredentialRecord, InstallationRecord, ManagedEnvironmentRecord, ProjectRecord, ResourceRecord,
-    StateStoreError,
+    CredentialRecord, InstallationRecord, ManagedEnvironmentRecord, ProjectAdoptionPlan,
+    ProjectRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -42,8 +42,8 @@ pub(crate) trait StateStore {
     /// Upserts observed ownership without implicitly deleting missing resources.
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
 
-    /// Explicitly reactivates retained resources after exact ownership validation.
-    fn adopt_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
+    /// Atomically reactivates exact retained state for one registered project.
+    fn adopt_project(&mut self, adoption: &ProjectAdoptionPlan) -> Result<(), StateStoreError>;
 
     /// Loads all durable resources in stable backend-identity order.
     fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError>;

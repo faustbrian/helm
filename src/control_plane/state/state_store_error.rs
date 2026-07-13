@@ -26,10 +26,14 @@ pub(crate) enum StateStoreError {
     ResourceOwnershipConflict { resource_id: String },
     /// Generic reconciliation cannot reactivate retained project data.
     ResourceAdoptionRequired { resource_id: String },
-    /// Explicit adoption references no durable resource.
-    ResourceAdoptionMissing { resource_id: String },
-    /// Explicit adoption must describe an active target state.
-    InvalidResourceAdoption { resource_id: String },
+    /// Disabled project state cannot be reactivated by ordinary reconciliation.
+    ProjectAdoptionRequired { project_id: String },
+    /// A project adoption plan is structurally unsafe.
+    InvalidProjectAdoption { detail: String },
+    /// The requested adoption target is not the registered project path.
+    ProjectAdoptionTargetMissing { project_id: String, path: PathBuf },
+    /// Durable project state does not exactly match the adoption plan.
+    ProjectAdoptionStateMismatch { project_id: String, detail: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
 }
@@ -75,13 +79,21 @@ impl Display for StateStoreError {
                 formatter,
                 "resource '{resource_id}' is orphaned or retained; explicit adoption is required before reactivation"
             ),
-            Self::ResourceAdoptionMissing { resource_id } => write!(
+            Self::ProjectAdoptionRequired { project_id } => write!(
                 formatter,
-                "resource '{resource_id}' cannot be adopted because no durable record exists"
+                "project '{project_id}' has disabled managed state; explicit adoption is required before reactivation"
             ),
-            Self::InvalidResourceAdoption { resource_id } => write!(
+            Self::InvalidProjectAdoption { detail } => {
+                write!(formatter, "invalid project adoption plan: {detail}")
+            }
+            Self::ProjectAdoptionTargetMissing { project_id, path } => write!(
                 formatter,
-                "resource '{resource_id}' adoption target must be active with no orphan timestamp"
+                "project '{project_id}' cannot be adopted at '{}' because that exact target is not registered",
+                path.display()
+            ),
+            Self::ProjectAdoptionStateMismatch { project_id, detail } => write!(
+                formatter,
+                "project '{project_id}' adoption does not match retained state: {detail}"
             ),
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
@@ -101,8 +113,10 @@ impl Error for StateStoreError {
             | Self::CredentialOwnershipConflict { .. }
             | Self::ResourceOwnershipConflict { .. }
             | Self::ResourceAdoptionRequired { .. }
-            | Self::ResourceAdoptionMissing { .. }
-            | Self::InvalidResourceAdoption { .. }
+            | Self::ProjectAdoptionRequired { .. }
+            | Self::InvalidProjectAdoption { .. }
+            | Self::ProjectAdoptionTargetMissing { .. }
+            | Self::ProjectAdoptionStateMismatch { .. }
             | Self::CorruptState { .. } => None,
         }
     }

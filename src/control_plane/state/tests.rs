@@ -1,8 +1,8 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
     EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -297,87 +297,6 @@ fn generic_resource_upsert_cannot_reactivate_orphaned_data() {
 }
 
 #[test]
-fn explicit_resource_adoption_reactivates_only_exact_durable_ownership() {
-    let database_path = temporary_database_path("resource-adoption");
-    let active = resource_record("container-bill", "bill", ResourceRetention::Persistent);
-    let orphaned = ResourceRecord::new(ResourceRecordOptions {
-        resource_id: active.resource_id().to_owned(),
-        installation_id: active.installation_id().to_owned(),
-        kind: active.kind().to_owned(),
-        compatibility_fingerprint: active.compatibility_fingerprint().to_owned(),
-        project_id: active.project_id().map(str::to_owned),
-        schema_version: active.schema_version(),
-        desired_revision: active.desired_revision().to_owned(),
-        retention: active.retention(),
-        lifecycle: ResourceLifecycle::Orphaned,
-        orphaned_at_unix_seconds: Some(20_000),
-    });
-    let adopted = ResourceRecord::new(ResourceRecordOptions {
-        resource_id: active.resource_id().to_owned(),
-        installation_id: active.installation_id().to_owned(),
-        kind: active.kind().to_owned(),
-        compatibility_fingerprint: active.compatibility_fingerprint().to_owned(),
-        project_id: active.project_id().map(str::to_owned),
-        schema_version: active.schema_version(),
-        desired_revision: "sha256:adopted-v2".to_owned(),
-        retention: active.retention(),
-        lifecycle: ResourceLifecycle::Active,
-        orphaned_at_unix_seconds: None,
-    });
-    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
-    store
-        .upsert_resources(std::slice::from_ref(&orphaned))
-        .expect("persist orphan");
-
-    store
-        .adopt_resources(std::slice::from_ref(&adopted))
-        .expect("explicit adoption");
-
-    assert_eq!(store.resources().expect("adopted resource"), vec![adopted]);
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn explicit_resource_adoption_rejects_missing_or_incompatible_records() {
-    let database_path = temporary_database_path("resource-adoption-conflict");
-    let existing = resource_record("container-bill", "bill", ResourceRetention::Persistent);
-    let incompatible = ResourceRecord::new(ResourceRecordOptions {
-        resource_id: existing.resource_id().to_owned(),
-        installation_id: existing.installation_id().to_owned(),
-        kind: existing.kind().to_owned(),
-        compatibility_fingerprint: "sha256:different-runtime".to_owned(),
-        project_id: existing.project_id().map(str::to_owned),
-        schema_version: existing.schema_version(),
-        desired_revision: existing.desired_revision().to_owned(),
-        retention: existing.retention(),
-        lifecycle: ResourceLifecycle::Active,
-        orphaned_at_unix_seconds: None,
-    });
-    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
-    store
-        .upsert_resources(std::slice::from_ref(&existing))
-        .expect("persist resource");
-
-    let error = store
-        .adopt_resources(std::slice::from_ref(&incompatible))
-        .expect_err("incompatible adoption");
-
-    assert_eq!(
-        error.to_string(),
-        "resource 'container-bill' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
-    );
-    assert_eq!(
-        store.resources().expect("unchanged resource"),
-        vec![existing]
-    );
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
 fn unregistering_a_project_atomically_orphans_only_its_resources() {
     let database_path = temporary_database_path("project-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
@@ -545,6 +464,144 @@ fn unregistering_a_project_disables_its_managed_environment() {
             .expect("load managed environment")[0]
             .lifecycle(),
         EnvironmentLifecycle::Disabled
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn replacing_managed_environment_cannot_implicitly_reactivate_an_orphan() {
+    let database_path = temporary_database_path("environment-adoption-required");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let environment = managed_environment(BTreeMap::from([(
+        "DB_PASSWORD".to_owned(),
+        "project-secret".to_owned(),
+    )]));
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist environment");
+    store
+        .orphan_project(Path::new("/work/bill"), 12_345)
+        .expect("orphan project");
+
+    let error = store
+        .replace_managed_environment(&environment)
+        .expect_err("implicit environment adoption");
+
+    assert_eq!(
+        error.to_string(),
+        "project 'bill' has disabled managed state; explicit adoption is required before reactivation"
+    );
+    assert_eq!(
+        store.managed_environments().expect("retained environment")[0].lifecycle(),
+        EnvironmentLifecycle::Disabled
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn explicit_project_adoption_reactivates_resources_credentials_and_environment_atomically() {
+    let database_path = temporary_database_path("complete-project-adoption");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let credential = credential_record("secret-first");
+    let environment = managed_environment(BTreeMap::from([(
+        "DB_PASSWORD".to_owned(),
+        "secret-first".to_owned(),
+    )]));
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_project(&project)
+        .expect("persist original project");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist environment");
+    store
+        .orphan_project(project.canonical_path(), 12_345)
+        .expect("orphan project");
+    store
+        .replace_project(&project)
+        .expect("register adoption target");
+    let incompatible_resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: resource.resource_id().to_owned(),
+        installation_id: resource.installation_id().to_owned(),
+        kind: resource.kind().to_owned(),
+        compatibility_fingerprint: "sha256:different-runtime".to_owned(),
+        project_id: resource.project_id().map(str::to_owned),
+        schema_version: resource.schema_version(),
+        desired_revision: resource.desired_revision().to_owned(),
+        retention: resource.retention(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let incompatible = ProjectAdoptionPlan::new(
+        project.canonical_path().to_path_buf(),
+        "bill".to_owned(),
+        vec![incompatible_resource],
+        vec![credential.credential_id().to_owned()],
+        environment.revision().to_owned(),
+    )
+    .expect("incompatible adoption plan");
+    let error = store
+        .adopt_project(&incompatible)
+        .expect_err("incompatible resource adoption");
+    assert_eq!(
+        error.to_string(),
+        "resource 'container-bill' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
+    );
+    let incomplete = ProjectAdoptionPlan::new(
+        project.canonical_path().to_path_buf(),
+        "bill".to_owned(),
+        vec![resource.clone()],
+        vec!["bill/database/missing".to_owned()],
+        environment.revision().to_owned(),
+    )
+    .expect("incomplete adoption plan");
+    let error = store
+        .adopt_project(&incomplete)
+        .expect_err("missing retained credential");
+    assert_eq!(
+        error.to_string(),
+        "project 'bill' adoption does not match retained state: credential 'bill/database/missing' is missing or owned by another project"
+    );
+    assert_eq!(
+        store.resources().expect("still orphaned")[0].lifecycle(),
+        ResourceLifecycle::Orphaned
+    );
+    assert_eq!(
+        store.managed_environments().expect("still disabled")[0].lifecycle(),
+        EnvironmentLifecycle::Disabled
+    );
+    let adoption = ProjectAdoptionPlan::new(
+        project.canonical_path().to_path_buf(),
+        "bill".to_owned(),
+        vec![resource.clone()],
+        vec![credential.credential_id().to_owned()],
+        environment.revision().to_owned(),
+    )
+    .expect("project adoption plan");
+
+    store.adopt_project(&adoption).expect("adopt project state");
+
+    assert_eq!(store.resources().expect("active resources"), vec![resource]);
+    assert_eq!(
+        store.credentials().expect("active credentials")[0].lifecycle(),
+        CredentialLifecycle::Active
+    );
+    assert_eq!(
+        store.managed_environments().expect("active environment")[0].lifecycle(),
+        EnvironmentLifecycle::Active
     );
 
     drop(store);

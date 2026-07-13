@@ -17,6 +17,8 @@ All notable changes to this project are documented in this file.
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and
   required an explicit exact-match adoption transaction to reactivate retained data.
+- Added complete atomic project adoption that binds the registered canonical path
+  and reactivates only exact resources, credentials, and environment revision.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
