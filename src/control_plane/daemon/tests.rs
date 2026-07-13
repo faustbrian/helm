@@ -9,7 +9,10 @@ use crate::control_plane::application::{ControlPlane, ProjectSource, plan_projec
 use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
-use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::state::{
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
+    StateStore,
+};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -116,6 +119,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
         prepared_shared_services: &[],
         shared_routes: &[],
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
@@ -154,6 +158,7 @@ fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
         prepared_shared_services: &[],
         shared_routes: &[],
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
@@ -202,6 +207,7 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
         prepared_shared_services: &[],
         shared_routes: &[],
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
@@ -214,6 +220,84 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
         error.to_string(),
         "project process 'bill-worker' must depend on exactly one project application"
     );
+}
+
+#[test]
+fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!("schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n"),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let orphan = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "old-bill-app".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:old-runtime".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:old-desired".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+    .with_scope_id("app");
+    let retained = vec![orphan];
+
+    let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &retained,
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect_err("orphaned application requires adoption");
+
+    assert_eq!(
+        error.to_string(),
+        "project workload 'bill-app' is orphaned; run explicit project adoption before reconciliation"
+    );
+
+    let active = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "current-bill-app".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:current-runtime".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:current-desired".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let resources = vec![retained[0].clone(), active];
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &resources,
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("active scope permits retained replacement history");
+
+    assert_eq!(plan.applications().len(), 1);
 }
 
 #[test]
@@ -245,6 +329,7 @@ fn complete_engine_plans_include_prepared_attributed_shared_routes() {
         prepared_shared_services: &prepared,
         shared_routes: &shared_routes,
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
@@ -279,6 +364,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
         prepared_shared_services: &[],
         shared_routes: &[],
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
@@ -298,6 +384,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
         prepared_shared_services: &prepared,
         shared_routes: &[],
         managed_environments: &[],
+        durable_resources: &[],
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",

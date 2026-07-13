@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a pre-mutation adoption gate that blocks reappearing project services
+  when their only durable workload ownership is orphaned or retained, while
+  permitting active scopes to keep older replacement history.
 - Added durable per-service workload ownership scopes, transactional SQLite
   migration, application and worker ownership publication, and safe orphan
   convergence that stops removed project workloads without deleting retained

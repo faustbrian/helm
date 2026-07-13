@@ -4,6 +4,7 @@ use super::{
     FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions, SingletonLease,
     UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -208,6 +209,21 @@ impl UnixDaemonRuntime {
 
             return;
         };
+        let durable_resources = match self.control_plane.resources() {
+            Ok(resources) => resources,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "durable resource inventory blocked");
+
+                return;
+            }
+        };
+        if let Err(error) = validate_project_workload_adoption(execution, &durable_resources) {
+            self.engine_reconciliation.complete();
+            tracing::error!(error = %error, "project workload adoption required");
+
+            return;
+        }
         let platform = match runtime_linux_platform() {
             Ok(platform) => platform,
             Err(detail) => {
@@ -271,6 +287,7 @@ impl UnixDaemonRuntime {
             prepared_shared_services: &prepared_shared_services,
             shared_routes: &shared_routes,
             managed_environments: &managed_environments,
+            durable_resources: &durable_resources,
             installation_id: self.global_network_request.metadata().installation_id(),
             schema_version: self.global_network_request.metadata().schema_version(),
             platform,
@@ -397,15 +414,6 @@ impl UnixDaemonRuntime {
             }
         }
 
-        let durable_resources = match self.control_plane.resources() {
-            Ok(resources) => resources,
-            Err(error) => {
-                self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "durable resource inventory blocked");
-
-                return;
-            }
-        };
         let stopped = self
             .engine_runtime
             .block_on(stop_orphaned_project_workloads(

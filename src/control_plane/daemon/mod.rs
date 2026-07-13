@@ -46,6 +46,7 @@ mod unix_daemon_runtime_error;
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
+mod validate_project_workload_adoption;
 
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
@@ -101,3 +102,4 @@ pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
+pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;

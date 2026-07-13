@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 pub(crate) fn plan_engine_reconciliation(
     options: EngineReconciliationPlanOptions<'_>,
 ) -> Result<EngineReconciliationPlan, EngineReconciliationPlanError> {
+    super::validate_project_workload_adoption(options.execution, options.durable_resources)?;
     let mut applications = Vec::new();
     let mut process_services = Vec::new();
     let mut routes = options.shared_routes.to_vec();
