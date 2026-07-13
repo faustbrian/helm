@@ -6,8 +6,9 @@ use crate::cli::args::{Cli, Commands, LockCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
     ArtifactLock, ArtifactLockImage, IpcOutcome, IpcPayload, IpcRequest, IpcResult,
-    apply_artifact_lock, artifact_source, default_unix_daemon_runtime_directory,
-    parse_artifact_lock, send_unix_request,
+    PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock, artifact_source,
+    default_unix_daemon_runtime_directory, parse_artifact_lock, resolve_preset_artifact,
+    send_unix_request,
 };
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
@@ -36,7 +37,7 @@ pub(crate) fn handle_v8_lock(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
             if context.dry_run() {
                 bail!("--dry-run is not supported when publishing a v8 artifact lock");
             }
-            let lock = generate_lock(project.config(), &lock_path, |references| {
+            let lock = generate_lock(project.config(), |references| {
                 resolve_through_daemon(
                     &default_unix_daemon_runtime_directory()?.join("daemon.sock"),
                     references,
@@ -65,15 +66,15 @@ pub(crate) fn handle_v8_lock(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
 
 fn generate_lock<Resolve>(
     config: &crate::control_plane::RawProjectConfig,
-    lock_path: &Path,
     resolve: Resolve,
 ) -> Result<ArtifactLock>
 where
     Resolve: FnOnce(&BTreeMap<String, String>) -> Result<BTreeMap<String, String>>,
 {
-    let existing = load_optional_lock(lock_path).ok().flatten();
     let mut images = BTreeMap::new();
+    let mut lock_sources = BTreeMap::new();
     let mut mutable_references = BTreeMap::new();
+    let mut uses_catalog = false;
 
     for (service_id, service) in config.services() {
         let source = artifact_source(service)
@@ -85,25 +86,21 @@ where
                     ArtifactLockImage::new(source, image.to_owned()),
                 );
             } else {
+                lock_sources.insert(service_id.clone(), source);
                 mutable_references.insert(service_id.clone(), image.to_owned());
             }
             continue;
         }
 
-        let Some(existing_image) = existing
-            .as_ref()
-            .and_then(|lock| lock.images().get(service_id))
-            .filter(|entry| entry.source() == source)
-            .filter(|entry| is_immutable_registry_reference(entry.resolved()))
-        else {
-            bail!(
-                "service '{service_id}' uses preset source '{source}', but no exact built-in image catalog resolution exists yet; declare an explicit image or retain a matching lock entry"
-            );
+        let preset = service
+            .preset()
+            .expect("lockable source without an explicit image is a preset");
+        let Some(artifact) = resolve_preset_artifact(preset, service.version())? else {
+            continue;
         };
-        images.insert(
-            service_id.clone(),
-            ArtifactLockImage::new(source, existing_image.resolved().to_owned()),
-        );
+        uses_catalog = true;
+        lock_sources.insert(service_id.clone(), source);
+        mutable_references.insert(service_id.clone(), artifact.reference().to_owned());
     }
 
     if !mutable_references.is_empty() {
@@ -115,7 +112,7 @@ where
             if !is_immutable_registry_reference(&resolved) {
                 bail!("daemon returned a mutable image resolution for service '{service_id}'");
             }
-            let source = mutable_references
+            let source = lock_sources
                 .get(&service_id)
                 .expect("validated response key remains requested")
                 .clone();
@@ -123,7 +120,12 @@ where
         }
     }
 
-    Ok(ArtifactLock::new(images))
+    let lock = ArtifactLock::new(images);
+    Ok(if uses_catalog {
+        lock.with_catalog_revision(PRESET_ARTIFACT_CATALOG_REVISION)
+    } else {
+        lock
+    })
 }
 
 fn resolve_through_daemon(
@@ -180,6 +182,23 @@ fn print_diff(config: &crate::control_plane::RawProjectConfig, lock_path: &Path)
         load_optional_lock(lock_path)?.unwrap_or_else(|| ArtifactLock::new(BTreeMap::new()));
     let mut changed = false;
 
+    let uses_catalog = config.services().values().any(|service| {
+        service.image().is_none()
+            && service
+                .preset()
+                .and_then(|preset| resolve_preset_artifact(preset, service.version()).ok())
+                .flatten()
+                .is_some()
+    });
+    if uses_catalog && actual.catalog_revision() != Some(PRESET_ARTIFACT_CATALOG_REVISION) {
+        println!(
+            "~ catalog_revision {} (was {})",
+            PRESET_ARTIFACT_CATALOG_REVISION,
+            actual.catalog_revision().unwrap_or("missing")
+        );
+        changed = true;
+    }
+
     for (service_id, source) in &expected {
         match actual.images().get(service_id) {
             None => {
@@ -212,10 +231,27 @@ fn expected_sources(
     config
         .services()
         .iter()
-        .map(|(service_id, service)| {
-            artifact_source(service)
-                .map(|source| (service_id.clone(), source))
-                .with_context(|| format!("service '{service_id}' has no lockable artifact source"))
+        .filter_map(|(service_id, service)| {
+            let source = match artifact_source(service) {
+                Some(source) => source,
+                None => {
+                    return Some(Err(anyhow::anyhow!(
+                        "service '{service_id}' has no lockable artifact source"
+                    )));
+                }
+            };
+            if service.image().is_none() {
+                let preset = service
+                    .preset()
+                    .expect("lockable source without an explicit image is a preset");
+                match resolve_preset_artifact(preset, service.version()) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => return None,
+                    Err(error) => return Some(Err(error.into())),
+                }
+            }
+
+            Some(Ok((service_id.clone(), source)))
         })
         .collect()
 }
@@ -339,24 +375,20 @@ mod tests {
         )
         .expect("project config");
 
-        let lock = generate_lock(
-            &config,
-            Path::new("/work/bill/.stackctl.lock.yaml"),
-            |references| {
-                assert_eq!(
-                    references,
-                    &BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.4".to_owned(),)])
-                );
-                Ok(BTreeMap::from([(
-                    "app".to_owned(),
-                    concat!(
-                        "ghcr.io/stackctl/php@sha256:",
-                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                    )
-                    .to_owned(),
-                )]))
-            },
-        )
+        let lock = generate_lock(&config, |references| {
+            assert_eq!(
+                references,
+                &BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.4".to_owned(),)])
+            );
+            Ok(BTreeMap::from([(
+                "app".to_owned(),
+                concat!(
+                    "ghcr.io/stackctl/php@sha256:",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+                .to_owned(),
+            )]))
+        })
         .expect("generated lock");
 
         assert_eq!(lock.images()["app"].source(), "ghcr.io/stackctl/php:8.4");
@@ -364,23 +396,64 @@ mod tests {
     }
 
     #[test]
-    fn preset_only_generation_never_guesses_an_image() {
+    fn preset_only_generation_uses_the_versioned_catalog_reference() {
         let config = parse_project_config(
             "schema_version: 8\nservices:\n  db:\n    preset: postgres\n    version: \"17\"\n",
             Path::new("/work/bill/.stackctl.yaml"),
         )
         .expect("project config");
 
-        let error = generate_lock(&config, Path::new("/work/bill/.stackctl.lock.yaml"), |_| {
-            unreachable!("preset-only generation must fail before Engine access")
+        let lock = generate_lock(&config, |references| {
+            assert_eq!(
+                references,
+                &BTreeMap::from([("db".to_owned(), "postgres:17".to_owned())])
+            );
+            Ok(BTreeMap::from([(
+                "db".to_owned(),
+                concat!(
+                    "postgres@sha256:",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+                .to_owned(),
+            )]))
         })
-        .expect_err("missing built-in catalog");
+        .expect("catalog-backed lock");
 
-        assert!(
-            error
-                .to_string()
-                .contains("no exact built-in image catalog")
-        );
-        assert!(error.to_string().contains("preset:postgres:17"));
+        assert_eq!(lock.catalog_revision(), Some("2026-07-13.1"));
+        assert_eq!(lock.images()["db"].source(), "preset:postgres:17");
+    }
+
+    #[test]
+    fn application_process_presets_inherit_the_application_artifact() {
+        let config = parse_project_config(
+            concat!(
+                "schema_version: 8\nservices:\n",
+                "  app:\n    image: ghcr.io/stackctl/php:8.5\n",
+                "  worker:\n    preset: queue-worker\n",
+                "  scheduler:\n    preset: scheduler\n"
+            ),
+            Path::new("/work/bill/.stackctl.yaml"),
+        )
+        .expect("project config");
+
+        let lock = generate_lock(&config, |references| {
+            assert_eq!(
+                references,
+                &BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.5".to_owned(),)])
+            );
+            Ok(BTreeMap::from([(
+                "app".to_owned(),
+                concat!(
+                    "ghcr.io/stackctl/php@sha256:",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+                .to_owned(),
+            )]))
+        })
+        .expect("application lock");
+
+        assert_eq!(lock.images().len(), 1);
+        assert!(lock.images().contains_key("app"));
+        assert_eq!(lock.catalog_revision(), None);
     }
 }

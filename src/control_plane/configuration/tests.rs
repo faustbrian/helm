@@ -1,7 +1,9 @@
 use super::{
     apply_artifact_lock, parse_artifact_lock, parse_project_config, project_config_schema,
 };
-use crate::control_plane::{KNOWN_SERVICE_PRESETS, resolve_desired_project};
+use crate::control_plane::{
+    KNOWN_SERVICE_PRESETS, PRESET_ARTIFACT_CATALOG_REVISION, resolve_desired_project,
+};
 use std::path::Path;
 
 const CONFIG_PATH: &str = "/work/bill/.stackctl.yaml";
@@ -82,9 +84,9 @@ fn artifact_lock_source_for_a_versioned_preset_is_deterministic() {
     .expect("project config");
     let lock = parse_artifact_lock(
         concat!(
-            "schema_version: 1\nimages:\n  db:\n",
+            "schema_version: 1\ncatalog_revision: 2026-07-13.1\nimages:\n  db:\n",
             "    source: preset:postgres:17\n",
-            "    resolved: ghcr.io/stackctl/postgres@sha256:",
+            "    resolved: postgres@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
         ),
         Path::new(LOCK_PATH),
@@ -96,10 +98,68 @@ fn artifact_lock_source_for_a_versioned_preset_is_deterministic() {
     assert_eq!(
         config.services()["db"].image(),
         Some(concat!(
-            "ghcr.io/stackctl/postgres@sha256:",
+            "postgres@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ))
     );
+}
+
+#[test]
+fn artifact_lock_applies_the_catalog_default_version_for_an_omitted_preset_version() {
+    let mut config = parse_project_config(
+        "schema_version: 8\nservices:\n  mail:\n    preset: mailpit\n",
+        Path::new(CONFIG_PATH),
+    )
+    .expect("project config");
+    let lock = parse_artifact_lock(
+        &format!(
+            concat!(
+                "schema_version: 1\ncatalog_revision: {}\nimages:\n  mail:\n",
+                "    source: preset:mailpit\n",
+                "    resolved: axllent/mailpit@sha256:",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            ),
+            PRESET_ARTIFACT_CATALOG_REVISION
+        ),
+        Path::new(LOCK_PATH),
+    )
+    .expect("artifact lock");
+
+    apply_artifact_lock(&mut config, &lock, Path::new(LOCK_PATH)).expect("matching preset lock");
+
+    assert_eq!(config.services()["mail"].version(), Some("1"));
+    assert_eq!(
+        config.services()["mail"].image(),
+        Some(concat!(
+            "axllent/mailpit@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ))
+    );
+}
+
+#[test]
+fn artifact_lock_rejects_a_stale_preset_catalog_revision() {
+    let mut config = parse_project_config(
+        "schema_version: 8\nservices:\n  db:\n    preset: postgres\n    version: \"17\"\n",
+        Path::new(CONFIG_PATH),
+    )
+    .expect("project config");
+    let lock = parse_artifact_lock(
+        concat!(
+            "schema_version: 1\ncatalog_revision: stale\nimages:\n  db:\n",
+            "    source: preset:postgres:17\n",
+            "    resolved: postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+        Path::new(LOCK_PATH),
+    )
+    .expect("artifact lock");
+
+    let error = apply_artifact_lock(&mut config, &lock, Path::new(LOCK_PATH))
+        .expect_err("stale catalog revision");
+
+    assert!(error.to_string().contains("requires catalog_revision"));
+    assert!(error.to_string().contains(PRESET_ARTIFACT_CATALOG_REVISION));
 }
 
 #[test]

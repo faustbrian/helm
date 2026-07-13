@@ -49,8 +49,8 @@ pub(crate) use route_claim::RouteClaim;
 pub(crate) use route_identity::RouteIdentity;
 pub(crate) use service_identity::ServiceIdentity;
 pub(crate) use service_strategy::{
-    KNOWN_SERVICE_PRESETS, ServiceDeploymentStrategy, ServiceStrategyError,
-    resolve_service_deployment_strategy,
+    KNOWN_SERVICE_PRESETS, PRESET_ARTIFACT_CATALOG_REVISION, ServiceDeploymentStrategy,
+    ServiceStrategyError, resolve_preset_artifact, resolve_service_deployment_strategy,
 };
 pub(crate) use shared_infrastructure::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability, PersistenceMode,

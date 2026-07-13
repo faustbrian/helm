@@ -55,6 +55,10 @@ impl RawServiceConfig {
         self.version.as_deref()
     }
 
+    pub(super) fn set_version(&mut self, version: String) {
+        self.version = Some(version);
+    }
+
     /// Returns exact declared service dependencies.
     pub(crate) fn depends_on(&self) -> &[String] {
         &self.depends_on

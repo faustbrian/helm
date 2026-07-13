@@ -67,13 +67,14 @@ the source declaration and an immutable sha256 digest:
 
 ```yaml
 schema_version: 1
+catalog_revision: 2026-07-13.1
 images:
   app:
     source: ghcr.io/stackctl/php:8.4
     resolved: ghcr.io/stackctl/php@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   db:
     source: preset:postgres:17
-    resolved: ghcr.io/stackctl/postgres@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    resolved: postgres@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ```
 
 The source field is an exact freshness check. Explicit images use their exact
@@ -93,9 +94,12 @@ explicit images are resolved by the singleton daemon through its selected
 Engine and the result is validated again before publication. Already immutable
 explicit images do not require an Engine lookup. `stackctl lock verify` and
 `stackctl lock diff` operate on strict YAML and never load the v7 TOML runtime.
-Preset-only generation requires an exact built-in image-catalog entry; until
-that catalog is populated, Stackctl fails explicitly instead of guessing an
-image from a preset name.
+Preset-only generation uses a revisioned built-in image catalog. The lock
+records that catalog revision, so changing a preset's registry source or
+default version invalidates existing locks instead of silently changing the
+runtime artifact. An unknown preset version fails explicitly. Horizon, queue
+workers, queues, and schedulers inherit their application artifact and never
+receive redundant lock entries.
 
 ## Project identity and routes
 

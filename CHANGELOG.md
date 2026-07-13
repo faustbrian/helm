@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a revisioned built-in v8 artifact catalog for preset-only services,
+  including deterministic default versions, exact registry sources, and loud
+  failure for unsupported versions or stale catalog locks. Application process
+  presets inherit the application artifact instead of creating duplicate lock
+  entries.
 - Added a narrow direct-Engine registry image resolver that converts exact
   mutable references to validated immutable manifest references without Docker
   or Podman CLI parsing, while keeping immutable image acquisition separate.

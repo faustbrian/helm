@@ -1,6 +1,7 @@
 use super::{
-    KNOWN_SERVICE_PRESETS, ProjectIdentity, RouteClaim, RouteIdentity, ServiceDeploymentStrategy,
-    ServiceIdentity, resolve_service_deployment_strategy, validate_route_claims,
+    KNOWN_SERVICE_PRESETS, PRESET_ARTIFACT_CATALOG_REVISION, ProjectIdentity, RouteClaim,
+    RouteIdentity, ServiceDeploymentStrategy, ServiceIdentity, resolve_preset_artifact,
+    resolve_service_deployment_strategy, validate_route_claims,
 };
 use std::path::{Path, PathBuf};
 
@@ -197,6 +198,39 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
             .expect_err("unknown preset")
             .to_string(),
         "unknown v8 service preset 'invented'"
+    );
+}
+
+#[test]
+fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
+    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-13.1");
+
+    for preset in KNOWN_SERVICE_PRESETS {
+        let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
+        let artifact = resolve_preset_artifact(preset, None).expect("known artifact policy");
+
+        if strategy == ServiceDeploymentStrategy::ProjectProcess {
+            assert_eq!(artifact, None, "process preset {preset} inherits app image");
+        } else {
+            let artifact = artifact.unwrap_or_else(|| panic!("preset {preset} needs an artifact"));
+            assert!(!artifact.version().is_empty(), "preset {preset}");
+            assert!(artifact.reference().contains(':'), "preset {preset}");
+        }
+    }
+
+    assert_eq!(
+        resolve_preset_artifact("postgres", Some("17"))
+            .expect("PostgreSQL 17")
+            .expect("PostgreSQL artifact")
+            .reference(),
+        "postgres:17"
+    );
+    assert_eq!(
+        resolve_preset_artifact("pg", Some("18"))
+            .expect("PostgreSQL alias")
+            .expect("PostgreSQL artifact")
+            .reference(),
+        "postgres:18"
     );
 }
 
