@@ -3,7 +3,7 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     PersistenceMode, PostgresLogicalResourcePlan, PostgresSharedInstancePlan,
     PostgresSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
-    plan_shared_instances, provision_postgres_logical_resource,
+    plan_postgres_project_resources, plan_shared_instances, provision_postgres_logical_resource,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -300,6 +300,60 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
     );
     assert!(!request_debug.contains("project-secret"));
     assert!(request_debug.contains("argument_count: 5"));
+}
+
+#[test]
+fn postgres_project_resources_emit_stable_credentials_and_managed_environment() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let instance = PostgresSharedInstancePlan::new(
+        &shared,
+        PostgresSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL instance plan");
+
+    let project = plan_postgres_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL project resources");
+
+    assert_eq!(
+        project.credential().username(),
+        "stackctl_bill_database_role"
+    );
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            ("DB_CONNECTION".to_owned(), "pgsql".to_owned()),
+            (
+                "DB_DATABASE".to_owned(),
+                "stackctl_bill_database".to_owned()
+            ),
+            ("DB_HOST".to_owned(), instance.container().name().to_owned()),
+            ("DB_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("DB_PORT".to_owned(), "5432".to_owned()),
+            (
+                "DB_USERNAME".to_owned(),
+                "stackctl_bill_database_role".to_owned()
+            ),
+        ])
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
 }
 
 struct SequentialEntropy;

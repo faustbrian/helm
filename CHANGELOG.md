@@ -101,6 +101,8 @@ All notable changes to this project are documented in this file.
   directory through 17 and using the official parent mount for 18 and newer.
 - Added bounded attached PostgreSQL logical-resource execution that streams
   secret SQL over stdin, drains output, and requires a successful exit status.
+- Added complete PostgreSQL project resource composition covering logical SQL,
+  stable credential state, and private-host managed application environment.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
