@@ -1,8 +1,8 @@
 use super::{
-    CertificateTrustStore, FilesystemCertificateStore, HostCommand, HostCommandExecutor,
-    HostCommandOutput, LocalCaIdentity, MacOsCertificateTrustStore, TrustChange, TrustStoreError,
-    WindowsCertificateTrustStore, ensure_ca_trusted, generate_local_certificates, remove_ca_trust,
-    renew_local_leaf_certificate,
+    CertificateTrustStore, DebianCertificateTrustStore, FilesystemCertificateStore, HostCommand,
+    HostCommandExecutor, HostCommandOutput, LocalCaIdentity, MacOsCertificateTrustStore,
+    TrustChange, TrustStoreError, WindowsCertificateTrustStore, ensure_ca_trusted,
+    generate_local_certificates, remove_ca_trust, renew_local_leaf_certificate,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -284,6 +284,106 @@ fn windows_trust_store_installs_and_removes_the_current_user_ca() {
                 "certutil",
                 ["-user", "-delstore", "Root", identity.sha1_hex()]
             ),
+        ]
+    );
+}
+
+#[test]
+fn debian_trust_store_verifies_its_fingerprint_named_certificate() {
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let identity = LocalCaIdentity::from_pem(bundle.ca_certificate_pem()).expect("CA identity");
+    let root = temporary_certificate_root();
+    std::fs::create_dir_all(&root).expect("create local CA directory");
+    let runner = RecordingCommandExecutor::default();
+    let store = DebianCertificateTrustStore::with_local_ca_directory(runner, root.clone());
+
+    assert!(!store.contains(&identity).expect("missing Debian CA"));
+    std::fs::write(
+        store.managed_certificate_path(&identity),
+        bundle.ca_certificate_pem(),
+    )
+    .expect("write managed Debian CA");
+    assert!(store.contains(&identity).expect("matching Debian CA"));
+
+    std::fs::remove_dir_all(root).expect("remove local CA directory");
+}
+
+#[test]
+fn debian_trust_store_refuses_a_conflicting_managed_file() {
+    let first =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("first TLS bundle");
+    let second =
+        generate_local_certificates(datetime!(2026-07-14 12:00 UTC)).expect("second TLS bundle");
+    let identity =
+        LocalCaIdentity::from_pem(first.ca_certificate_pem()).expect("first CA identity");
+    let root = temporary_certificate_root();
+    std::fs::create_dir_all(&root).expect("create local CA directory");
+    let store = DebianCertificateTrustStore::with_local_ca_directory(
+        RecordingCommandExecutor::default(),
+        root.clone(),
+    );
+    std::fs::write(
+        store.managed_certificate_path(&identity),
+        second.ca_certificate_pem(),
+    )
+    .expect("write conflicting Debian CA");
+
+    let error = store
+        .contains(&identity)
+        .expect_err("conflicting managed CA must fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("does not match expected fingerprint")
+    );
+    std::fs::remove_dir_all(root).expect("remove local CA directory");
+}
+
+#[test]
+fn debian_trust_store_installs_and_removes_through_the_os_mechanism() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+    ]);
+    let store = DebianCertificateTrustStore::with_local_ca_directory(
+        runner.clone(),
+        PathBuf::from("/usr/local/share/ca-certificates"),
+    );
+    let managed_path = store.managed_certificate_path(&identity);
+
+    store
+        .install(&identity, &certificate_path)
+        .expect("install Debian CA");
+    store.remove(&identity).expect("remove Debian CA");
+
+    assert_eq!(
+        runner.commands(),
+        vec![
+            HostCommand::new(
+                "sudo",
+                [
+                    "install",
+                    "-m",
+                    "0644",
+                    certificate_path.to_str().expect("UTF-8 source path"),
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates"]),
+            HostCommand::new(
+                "sudo",
+                [
+                    "rm",
+                    "-f",
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates", "--fresh"]),
         ]
     );
 }

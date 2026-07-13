@@ -2,6 +2,7 @@
 mod tests;
 
 mod certificate_trust_store;
+mod debian_certificate_trust_store;
 mod ensure_ca_trusted;
 mod filesystem_certificate_store;
 mod generate_leaf_certificate;
@@ -23,6 +24,7 @@ mod trust_store_error;
 mod windows_certificate_trust_store;
 
 pub(crate) use certificate_trust_store::CertificateTrustStore;
+pub(crate) use debian_certificate_trust_store::DebianCertificateTrustStore;
 pub(crate) use ensure_ca_trusted::ensure_ca_trusted;
 pub(crate) use filesystem_certificate_store::FilesystemCertificateStore;
 use generate_leaf_certificate::generate_leaf_certificate;

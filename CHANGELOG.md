@@ -71,6 +71,8 @@ All notable changes to this project are documented in this file.
   explicit root installation, and fingerprint-scoped certificate removal.
 - Added a Windows Current User root-store adapter with exact SHA-1 thumbprint
   lookup, non-elevated installation, and thumbprint-scoped removal.
+- Added an explicit Debian-family trust adapter that owns one fingerprint-named
+  local root, refuses conflicting file contents, and refreshes system CA state.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
