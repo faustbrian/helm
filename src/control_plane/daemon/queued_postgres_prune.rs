@@ -1,10 +1,11 @@
-use crate::control_plane::retention::PostgresLogicalPrunePlan;
+use crate::control_plane::retention::{DataLifecycleStrategy, PostgresLogicalPrunePlan};
 use serde::{Deserialize, Serialize};
 
-/// Secret-free immutable intent for one explicitly confirmed PostgreSQL prune.
+/// Secret-free immutable intent for one explicitly confirmed logical prune.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedPostgresPrune {
     operation_id: String,
+    strategy: DataLifecycleStrategy,
     project_id: String,
     service_id: String,
     logical_resource_id: String,
@@ -22,10 +23,11 @@ impl QueuedPostgresPrune {
         confirmation_token: String,
     ) -> Result<Self, String> {
         if confirmation_token != plan.confirmation_token() {
-            return Err("PostgreSQL prune confirmation token is stale or incorrect".to_owned());
+            return Err("logical prune confirmation token is stale or incorrect".to_owned());
         }
         let operation = Self {
             operation_id,
+            strategy: plan.strategy(),
             project_id: plan.project_id().to_owned(),
             service_id: plan.service_id().to_owned(),
             logical_resource_id: plan.logical_resource_id().to_owned(),
@@ -42,6 +44,9 @@ impl QueuedPostgresPrune {
 
     pub(crate) fn operation_id(&self) -> &str {
         &self.operation_id
+    }
+    pub(crate) const fn strategy(&self) -> DataLifecycleStrategy {
+        self.strategy
     }
     pub(crate) fn project_id(&self) -> &str {
         &self.project_id
@@ -63,7 +68,8 @@ impl QueuedPostgresPrune {
     }
 
     pub(crate) fn matches_plan(&self, plan: &PostgresLogicalPrunePlan) -> bool {
-        self.project_id == plan.project_id()
+        self.strategy == plan.strategy()
+            && self.project_id == plan.project_id()
             && self.service_id == plan.service_id()
             && self.logical_resource_id == plan.logical_resource_id()
             && self.shared_resource_id == plan.shared_resource_id()
@@ -75,7 +81,7 @@ impl QueuedPostgresPrune {
 
     pub(crate) fn payload_json(&self) -> Result<String, String> {
         serde_json::to_string(&PersistedPostgresPrune::from(self))
-            .map_err(|error| format!("failed to encode PostgreSQL prune: {error}"))
+            .map_err(|error| format!("failed to encode logical prune: {error}"))
     }
 
     pub(crate) fn from_payload_json(
@@ -83,9 +89,10 @@ impl QueuedPostgresPrune {
         payload_json: &str,
     ) -> Result<Self, String> {
         let persisted = serde_json::from_str::<PersistedPostgresPrune>(payload_json)
-            .map_err(|error| format!("failed to decode PostgreSQL prune: {error}"))?;
+            .map_err(|error| format!("failed to decode logical prune: {error}"))?;
         let operation = Self {
             operation_id,
+            strategy: persisted.strategy,
             project_id: persisted.project_id,
             service_id: persisted.service_id,
             logical_resource_id: persisted.logical_resource_id,
@@ -118,7 +125,7 @@ impl QueuedPostgresPrune {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
-            return Err("PostgreSQL prune identity is incomplete or malformed".to_owned());
+            return Err("logical prune identity is incomplete or malformed".to_owned());
         }
 
         Ok(())
@@ -128,6 +135,8 @@ impl QueuedPostgresPrune {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PersistedPostgresPrune {
+    #[serde(default = "default_postgres_strategy")]
+    strategy: DataLifecycleStrategy,
     project_id: String,
     service_id: String,
     logical_resource_id: String,
@@ -141,6 +150,7 @@ struct PersistedPostgresPrune {
 impl From<&QueuedPostgresPrune> for PersistedPostgresPrune {
     fn from(operation: &QueuedPostgresPrune) -> Self {
         Self {
+            strategy: operation.strategy,
             project_id: operation.project_id.clone(),
             service_id: operation.service_id.clone(),
             logical_resource_id: operation.logical_resource_id.clone(),
@@ -151,4 +161,8 @@ impl From<&QueuedPostgresPrune> for PersistedPostgresPrune {
             confirmation_token: operation.confirmation_token.clone(),
         }
     }
+}
+
+const fn default_postgres_strategy() -> DataLifecycleStrategy {
+    DataLifecycleStrategy::PostgreSqlLogical
 }

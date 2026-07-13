@@ -64,6 +64,6 @@ impl PostgresPruneQueue {
 
 impl Default for PostgresPruneQueue {
     fn default() -> Self {
-        Self::new(DEFAULT_CAPACITY).expect("default PostgreSQL prune queue capacity is positive")
+        Self::new(DEFAULT_CAPACITY).expect("default logical prune queue capacity is positive")
     }
 }

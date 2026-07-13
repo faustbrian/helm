@@ -110,45 +110,53 @@ source compatibility fingerprint, checksum, creation time, and restore
 requirements. Migration does not switch routes or environment until restore and
 readiness verification pass. Rollback material remains until confirmation.
 
-PostgreSQL logical deletion starts with an effect-free explicit plan:
+PostgreSQL and MySQL/MariaDB logical deletion use one effect-free explicit plan:
 
 ```text
 stackctl daemon prune plan <project-id> <service-id> <recovery-point-id>
 ```
 
-The project must already be unregistered, the exact database-and-role logical
-resource must be orphaned, its credential must be disabled, and the selected
-immutable recovery point must match the logical identity and compatibility
-fingerprint. The daemon returns a secret-free plan and a stable confirmation
-token bound to the installation, retained state, orphan timestamp, and verified
-artifact evidence. It never chooses a recovery point, repairs ambiguous state,
-or mutates the Engine while planning. Execution requires the returned token:
+The project must already be unregistered, the exact database-and-role or
+schema-and-user logical resource must be orphaned, its credential must be
+disabled, and the selected immutable recovery point must match the logical
+identity and compatibility fingerprint. The daemon resolves an explicit
+`postgresql_logical` or `mysql_logical` strategy, then returns a secret-free
+plan and stable confirmation token bound to the installation, retained state,
+orphan timestamp, credential identity, and verified artifact evidence. It
+never chooses a recovery point, repairs ambiguous state, or mutates the Engine
+while planning. Execution requires the returned token:
 
 ```text
 stackctl daemon prune execute <project-id> <service-id> <recovery-point-id> \
   --confirmation-token <token>
 ```
 
-The singleton persists a secret-free bounded operation, then regenerates the
-plan immediately before any Engine mutation. A stale token, changed state,
-registered project, missing backup, ambiguous container, or ownership mismatch
-fails before PostgreSQL is touched. The exact shared container runs idempotent
-database and role deletion using its runtime-only bootstrap secret; arguments,
-IPC, events, and durable operation state contain no credential value. Only
-after PostgreSQL succeeds does one SQLite transaction forget the unchanged
-orphaned logical resource and disabled credential. The verified recovery point
-is retained. The disabled managed environment is removed only when no project
-logical resources or credentials remain.
+The singleton persists the selected strategy in a secret-free bounded
+operation, then regenerates the plan immediately before any Engine mutation. A
+stale token, changed state, registered project, missing backup, ambiguous
+container, or ownership mismatch fails before the database server is touched.
+The exact shared container runs the strategy adapter: PostgreSQL terminates
+matching sessions before idempotent database and role removal; MySQL/MariaDB
+idempotently removes the schema and restricted user. Both use runtime-only
+bootstrap secrets, and arguments, IPC, events, and durable operation state
+contain no credential value. Only after the adapter succeeds does one SQLite
+transaction forget the unchanged orphaned logical resource and disabled
+credential. The verified recovery point is retained. The disabled managed
+environment is removed only when no project logical resources or credentials
+remain.
 
 An interrupted operation is replayed when both exact state records remain,
-because the PostgreSQL statements are idempotent. If the atomic SQLite
+because each enabled adapter is idempotent. If the atomic SQLite
 retirement already committed, restart recovery completes the durable operation
 without touching the Engine again. Partial durable retirement fails loudly for
 manual inspection.
 
-Other logical service kinds fail closed until they have service-specific backup
-and deletion adapters; Stackctl does not reinterpret container removal as data
-deletion.
+MySQL-family deletion requires an exact verified recovery point, but normal
+MySQL/MariaDB backup creation is not yet implemented. This makes the adapter
+and coordinator executable for cataloged evidence without claiming a complete
+end-user lifecycle. Other logical service kinds fail closed until they have
+service-specific backup and deletion adapters; Stackctl does not reinterpret
+container removal as data deletion.
 
 `stackctl daemon service uninstall` defaults to keep-data behavior. The
 equivalent explicit form is `stackctl daemon service uninstall --keep-data`.

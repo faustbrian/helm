@@ -163,7 +163,7 @@ where
             operation_id,
             DaemonOperationStatus::Running,
             "postgres_prune_state_incomplete",
-            "PostgreSQL prune found only part of its exact durable state; manual inspection is required",
+            "logical prune found only part of its exact durable state; manual inspection is required",
             now_unix_seconds,
             event_capacity,
         ),
@@ -210,7 +210,7 @@ fn interrupted_diagnostic(kind: &str) -> (&'static str, &'static str) {
         ),
         "postgres_prune" => (
             "postgres_prune_interrupted",
-            "the daemon restarted during PostgreSQL prune; exact retained state must be inspected before retry",
+            "the daemon restarted during logical prune; exact retained state must be inspected before retry",
         ),
         "project_restore" => (
             "project_restore_interrupted",

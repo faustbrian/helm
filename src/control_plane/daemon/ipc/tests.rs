@@ -72,6 +72,8 @@ fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
 
 #[test]
 fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
+    use crate::control_plane::retention::DataLifecycleStrategy;
+
     let request = IpcRequest::new(
         "prune-plan-42",
         IpcPayload::PlanPostgresPrune {
@@ -81,6 +83,7 @@ fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
         },
     );
     let plan = IpcPostgresPrunePlan::new(IpcPostgresPrunePlanOptions {
+        strategy: DataLifecycleStrategy::PostgreSqlLogical,
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),
         logical_resource_id: "stackctl_bill_database".to_owned(),

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Generalized immutable logical prune authorization and crash-replayable queued
+  execution across PostgreSQL and MySQL/MariaDB strategies, persisting the
+  selected adapter in secret-free intent and revalidating exact state before
+  service-specific Engine mutation. MySQL-family backup creation remains a
+  separate incomplete lifecycle path.
 - Added an idempotent MySQL-family logical deletion adapter that validates
   exact orphan, credential, installation, flavor, and compatibility ownership
   before attached Engine exec while keeping tenant secrets out of deletion SQL.

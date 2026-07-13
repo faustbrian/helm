@@ -9,11 +9,11 @@ mod data_lifecycle_strategy_error;
 mod deletion_decision;
 mod evaluate_deletion;
 mod hashing_reader;
+mod logical_prune_plan;
+mod logical_prune_plan_options;
 mod mysql_logical_prune_options;
 mod open_stored_backup_artifact;
 mod postgres_logical_prune_options;
-mod postgres_logical_prune_plan;
-mod postgres_logical_prune_plan_options;
 mod prune_authorization;
 mod prune_mysql_logical_resource;
 mod prune_postgres_logical_resource;
@@ -36,11 +36,11 @@ pub(crate) use data_lifecycle_strategy::DataLifecycleStrategy;
 pub(crate) use data_lifecycle_strategy_error::DataLifecycleStrategyError;
 pub(crate) use deletion_decision::DeletionDecision;
 pub(crate) use evaluate_deletion::evaluate_deletion;
+pub(crate) use logical_prune_plan::LogicalPrunePlan;
+pub(crate) use logical_prune_plan_options::LogicalPrunePlanOptions;
 pub(crate) use mysql_logical_prune_options::MySqlLogicalPruneOptions;
 pub(crate) use open_stored_backup_artifact::open_stored_backup_artifact;
 pub(crate) use postgres_logical_prune_options::PostgresLogicalPruneOptions;
-pub(crate) use postgres_logical_prune_plan::PostgresLogicalPrunePlan;
-pub(crate) use postgres_logical_prune_plan_options::PostgresLogicalPrunePlanOptions;
 pub(crate) use prune_authorization::PruneAuthorization;
 pub(crate) use prune_mysql_logical_resource::prune_mysql_logical_resource;
 pub(crate) use prune_postgres_logical_resource::prune_postgres_logical_resource;
@@ -60,3 +60,8 @@ pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;
 pub(crate) const DEFAULT_ORPHAN_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
 pub(crate) use verify_backup_artifact::verify_backup_artifact;
 pub(crate) use verify_stored_backup_artifact::verify_stored_backup_artifact;
+
+/// Transitional name retained while the daemon prune coordinator becomes service-neutral.
+pub(crate) type PostgresLogicalPrunePlan = LogicalPrunePlan;
+/// Transitional options name for the existing PostgreSQL daemon coordinator.
+pub(crate) type PostgresLogicalPrunePlanOptions<'state> = LogicalPrunePlanOptions<'state>;

@@ -1,9 +1,9 @@
 use super::ipc::IpcPostgresPrunePlan;
 use crate::control_plane::application::ControlPlane;
-use crate::control_plane::retention::{PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions};
+use crate::control_plane::retention::{LogicalPrunePlan, LogicalPrunePlanOptions};
 use crate::control_plane::state::StateStore;
 
-/// Builds exact immutable PostgreSQL prune intent without mutating durable state.
+/// Builds exact immutable logical prune intent without mutating durable state.
 pub(crate) fn plan_postgres_prune<Store>(
     control_plane: &ControlPlane<Store>,
     project_id: &str,
@@ -22,7 +22,7 @@ pub(crate) fn build_postgres_prune_plan<Store>(
     project_id: &str,
     service_id: &str,
     recovery_point_id: &str,
-) -> Result<PostgresLogicalPrunePlan, String>
+) -> Result<LogicalPrunePlan, String>
 where
     Store: StateStore,
 {
@@ -42,7 +42,7 @@ where
     let recovery_points = control_plane
         .recovery_points(project_id)
         .map_err(|error| error.to_string())?;
-    PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+    LogicalPrunePlan::new(LogicalPrunePlanOptions {
         installation_id: installation.installation_id(),
         project_id,
         service_id,

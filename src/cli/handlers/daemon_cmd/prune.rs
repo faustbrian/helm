@@ -31,7 +31,7 @@ fn handle_daemon_prune_execute(args: &DaemonPruneExecuteArgs) -> Result<()> {
         } => operation_id.clone(),
         IpcOutcome::Success { .. } => bail!("daemon returned an unexpected prune response"),
         IpcOutcome::Failure { diagnostics } => bail!(
-            "PostgreSQL prune was rejected: {}",
+            "Logical prune was rejected: {}",
             diagnostics
                 .iter()
                 .map(|item| format!("{}: {}", item.code(), item.message()))
@@ -51,7 +51,7 @@ fn follow_prune(operation_id: &str) -> Result<()> {
     let mut cursor = None;
     loop {
         if Instant::now() >= deadline {
-            bail!("timed out waiting for PostgreSQL prune '{operation_id}'");
+            bail!("timed out waiting for logical prune '{operation_id}'");
         }
         let response = super::send_singleton_request(IpcPayload::SubscribeEvents {
             after_sequence: cursor,
@@ -66,7 +66,7 @@ fn follow_prune(operation_id: &str) -> Result<()> {
             } => (events, *latest_sequence),
             IpcOutcome::Success { .. } => bail!("daemon returned an unexpected event response"),
             IpcOutcome::Failure { diagnostics } => bail!(
-                "PostgreSQL prune event stream failed: {}",
+                "Logical prune event stream failed: {}",
                 diagnostics
                     .iter()
                     .map(|item| format!("{}: {}", item.code(), item.message()))
@@ -85,18 +85,18 @@ fn follow_prune(operation_id: &str) -> Result<()> {
                     output::event(
                         "daemon",
                         LogLevel::Success,
-                        "PostgreSQL logical resource pruned; verified recovery evidence retained",
+                        "Logical resource pruned; verified recovery evidence retained",
                         Persistence::Persistent,
                     );
 
                     return Ok(());
                 }
                 IpcEventKind::Failed { code, message } => {
-                    bail!("PostgreSQL prune failed ({code}): {message}")
+                    bail!("Logical prune failed ({code}): {message}")
                 }
-                IpcEventKind::Cancelled => bail!("PostgreSQL prune was cancelled"),
+                IpcEventKind::Cancelled => bail!("Logical prune was cancelled"),
                 IpcEventKind::Output { .. } => {
-                    bail!("PostgreSQL prune returned unexpected output")
+                    bail!("Logical prune returned unexpected output")
                 }
             }
         }
@@ -126,9 +126,10 @@ fn handle_daemon_prune_plan(args: &DaemonPrunePlanArgs) -> Result<()> {
                 "daemon",
                 LogLevel::Info,
                 &format!(
-                    "PostgreSQL prune plan: project={}, service={}, logical_resource={}, \
+                    "Logical prune plan: strategy={}, project={}, service={}, logical_resource={}, \
                      shared_resource={}, compatibility={}, credential={}, recovery_point={}, \
                      confirmation_token={}",
+                    plan.strategy().as_str(),
                     plan.project_id(),
                     plan.service_id(),
                     plan.logical_resource_id(),
@@ -145,7 +146,7 @@ fn handle_daemon_prune_plan(args: &DaemonPrunePlanArgs) -> Result<()> {
         }
         IpcOutcome::Success { .. } => bail!("daemon returned an unexpected prune-plan response"),
         IpcOutcome::Failure { diagnostics } => bail!(
-            "PostgreSQL prune planning failed: {}",
+            "Logical prune planning failed: {}",
             diagnostics
                 .iter()
                 .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message()))

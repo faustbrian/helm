@@ -1,10 +1,10 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
-    DataLifecycleStrategyError, DeletionDecision, MySqlLogicalPruneOptions,
-    PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget,
-    RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
-    prune_mysql_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
-    store_backup_artifact, store_backup_artifact_for_identity,
+    DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
+    MySqlLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+    PruneAuthorization, RestoreTarget, RestoreTargetError, evaluate_deletion,
+    open_stored_backup_artifact, prune_mysql_logical_resource, resolve_data_lifecycle_strategy,
+    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
 };
@@ -258,6 +258,31 @@ fn postgres_prune_plan_binds_exact_retained_state_backup_and_confirmation() {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     );
+}
+
+#[test]
+fn logical_prune_plan_uses_one_authorization_contract_for_mysql() {
+    let logical = mysql_prune_logical();
+    let credential = mysql_prune_credential();
+    let recovery = mysql_prune_recovery_point();
+
+    let plan = LogicalPrunePlan::new(LogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-mysql",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery),
+    })
+    .expect("safe MySQL prune plan");
+
+    assert_eq!(plan.strategy(), DataLifecycleStrategy::MySqlLogical);
+    assert_eq!(plan.logical_resource_id(), "stackctl_bill_database");
+    assert_eq!(plan.credential_id(), "bill/database/mysql");
+    assert_eq!(plan.recovery_point_id(), "backup-mysql");
+    assert_eq!(plan.confirmation_token().len(), 64);
 }
 
 #[test]
@@ -1245,4 +1270,46 @@ fn prune_recovery_point(id: &str, checksum_character: &str) -> RecoveryPointReco
         verified_at_unix_seconds: 9_001,
     })
     .expect("valid recovery point")
+}
+
+fn mysql_prune_logical() -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mysql-shared-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: "sha256:mysql-8".to_owned(),
+        desired_revision: "sha256:desired-v1".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(10_000),
+    })
+}
+
+fn mysql_prune_credential() -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mysql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "redacted-test-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    })
+}
+
+fn mysql_prune_recovery_point() -> RecoveryPointRecord {
+    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-mysql".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: "sha256:mysql-8".to_owned(),
+        reference: "/backups/backup-mysql".to_owned(),
+        artifact_sha256: "b".repeat(64),
+        artifact_size_bytes: 2_048,
+        created_at_unix_seconds: 9_000,
+        verified_at_unix_seconds: 9_001,
+    })
+    .expect("valid MySQL recovery point")
 }

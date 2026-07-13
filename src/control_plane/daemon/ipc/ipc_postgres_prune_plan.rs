@@ -1,11 +1,12 @@
 use super::IpcPostgresPrunePlanOptions;
-use crate::control_plane::retention::PostgresLogicalPrunePlan;
+use crate::control_plane::retention::{DataLifecycleStrategy, LogicalPrunePlan};
 use serde::{Deserialize, Serialize};
 
-/// Secret-free exact intent returned before destructive PostgreSQL work.
+/// Secret-free exact intent returned before destructive logical-resource work.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct IpcPostgresPrunePlan {
+    strategy: DataLifecycleStrategy,
     project_id: String,
     service_id: String,
     logical_resource_id: String,
@@ -18,6 +19,12 @@ pub(crate) struct IpcPostgresPrunePlan {
 
 impl IpcPostgresPrunePlan {
     pub(crate) fn new(options: IpcPostgresPrunePlanOptions) -> Result<Self, String> {
+        if !matches!(
+            options.strategy,
+            DataLifecycleStrategy::PostgreSqlLogical | DataLifecycleStrategy::MySqlLogical
+        ) {
+            return Err("logical prune strategy has no destructive adapter".to_owned());
+        }
         let fields = [
             options.project_id.as_str(),
             options.service_id.as_str(),
@@ -28,7 +35,7 @@ impl IpcPostgresPrunePlan {
             options.recovery_point_id.as_str(),
         ];
         if fields.iter().any(|field| field.is_empty()) {
-            return Err("PostgreSQL prune plan identity must not be empty".to_owned());
+            return Err("logical prune plan identity must not be empty".to_owned());
         }
         if options.confirmation_token.len() != 64
             || !options
@@ -37,12 +44,13 @@ impl IpcPostgresPrunePlan {
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
             return Err(
-                "PostgreSQL prune confirmation token must be 64 lowercase hexadecimal characters"
+                "logical prune confirmation token must be 64 lowercase hexadecimal characters"
                     .to_owned(),
             );
         }
 
         Ok(Self {
+            strategy: options.strategy,
             project_id: options.project_id,
             service_id: options.service_id,
             logical_resource_id: options.logical_resource_id,
@@ -52,6 +60,10 @@ impl IpcPostgresPrunePlan {
             recovery_point_id: options.recovery_point_id,
             confirmation_token: options.confirmation_token,
         })
+    }
+
+    pub(crate) const fn strategy(&self) -> DataLifecycleStrategy {
+        self.strategy
     }
 
     pub(crate) fn project_id(&self) -> &str {
@@ -80,9 +92,10 @@ impl IpcPostgresPrunePlan {
     }
 }
 
-impl From<&PostgresLogicalPrunePlan> for IpcPostgresPrunePlan {
-    fn from(plan: &PostgresLogicalPrunePlan) -> Self {
+impl From<&LogicalPrunePlan> for IpcPostgresPrunePlan {
+    fn from(plan: &LogicalPrunePlan) -> Self {
         Self {
+            strategy: plan.strategy(),
             project_id: plan.project_id().to_owned(),
             service_id: plan.service_id().to_owned(),
             logical_resource_id: plan.logical_resource_id().to_owned(),

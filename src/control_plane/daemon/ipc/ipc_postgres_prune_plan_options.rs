@@ -1,5 +1,8 @@
-/// Complete secret-free fields exposed for one exact PostgreSQL prune plan.
+use crate::control_plane::retention::DataLifecycleStrategy;
+
+/// Complete secret-free fields exposed for one exact logical prune plan.
 pub(crate) struct IpcPostgresPrunePlanOptions {
+    pub(crate) strategy: DataLifecycleStrategy,
     pub(crate) project_id: String,
     pub(crate) service_id: String,
     pub(crate) logical_resource_id: String,

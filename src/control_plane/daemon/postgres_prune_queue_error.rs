@@ -12,15 +12,15 @@ impl Display for PostgresPruneQueueError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidCapacity => {
-                write!(formatter, "PostgreSQL prune capacity must be positive")
+                write!(formatter, "logical prune capacity must be positive")
             }
             Self::CapacityReached { capacity } => write!(
                 formatter,
-                "PostgreSQL prune queue reached its capacity of {capacity}"
+                "logical prune queue reached its capacity of {capacity}"
             ),
             Self::DuplicateOperation { operation_id } => write!(
                 formatter,
-                "PostgreSQL prune '{operation_id}' is already queued"
+                "logical prune '{operation_id}' is already queued"
             ),
         }
     }

@@ -3,9 +3,11 @@ use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::retention::{
-    PostgresLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+    DataLifecycleStrategy, MySqlLogicalPruneOptions, PostgresLogicalPruneOptions,
+    PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, prune_mysql_logical_resource,
     prune_postgres_logical_resource,
 };
+use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, LogicalResourceRecord, SqliteStateStore, StateStore,
 };
@@ -33,7 +35,7 @@ where
         || options.schema_version == 0
         || options.timeout.is_zero()
     {
-        return Err("PostgreSQL prune runtime identity is incomplete".to_owned());
+        return Err("logical prune runtime identity is incomplete".to_owned());
     }
     let mut store =
         SqliteStateStore::open(&options.state_database_path).map_err(|error| error.to_string())?;
@@ -42,7 +44,7 @@ where
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "the v8 installation identity has not been initialized".to_owned())?;
     if installation.installation_id() != options.installation_id {
-        return Err("PostgreSQL prune installation identity changed".to_owned());
+        return Err("logical prune installation identity changed".to_owned());
     }
     let projects = store.projects().map_err(|error| error.to_string())?;
     let logical_resources = store
@@ -65,11 +67,11 @@ where
         recovery_points: &recovery_points,
     })?;
     if !options.operation.matches_plan(&plan) {
-        return Err("PostgreSQL prune confirmation became stale before execution".to_owned());
+        return Err("logical prune confirmation became stale before execution".to_owned());
     }
     let logical = exact_logical(&logical_resources, &options.operation)?;
     let credential = exact_credential(&credentials, &options.operation)?;
-    let administrator = exact_administrator(&credentials, &options.operation)?;
+    let administrator = exact_administrator(&credentials, &options.operation, logical)?;
     let observed = engine
         .discover_managed()
         .await
@@ -89,24 +91,49 @@ where
         .collect::<Vec<_>>();
     let [container] = containers.as_slice() else {
         return Err(format!(
-            "PostgreSQL prune requires exactly one owned shared container; found {}",
+            "logical prune requires exactly one owned shared container; found {}",
             containers.len()
         ));
     };
 
-    prune_postgres_logical_resource(
-        engine,
-        PostgresLogicalPruneOptions {
-            installation_id: &options.installation_id,
-            container,
-            logical_resource: logical,
-            credential,
-            administrator,
-            timeout: options.timeout,
-        },
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    match options.operation.strategy() {
+        DataLifecycleStrategy::PostgreSqlLogical => {
+            prune_postgres_logical_resource(
+                engine,
+                PostgresLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+        DataLifecycleStrategy::MySqlLogical => {
+            prune_mysql_logical_resource(
+                engine,
+                MySqlLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    flavor: mysql_flavor(logical)?,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+        strategy => {
+            return Err(format!(
+                "logical prune strategy {strategy:?} has no destructive adapter"
+            ));
+        }
+    }
     store
         .retire_logical_resource(logical, credential)
         .map_err(|error| error.to_string())
@@ -144,29 +171,54 @@ fn exact_credential<'state>(
 fn exact_administrator<'state>(
     credentials: &'state [CredentialRecord],
     operation: &super::QueuedPostgresPrune,
+    logical: &LogicalResourceRecord,
 ) -> Result<&'state CredentialRecord, String> {
     let fingerprint = operation
         .compatibility_fingerprint()
         .strip_prefix("sha256:")
-        .ok_or_else(|| "PostgreSQL prune compatibility fingerprint is malformed".to_owned())?;
-    let administrator_id = format!("shared/{fingerprint}/postgresql-bootstrap");
+        .ok_or_else(|| "logical prune compatibility fingerprint is malformed".to_owned())?;
+    let (implementation, username) = match operation.strategy() {
+        DataLifecycleStrategy::PostgreSqlLogical => ("postgresql", "stackctl_admin"),
+        DataLifecycleStrategy::MySqlLogical => match mysql_flavor(logical)? {
+            MySqlFlavor::MySql => ("mysql", "root"),
+            MySqlFlavor::MariaDb => ("mariadb", "root"),
+        },
+        strategy => {
+            return Err(format!(
+                "logical prune strategy {strategy:?} has no administrator model"
+            ));
+        }
+    };
+    let administrator_id = format!("shared/{fingerprint}/{implementation}-bootstrap");
     one(
         credentials
             .iter()
             .filter(|item| {
                 item.credential_id() == administrator_id
                     && item.project_id().is_none()
+                    && item.service_id() == implementation
+                    && item.username() == username
                     && item.lifecycle() == CredentialLifecycle::Active
             })
             .collect(),
-        "active shared PostgreSQL administrator",
+        "active shared service administrator",
     )
+}
+
+fn mysql_flavor(logical: &LogicalResourceRecord) -> Result<MySqlFlavor, String> {
+    match logical.kind() {
+        "mysql_database" => Ok(MySqlFlavor::MySql),
+        "mariadb_database" => Ok(MySqlFlavor::MariaDb),
+        kind => Err(format!(
+            "logical resource kind '{kind}' is not a MySQL-family tenant"
+        )),
+    }
 }
 
 fn one<'state, T>(matches: Vec<&'state T>, description: &str) -> Result<&'state T, String> {
     let [item] = matches.as_slice() else {
         return Err(format!(
-            "PostgreSQL prune requires exactly one {description}; found {}",
+            "logical prune requires exactly one {description}; found {}",
             matches.len()
         ));
     };

@@ -1194,6 +1194,147 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
 }
 
 #[test]
+fn queued_logical_prune_dispatches_mysql_adapter_and_retires_exact_state() {
+    use crate::control_plane::retention::{LogicalPrunePlan, LogicalPrunePlanOptions};
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-mysql-prune");
+    let fingerprint = format!("sha256:{}", "b".repeat(64));
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mysql-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mysql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/mysql-bootstrap", "b".repeat(64)),
+        project_id: None,
+        service_id: "mysql".to_owned(),
+        username: "root".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-mysql".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: root.join("backups/backup-mysql.sql").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    let plan = LogicalPrunePlan::new(LogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-mysql",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery_point),
+    })
+    .expect("MySQL prune plan");
+    let operation = QueuedPostgresPrune::new(
+        "prune-mysql".to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued MySQL prune");
+    drop(store);
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "mysql-container",
+        "install-1",
+        "mysql-8",
+        &fingerprint,
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_postgres_prune(
+        engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation,
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(()));
+    assert_eq!(engine.command_arguments()[0][0], "mysql");
+    assert_eq!(
+        engine.command_environments()[0].get("MYSQL_PWD"),
+        Some(&"administrator-secret".to_owned())
+    );
+    let sql = String::from_utf8(engine.command_inputs()[0].clone()).expect("prune SQL");
+    assert!(sql.contains("DROP DATABASE IF EXISTS `stackctl_bill_database`"));
+    assert!(sql.contains("DROP USER IF EXISTS 'st_bill_database'@'%'"));
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert_eq!(
+        store.credentials().expect("administrator retained"),
+        vec![administrator]
+    );
+    assert_eq!(
+        store.recovery_points("bill").expect("recovery retained"),
+        vec![recovery_point]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove prune fixture");
+}
+
+#[test]
 fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let root = temporary_directory("queued-postgres-restore");
     let project_path = root.join("bill");
@@ -4277,6 +4418,7 @@ struct RecordingProjectCommandExecution {
     started: std::sync::atomic::AtomicUsize,
     command_exit_code: std::sync::atomic::AtomicI64,
     containers: std::sync::Mutex<Vec<String>>,
+    command_arguments: std::sync::Mutex<Vec<Vec<String>>>,
     command_environments: std::sync::Mutex<Vec<BTreeMap<String, String>>>,
     command_inputs: std::sync::Mutex<Vec<Vec<u8>>>,
     created: std::sync::Mutex<Vec<String>>,
@@ -4320,6 +4462,14 @@ impl RecordingProjectCommandEngine {
             .command_environments
             .lock()
             .expect("command environments")
+            .clone()
+    }
+
+    fn command_arguments(&self) -> Vec<Vec<String>> {
+        self.execution
+            .command_arguments
+            .lock()
+            .expect("command arguments")
             .clone()
     }
 
@@ -4451,6 +4601,11 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .lock()
             .expect("command environments")
             .push(request.environment().clone());
+        self.execution
+            .command_arguments
+            .lock()
+            .expect("command arguments")
+            .push(request.arguments().to_vec());
         let verification_output = request
             .arguments()
             .iter()

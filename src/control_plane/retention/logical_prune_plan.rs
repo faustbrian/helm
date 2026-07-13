@@ -1,15 +1,14 @@
-use super::PostgresLogicalPrunePlanOptions;
+use super::{DataLifecycleStrategy, LogicalPrunePlanOptions, resolve_data_lifecycle_strategy};
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, LogicalResourceRecord, RecoveryPointRecord,
     ResourceLifecycle,
 };
 use sha2::{Digest, Sha256};
 
-const POSTGRES_LOGICAL_KIND: &str = "postgres_database_and_role";
-
-/// Secret-free exact intent that must be regenerated before destructive work.
+/// Secret-free exact intent regenerated before any destructive adapter runs.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PostgresLogicalPrunePlan {
+pub(crate) struct LogicalPrunePlan {
+    strategy: DataLifecycleStrategy,
     project_id: String,
     service_id: String,
     logical_resource_id: String,
@@ -20,16 +19,17 @@ pub(crate) struct PostgresLogicalPrunePlan {
     confirmation_token: String,
 }
 
-impl PostgresLogicalPrunePlan {
-    pub(crate) fn new(options: PostgresLogicalPrunePlanOptions<'_>) -> Result<Self, String> {
+impl LogicalPrunePlan {
+    pub(crate) fn new(options: LogicalPrunePlanOptions<'_>) -> Result<Self, String> {
         validate_request(&options)?;
-        let logical = one_logical(&options)?;
+        let (logical, strategy) = one_logical(&options)?;
         let credential = one_credential(&options)?;
         let recovery = one_recovery_point(&options, logical)?;
         let confirmation_token =
             confirmation_token(options.installation_id, logical, credential, recovery);
 
         Ok(Self {
+            strategy,
             project_id: logical.project_id().to_owned(),
             service_id: logical.service_id().to_owned(),
             logical_resource_id: logical.logical_resource_id().to_owned(),
@@ -39,6 +39,10 @@ impl PostgresLogicalPrunePlan {
             recovery_point_id: recovery.recovery_point_id().to_owned(),
             confirmation_token,
         })
+    }
+
+    pub(crate) const fn strategy(&self) -> DataLifecycleStrategy {
+        self.strategy
     }
 
     pub(crate) fn project_id(&self) -> &str {
@@ -74,13 +78,13 @@ impl PostgresLogicalPrunePlan {
     }
 }
 
-fn validate_request(options: &PostgresLogicalPrunePlanOptions<'_>) -> Result<(), String> {
+fn validate_request(options: &LogicalPrunePlanOptions<'_>) -> Result<(), String> {
     if options.installation_id.is_empty()
         || options.project_id.is_empty()
         || options.service_id.is_empty()
         || options.recovery_point_id.is_empty()
     {
-        return Err("PostgreSQL prune identity must not be empty".to_owned());
+        return Err("logical prune identity must not be empty".to_owned());
     }
     if options.project_registered {
         return Err(format!(
@@ -93,8 +97,8 @@ fn validate_request(options: &PostgresLogicalPrunePlanOptions<'_>) -> Result<(),
 }
 
 fn one_logical<'state>(
-    options: &PostgresLogicalPrunePlanOptions<'state>,
-) -> Result<&'state LogicalResourceRecord, String> {
+    options: &LogicalPrunePlanOptions<'state>,
+) -> Result<(&'state LogicalResourceRecord, DataLifecycleStrategy), String> {
     let matches = options
         .logical_resources
         .iter()
@@ -110,7 +114,11 @@ fn one_logical<'state>(
             matches.len()
         ));
     };
-    if logical.kind() != POSTGRES_LOGICAL_KIND {
+    let strategy = resolve_data_lifecycle_strategy(logical).map_err(|error| error.to_string())?;
+    if !matches!(
+        strategy,
+        DataLifecycleStrategy::PostgreSqlLogical | DataLifecycleStrategy::MySqlLogical
+    ) {
         return Err(format!(
             "logical resource kind '{}' has no implemented destructive prune adapter",
             logical.kind()
@@ -125,11 +133,11 @@ fn one_logical<'state>(
         ));
     }
 
-    Ok(logical)
+    Ok((logical, strategy))
 }
 
 fn one_credential<'state>(
-    options: &PostgresLogicalPrunePlanOptions<'state>,
+    options: &LogicalPrunePlanOptions<'state>,
 ) -> Result<&'state CredentialRecord, String> {
     let matches = options
         .credentials
@@ -158,7 +166,7 @@ fn one_credential<'state>(
 }
 
 fn one_recovery_point<'state>(
-    options: &PostgresLogicalPrunePlanOptions<'state>,
+    options: &LogicalPrunePlanOptions<'state>,
     logical: &LogicalResourceRecord,
 ) -> Result<&'state RecoveryPointRecord, String> {
     let matches = options
@@ -196,7 +204,7 @@ fn confirmation_token(
 ) -> String {
     let mut hasher = Sha256::new();
     for field in [
-        "stackctl-postgres-logical-prune-v1",
+        "stackctl-logical-prune-v1",
         installation_id,
         logical.project_id(),
         logical.service_id(),
