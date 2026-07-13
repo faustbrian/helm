@@ -1,6 +1,7 @@
 use super::{
-    PostgresBackupOptions, PostgresRestoreOptions, PostgresVerifyTargetOptions,
-    backup_postgres_database, restore_postgres_database, verify_postgres_target,
+    PostgresBackupOptions, PostgresProvisionTargetOptions, PostgresRestoreOptions,
+    PostgresVerifyTargetOptions, backup_postgres_database, provision_postgres_target,
+    restore_postgres_database, verify_postgres_target,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -11,6 +12,7 @@ use crate::control_plane::engine::{
 use crate::control_plane::retention::{
     BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
 };
+use crate::control_plane::shared_infrastructure::{CredentialSecret, PostgresLogicalResourcePlan};
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
     LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
@@ -324,6 +326,43 @@ fn postgres_target_verification_rejects_wrong_owner_or_invalid_catalog() {
     );
 }
 
+#[test]
+fn postgres_target_provisioning_returns_the_deterministic_database_identity() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL target runtime");
+    let checkpoint = backup_checkpoint();
+    let target = logical_resource();
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("target logical plan");
+    let administrator = credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresProvisionTargetOptions {
+        checkpoint: &checkpoint,
+        target_logical_resource: &target,
+        plan: &plan,
+        administrator: &administrator,
+        installation_id: "install-1",
+    };
+
+    let target_id = runtime
+        .block_on(provision_postgres_target(&executor, &container, &options))
+        .expect("provision PostgreSQL target");
+
+    assert_eq!(target_id, "stackctl_bill_database");
+    assert!(
+        String::from_utf8(executor.input.lock().expect("provisioning SQL").clone())
+            .expect("provisioning SQL UTF-8")
+            .contains("CREATE DATABASE stackctl_bill_database")
+    );
+}
+
 struct RecordingExecutor {
     request: Mutex<Option<CommandRequest>>,
     input: Arc<Mutex<Vec<u8>>>,
@@ -468,6 +507,27 @@ fn target_checkpoint(phase: MigrationPhase) -> MigrationRecord {
         updated_at_unix_seconds: 50_000,
     })
     .expect("target checkpoint")
+}
+
+fn backup_checkpoint() -> MigrationRecord {
+    MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "migration-bill-database".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase: MigrationPhase::BackupVerified,
+        backup_reference: Some("/private/backups/bill".to_owned()),
+        backup_artifact_sha256: Some(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        ),
+        backup_artifact_size_bytes: Some(13),
+        target_resource_id: None,
+        rollback_reference: Some("v7:bill/database".to_owned()),
+        updated_at_unix_seconds: 50_000,
+    })
+    .expect("backup checkpoint")
 }
 
 fn owned_container() -> OwnedContainer {

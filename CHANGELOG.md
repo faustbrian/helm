@@ -51,6 +51,9 @@ All notable changes to this project are documented in this file.
 - Added a bounded PostgreSQL target gate that proves the restored database is
   owned by the project role and has no invalid indexes or unvalidated
   constraints before migration cutover becomes eligible.
+- Added idempotent PostgreSQL migration target creation using the normal
+  deterministic project database and role identity, with exact checkpoint,
+  ownership, service, installation, and compatibility validation.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

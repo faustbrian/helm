@@ -7,7 +7,7 @@ pub(crate) struct CredentialSecret {
 }
 
 impl CredentialSecret {
-    pub(super) const fn new(encoded: String) -> Self {
+    pub(crate) const fn new(encoded: String) -> Self {
         Self { encoded }
     }
 

@@ -7,6 +7,8 @@ const POSTGRES_IDENTIFIER_BYTES: usize = 63;
 
 /// Idempotent PostgreSQL database and restricted-role provisioning input.
 pub(crate) struct PostgresLogicalResourcePlan {
+    project_id: String,
+    service_id: String,
     database_name: String,
     role_name: String,
     credential_id: String,
@@ -36,6 +38,8 @@ impl PostgresLogicalResourcePlan {
         let stdin_sql = provisioning_sql(&database_name, &role_name, secret.expose());
 
         Ok(Self {
+            project_id: project_id.as_str().to_owned(),
+            service_id: service_id.as_str().to_owned(),
             database_name,
             role_name,
             credential_id,
@@ -52,6 +56,14 @@ impl PostgresLogicalResourcePlan {
 
     pub(crate) fn database_name(&self) -> &str {
         &self.database_name
+    }
+
+    pub(crate) fn project_id(&self) -> &str {
+        &self.project_id
+    }
+
+    pub(crate) fn service_id(&self) -> &str {
+        &self.service_id
     }
 
     pub(crate) fn role_name(&self) -> &str {
@@ -75,6 +87,8 @@ impl Debug for PostgresLogicalResourcePlan {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PostgresLogicalResourcePlan")
+            .field("project_id", &self.project_id)
+            .field("service_id", &self.service_id)
             .field("database_name", &self.database_name)
             .field("role_name", &self.role_name)
             .field("credential_id", &self.credential_id)
