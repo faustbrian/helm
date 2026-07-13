@@ -1,10 +1,12 @@
 use super::{
-    CertificateTrustStore, FilesystemCertificateStore, LocalCaIdentity, TrustChange,
-    TrustStoreError, ensure_ca_trusted, generate_local_certificates, remove_ca_trust,
-    renew_local_leaf_certificate,
+    CertificateTrustStore, FilesystemCertificateStore, HostCommand, HostCommandExecutor,
+    HostCommandOutput, LocalCaIdentity, MacOsCertificateTrustStore, TrustChange, TrustStoreError,
+    ensure_ca_trusted, generate_local_certificates, remove_ca_trust, renew_local_leaf_certificate,
 };
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::macros::datetime;
 use x509_parser::extensions::GeneralName;
@@ -155,6 +157,74 @@ fn trust_removal_targets_only_the_exact_installed_ca() {
     assert_eq!(store.removed.borrow().as_slice(), &[identity]);
 }
 
+#[test]
+fn macos_trust_store_queries_the_exact_sha256_identity() {
+    let (identity, _) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success(format!(
+        "SHA-256 hash: {}\n",
+        identity.sha256_hex()
+    ))]);
+    let store = MacOsCertificateTrustStore::new(runner.clone());
+
+    assert!(store.contains(&identity).expect("query Keychain"));
+    assert_eq!(
+        runner.commands(),
+        vec![HostCommand::new(
+            "security",
+            [
+                "find-certificate",
+                "-a",
+                "-Z",
+                "/Library/Keychains/System.keychain",
+            ]
+        )]
+    );
+}
+
+#[test]
+fn macos_trust_store_installs_and_removes_only_the_exact_ca() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+    ]);
+    let store = MacOsCertificateTrustStore::new(runner.clone());
+
+    store
+        .install(&identity, &certificate_path)
+        .expect("install Keychain CA");
+    store.remove(&identity).expect("remove Keychain CA");
+
+    assert_eq!(
+        runner.commands(),
+        vec![
+            HostCommand::new(
+                "sudo",
+                [
+                    "security",
+                    "add-trusted-cert",
+                    "-d",
+                    "-r",
+                    "trustRoot",
+                    "-k",
+                    "/Library/Keychains/System.keychain",
+                    certificate_path.to_str().expect("UTF-8 certificate path"),
+                ]
+            ),
+            HostCommand::new(
+                "sudo",
+                [
+                    "security",
+                    "delete-certificate",
+                    "-Z",
+                    identity.sha256_hex(),
+                    "/Library/Keychains/System.keychain",
+                ]
+            ),
+        ]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn certificate_bundles_persist_as_atomic_user_private_directories() {
@@ -249,5 +319,34 @@ impl CertificateTrustStore for RecordingTrustStore {
         self.trusted.set(false);
 
         Ok(())
+    }
+}
+
+#[derive(Clone, Default)]
+struct RecordingCommandExecutor {
+    commands: Rc<RefCell<Vec<HostCommand>>>,
+    outputs: Rc<RefCell<VecDeque<HostCommandOutput>>>,
+}
+
+impl RecordingCommandExecutor {
+    fn with_outputs(outputs: impl IntoIterator<Item = HostCommandOutput>) -> Self {
+        Self {
+            commands: Rc::default(),
+            outputs: Rc::new(RefCell::new(outputs.into_iter().collect())),
+        }
+    }
+
+    fn commands(&self) -> Vec<HostCommand> {
+        self.commands.borrow().clone()
+    }
+}
+
+impl HostCommandExecutor for RecordingCommandExecutor {
+    fn execute(&self, command: &HostCommand) -> Result<HostCommandOutput, TrustStoreError> {
+        self.commands.borrow_mut().push(command.clone());
+        self.outputs
+            .borrow_mut()
+            .pop_front()
+            .ok_or_else(|| TrustStoreError::new("missing recorded command output"))
     }
 }
