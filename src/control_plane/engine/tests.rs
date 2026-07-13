@@ -3,11 +3,12 @@ use super::{
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
     ObservedResourceOwnership, ResourceKind, RetentionClass, classify_observed_resource,
 };
+use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
 use std::collections::BTreeMap;
 
 use super::bollard_engine_adapter::{
-    create_request, managed_container_list_request, observed_container,
+    create_request, managed_container_list_request, observed_container, validate_engine_api_version,
 };
 
 #[test]
@@ -248,6 +249,29 @@ fn container_discovery_is_an_object_safe_rescan_strategy() {
         .expect("discover containers");
 
     assert_eq!(observed, backend.observed);
+}
+
+#[test]
+fn minimum_supported_engine_api_version_is_accepted() {
+    validate_engine_api_version(ClientVersion {
+        major_version: 1,
+        minor_version: 41,
+    })
+    .expect("minimum supported API");
+}
+
+#[test]
+fn older_engine_api_versions_fail_before_reconciliation() {
+    let error = validate_engine_api_version(ClientVersion {
+        major_version: 1,
+        minor_version: 40,
+    })
+    .expect_err("unsupported Engine API");
+
+    assert_eq!(
+        error.to_string(),
+        "Engine API version 1.40 is unsupported; version 1.41 or newer is required"
+    );
 }
 
 fn project_metadata(kind: ResourceKind) -> ManagedResourceMetadata {

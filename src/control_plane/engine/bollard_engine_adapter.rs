@@ -5,11 +5,15 @@ use super::{
 use bollard::errors::Error as BollardError;
 use bollard::models::{ContainerCreateBody, ContainerSummary};
 use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
-use bollard::{API_DEFAULT_VERSION, Docker};
+use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
+const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
+    major_version: 1,
+    minor_version: 41,
+};
 
 /// A direct Docker-compatible Engine API adapter used for Docker and Podman.
 pub(crate) struct BollardEngineAdapter {
@@ -19,7 +23,7 @@ pub(crate) struct BollardEngineAdapter {
 impl BollardEngineAdapter {
     /// Connects directly to a Docker-compatible Unix socket.
     #[cfg(unix)]
-    pub(crate) fn connect_unix(socket_path: &Path) -> Result<Self, EngineError> {
+    pub(crate) async fn connect_unix(socket_path: &Path) -> Result<Self, EngineError> {
         let socket_path = socket_path
             .to_str()
             .ok_or_else(|| EngineError::InvalidRequest {
@@ -32,15 +36,19 @@ impl BollardEngineAdapter {
             Docker::connect_with_unix(socket_path, REQUEST_TIMEOUT_SECONDS, API_DEFAULT_VERSION)
                 .map_err(|error| backend_error("connect to Engine socket", error))?;
 
+        let docker = negotiate_engine_api(docker).await?;
+
         Ok(Self { docker })
     }
 
     /// Connects directly to a Docker-compatible Windows named pipe.
     #[cfg(windows)]
-    pub(crate) fn connect_named_pipe(pipe: &str) -> Result<Self, EngineError> {
+    pub(crate) async fn connect_named_pipe(pipe: &str) -> Result<Self, EngineError> {
         let docker =
             Docker::connect_with_named_pipe(pipe, REQUEST_TIMEOUT_SECONDS, API_DEFAULT_VERSION)
                 .map_err(|error| backend_error("connect to Engine named pipe", error))?;
+
+        let docker = negotiate_engine_api(docker).await?;
 
         Ok(Self { docker })
     }
@@ -193,6 +201,30 @@ pub(super) fn observed_container(
         .collect::<BTreeMap<_, _>>();
 
     Ok(ObservedContainer::new(ContainerId::new(id), labels))
+}
+
+async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {
+    let docker = docker
+        .negotiate_version()
+        .await
+        .map_err(|error| backend_error("negotiate Engine API version", error))?;
+
+    validate_engine_api_version(docker.client_version())?;
+
+    Ok(docker)
+}
+
+pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), EngineError> {
+    if version < MINIMUM_ENGINE_API_VERSION {
+        return Err(EngineError::Backend {
+            detail: format!(
+                "Engine API version {version} is unsupported; version {} or newer is required",
+                MINIMUM_ENGINE_API_VERSION
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn backend_error(action: &str, error: BollardError) -> EngineError {

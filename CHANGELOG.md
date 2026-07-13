@@ -67,6 +67,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Changed v8 Engine socket connection to negotiate API compatibility and reject
+  versions older than 1.41 before reconciliation can begin.
 - Completed v8 Engine ownership labels with stable project IDs, compatibility
   fingerprints, schema versions, desired revisions, and retention classes.
 - Renamed the project, CLI, config files, env vars, Docker labels, and
