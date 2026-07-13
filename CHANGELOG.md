@@ -14,6 +14,8 @@ All notable changes to this project are documented in this file.
   service map, exact scalar types, schema version, and unsafe YAML features.
 - Added pure v8 desired-project resolution with exact identities, dependency
   validation, stable ordering, and complete cycle diagnostics.
+- Added a transactional v8 SQLite state-store contract for durable project and
+  route ownership, atomic migrations, restart recovery, and interrupted writes.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.

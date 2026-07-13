@@ -7,6 +7,7 @@ mod registry_conflict;
 mod route_claim;
 mod route_identity;
 mod service_identity;
+mod state;
 mod validate_route_claims;
 mod validated_route_registry;
 
