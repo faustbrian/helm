@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added durable reference-counted shared-service idling that stops unused
+  compatibility instances only after their final active logical consumer is
+  released, while retaining containers, volumes, and tenant data.
 - Added exact per-project logical-service reconciliation that orphans omitted
   tenants, disables their credentials, releases active shared references, and
   replaces generated managed environments atomically, including empty sets.

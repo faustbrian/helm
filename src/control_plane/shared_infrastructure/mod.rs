@@ -103,7 +103,9 @@ pub(crate) use sql_server::{
     provision_sql_server_logical_resource, reconcile_prepared_sql_server_instance,
     reconcile_sql_server_project_resources,
 };
+pub(crate) use stop_unreferenced_shared_services::stop_unreferenced_shared_services;
 pub(crate) use store_credential_secret::store_credential_secret;
+pub(crate) use unreferenced_shared_service_options::UnreferencedSharedServiceOptions;
 
 mod compatibility_fingerprint;
 mod compatibility_fingerprint_error;
@@ -149,4 +151,6 @@ mod shared_volume_reconcile_action;
 mod shared_volume_reconcile_options;
 mod shared_volume_reconcile_result;
 mod sql_server;
+mod stop_unreferenced_shared_services;
 mod store_credential_secret;
+mod unreferenced_shared_service_options;

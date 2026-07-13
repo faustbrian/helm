@@ -13,9 +13,9 @@ use super::{
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
     SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions, generate_credential_secret,
-    plan_gotenberg_project_resources, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_postgres_shared_instances, prepare_shared_instances,
@@ -28,8 +28,8 @@ use super::{
     reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
     reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
     reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
-    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    run_provisioning_job, stop_unreferenced_shared_services, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -38,7 +38,10 @@ use crate::control_plane::engine::{
     reconstruct_owned_container,
 };
 use crate::control_plane::resolve_execution_plan;
-use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::state::{
+    LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+};
 use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
@@ -1822,6 +1825,74 @@ fn shared_volume_reconciliation_refuses_foreign_name_ownership() {
         )
     );
     assert!(engine.created.is_empty());
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn shared_services_stop_only_after_their_last_active_logical_reference_is_released() {
+    let metadata = shared_container_metadata("install-1", "sha256:desired-v1");
+    let observed =
+        ObservedContainer::new(ContainerId::new("postgres-container"), metadata.labels());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "postgres-container".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "postgres-volume".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgresql_database".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:database".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut engine = RecordingSharedVolumeEngine {
+        observed_containers: vec![observed],
+        state: crate::control_plane::engine::ContainerState::Running,
+        ..Default::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let referenced = runtime
+        .block_on(stop_unreferenced_shared_services(
+            &mut engine,
+            UnreferencedSharedServiceOptions {
+                resources: std::slice::from_ref(&resource),
+                logical_resources: std::slice::from_ref(&logical),
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("retain referenced shared service");
+    let unreferenced = runtime
+        .block_on(stop_unreferenced_shared_services(
+            &mut engine,
+            UnreferencedSharedServiceOptions {
+                resources: std::slice::from_ref(&resource),
+                logical_resources: &[],
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("stop unreferenced shared service");
+
+    assert_eq!(referenced, 0);
+    assert_eq!(unreferenced, 1);
+    assert_eq!(engine.stopped_containers.len(), 1);
+    assert!(engine.removed_containers.is_empty());
     assert!(engine.removed.is_empty());
 }
 
