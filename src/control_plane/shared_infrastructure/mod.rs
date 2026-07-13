@@ -31,8 +31,8 @@ pub(crate) use postgres::{
 pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
     RabbitMqProjectResources, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
-    StoredRabbitMqPaths, plan_rabbitmq_project_resources, reload_rabbitmq_definitions,
-    revoke_rabbitmq_project_access, store_rabbitmq_definitions,
+    StoredRabbitMqPaths, plan_rabbitmq_project_resources, reconcile_rabbitmq_definitions,
+    reload_rabbitmq_definitions, revoke_rabbitmq_project_access, store_rabbitmq_definitions,
 };
 pub(crate) use reconcile_shared_service::reconcile_shared_service;
 pub(crate) use reconcile_shared_volume::reconcile_shared_volume;

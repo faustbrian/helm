@@ -14,9 +14,10 @@ use super::{
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_postgres_logical_resource, reconcile_mongodb_project_resources,
     reconcile_mysql_project_resources, reconcile_postgres_project_resources,
-    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
-    store_credential_secret, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
+    reconcile_shared_volume, reload_rabbitmq_definitions, reload_redis_acl,
+    revoke_rabbitmq_project_access, store_credential_secret, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -855,6 +856,138 @@ fn rabbitmq_materializes_one_private_persistent_definition_backed_instance() {
     assert!(debug.contains("read_only: true"));
     assert!(debug.contains("RABBITMQ_CONFIG_FILE"));
     assert!(debug.contains("RABBITMQ_NODENAME"));
+}
+
+#[cfg(unix)]
+#[test]
+fn rabbitmq_reconciliation_publishes_definitions_before_start_and_reload() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-rabbitmq-reconcile-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale RabbitMQ fixture");
+    }
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "broker",
+        rabbitmq_profile("4"),
+    )])
+    .pop()
+    .expect("shared RabbitMQ plan");
+    let instance = RabbitMqSharedInstancePlan::new(
+        &shared,
+        RabbitMqSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:rabbitmq-v1".to_owned(),
+            definitions_directory: root.join("mounted"),
+        },
+    )
+    .expect("RabbitMQ instance");
+    let definitions = RabbitMqDefinitions::new(vec![
+        RabbitMqProjectDefinition::new(
+            "bill",
+            "broker",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("RabbitMQ project definition"),
+    ])
+    .expect("RabbitMQ definitions");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_rabbitmq_definitions(
+            &mut engine,
+            &instance,
+            &definitions,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile RabbitMQ definitions");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert!(root.join("mounted/definitions.json").is_file());
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    assert!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("RabbitMQ command arguments")
+            .iter()
+            .any(|arguments| arguments.ends_with(&[
+                "import_definitions".to_owned(),
+                "/etc/stackctl/rabbitmq/definitions.json".to_owned(),
+            ]))
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove RabbitMQ fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn rabbitmq_reconciliation_rejects_unmanaged_mounts_before_writes() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-rabbitmq-mount-reject-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale RabbitMQ fixture");
+    }
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "broker",
+        rabbitmq_profile("4"),
+    )])
+    .pop()
+    .expect("shared RabbitMQ plan");
+    let instance = RabbitMqSharedInstancePlan::new(
+        &shared,
+        RabbitMqSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:rabbitmq-v1".to_owned(),
+            definitions_directory: root.join("wrong"),
+        },
+    )
+    .expect("RabbitMQ instance");
+    let definitions = RabbitMqDefinitions::new(Vec::new()).expect("RabbitMQ definitions");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_rabbitmq_definitions(
+            &mut engine,
+            &instance,
+            &definitions,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect_err("unmanaged definitions mount");
+
+    assert!(
+        error
+            .to_string()
+            .contains("definitions mount must use managed directory")
+    );
+    assert!(!root.exists());
+    assert!(engine.operations.is_empty());
 }
 
 #[test]
