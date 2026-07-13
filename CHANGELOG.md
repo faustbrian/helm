@@ -44,6 +44,10 @@ All notable changes to this project are documented in this file.
   CPU basis points plus memory, process, and aggregated network measurements.
 - Added content-addressed direct-Engine derived image builds with immutable base
   validation, mandatory ownership labels, offline networking, and cache verification.
+- Added a native-JSON Caddy gateway provider that atomically loads complete route
+  snapshots over a private Unix socket while using only Stackctl-owned TLS files.
+- Extended the singleton gateway container plan with an immutable bootstrap config,
+  a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.

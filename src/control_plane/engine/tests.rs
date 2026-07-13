@@ -2,14 +2,15 @@ use super::{
     CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture, HealthObserver,
-    ImageBuildRequest, ImageBuilder, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
-    LogSource, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
-    VolumeManager, classify_observed_resource, gateway_container_request,
-    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
+    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture,
+    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
+    ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, ResourceMetrics, RetentionClass,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
+    reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -636,15 +637,18 @@ fn bollard_request_maps_only_typed_values_and_reserved_labels() {
 #[test]
 fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls() {
     let metadata = global_metadata(ResourceKind::Gateway);
-    let options = gateway_container_request(
+    let options = gateway_container_request(GatewayContainerRequestOptions::new(
         concat!(
             "ghcr.io/stackctl/gateway@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ),
-        "stackctl",
-        std::path::Path::new("/state/tls"),
+        )
+        .to_owned(),
+        "stackctl".to_owned(),
+        std::path::PathBuf::from("/state/tls"),
+        std::path::PathBuf::from("/state/gateway/config.json"),
+        std::path::PathBuf::from("/state/gateway/run"),
         metadata,
-    )
+    ))
     .expect("immutable gateway options");
 
     let (_, body) = create_request(&options);
@@ -678,15 +682,31 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
             .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from(["127.0.0.1".to_owned(), "::1".to_owned()])
     );
-    let mount = host
-        .mounts
-        .expect("TLS mounts")
-        .into_iter()
-        .next()
-        .expect("TLS mount");
-    assert_eq!(mount.source.as_deref(), Some("/state/tls"));
-    assert_eq!(mount.target.as_deref(), Some("/etc/stackctl/tls"));
-    assert_eq!(mount.read_only, Some(true));
+    let mounts = host.mounts.expect("gateway mounts");
+    assert!(mounts.iter().any(|mount| {
+        mount.source.as_deref() == Some("/state/tls")
+            && mount.target.as_deref() == Some("/etc/stackctl/tls")
+            && mount.read_only == Some(true)
+    }));
+    assert!(mounts.iter().any(|mount| {
+        mount.source.as_deref() == Some("/state/gateway/config.json")
+            && mount.target.as_deref() == Some("/etc/stackctl/config.json")
+            && mount.read_only == Some(true)
+    }));
+    assert!(mounts.iter().any(|mount| {
+        mount.source.as_deref() == Some("/state/gateway/run")
+            && mount.target.as_deref() == Some("/run/stackctl")
+            && mount.read_only == Some(false)
+    }));
+    assert_eq!(
+        body.cmd,
+        Some(vec![
+            "caddy".to_owned(),
+            "run".to_owned(),
+            "--config".to_owned(),
+            "/etc/stackctl/config.json".to_owned(),
+        ])
+    );
     assert_eq!(
         host.restart_policy.expect("restart policy").name,
         Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED)

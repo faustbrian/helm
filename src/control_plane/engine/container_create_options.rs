@@ -12,6 +12,7 @@ pub(crate) struct ContainerCreateOptions {
     network: Option<String>,
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
+    command: Vec<String>,
     restart_policy: Option<ContainerRestartPolicy>,
 }
 
@@ -40,6 +41,7 @@ impl ContainerCreateOptions {
             network: None,
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
+            command: Vec::new(),
             restart_policy: None,
         })
     }
@@ -66,6 +68,22 @@ impl ContainerCreateOptions {
     pub(crate) fn with_bind_mount(mut self, mount: BindMount) -> Self {
         self.bind_mounts.push(mount);
         self
+    }
+
+    pub(crate) fn with_command(mut self, command: Vec<String>) -> Result<Self, EngineError> {
+        if command.first().is_none_or(String::is_empty)
+            || command.iter().any(|argument| argument.contains('\0'))
+        {
+            return Err(EngineError::InvalidRequest {
+                detail:
+                    "managed container command must contain a non-empty executable and no NUL bytes"
+                        .to_owned(),
+            });
+        }
+
+        self.command = command;
+
+        Ok(self)
     }
 
     pub(crate) fn with_restart_policy(mut self, policy: ContainerRestartPolicy) -> Self {
@@ -98,6 +116,10 @@ impl ContainerCreateOptions {
 
     pub(super) fn bind_mounts(&self) -> &[BindMount] {
         &self.bind_mounts
+    }
+
+    pub(super) fn command(&self) -> &[String] {
+        &self.command
     }
 
     pub(super) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {

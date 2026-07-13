@@ -29,6 +29,16 @@ impl BindMount {
         })
     }
 
+    pub(crate) fn read_write(
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Result<Self, EngineError> {
+        let mut mount = Self::read_only(source, target)?;
+        mount.read_only = false;
+
+        Ok(mount)
+    }
+
     pub(super) fn source(&self) -> &str {
         &self.source
     }

@@ -1124,6 +1124,7 @@ pub(super) fn create_request(
         .build();
     let body = ContainerCreateBody {
         image: Some(options.image().to_owned()),
+        cmd: (!options.command().is_empty()).then(|| options.command().to_vec()),
         labels: Some(
             options
                 .metadata()
