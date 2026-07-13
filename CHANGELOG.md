@@ -42,6 +42,9 @@ All notable changes to this project are documented in this file.
 - Fixed PostgreSQL logical provisioning to connect with the same managed
   bootstrap administrator configured by the shared official image instead of
   assuming the image also created a separate `postgres` role.
+- Made PostgreSQL logical provisioning authenticate explicitly with the active
+  managed bootstrap credential through redacted command environment state,
+  avoiding image-version-dependent local authentication assumptions.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

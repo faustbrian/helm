@@ -36,12 +36,17 @@ where
         },
     )
     .await?;
-    provision_postgres_logical_resource(engine, shared.container(), project.logical())
-        .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: "PostgreSQL logical resource provisioning".to_owned(),
-            detail: error.to_string(),
-        })?;
+    provision_postgres_logical_resource(
+        engine,
+        shared.container(),
+        project.logical(),
+        instance.bootstrap_credential(),
+    )
+    .await
+    .map_err(|error| SharedInfrastructureReconcileError::Engine {
+        action: "PostgreSQL logical resource provisioning".to_owned(),
+        detail: error.to_string(),
+    })?;
 
     Ok(shared)
 }

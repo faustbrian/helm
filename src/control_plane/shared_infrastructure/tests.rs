@@ -2658,6 +2658,16 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
     let container =
         reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle");
     let executor = RecordingPostgresExecutor::default();
+    let administrator = crate::control_plane::state::CredentialRecord::new(
+        crate::control_plane::state::CredentialRecordOptions {
+            credential_id: "shared/postgres/bootstrap".to_owned(),
+            project_id: None,
+            service_id: "postgresql".to_owned(),
+            username: "stackctl_admin".to_owned(),
+            secret: "root-secret".to_owned(),
+            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
+        },
+    );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
@@ -2666,7 +2676,10 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
 
     runtime
         .block_on(provision_postgres_logical_resource(
-            &executor, &container, &plan,
+            &executor,
+            &container,
+            &plan,
+            &administrator,
         ))
         .expect("provision PostgreSQL resource");
     runtime.block_on(tokio::task::yield_now());
@@ -2683,6 +2696,8 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
             .contains("project-secret")
     );
     assert!(!request_debug.contains("project-secret"));
+    assert!(!request_debug.contains("root-secret"));
+    assert!(request_debug.contains("PGPASSWORD"));
     assert!(request_debug.contains("argument_count: 5"));
 }
 
