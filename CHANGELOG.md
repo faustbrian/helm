@@ -110,6 +110,8 @@ All notable changes to this project are documented in this file.
   exact compatibility volume and never deletes persistent data during convergence.
 - Added compatibility-keyed shared-service reconciliation that detects foreign
   ownership before mutation and replaces drifted containers without deleting data.
+- Composed PostgreSQL instance reconciliation with idempotent attached database
+  and role provisioning for stable project credentials and managed environments.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

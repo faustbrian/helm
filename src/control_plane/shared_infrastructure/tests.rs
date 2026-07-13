@@ -12,9 +12,10 @@ use super::{
     plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_postgres_logical_resource, reconcile_shared_service, reconcile_shared_volume,
-    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
-    store_credential_secret, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    provision_postgres_logical_resource, reconcile_postgres_project_resources,
+    reconcile_shared_service, reconcile_shared_volume, reload_rabbitmq_definitions,
+    reload_redis_acl, revoke_rabbitmq_project_access, store_credential_secret,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -1531,6 +1532,129 @@ fn postgres_project_resources_emit_stable_credentials_and_managed_environment() 
 }
 
 #[test]
+fn postgres_project_reconciliation_converges_instance_before_logical_resources() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let instance = PostgresSharedInstancePlan::new(
+        &shared,
+        PostgresSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL instance plan");
+    let project = plan_postgres_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL project resources");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_postgres_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile PostgreSQL project resources");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    assert!(
+        String::from_utf8(
+            engine
+                .command_input
+                .lock()
+                .expect("PostgreSQL command input")
+                .clone()
+        )
+        .expect("PostgreSQL SQL UTF-8")
+        .contains("project-secret")
+    );
+    assert_eq!(project.environment().project_id(), "bill");
+}
+
+#[test]
+fn postgres_logical_failures_leave_shared_instance_and_volume_intact() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let instance = PostgresSharedInstancePlan::new(
+        &shared,
+        PostgresSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL instance plan");
+    let project = plan_postgres_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL project resources");
+    let mut engine = RecordingSharedVolumeEngine {
+        command_exit: 1,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_postgres_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            "install-1",
+            8,
+        ))
+        .expect_err("logical provisioning failure");
+
+    assert_eq!(
+        error.to_string(),
+        "shared infrastructure PostgreSQL logical resource provisioning failed: provision PostgreSQL logical resource exited with status 1"
+    );
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    assert!(engine.removed.is_empty());
+    assert!(engine.removed_containers.is_empty());
+}
+
+#[test]
 fn mysql_and_mariadb_materialize_as_separate_private_instances() {
     let mysql_shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
@@ -1932,6 +2056,9 @@ struct RecordingSharedVolumeEngine {
     state: crate::control_plane::engine::ContainerState,
     health: crate::control_plane::engine::ContainerHealth,
     operations: Vec<&'static str>,
+    command_input: Arc<Mutex<Vec<u8>>>,
+    command_arguments: Arc<Mutex<Vec<Vec<String>>>>,
+    command_exit: i64,
 }
 
 impl Default for RecordingSharedVolumeEngine {
@@ -1948,6 +2075,9 @@ impl Default for RecordingSharedVolumeEngine {
             state: crate::control_plane::engine::ContainerState::Missing,
             health: crate::control_plane::engine::ContainerHealth::Starting,
             operations: Vec::new(),
+            command_input: Arc::new(Mutex::new(Vec::new())),
+            command_arguments: Arc::new(Mutex::new(Vec::new())),
+            command_exit: 0,
         }
     }
 }
@@ -2072,6 +2202,48 @@ impl crate::control_plane::engine::HealthObserver for RecordingSharedVolumeEngin
         _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, crate::control_plane::engine::ContainerHealth> {
         Box::pin(async { Ok(self.health) })
+    }
+}
+
+impl CommandExecutor for RecordingSharedVolumeEngine {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        let input = Arc::clone(&self.command_input);
+        self.command_arguments
+            .lock()
+            .expect("command arguments")
+            .push(request.arguments().to_vec());
+        let container_id = container.id().clone();
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(16 * 1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read shared service command input");
+                *input.lock().expect("command input") = bytes;
+            });
+            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("shared-service-command"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(self.command_exit)) })
     }
 }
 

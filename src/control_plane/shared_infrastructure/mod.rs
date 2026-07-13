@@ -26,7 +26,7 @@ pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
     PostgresLogicalResourcePlan, PostgresPlanError, PostgresProjectResources,
     PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, plan_postgres_project_resources,
-    provision_postgres_logical_resource,
+    provision_postgres_logical_resource, reconcile_postgres_project_resources,
 };
 pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
