@@ -4,24 +4,25 @@ use super::{
     GotenbergSharedInstancePlanOptions, IsolationCapability, MailpitAuthenticationSnapshot,
     MailpitProjectDefinition, MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions,
     MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
-    MySqlFlavor, MySqlMigrationInstancePlanOptions, MySqlSharedInstancePlan,
-    MySqlSharedInstancePlanOptions, ObjectStoreFlavor, ObjectStoreProjectResources,
-    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions, PersistenceMode,
-    PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
-    PostgresMigrationPreparationOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
-    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
-    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
-    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
-    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
-    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    MySqlFlavor, MySqlMigrationInstancePlanOptions, MySqlMigrationPreparationOptions,
+    MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
+    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
+    ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
+    PostgresMigrationInstancePlanOptions, PostgresMigrationPreparationOptions,
+    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
+    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
+    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
+    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
+    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
+    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
+    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
+    plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    plan_sql_server_project_resources, prepare_postgres_migration_target,
-    prepare_postgres_shared_instances, prepare_shared_instances,
+    plan_sql_server_project_resources, prepare_mysql_migration_target,
+    prepare_postgres_migration_target, prepare_postgres_shared_instances, prepare_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_object_store_project_resources, provision_postgres_logical_resource,
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
@@ -4466,6 +4467,54 @@ fn mysql_migration_target_is_separate_owned_and_retained() {
                 .expect("fingerprint")
         )
     );
+}
+
+#[test]
+fn mysql_migration_target_reuses_its_durable_bootstrap_credential() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-mysql-migration-target-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let options = MySqlMigrationPreparationOptions {
+        migration_id: "restore-42",
+        project_id: "bill",
+        installation_id: "install-1",
+        network_name: "stackctl",
+        schema_version: 8,
+        desired_revision: "sha256:mysql-target",
+    };
+
+    let first =
+        prepare_mysql_migration_target(&mut store, &shared, &FixedCredentialEntropy(0x11), options)
+            .expect("first MySQL target preparation");
+    let second =
+        prepare_mysql_migration_target(&mut store, &shared, &FixedCredentialEntropy(0x22), options)
+            .expect("replayed MySQL target preparation");
+
+    assert_eq!(first.container(), second.container());
+    assert_eq!(first.volume(), second.volume());
+    assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
+    assert_eq!(store.credentials().expect("credentials").len(), 1);
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove MySQL target state");
+        }
+    }
 }
 
 #[test]
