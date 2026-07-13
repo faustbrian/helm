@@ -23,6 +23,8 @@ All notable changes to this project are documented in this file.
   declarations in deterministic v8 desired state instead of discarding them.
 - Added durable logical tenant-resource ownership and active reference counting
   for shared instances, including orphaning and exact project adoption behavior.
+- Added bounded deterministic watched-root discovery with canonical deduplication,
+  isolated TOML migration diagnostics, size limits, and symlink-safe YAML loading.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
