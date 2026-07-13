@@ -12,6 +12,8 @@ pub(crate) enum DesiredProjectError {
     UnknownDependency { service: String, dependency: String },
     /// Service dependencies contain a cycle.
     DependencyCycle { cycle: Vec<String> },
+    /// A service declaration is structurally or semantically incomplete.
+    InvalidService { service: String, detail: String },
 }
 
 impl Display for DesiredProjectError {
@@ -32,6 +34,9 @@ impl Display for DesiredProjectError {
                     cycle.join(" -> ")
                 )
             }
+            Self::InvalidService { service, detail } => {
+                write!(formatter, "service '{service}' {detail}")
+            }
         }
     }
 }
@@ -40,7 +45,9 @@ impl Error for DesiredProjectError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Identity(error) => Some(error),
-            Self::UnknownDependency { .. } | Self::DependencyCycle { .. } => None,
+            Self::UnknownDependency { .. }
+            | Self::DependencyCycle { .. }
+            | Self::InvalidService { .. } => None,
         }
     }
 }

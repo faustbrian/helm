@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
   required an explicit exact-match adoption transaction to reactivate retained data.
 - Added complete atomic project adoption that binds the registered canonical path
   and reactivates only exact resources, credentials, and environment revision.
+- Preserved complete preset, image, version, extension, database, and dependency
+  declarations in deterministic v8 desired state instead of discarding them.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected

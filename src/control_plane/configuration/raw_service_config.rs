@@ -15,6 +15,16 @@ pub(crate) struct RawServiceConfig {
 }
 
 impl RawServiceConfig {
+    /// Returns the exact declared preset.
+    pub(crate) fn preset(&self) -> Option<&str> {
+        self.preset.as_deref()
+    }
+
+    /// Returns the exact declared image reference before immutable resolution.
+    pub(crate) fn image(&self) -> Option<&str> {
+        self.image.as_deref()
+    }
+
     /// Returns the exact compatibility version string when declared.
     pub(crate) fn version(&self) -> Option<&str> {
         self.version.as_deref()
@@ -23,5 +33,15 @@ impl RawServiceConfig {
     /// Returns exact declared service dependencies.
     pub(crate) fn depends_on(&self) -> &[String] {
         &self.depends_on
+    }
+
+    /// Returns exact declared PHP extensions.
+    pub(crate) fn php_extensions(&self) -> &[String] {
+        &self.php_extensions
+    }
+
+    /// Returns the exact requested logical database name.
+    pub(crate) fn database(&self) -> Option<&str> {
+        self.database.as_deref()
     }
 }

@@ -45,6 +45,11 @@ impl DesiredProject {
         self.services.keys().map(String::as_str).collect()
     }
 
+    /// Returns one complete desired service by exact identity.
+    pub(crate) fn service(&self, name: &str) -> Option<&DesiredService> {
+        self.services.get(name)
+    }
+
     /// Returns the dependency-safe deterministic startup order.
     pub(crate) fn startup_order(&self) -> &[String] {
         &self.startup_order

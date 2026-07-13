@@ -33,6 +33,63 @@ services:
 }
 
 #[test]
+fn desired_state_preserves_the_complete_service_declaration_deterministically() {
+    let source = r#"
+schema_version: 8
+project: bill
+services:
+  app:
+    preset: laravel
+    image: ghcr.io/stackctl/php:8.4
+    php_extensions: [redis, intl]
+    depends_on: [db]
+  db:
+    preset: postgres
+    version: "17"
+    database: bill
+"#;
+
+    let desired = desired_from(source).expect("complete desired state");
+    let app = desired.service("app").expect("app service");
+    let database = desired.service("db").expect("database service");
+
+    assert_eq!(app.preset(), Some("laravel"));
+    assert_eq!(app.image(), Some("ghcr.io/stackctl/php:8.4"));
+    assert_eq!(app.php_extensions(), ["intl", "redis"]);
+    assert_eq!(app.version(), None);
+    assert_eq!(database.preset(), Some("postgres"));
+    assert_eq!(database.version(), Some("17"));
+    assert_eq!(database.database(), Some("bill"));
+}
+
+#[test]
+fn desired_state_rejects_empty_services_and_duplicate_extensions() {
+    let empty = r#"
+schema_version: 8
+services:
+  app: {}
+"#;
+    let duplicate_extension = r#"
+schema_version: 8
+services:
+  app:
+    preset: laravel
+    php_extensions: [redis, redis]
+"#;
+
+    assert_eq!(
+        desired_from(empty).expect_err("empty service").to_string(),
+        "service 'app' must declare at least a preset or image"
+    );
+    assert_eq!(
+        desired_from(duplicate_extension)
+            .expect_err("duplicate extension")
+            .to_string(),
+        "service 'app' declares PHP extension 'redis' more than once"
+    );
+}
+
+#[test]
 fn rejects_duplicate_keys() {
     let source = "schema_version: 8\nproject: bill\nproject: bill-1\nservices: {}\n";
 
@@ -154,6 +211,7 @@ fn dependency_order_is_independent_of_yaml_map_order() {
 schema_version: 8
 services:
   app:
+    preset: laravel
     depends_on: [db, cache]
   db:
     preset: postgres
@@ -168,6 +226,7 @@ services:
   db:
     preset: postgres
   app:
+    preset: laravel
     depends_on: [cache, db]
 "#;
 
@@ -184,6 +243,7 @@ fn rejects_dependencies_that_are_not_declared_services() {
 schema_version: 8
 services:
   app:
+    preset: laravel
     depends_on: [database]
 "#;
 
@@ -201,8 +261,10 @@ fn rejects_dependency_cycles_with_the_complete_cycle() {
 schema_version: 8
 services:
   app:
+    preset: laravel
     depends_on: [worker]
   worker:
+    preset: worker
     depends_on: [app]
 "#;
 

@@ -1,4 +1,4 @@
-use super::{DesiredProject, DesiredProjectError, DesiredService};
+use super::{DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions};
 use crate::control_plane::configuration::RawProjectConfig;
 use crate::control_plane::{ProjectIdentity, RouteClaim, ServiceIdentity};
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +30,47 @@ pub(crate) fn resolve_desired_project(
             .map(|dependency| ServiceIdentity::new(dependency))
             .collect::<Result<Vec<_>, _>>()?;
 
-        services.insert(name.clone(), DesiredService::new(identity, dependencies));
+        let preset = optional_non_empty(name, "preset", raw_service.preset())?;
+        let image = optional_non_empty(name, "image", raw_service.image())?;
+        if preset.is_none() && image.is_none() {
+            return Err(invalid_service(
+                name,
+                "must declare at least a preset or image",
+            ));
+        }
+        let version = optional_non_empty(name, "version", raw_service.version())?;
+        let database = optional_non_empty(name, "database", raw_service.database())?;
+        let mut php_extensions = raw_service.php_extensions().to_vec();
+        php_extensions.sort();
+        for pair in php_extensions.windows(2) {
+            if pair[0] == pair[1] {
+                return Err(invalid_service(
+                    name,
+                    format!("declares PHP extension '{}' more than once", pair[0]),
+                ));
+            }
+        }
+        for extension in &php_extensions {
+            if !valid_php_extension(extension) {
+                return Err(invalid_service(
+                    name,
+                    format!("declares invalid PHP extension '{extension}'"),
+                ));
+            }
+        }
+
+        services.insert(
+            name.clone(),
+            DesiredService::new(DesiredServiceOptions {
+                identity,
+                dependencies,
+                preset,
+                image,
+                version,
+                php_extensions,
+                database,
+            }),
+        );
     }
 
     validate_dependencies_exist(&services)?;
@@ -53,6 +93,35 @@ pub(crate) fn resolve_desired_project(
         startup_order,
         route_claims,
     ))
+}
+
+fn optional_non_empty(
+    service: &str,
+    field: &str,
+    value: Option<&str>,
+) -> Result<Option<String>, DesiredProjectError> {
+    match value {
+        Some("") => Err(invalid_service(service, format!("has an empty {field}"))),
+        Some(value) if value.trim() != value => {
+            Err(invalid_service(service, format!("has an invalid {field}")))
+        }
+        Some(value) => Ok(Some(value.to_owned())),
+        None => Ok(None),
+    }
+}
+
+fn valid_php_extension(extension: &str) -> bool {
+    !extension.is_empty()
+        && extension.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
+        })
+}
+
+fn invalid_service(service: &str, detail: impl Into<String>) -> DesiredProjectError {
+    DesiredProjectError::InvalidService {
+        service: service.to_owned(),
+        detail: detail.into(),
+    }
 }
 
 fn validate_dependencies_exist(
