@@ -9,6 +9,10 @@ pub(crate) use credential_generation_error::CredentialGenerationError;
 pub(crate) use credential_secret::CredentialSecret;
 pub(crate) use generate_credential_secret::generate_credential_secret;
 pub(crate) use isolation_capability::IsolationCapability;
+pub(crate) use mysql::{
+    MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlProjectResources,
+    MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, plan_mysql_project_resources,
+};
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
@@ -30,6 +34,7 @@ mod credential_secret;
 mod generate_credential_secret;
 mod isolation_capability;
 mod logical_service_consumer;
+mod mysql;
 mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;

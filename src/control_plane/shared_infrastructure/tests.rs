@@ -1,8 +1,9 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
-    PersistenceMode, PostgresLogicalResourcePlan, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
+    MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
+    PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
+    SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
     plan_postgres_project_resources, plan_shared_instances, provision_postgres_logical_resource,
 };
 use crate::control_plane::engine::{
@@ -359,6 +360,101 @@ fn postgres_project_resources_emit_stable_credentials_and_managed_environment() 
     assert!(!format!("{project:?}").contains("project-secret"));
 }
 
+#[test]
+fn mysql_and_mariadb_materialize_as_separate_private_instances() {
+    let mysql_shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let maria_shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "shop",
+        "database",
+        sql_profile("mariadb", "11"),
+    )])
+    .pop()
+    .expect("shared MariaDB plan");
+    let mysql = MySqlSharedInstancePlan::new(
+        &mysql_shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mysql-root".to_owned()),
+        },
+    )
+    .expect("MySQL instance");
+    let maria = MySqlSharedInstancePlan::new(
+        &maria_shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mariadb-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("maria-root".to_owned()),
+        },
+    )
+    .expect("MariaDB instance");
+
+    assert_eq!(mysql.flavor(), MySqlFlavor::MySql);
+    assert_eq!(maria.flavor(), MySqlFlavor::MariaDb);
+    assert_ne!(mysql.container().name(), maria.container().name());
+    assert_eq!(mysql.data_mount_target(), "/var/lib/mysql");
+    assert!(mysql.volume().is_some());
+    assert!(maria.volume().is_some());
+    assert!(!format!("{:?}", mysql.bootstrap_credential()).contains("mysql-root"));
+}
+
+#[test]
+fn mysql_project_resources_isolate_schema_user_and_application_environment() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let instance = MySqlSharedInstancePlan::new(
+        &shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mysql-root".to_owned()),
+        },
+    )
+    .expect("MySQL instance");
+    let project = plan_mysql_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MySQL project resources");
+
+    assert_eq!(project.logical().schema_name(), "stackctl_bill_database");
+    assert_eq!(project.logical().username(), "st_bill_database");
+    assert!(
+        project
+            .logical()
+            .stdin_sql()
+            .contains("GRANT ALL PRIVILEGES")
+    );
+    assert_eq!(
+        project.environment().values().get("DB_CONNECTION"),
+        Some(&"mysql".to_owned())
+    );
+    assert_eq!(
+        project.environment().values().get("DB_HOST"),
+        Some(&instance.container().name().to_owned())
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
+}
+
 struct SequentialEntropy;
 
 impl CredentialEntropy for SequentialEntropy {
@@ -425,6 +521,20 @@ fn fingerprint(extensions: Vec<&str>, major_version: &str) -> CompatibilityFinge
 fn profile(extensions: Vec<&str>, major_version: &str) -> CompatibilityProfile {
     CompatibilityProfile::from_options(postgres_options(extensions, major_version))
         .expect("valid compatibility profile")
+}
+
+fn sql_profile(implementation: &str, major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: implementation.to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("{implementation}@sha256:{}", "b".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::DatabaseAndRole,
+        platform_architecture: Some("linux/arm64".to_owned()),
+    })
+    .expect("valid SQL compatibility profile")
 }
 
 fn postgres_options(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprintOptions {

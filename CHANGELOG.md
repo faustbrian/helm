@@ -105,6 +105,10 @@ All notable changes to this project are documented in this file.
   secret SQL over stdin, drains output, and requires a successful exit status.
 - Added complete PostgreSQL project resource composition covering logical SQL,
   stable credential state, and private-host managed application environment.
+- Added separate executable MySQL and MariaDB shared-instance plans with exact
+  profiles, root credential ownership, private networking, and retained volumes.
+- Added MySQL-family project composition with isolated schemas/users, scoped
+  grants, stable credentials, and private managed application environments.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
