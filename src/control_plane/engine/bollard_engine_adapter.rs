@@ -3,10 +3,10 @@ use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
 use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
-    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
+    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerState, EngineError,
-    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
-    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    EngineFuture, HealthObserver, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
+    LogSource, LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
     ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
     OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource,
@@ -15,9 +15,10 @@ use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
-    ContainerCreateBody, ContainerSummary, EventMessage, EventMessageTypeEnum, HostConfig, Mount,
-    MountType, Network, NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum,
-    Volume, VolumeCreateRequest,
+    ContainerCreateBody, ContainerState as EngineContainerState, ContainerSummary, EventMessage,
+    EventMessageTypeEnum, HealthStatusEnum, HostConfig, Mount, MountType, Network,
+    NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
+    VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder,
@@ -415,6 +416,79 @@ impl CommandExecutor for BollardEngineAdapter {
             })
             .await
         })
+    }
+}
+
+impl HealthObserver for BollardEngineAdapter {
+    fn observe_health<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async move {
+            bounded_engine_operation("observe container health", request_timeout(), async {
+                let observed = match self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                {
+                    Ok(observed) => observed,
+                    Err(BollardError::DockerResponseServerError {
+                        status_code: 404, ..
+                    }) => return Ok(ContainerHealth::Missing),
+                    Err(error) => return Err(backend_error("inspect container health", error)),
+                };
+                verify_owned_container_labels_for(
+                    "observe health for",
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )?;
+
+                container_health(observed.state.as_ref())
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn container_health(
+    state: Option<&EngineContainerState>,
+) -> Result<ContainerHealth, EngineError> {
+    let state = state.ok_or_else(|| EngineError::Backend {
+        detail: "Engine returned container health without process state".to_owned(),
+    })?;
+
+    match state.running {
+        Some(false) => return Ok(ContainerHealth::Stopped),
+        Some(true) => {}
+        None => {
+            return Err(EngineError::Backend {
+                detail: "Engine returned container health without running state".to_owned(),
+            });
+        }
+    }
+
+    match state.health.as_ref().and_then(|health| health.status) {
+        None | Some(HealthStatusEnum::EMPTY | HealthStatusEnum::NONE) => {
+            Ok(ContainerHealth::RunningUnverified)
+        }
+        Some(HealthStatusEnum::STARTING) => Ok(ContainerHealth::Starting),
+        Some(HealthStatusEnum::HEALTHY) => Ok(ContainerHealth::Healthy),
+        Some(HealthStatusEnum::UNHEALTHY) => {
+            let failing_streak = state
+                .health
+                .as_ref()
+                .and_then(|health| health.failing_streak)
+                .unwrap_or_default();
+            let failing_streak =
+                u64::try_from(failing_streak).map_err(|_| EngineError::Backend {
+                    detail: "Engine returned a negative container health failing streak".to_owned(),
+                })?;
+
+            Ok(ContainerHealth::Unhealthy { failing_streak })
+        }
     }
 }
 

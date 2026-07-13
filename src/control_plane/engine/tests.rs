@@ -1,19 +1,20 @@
 use super::{
     CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
-    ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
-    ContainerState, EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
-    LogSource, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource, gateway_container_request, reconstruct_owned_container,
-    reconstruct_owned_network, reconstruct_owned_volume,
+    ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
+    ContainerLogTail, ContainerState, EngineFuture, HealthObserver, ImageId, ImageResolver,
+    ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, classify_observed_resource, gateway_container_request,
+    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
 use bollard::models::{
-    ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Network, Volume,
+    ContainerState as EngineContainerState, ContainerSummary, EventActor, EventMessage,
+    EventMessageTypeEnum, Health, HealthStatusEnum, Network, Volume,
 };
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
@@ -21,8 +22,8 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    command_create_request, container_event, create_request, image_pull_request, log_chunk,
-    log_request, managed_container_events_request, managed_container_list_request,
+    command_create_request, container_event, container_health, create_request, image_pull_request,
+    log_chunk, log_request, managed_container_events_request, managed_container_list_request,
     managed_network_list_request, managed_volume_list_request, network_create_request,
     observed_container, observed_network, observed_volume, validate_engine_api_version,
     verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
@@ -379,6 +380,69 @@ fn command_executor_boundary_is_object_safe() {
     fn accepts_command_executor(_executor: &dyn CommandExecutor) {}
 
     let _ = accepts_command_executor;
+}
+
+#[test]
+fn health_observations_distinguish_process_and_readiness_states() {
+    let stopped = EngineContainerState {
+        running: Some(false),
+        ..EngineContainerState::default()
+    };
+    let unverified = EngineContainerState {
+        running: Some(true),
+        ..EngineContainerState::default()
+    };
+    let starting = EngineContainerState {
+        running: Some(true),
+        health: Some(Health {
+            status: Some(HealthStatusEnum::STARTING),
+            ..Health::default()
+        }),
+        ..EngineContainerState::default()
+    };
+    let healthy = EngineContainerState {
+        health: Some(Health {
+            status: Some(HealthStatusEnum::HEALTHY),
+            ..Health::default()
+        }),
+        ..starting.clone()
+    };
+    let unhealthy = EngineContainerState {
+        health: Some(Health {
+            status: Some(HealthStatusEnum::UNHEALTHY),
+            failing_streak: Some(3),
+            ..Health::default()
+        }),
+        ..starting.clone()
+    };
+
+    assert_eq!(
+        container_health(Some(&stopped)).unwrap(),
+        ContainerHealth::Stopped
+    );
+    assert_eq!(
+        container_health(Some(&unverified)).unwrap(),
+        ContainerHealth::RunningUnverified
+    );
+    assert_eq!(
+        container_health(Some(&starting)).unwrap(),
+        ContainerHealth::Starting
+    );
+    assert_eq!(
+        container_health(Some(&healthy)).unwrap(),
+        ContainerHealth::Healthy
+    );
+    assert_eq!(
+        container_health(Some(&unhealthy)).unwrap(),
+        ContainerHealth::Unhealthy { failing_streak: 3 }
+    );
+}
+
+#[test]
+fn health_observer_boundary_is_object_safe() {
+    fn accepts_health_observer(_observer: &dyn HealthObserver) {}
+
+    let _ = accepts_health_observer;
 }
 
 #[test]

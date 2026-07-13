@@ -38,6 +38,8 @@ All notable changes to this project are documented in this file.
   and byte-preserving stdout, stderr, stdin, and console frames.
 - Added ownership-validated direct-Engine command execution with structured
   non-shell requests, attached streaming I/O, exit inspection, and redacted debug output.
+- Added an ownership-validated direct-Engine health observer that distinguishes
+  missing, stopped, unverified, starting, healthy, and unhealthy containers.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
