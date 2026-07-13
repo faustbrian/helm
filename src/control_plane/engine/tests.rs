@@ -1,8 +1,8 @@
 use super::{
-    BindMount, ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle,
-    ContainerRestartPolicy, ContainerState, EngineFuture, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, ObservedContainer, ObservedResourceOwnership, PortBinding,
-    ResourceKind, RetentionClass, classify_observed_resource,
+    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
+    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+    ObservedResourceOwnership, ResourceKind, RetentionClass, classify_observed_resource,
+    gateway_container_request,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -116,21 +116,16 @@ fn bollard_request_maps_only_typed_values_and_reserved_labels() {
 #[test]
 fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls() {
     let metadata = global_metadata(ResourceKind::Gateway);
-    let options = ContainerCreateOptions::new(
-        "stackctl-gateway",
+    let options = gateway_container_request(
         concat!(
             "ghcr.io/stackctl/gateway@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ),
+        "stackctl",
+        std::path::Path::new("/state/tls"),
         metadata,
     )
-    .expect("immutable gateway options")
-    .with_network("stackctl")
-    .expect("private network")
-    .with_port_binding(PortBinding::loopback(80, 80).expect("HTTP port"))
-    .with_port_binding(PortBinding::loopback(443, 443).expect("HTTPS port"))
-    .with_bind_mount(BindMount::read_only("/state/tls", "/etc/stackctl/tls").expect("TLS mount"))
-    .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
+    .expect("immutable gateway options");
 
     let (_, body) = create_request(&options);
     let host = body.host_config.expect("gateway host config");
