@@ -32,6 +32,8 @@ All notable changes to this project are documented in this file.
   current-installation labels after daemon database loss or Engine restart.
 - Added a bounded direct-Engine image resolver that accepts only sha256-pinned
   references, reuses local content, and pulls missing immutable images by digest.
+- Added a typed direct-Engine managed-container event stream with installation
+  filters, lifecycle and health actions, and reconnect cursor deduplication.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.

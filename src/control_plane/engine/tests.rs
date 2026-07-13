@@ -1,24 +1,29 @@
 use super::{
-    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
-    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, classify_observed_resource, gateway_container_request,
-    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
+    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
+    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
+    ContainerLifecycle, ContainerState, EngineFuture, ImageId, ImageResolver,
+    ImmutableImageReference, ManagedResourceMetadata, ManagedResourceMetadataOptions,
+    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
+    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
+    OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    classify_observed_resource, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
-use bollard::models::{ContainerSummary, Network, Volume};
+use bollard::models::{
+    ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Network, Volume,
+};
+use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    create_request, image_pull_request, managed_container_list_request,
-    managed_network_list_request, managed_volume_list_request, network_create_request,
-    observed_container, observed_network, observed_volume, validate_engine_api_version,
-    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
-    volume_create_request,
+    container_event, create_request, image_pull_request, managed_container_events_request,
+    managed_container_list_request, managed_network_list_request, managed_volume_list_request,
+    network_create_request, observed_container, observed_network, observed_volume,
+    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
+    verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -152,6 +157,102 @@ fn image_pull_requests_preserve_the_complete_digest_reference() {
 
     assert_eq!(request.from_image.as_deref(), Some(reference.as_str()));
     assert_eq!(request.tag, None);
+}
+
+#[test]
+fn managed_container_events_are_scoped_and_resume_without_replaying_the_cursor() {
+    let processed = ContainerEvent::new(
+        ContainerId::new("container-1"),
+        ContainerEventAction::Started,
+        2_500_000_000,
+    );
+    let cursor = ContainerEventCursor::beginning().advance(&processed);
+    let request = managed_container_events_request("installation-1", &cursor)
+        .expect("valid event subscription");
+
+    assert_eq!(request.since.as_deref(), Some("2"));
+    assert_eq!(
+        request.filters,
+        Some(std::collections::HashMap::from([
+            ("type".to_owned(), vec!["container".to_owned()]),
+            (
+                "label".to_owned(),
+                vec![
+                    "dev.stackctl.managed=true".to_owned(),
+                    "dev.stackctl.installation=installation-1".to_owned(),
+                ],
+            ),
+        ]))
+    );
+
+    let replayed = EventMessage {
+        typ: Some(EventMessageTypeEnum::CONTAINER),
+        action: Some("start".to_owned()),
+        actor: Some(EventActor {
+            id: Some("container-1".to_owned()),
+            ..EventActor::default()
+        }),
+        time_nano: Some(2_500_000_000),
+        ..EventMessage::default()
+    };
+    let new_health_event = EventMessage {
+        action: Some("health_status: unhealthy".to_owned()),
+        time_nano: Some(2_500_000_001),
+        ..replayed.clone()
+    };
+    let simultaneous_distinct_event = EventMessage {
+        action: Some("die".to_owned()),
+        ..replayed.clone()
+    };
+
+    assert_eq!(
+        container_event(replayed, &cursor).expect("valid event"),
+        None
+    );
+    assert!(
+        container_event(simultaneous_distinct_event, &cursor)
+            .expect("valid event")
+            .is_some()
+    );
+    let event = container_event(new_health_event, &cursor)
+        .expect("valid event")
+        .expect("new event");
+    assert_eq!(event.container_id().as_str(), "container-1");
+    assert_eq!(event.action(), &ContainerEventAction::HealthUnhealthy);
+    assert_eq!(event.occurred_at_nanoseconds(), 2_500_000_001);
+    assert_eq!(cursor.advance(&event).nanoseconds(), 2_500_000_001);
+}
+
+#[test]
+fn managed_container_event_subscriptions_require_an_installation_identity() {
+    let error = managed_container_events_request("", &ContainerEventCursor::beginning())
+        .expect_err("empty installation identity");
+
+    assert_eq!(
+        error.to_string(),
+        "managed event installation ID must not be empty"
+    );
+}
+
+#[test]
+fn container_event_source_is_streaming_and_object_safe() {
+    let source = RecordingContainerEventSource;
+    let strategy: &dyn ContainerEventSource = &source;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let event = runtime
+        .block_on(async {
+            strategy
+                .stream_managed("installation-1", ContainerEventCursor::beginning())
+                .next()
+                .await
+        })
+        .expect("event item")
+        .expect("valid event");
+
+    assert_eq!(event.action(), &ContainerEventAction::Started);
 }
 
 #[test]
@@ -698,6 +799,24 @@ struct RecordingResourceDiscovery {
 #[derive(Default)]
 struct RecordingImageResolver {
     resolved: Vec<ImmutableImageReference>,
+}
+
+struct RecordingContainerEventSource;
+
+impl ContainerEventSource for RecordingContainerEventSource {
+    fn stream_managed<'stream>(
+        &'stream self,
+        _installation_id: &'stream str,
+        _cursor: ContainerEventCursor,
+    ) -> ContainerEventStream<'stream> {
+        Box::pin(futures_util::stream::once(async {
+            Ok(ContainerEvent::new(
+                ContainerId::new("container-1"),
+                ContainerEventAction::Started,
+                1,
+            ))
+        }))
+    }
 }
 
 impl ImageResolver for RecordingImageResolver {

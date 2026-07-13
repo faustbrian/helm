@@ -1,23 +1,27 @@
 use super::bounded_engine_operation::bounded_engine_operation;
+use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
 use super::{
-    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineError, EngineFuture, ImageId, ImageResolver, ImmutableImageReference,
-    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
-    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
+    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
+    ContainerLifecycle, ContainerState, EngineError, EngineFuture, ImageId, ImageResolver,
+    ImmutableImageReference, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
+    OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
-    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, Network,
-    NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
-    VolumeCreateRequest,
+    ContainerCreateBody, ContainerSummary, EventMessage, EventMessageTypeEnum, HostConfig, Mount,
+    MountType, Network, NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    Volume, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
-    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, RemoveVolumeOptions,
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder,
+    ListContainersOptionsBuilder, ListNetworksOptionsBuilder, ListVolumesOptionsBuilder,
+    RemoveVolumeOptions,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
-use futures_util::TryStreamExt;
+use futures_util::{StreamExt, TryStreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
@@ -221,6 +225,112 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .map(observed_container)
             .collect()
         })
+    }
+}
+
+impl ContainerEventSource for BollardEngineAdapter {
+    fn stream_managed<'stream>(
+        &'stream self,
+        installation_id: &'stream str,
+        cursor: ContainerEventCursor,
+    ) -> ContainerEventStream<'stream> {
+        let request = match managed_container_events_request(installation_id, &cursor) {
+            Ok(request) => request,
+            Err(error) => {
+                return Box::pin(futures_util::stream::once(async move { Err(error) }));
+            }
+        };
+
+        Box::pin(self.docker.events(Some(request)).filter_map(move |result| {
+            let event = match result {
+                Ok(message) => container_event(message, &cursor),
+                Err(error) => Err(backend_error("stream managed container events", error)),
+            };
+
+            async move {
+                match event {
+                    Ok(Some(event)) => Some(Ok(event)),
+                    Ok(None) => None,
+                    Err(error) => Some(Err(error)),
+                }
+            }
+        }))
+    }
+}
+
+pub(super) fn managed_container_events_request(
+    installation_id: &str,
+    cursor: &ContainerEventCursor,
+) -> Result<EventsOptions, EngineError> {
+    if installation_id.is_empty() {
+        return Err(EngineError::InvalidRequest {
+            detail: "managed event installation ID must not be empty".to_owned(),
+        });
+    }
+
+    let filters = HashMap::from([
+        ("type", vec!["container".to_owned()]),
+        (
+            "label",
+            vec![
+                format!("{MANAGED_LABEL}=true"),
+                format!("{INSTALLATION_LABEL}={installation_id}"),
+            ],
+        ),
+    ]);
+    let mut builder = EventsOptionsBuilder::default().filters(&filters);
+
+    if let Some(since) = cursor.since_seconds() {
+        builder = builder.since(&since);
+    }
+
+    Ok(builder.build())
+}
+
+pub(super) fn container_event(
+    message: EventMessage,
+    cursor: &ContainerEventCursor,
+) -> Result<Option<ContainerEvent>, EngineError> {
+    if message.typ != Some(EventMessageTypeEnum::CONTAINER) {
+        return Ok(None);
+    }
+
+    let actor = message
+        .actor
+        .ok_or_else(|| malformed_event("missing actor"))?;
+    let container_id = actor
+        .id
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| malformed_event("missing container ID"))?;
+    let action = message
+        .action
+        .filter(|action| !action.is_empty())
+        .map(ContainerEventAction::from_engine_action)
+        .ok_or_else(|| malformed_event("missing action"))?;
+    let occurred_at_nanoseconds = message
+        .time_nano
+        .or_else(|| {
+            message
+                .time
+                .and_then(|seconds| seconds.checked_mul(1_000_000_000))
+        })
+        .and_then(|timestamp| u64::try_from(timestamp).ok())
+        .ok_or_else(|| malformed_event("missing or invalid timestamp"))?;
+
+    if cursor.has_processed(&container_id, &action, occurred_at_nanoseconds) {
+        return Ok(None);
+    }
+
+    Ok(Some(ContainerEvent::new(
+        ContainerId::new(container_id),
+        action,
+        occurred_at_nanoseconds,
+    )))
+}
+
+fn malformed_event(detail: &str) -> EngineError {
+    EngineError::Backend {
+        detail: format!("Engine returned malformed managed container event: {detail}"),
     }
 }
 
