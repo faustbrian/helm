@@ -17,7 +17,8 @@ pub(crate) struct PersistedProjectCommand {
     project_id: String,
     service_id: String,
     arguments: Vec<String>,
-    environment: BTreeMap<String, String>,
+    #[serde(default, skip_serializing, rename = "environment")]
+    _legacy_environment: BTreeMap<String, String>,
     input: Vec<u8>,
     timeout_milliseconds: u64,
     #[serde(default)]
@@ -33,7 +34,7 @@ impl PersistedProjectCommand {
             project_id: operation.plan().project_id().to_owned(),
             service_id: operation.service_id().to_owned(),
             arguments: operation.plan().arguments().to_vec(),
-            environment: operation.plan().environment().clone(),
+            _legacy_environment: BTreeMap::new(),
             input: operation.plan().input().to_vec(),
             timeout_milliseconds,
             browser_session: operation.plan().browser_session(),
@@ -54,7 +55,7 @@ impl PersistedProjectCommand {
                 name: "durable-command".to_owned(),
                 arguments: self.arguments,
             },
-            environment: self.environment,
+            environment: BTreeMap::new(),
             input: self.input,
             timeout: Duration::from_millis(self.timeout_milliseconds),
             browser_session: self.browser_session,

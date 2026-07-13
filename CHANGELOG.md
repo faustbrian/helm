@@ -648,6 +648,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Changed durable project-command payloads to retain only command identity and
+  intent. Managed environment values are now rehydrated from current in-memory
+  control-plane state immediately before Engine execution, preventing database
+  passwords and other generated credentials from being copied into operation
+  rows while remaining compatible with already queued payloads.
 - Changed prepared PostgreSQL tenant records to use the actual deterministic
   database name as their logical data identity and the lifecycle adapter's
   `postgres_database_and_role` kind, allowing backup and migration strategies

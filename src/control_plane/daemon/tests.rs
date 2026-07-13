@@ -157,11 +157,13 @@ fn queued_project_commands_execute_only_in_the_exact_owned_application() {
         .enable_all()
         .build()
         .expect("async runtime");
+    let mut options = command_execution_options(operation);
+    options.managed_environment = Ok(BTreeMap::from([(
+        "DB_PASSWORD".to_owned(),
+        "runtime-only-secret".to_owned(),
+    )]));
 
-    let result = runtime.block_on(execute_queued_project_command(
-        engine.clone(),
-        command_execution_options(operation),
-    ));
+    let result = runtime.block_on(execute_queued_project_command(engine.clone(), options));
 
     let output = result.outcome().as_ref().expect("command output");
     assert_eq!(result.operation_id(), "operation-42");
@@ -169,6 +171,10 @@ fn queued_project_commands_execute_only_in_the_exact_owned_application() {
     assert_eq!(output.stderr(), b"notice\n");
     assert_eq!(engine.started(), 1);
     assert_eq!(engine.containers(), ["container-app"]);
+    assert_eq!(
+        engine.command_environments()[0].get("DB_PASSWORD"),
+        Some(&"runtime-only-secret".to_owned())
+    );
 }
 
 #[test]
@@ -223,6 +229,7 @@ fn browser_project_commands_create_wait_inject_and_remove_one_ephemeral_sidecar(
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             ephemeral_browser: Some(Ok(browser)),
+            managed_environment: Ok(BTreeMap::new()),
         },
     ));
 
@@ -296,6 +303,7 @@ fn failed_browser_commands_still_remove_the_ephemeral_sidecar() {
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             ephemeral_browser: Some(Ok(browser)),
+            managed_environment: Ok(BTreeMap::new()),
         },
     ));
 
@@ -2094,7 +2102,10 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
     let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
         project_id: "bill".to_owned(),
         revision: "sha256:environment".to_owned(),
-        values: BTreeMap::from([("DB_HOST".to_owned(), "postgres.internal".to_owned())]),
+        values: BTreeMap::from([
+            ("DB_HOST".to_owned(), "postgres.internal".to_owned()),
+            ("DB_PASSWORD".to_owned(), "secret-value".to_owned()),
+        ]),
         lifecycle: EnvironmentLifecycle::Active,
     });
     let database_path = root.join("state.sqlite3");
@@ -2152,8 +2163,19 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         ["composer", "install", "--no-interaction"]
     );
     assert_eq!(event_journal.latest_sequence(), 1);
+    assert_eq!(
+        queued.plan().environment().get("DB_PASSWORD"),
+        Some(&"secret-value".to_owned())
+    );
 
     drop(control_plane);
+    let persisted = SqliteStateStore::open(&database_path)
+        .expect("reopen state store")
+        .active_daemon_operations()
+        .expect("load queued operation");
+    assert_eq!(persisted.len(), 1);
+    assert!(!persisted[0].payload_json().contains("secret-value"));
+    assert!(!persisted[0].payload_json().contains("DB_PASSWORD"));
     std::fs::remove_dir_all(&root).expect("remove command fixture");
 }
 
@@ -2824,6 +2846,7 @@ fn command_execution_options(operation: QueuedProjectCommand) -> ProjectCommandE
         installation_id: "install-1".to_owned(),
         schema_version: 8,
         ephemeral_browser: None,
+        managed_environment: Ok(BTreeMap::new()),
     }
 }
 

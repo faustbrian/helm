@@ -87,6 +87,7 @@ impl UnixDaemonRuntime {
         let task = self.engine_runtime.spawn(execute_queued_project_command(
             engine,
             ProjectCommandExecutionOptions {
+                managed_environment: self.project_command_environment(&operation),
                 operation,
                 installation_id,
                 schema_version,
@@ -95,6 +96,28 @@ impl UnixDaemonRuntime {
         ));
         self.active_project_command = Some(ActiveProjectCommand::new(operation_id, task));
         self.engine_runtime.block_on(tokio::task::yield_now());
+    }
+
+    fn project_command_environment(
+        &self,
+        operation: &super::QueuedProjectCommand,
+    ) -> Result<std::collections::BTreeMap<String, String>, EngineError> {
+        self.control_plane
+            .managed_environments()
+            .map_err(invalid)?
+            .into_iter()
+            .find(|environment| {
+                environment.project_id() == operation.plan().project_id()
+                    && environment.lifecycle()
+                        == crate::control_plane::state::EnvironmentLifecycle::Active
+            })
+            .map(|environment| environment.values().clone())
+            .ok_or_else(|| {
+                invalid(format!(
+                    "project '{}' has no active managed environment",
+                    operation.plan().project_id()
+                ))
+            })
     }
 
     fn ephemeral_browser_plan(

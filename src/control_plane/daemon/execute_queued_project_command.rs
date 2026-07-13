@@ -17,6 +17,10 @@ where
     let operation_id = operation.operation_id().to_owned();
     let outcome = async {
         let browser = options.ephemeral_browser.transpose()?;
+        let managed_environment = options.managed_environment?;
+        let plan = operation
+            .plan()
+            .with_additional_environment(&managed_environment)?;
         let application = find_application(
             &engine,
             operation.plan().project_id(),
@@ -28,10 +32,9 @@ where
 
         match browser {
             Some(browser) => {
-                run_ephemeral_browser_command(&mut engine, &application, operation.plan(), &browser)
-                    .await
+                run_ephemeral_browser_command(&mut engine, &application, &plan, &browser).await
             }
-            None => run_project_command(&engine, &application, operation.plan()).await,
+            None => run_project_command(&engine, &application, &plan).await,
         }
     }
     .await;
