@@ -1,7 +1,8 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
-    generate_credential_secret, plan_shared_instances,
+    CredentialGenerationError, CredentialSecret, IsolationCapability, PersistenceMode,
+    PostgresLogicalResourcePlan, SharedServiceRequest, generate_credential_secret,
+    plan_shared_instances,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -130,6 +131,52 @@ fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
         "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     );
     assert_eq!(format!("{secret:?}"), "CredentialSecret([REDACTED])");
+}
+
+#[test]
+fn postgres_logical_resources_use_deterministic_isolated_names_and_stdin() {
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL logical plan");
+
+    assert_eq!(plan.database_name(), "stackctl_bill_database");
+    assert_eq!(plan.role_name(), "stackctl_bill_database_role");
+    assert_eq!(plan.credential_id(), "bill/database/postgresql");
+    assert_eq!(
+        plan.command_arguments(),
+        [
+            "psql",
+            "--no-psqlrc",
+            "--set=ON_ERROR_STOP=1",
+            "--username=postgres",
+            "--dbname=postgres",
+        ]
+    );
+    assert!(plan.stdin_sql().contains("CREATE DATABASE"));
+    assert!(plan.stdin_sql().contains("REVOKE ALL"));
+    assert!(plan.stdin_sql().contains("project-secret"));
+    assert!(!format!("{plan:?}").contains("project-secret"));
+}
+
+#[test]
+fn postgres_logical_resources_fail_instead_of_shortening_identifiers() {
+    let project_id = "a".repeat(50);
+
+    let error = PostgresLogicalResourcePlan::new(
+        &project_id,
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect_err("overlong PostgreSQL role");
+
+    assert!(
+        error
+            .to_string()
+            .contains("exceeds PostgreSQL's 63-byte limit")
+    );
 }
 
 struct SequentialEntropy;

@@ -83,6 +83,8 @@ All notable changes to this project are documented in this file.
   demand by compatibility fingerprint and deduplicates logical consumers.
 - Added Rust-native 256-bit managed credential generation from OS entropy with
   injectable randomness for tests and redaction-safe secret diagnostics.
+- Added deterministic PostgreSQL database and restricted-role provisioning
+  plans that fail on overlong names and keep passwords in attached stdin only.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
