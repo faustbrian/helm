@@ -1,7 +1,8 @@
 use super::{
-    CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability, PersistenceMode,
+    CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability,
+    PersistenceMode, SharedServiceRequest, plan_shared_instances,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
 fn equivalent_postgres_profiles_share_one_fingerprint() {
@@ -60,6 +61,62 @@ fn mutable_image_references_cannot_identify_shared_instances() {
     assert_eq!(
         error.to_string(),
         "compatibility image 'postgres:17' must use an immutable sha256 digest"
+    );
+}
+
+#[test]
+fn forty_projects_across_two_postgres_majors_plan_two_instances() {
+    let requests = (0..40)
+        .map(|index| {
+            let major = if index < 20 { "17" } else { "18" };
+
+            SharedServiceRequest::new(
+                format!("project-{index:02}"),
+                "database",
+                fingerprint(vec!["postgis"], major),
+            )
+        })
+        .collect();
+
+    let plans = plan_shared_instances(requests);
+
+    assert_eq!(plans.len(), 2);
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| plan.consumers().len())
+            .collect::<Vec<_>>(),
+        vec![20, 20]
+    );
+    assert_eq!(
+        plans
+            .iter()
+            .map(|plan| plan.fingerprint())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn repeated_identical_consumers_do_not_duplicate_logical_ownership() {
+    let request = SharedServiceRequest::new("bill", "database", fingerprint(Vec::new(), "17"));
+
+    let plans = plan_shared_instances(vec![request.clone(), request]);
+    let consumers = plans
+        .first()
+        .map(|plan| plan.consumers())
+        .unwrap_or_default();
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(consumers.len(), 1);
+    assert_eq!(
+        consumers.first().map(|owner| owner.project_id()),
+        Some("bill")
+    );
+    assert_eq!(
+        consumers.first().map(|owner| owner.service_id()),
+        Some("database")
     );
 }
 
