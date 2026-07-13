@@ -8,14 +8,15 @@ use super::{
     ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
     ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
     PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    ProvisioningJobOptions, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
-    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
-    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
-    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
-    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
-    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
+    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
+    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
+    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
+    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
+    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
+    plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_postgres_shared_instances, prepare_shared_instances,
@@ -4015,6 +4016,10 @@ fn postgres_project_reconciliation_converges_instance_before_logical_resources()
         .contains("project-secret")
     );
     assert_eq!(project.environment().project_id(), "bill");
+    let prepared = PreparedPostgresSharedInstance::new(instance, vec![project]);
+    let logical = prepared.logical_record(&prepared.projects()[0], &result);
+    assert_eq!(logical.logical_resource_id(), "stackctl_bill_database");
+    assert_eq!(logical.kind(), "postgres_database_and_role");
 }
 
 #[test]

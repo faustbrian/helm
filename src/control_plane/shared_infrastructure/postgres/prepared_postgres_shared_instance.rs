@@ -11,7 +11,7 @@ pub(crate) struct PreparedPostgresSharedInstance {
 }
 
 impl PreparedPostgresSharedInstance {
-    pub(super) const fn new(
+    pub(crate) const fn new(
         instance: PostgresSharedInstancePlan,
         projects: Vec<PostgresProjectResources>,
     ) -> Self {
@@ -36,11 +36,11 @@ impl PreparedPostgresSharedInstance {
             .map(|volume| volume.volume().name())
             .unwrap_or_else(|| shared.container().id().as_str());
         LogicalResourceRecord::new(LogicalResourceRecordOptions {
-            logical_resource_id: project.logical().credential_id().to_owned(),
+            logical_resource_id: project.logical().database_name().to_owned(),
             shared_resource_id: shared_resource_id.to_owned(),
             project_id: project.logical().project_id().to_owned(),
             service_id: project.logical().service_id().to_owned(),
-            kind: "postgresql_database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
             compatibility_fingerprint: self
                 .instance
                 .container()

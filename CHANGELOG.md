@@ -643,6 +643,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Changed prepared PostgreSQL tenant records to use the actual deterministic
+  database name as their logical data identity and the lifecycle adapter's
+  `postgres_database_and_role` kind, allowing backup and migration strategies
+  to consume the same durable resource contract as shared provisioning.
 - Changed v8 Engine socket connection to negotiate API compatibility and reject
   versions older than 1.41 before reconciliation can begin.
 - Completed v8 Engine ownership labels with stable project IDs, compatibility
