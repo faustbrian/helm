@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an executable v8 retention policy that keeps active resources, ages out
+  disposable orphans, and blocks persistent deletion without explicit prune
+  intent and verified backup evidence.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added v8 dedicated application-container planning with immutable reusable

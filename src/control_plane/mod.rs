@@ -8,6 +8,7 @@ mod gateway;
 mod identity_error;
 mod project_identity;
 mod registry_conflict;
+mod retention;
 mod route_claim;
 mod route_identity;
 mod service_identity;
