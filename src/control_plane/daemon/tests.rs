@@ -105,6 +105,43 @@ fn project_log_buffer_pages_without_skipping_and_exposes_terminal_state() {
 }
 
 #[test]
+fn cancelled_project_log_sessions_release_capacity_immediately() {
+    let mut sessions = ProjectLogSessionRegistry::new(1, 4).expect("log sessions");
+    sessions
+        .open(project_log_request("logs-1"))
+        .expect("first session");
+
+    sessions.cancel("logs-1").expect("cancel session");
+    sessions
+        .open(project_log_request("logs-2"))
+        .expect("replacement session");
+
+    assert!(sessions.should_stop("logs-1"));
+    assert!(!sessions.should_stop("logs-2"));
+}
+
+#[test]
+fn idle_project_log_sessions_expire_and_release_capacity() {
+    let started_at = Instant::now();
+    let mut sessions = ProjectLogSessionRegistry::with_idle_timeout(1, 4, Duration::from_secs(30))
+        .expect("log sessions");
+    sessions
+        .open_at(project_log_request("logs-1"), started_at)
+        .expect("first session");
+
+    let expired = sessions.expire_idle(started_at + Duration::from_secs(30));
+    sessions
+        .open_at(
+            project_log_request("logs-2"),
+            started_at + Duration::from_secs(30),
+        )
+        .expect("replacement session");
+
+    assert_eq!(expired, vec!["logs-1"]);
+    assert!(sessions.should_stop("logs-1"));
+}
+
+#[test]
 fn queued_project_commands_execute_only_in_the_exact_owned_application() {
     let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
         "container-app",
@@ -2009,6 +2046,20 @@ fn queued_composer_command(
     .expect("project command plan");
 
     QueuedProjectCommand::new(operation_id.to_owned(), service_id.to_owned(), plan)
+}
+
+fn project_log_request(session_id: &str) -> ProjectLogRequest {
+    ProjectLogRequest::new(
+        session_id.to_owned(),
+        "bill".to_owned(),
+        vec![ProjectLogTarget::new(
+            "app".to_owned(),
+            "container-app".to_owned(),
+            Some("bill".to_owned()),
+        )],
+        true,
+        None,
+    )
 }
 
 fn observed_project_application(

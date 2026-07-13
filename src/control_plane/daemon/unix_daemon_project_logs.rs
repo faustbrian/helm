@@ -9,6 +9,10 @@ const LOG_CHANNEL_CAPACITY: usize = 64;
 impl UnixDaemonRuntime {
     /// Advances concurrent read-only Engine log sessions without durable output.
     pub(super) fn drive_project_logs(&mut self, now: Instant) {
+        for session_id in self.project_logs.expire_idle(now) {
+            tracing::debug!(session_id, "expired idle project log session");
+        }
+        self.cancel_project_log_sessions();
         self.engine_runtime.block_on(tokio::task::yield_now());
         self.drain_project_log_messages();
         self.finish_project_log_sessions();
@@ -118,7 +122,7 @@ impl UnixDaemonRuntime {
         let cancelled = self
             .active_project_logs
             .keys()
-            .filter(|session_id| self.project_logs.is_cancelled(session_id))
+            .filter(|session_id| self.project_logs.should_stop(session_id))
             .cloned()
             .collect::<Vec<_>>();
         for session_id in cancelled {

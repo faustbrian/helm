@@ -1,20 +1,24 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::time::{Duration, Instant};
 
 use super::ipc::{IpcLogChunk, IpcLogSessionState, IpcOutputStream};
 use super::{ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistryError};
 
 const DEFAULT_MAX_SESSIONS: usize = 32;
 const DEFAULT_BUFFER_CHUNKS: usize = 1_024;
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct ProjectLogSession {
     request: ProjectLogRequest,
     buffer: ProjectLogBuffer,
+    last_activity: Instant,
 }
 
 /// Bounded non-durable registry for concurrent project log readers.
 pub(crate) struct ProjectLogSessionRegistry {
     max_sessions: usize,
     buffer_chunks: usize,
+    idle_timeout: Duration,
     sessions: BTreeMap<String, ProjectLogSession>,
     pending: VecDeque<String>,
 }
@@ -24,13 +28,25 @@ impl ProjectLogSessionRegistry {
         max_sessions: usize,
         buffer_chunks: usize,
     ) -> Result<Self, ProjectLogSessionRegistryError> {
+        Self::with_idle_timeout(max_sessions, buffer_chunks, DEFAULT_IDLE_TIMEOUT)
+    }
+
+    pub(crate) fn with_idle_timeout(
+        max_sessions: usize,
+        buffer_chunks: usize,
+        idle_timeout: Duration,
+    ) -> Result<Self, ProjectLogSessionRegistryError> {
         if max_sessions == 0 || buffer_chunks == 0 {
             return Err(ProjectLogSessionRegistryError::InvalidCapacity);
+        }
+        if idle_timeout.is_zero() {
+            return Err(ProjectLogSessionRegistryError::InvalidIdleTimeout);
         }
 
         Ok(Self {
             max_sessions,
             buffer_chunks,
+            idle_timeout,
             sessions: BTreeMap::new(),
             pending: VecDeque::new(),
         })
@@ -39,6 +55,14 @@ impl ProjectLogSessionRegistry {
     pub(crate) fn open(
         &mut self,
         request: ProjectLogRequest,
+    ) -> Result<(), ProjectLogSessionRegistryError> {
+        self.open_at(request, Instant::now())
+    }
+
+    pub(crate) fn open_at(
+        &mut self,
+        request: ProjectLogRequest,
+        now: Instant,
     ) -> Result<(), ProjectLogSessionRegistryError> {
         let session_id = request.session_id().to_owned();
         if self.sessions.contains_key(&session_id) {
@@ -50,8 +74,14 @@ impl ProjectLogSessionRegistry {
             });
         }
         let buffer = ProjectLogBuffer::new(self.buffer_chunks).map_err(buffer_error)?;
-        self.sessions
-            .insert(session_id.clone(), ProjectLogSession { request, buffer });
+        self.sessions.insert(
+            session_id.clone(),
+            ProjectLogSession {
+                request,
+                buffer,
+                last_activity: now,
+            },
+        );
         self.pending.push_back(session_id);
 
         Ok(())
@@ -108,14 +138,33 @@ impl ProjectLogSessionRegistry {
         session_id: &str,
     ) -> Result<(), ProjectLogSessionRegistryError> {
         self.pending.retain(|pending| pending != session_id);
-        self.session_mut(session_id)?.buffer.cancel();
+        self.sessions.remove(session_id).ok_or_else(|| {
+            ProjectLogSessionRegistryError::UnknownSession {
+                session_id: session_id.to_owned(),
+            }
+        })?;
         Ok(())
     }
 
-    pub(crate) fn is_cancelled(&self, session_id: &str) -> bool {
-        self.sessions
-            .get(session_id)
-            .is_some_and(|session| session.buffer.is_cancelled())
+    pub(crate) fn should_stop(&self, session_id: &str) -> bool {
+        !self.sessions.contains_key(session_id)
+    }
+
+    pub(crate) fn expire_idle(&mut self, now: Instant) -> Vec<String> {
+        let expired = self
+            .sessions
+            .iter()
+            .filter(|(_, session)| {
+                now.saturating_duration_since(session.last_activity) >= self.idle_timeout
+            })
+            .map(|(session_id, _)| session_id.clone())
+            .collect::<Vec<_>>();
+        for session_id in &expired {
+            self.pending.retain(|pending| pending != session_id);
+            drop(self.sessions.remove(session_id));
+        }
+
+        expired
     }
 
     pub(crate) fn poll(
@@ -124,15 +173,26 @@ impl ProjectLogSessionRegistry {
         after_sequence: Option<u64>,
         max_chunks: usize,
     ) -> Result<(Vec<IpcLogChunk>, u64, IpcLogSessionState), ProjectLogSessionRegistryError> {
-        let result = self
-            .sessions
-            .get(session_id)
-            .ok_or_else(|| ProjectLogSessionRegistryError::UnknownSession {
+        self.poll_at(session_id, after_sequence, max_chunks, Instant::now())
+    }
+
+    pub(crate) fn poll_at(
+        &mut self,
+        session_id: &str,
+        after_sequence: Option<u64>,
+        max_chunks: usize,
+        now: Instant,
+    ) -> Result<(Vec<IpcLogChunk>, u64, IpcLogSessionState), ProjectLogSessionRegistryError> {
+        let session = self.sessions.get_mut(session_id).ok_or_else(|| {
+            ProjectLogSessionRegistryError::UnknownSession {
                 session_id: session_id.to_owned(),
-            })?
+            }
+        })?;
+        let result = session
             .buffer
             .poll(after_sequence, max_chunks)
             .map_err(buffer_error)?;
+        session.last_activity = now;
         if result.2.terminal() {
             drop(self.sessions.remove(session_id));
         }

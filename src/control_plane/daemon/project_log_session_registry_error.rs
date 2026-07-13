@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProjectLogSessionRegistryError {
     InvalidCapacity,
+    InvalidIdleTimeout,
     DuplicateSession { session_id: String },
     CapacityReached { capacity: usize },
     UnknownSession { session_id: String },
@@ -15,6 +16,9 @@ impl Display for ProjectLogSessionRegistryError {
         match self {
             Self::InvalidCapacity => {
                 formatter.write_str("project log session capacity must be positive")
+            }
+            Self::InvalidIdleTimeout => {
+                formatter.write_str("project log session idle timeout must be positive")
             }
             Self::DuplicateSession { session_id } => {
                 write!(

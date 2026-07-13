@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added immediate cancellation cleanup and monotonic idle expiry for bounded v8
+  project-log sessions so disconnected clients release daemon capacity and
+  abort their Engine streams without waiting for a restart.
 - Added strict v8 `logs` streaming for exact declared application and shared
   services through bounded daemon-owned Engine sessions, preserving attributed
   stdout and stderr without Docker CLI, host Caddy, or durable log storage.
