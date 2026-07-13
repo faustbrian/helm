@@ -22,6 +22,10 @@ pub(crate) use postgres::{
     PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, plan_postgres_project_resources,
     provision_postgres_logical_resource,
 };
+pub(crate) use redis::{
+    RedisAclProject, RedisAclSnapshot, RedisPlanError, StoredRedisAclPaths,
+    store_redis_acl_snapshot,
+};
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_request::SharedServiceRequest;
 
@@ -40,5 +44,6 @@ mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
 mod postgres;
+mod redis;
 mod shared_instance_plan;
 mod shared_service_request;

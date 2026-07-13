@@ -3,9 +3,10 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_shared_instances, provision_mysql_logical_resource,
-    provision_postgres_logical_resource,
+    RedisAclProject, RedisAclSnapshot, SharedServiceRequest, generate_credential_secret,
+    plan_mysql_project_resources, plan_postgres_project_resources, plan_shared_instances,
+    provision_mysql_logical_resource, provision_postgres_logical_resource,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -16,6 +17,9 @@ use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn equivalent_postgres_profiles_share_one_fingerprint() {
@@ -144,6 +148,117 @@ fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
         "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     );
     assert_eq!(format!("{secret:?}"), "CredentialSecret([REDACTED])");
+}
+
+#[test]
+fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
+    let snapshot = RedisAclSnapshot::new(
+        CredentialSecret::new("admin-secret".to_owned()),
+        vec![
+            RedisAclProject::new(
+                "shop",
+                "cache",
+                CredentialSecret::new("shop-secret".to_owned()),
+            )
+            .expect("shop ACL"),
+            RedisAclProject::new(
+                "bill",
+                "cache",
+                CredentialSecret::new("bill-secret".to_owned()),
+            )
+            .expect("bill ACL"),
+        ],
+    )
+    .expect("ACL snapshot");
+
+    assert_eq!(
+        snapshot.contents(),
+        "user default off resetpass resetkeys resetchannels -@all\n\
+         user stackctl_admin on resetpass >admin-secret resetkeys ~* resetchannels &* +@all\n\
+         user st_bill_cache on resetpass >bill-secret resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n\
+         user st_shop_cache on resetpass >shop-secret resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n"
+    );
+    assert_eq!(
+        format!("{snapshot:?}"),
+        "RedisAclSnapshot { user_count: 3 }"
+    );
+    assert!(!format!("{snapshot:?}").contains("secret"));
+}
+
+#[test]
+fn redis_acl_snapshots_reject_duplicate_project_users() {
+    let projects = vec![
+        RedisAclProject::new(
+            "bill",
+            "cache",
+            CredentialSecret::new("first-secret".to_owned()),
+        )
+        .expect("first ACL"),
+        RedisAclProject::new(
+            "bill",
+            "cache",
+            CredentialSecret::new("second-secret".to_owned()),
+        )
+        .expect("second ACL"),
+    ];
+
+    let error = RedisAclSnapshot::new(CredentialSecret::new("admin".to_owned()), projects)
+        .expect_err("duplicate ACL user");
+
+    assert_eq!(
+        error.to_string(),
+        "Redis ACL user 'st_bill_cache' is defined more than once"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn redis_acl_store_atomically_replaces_a_private_directory_mounted_file() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-redis-acl-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    let initial = RedisAclSnapshot::new(CredentialSecret::new("admin-one".to_owned()), Vec::new())
+        .expect("initial ACL");
+    let replacement =
+        RedisAclSnapshot::new(CredentialSecret::new("admin-two".to_owned()), Vec::new())
+            .expect("replacement ACL");
+
+    let stored = store_redis_acl_snapshot(&initial, &root).expect("store initial ACL");
+    store_redis_acl_snapshot(&replacement, &root).expect("replace ACL");
+
+    assert_eq!(stored.directory(), root);
+    assert_eq!(stored.acl_file(), root.join("users.acl"));
+    assert_eq!(
+        std::fs::read_to_string(stored.acl_file()).expect("stored ACL"),
+        replacement.contents()
+    );
+    assert_eq!(
+        std::fs::metadata(stored.directory())
+            .expect("ACL directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(stored.acl_file())
+            .expect("ACL file")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::read_dir(stored.directory())
+            .expect("ACL directory entries")
+            .count(),
+        1
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove ACL fixture");
 }
 
 #[test]

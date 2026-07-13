@@ -113,6 +113,9 @@ All notable changes to this project are documented in this file.
   draining, status polling, timeouts, and redacted execution diagnostics.
 - Added direct MySQL and MariaDB logical-resource execution using attached SQL
   stdin and environment-only root authentication inside owned containers.
+- Added deterministic Redis-compatible ACL snapshots with anonymous access
+  disabled, project-scoped keys and channels, restricted command categories,
+  collision rejection, redacted diagnostics, and atomic private persistence.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
