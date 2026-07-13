@@ -1,6 +1,6 @@
 use super::{
-    CredentialRecord, InstallationRecord, ManagedEnvironmentRecord, ProjectAdoptionPlan,
-    ProjectRecord, ResourceRecord, StateStoreError,
+    CredentialRecord, InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord,
+    ProjectAdoptionPlan, ProjectRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -47,6 +47,21 @@ pub(crate) trait StateStore {
 
     /// Loads all durable resources in stable backend-identity order.
     fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError>;
+
+    /// Upserts logical tenant ownership without deleting missing retained data.
+    fn upsert_logical_resources(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+    ) -> Result<(), StateStoreError>;
+
+    /// Loads all logical tenant resources in stable identity order.
+    fn logical_resources(&self) -> Result<Vec<LogicalResourceRecord>, StateStoreError>;
+
+    /// Counts active logical consumers of one shared Engine resource.
+    fn active_logical_reference_count(
+        &self,
+        shared_resource_id: &str,
+    ) -> Result<u64, StateStoreError>;
 
     /// Inserts a credential once, returning the stable existing value on replay.
     fn insert_credential_if_absent(

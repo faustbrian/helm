@@ -1,8 +1,9 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectAdoptionPlan,
+    ProjectAdoptionPlanOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 6);
+    assert_eq!(store.schema_version().expect("schema version"), 7);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -205,6 +206,129 @@ fn complete_resource_ownership_survives_store_restart() {
     let store = SqliteStateStore::open(&database_path).expect("reopen state store");
 
     assert_eq!(store.resources().expect("load resources"), vec![resource]);
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn logical_resources_persist_and_reference_count_only_active_consumers() {
+    let database_path = temporary_database_path("logical-resources");
+    let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let shop = project_record("/work/shop", "shop", &["shop-app.stackctl.localhost"]);
+    let bill_database = logical_resource_record("bill/database", "bill", "database");
+    let shop_database = logical_resource_record("shop/database", "shop", "database");
+    let retained = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "old/database".to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: "old".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired-v1".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(10_000),
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_projects(&[bill, shop])
+        .expect("persist projects");
+    store
+        .upsert_logical_resources(&[
+            bill_database.clone(),
+            shop_database.clone(),
+            retained.clone(),
+        ])
+        .expect("persist logical resources");
+
+    assert_eq!(
+        store
+            .active_logical_reference_count("postgres-shared-17")
+            .expect("active references"),
+        2
+    );
+    assert_eq!(
+        store.logical_resources().expect("logical resources"),
+        vec![bill_database, retained, shop_database]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn orphaning_a_project_releases_its_active_shared_service_reference() {
+    let database_path = temporary_database_path("logical-resource-orphan");
+    let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let logical = logical_resource_record("bill/database", "bill", "database");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&bill).expect("persist project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+
+    store
+        .orphan_project(Path::new("/work/bill"), 12_345)
+        .expect("orphan project");
+
+    let retained = store
+        .logical_resources()
+        .expect("retained logical resources")
+        .pop()
+        .expect("logical resource");
+    assert_eq!(retained.lifecycle(), ResourceLifecycle::Orphaned);
+    assert_eq!(retained.orphaned_at_unix_seconds(), Some(12_345));
+    assert_eq!(
+        store
+            .active_logical_reference_count("postgres-shared-17")
+            .expect("released references"),
+        0
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn logical_resource_reconciliation_cannot_reassign_or_implicitly_adopt_tenants() {
+    let database_path = temporary_database_path("logical-resource-ownership");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let logical = logical_resource_record("bill/database", "bill", "database");
+    let forged = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: "foreign-postgres".to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: logical.desired_revision().to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+
+    let error = store
+        .upsert_logical_resources(std::slice::from_ref(&forged))
+        .expect_err("logical ownership drift");
+    assert_eq!(
+        error.to_string(),
+        "logical resource 'bill/database' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
+    );
+
+    store
+        .orphan_project(project.canonical_path(), 12_345)
+        .expect("orphan project");
+    let error = store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect_err("implicit logical adoption");
+    assert_eq!(
+        error.to_string(),
+        "project 'bill' has disabled managed state; explicit adoption is required before reactivation"
+    );
 
     drop(store);
     remove_database(&database_path);
@@ -509,6 +633,7 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
     let database_path = temporary_database_path("complete-project-adoption");
     let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
     let resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let logical = logical_resource_record("bill/database", "bill", "database");
     let credential = credential_record("secret-first");
     let environment = managed_environment(BTreeMap::from([(
         "DB_PASSWORD".to_owned(),
@@ -521,6 +646,9 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
     store
         .upsert_resources(std::slice::from_ref(&resource))
         .expect("persist resource");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
     store
         .insert_credential_if_absent(&credential)
         .expect("persist credential");
@@ -545,13 +673,14 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
     });
-    let incompatible = ProjectAdoptionPlan::new(
-        project.canonical_path().to_path_buf(),
-        "bill".to_owned(),
-        vec![incompatible_resource],
-        vec![credential.credential_id().to_owned()],
-        environment.revision().to_owned(),
-    )
+    let incompatible = ProjectAdoptionPlan::new(ProjectAdoptionPlanOptions {
+        canonical_path: project.canonical_path().to_path_buf(),
+        project_id: "bill".to_owned(),
+        resources: vec![incompatible_resource],
+        logical_resources: vec![logical.clone()],
+        credential_ids: vec![credential.credential_id().to_owned()],
+        environment_revision: environment.revision().to_owned(),
+    })
     .expect("incompatible adoption plan");
     let error = store
         .adopt_project(&incompatible)
@@ -560,13 +689,14 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
         error.to_string(),
         "resource 'container-bill' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
     );
-    let incomplete = ProjectAdoptionPlan::new(
-        project.canonical_path().to_path_buf(),
-        "bill".to_owned(),
-        vec![resource.clone()],
-        vec!["bill/database/missing".to_owned()],
-        environment.revision().to_owned(),
-    )
+    let incomplete = ProjectAdoptionPlan::new(ProjectAdoptionPlanOptions {
+        canonical_path: project.canonical_path().to_path_buf(),
+        project_id: "bill".to_owned(),
+        resources: vec![resource.clone()],
+        logical_resources: vec![logical.clone()],
+        credential_ids: vec!["bill/database/missing".to_owned()],
+        environment_revision: environment.revision().to_owned(),
+    })
     .expect("incomplete adoption plan");
     let error = store
         .adopt_project(&incomplete)
@@ -583,18 +713,23 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
         store.managed_environments().expect("still disabled")[0].lifecycle(),
         EnvironmentLifecycle::Disabled
     );
-    let adoption = ProjectAdoptionPlan::new(
-        project.canonical_path().to_path_buf(),
-        "bill".to_owned(),
-        vec![resource.clone()],
-        vec![credential.credential_id().to_owned()],
-        environment.revision().to_owned(),
-    )
+    let adoption = ProjectAdoptionPlan::new(ProjectAdoptionPlanOptions {
+        canonical_path: project.canonical_path().to_path_buf(),
+        project_id: "bill".to_owned(),
+        resources: vec![resource.clone()],
+        logical_resources: vec![logical.clone()],
+        credential_ids: vec![credential.credential_id().to_owned()],
+        environment_revision: environment.revision().to_owned(),
+    })
     .expect("project adoption plan");
 
     store.adopt_project(&adoption).expect("adopt project state");
 
     assert_eq!(store.resources().expect("active resources"), vec![resource]);
+    assert_eq!(
+        store.logical_resources().expect("active logical resources"),
+        vec![logical]
+    );
     assert_eq!(
         store.credentials().expect("active credentials")[0].lifecycle(),
         CredentialLifecycle::Active
@@ -633,7 +768,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 6);
+    assert_eq!(store.schema_version().expect("schema version"), 7);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -674,7 +809,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 6);
+    assert_eq!(store.schema_version().expect("schema version"), 7);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -706,6 +841,24 @@ fn resource_record(
         schema_version: 8,
         desired_revision: "sha256:desired-v1".to_owned(),
         retention,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+}
+
+fn logical_resource_record(
+    logical_resource_id: &str,
+    project_id: &str,
+    service_id: &str,
+) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical_resource_id.to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: project_id.to_owned(),
+        service_id: service_id.to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired-v1".to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
     })

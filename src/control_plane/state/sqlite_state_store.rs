@@ -1,14 +1,15 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
+    StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 6;
+const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -156,6 +157,28 @@ impl SqliteStateStore {
                  FROM credentials_v5;\n\
                  DROP TABLE credentials_v5;\n\
                  CREATE INDEX credentials_project_idx ON credentials(project_id);",
+            )?;
+        }
+
+        if found < 7 {
+            transaction.execute_batch(
+                "CREATE TABLE logical_resources (
+                     logical_resource_id TEXT PRIMARY KEY NOT NULL,
+                     shared_resource_id TEXT NOT NULL CHECK(length(shared_resource_id) > 0),
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                     service_id TEXT NOT NULL CHECK(length(service_id) > 0),
+                     kind TEXT NOT NULL CHECK(length(kind) > 0),
+                     compatibility_fingerprint TEXT NOT NULL
+                         CHECK(length(compatibility_fingerprint) > 0),
+                     desired_revision TEXT NOT NULL CHECK(length(desired_revision) > 0),
+                     lifecycle TEXT NOT NULL
+                         CHECK(lifecycle IN ('active', 'orphaned', 'retained')),
+                     orphaned_at_unix_seconds INTEGER
+                 ) STRICT;
+                 CREATE INDEX logical_resources_project_idx
+                     ON logical_resources(project_id);
+                 CREATE INDEX logical_resources_shared_idx
+                     ON logical_resources(shared_resource_id, lifecycle);",
             )?;
         }
 
@@ -354,6 +377,12 @@ impl StateStore for SqliteStateStore {
                 params![orphaned_at_unix_seconds, project_id],
             )?;
             transaction.execute(
+                "UPDATE logical_resources
+                 SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
+                 WHERE project_id = ?2 AND lifecycle = 'active'",
+                params![orphaned_at_unix_seconds, project_id],
+            )?;
+            transaction.execute(
                 "UPDATE credentials SET lifecycle = 'disabled'\n\
                  WHERE project_id = ?1 AND lifecycle = 'active'",
                 [&project_id],
@@ -453,6 +482,22 @@ impl StateStore for SqliteStateStore {
                 });
             }
         }
+        for resource in adoption.logical_resources() {
+            let existing =
+                load_logical_resource_ownership(&transaction, resource.logical_resource_id())?
+                    .ok_or_else(|| StateStoreError::ProjectAdoptionStateMismatch {
+                        project_id: adoption.project_id().to_owned(),
+                        detail: format!(
+                            "logical resource '{}' is missing",
+                            resource.logical_resource_id()
+                        ),
+                    })?;
+            if !existing.matches(resource) {
+                return Err(StateStoreError::LogicalResourceOwnershipConflict {
+                    logical_resource_id: resource.logical_resource_id().to_owned(),
+                });
+            }
+        }
         for credential_id in adoption.credential_ids() {
             let owner = transaction
                 .query_row(
@@ -494,6 +539,15 @@ impl StateStore for SqliteStateStore {
                      orphaned_at_unix_seconds = NULL
                  WHERE resource_id = ?2",
                 params![resource.desired_revision(), resource.resource_id()],
+            )?;
+        }
+        for resource in adoption.logical_resources() {
+            transaction.execute(
+                "UPDATE logical_resources
+                 SET desired_revision = ?1, lifecycle = 'active',
+                     orphaned_at_unix_seconds = NULL
+                 WHERE logical_resource_id = ?2",
+                params![resource.desired_revision(), resource.logical_resource_id()],
             )?;
         }
         for credential_id in adoption.credential_ids() {
@@ -586,6 +640,137 @@ impl StateStore for SqliteStateStore {
                 },
             )
             .collect()
+    }
+
+    fn upsert_logical_resources(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+    ) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        for resource in resources {
+            if let Some(existing) =
+                load_logical_resource_ownership(&transaction, resource.logical_resource_id())?
+            {
+                if !existing.matches(resource) {
+                    return Err(StateStoreError::LogicalResourceOwnershipConflict {
+                        logical_resource_id: resource.logical_resource_id().to_owned(),
+                    });
+                }
+                if !existing.is_active() && resource.lifecycle() == ResourceLifecycle::Active {
+                    return Err(StateStoreError::ProjectAdoptionRequired {
+                        project_id: resource.project_id().to_owned(),
+                    });
+                }
+            }
+            transaction.execute(
+                "INSERT INTO logical_resources (
+                     logical_resource_id, shared_resource_id, project_id, service_id,
+                     kind, compatibility_fingerprint, desired_revision, lifecycle,
+                     orphaned_at_unix_seconds
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(logical_resource_id) DO UPDATE SET
+                     desired_revision = excluded.desired_revision,
+                     lifecycle = excluded.lifecycle,
+                     orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
+                params![
+                    resource.logical_resource_id(),
+                    resource.shared_resource_id(),
+                    resource.project_id(),
+                    resource.service_id(),
+                    resource.kind(),
+                    resource.compatibility_fingerprint(),
+                    resource.desired_revision(),
+                    resource.lifecycle().label(),
+                    resource.orphaned_at_unix_seconds(),
+                ],
+            )?;
+        }
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn logical_resources(&self) -> Result<Vec<LogicalResourceRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT logical_resource_id, shared_resource_id, project_id, service_id,
+                    kind, compatibility_fingerprint, desired_revision, lifecycle,
+                    orphaned_at_unix_seconds
+             FROM logical_resources ORDER BY logical_resource_id",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(
+                |(
+                    logical_resource_id,
+                    shared_resource_id,
+                    project_id,
+                    service_id,
+                    kind,
+                    compatibility_fingerprint,
+                    desired_revision,
+                    lifecycle,
+                    orphaned_at_unix_seconds,
+                )| {
+                    let lifecycle =
+                        ResourceLifecycle::from_label(&lifecycle).ok_or_else(|| {
+                            StateStoreError::CorruptState {
+                                detail: format!(
+                                    "logical resource '{logical_resource_id}' has unknown lifecycle '{lifecycle}'"
+                                ),
+                            }
+                        })?;
+
+                    Ok(LogicalResourceRecord::new(LogicalResourceRecordOptions {
+                        logical_resource_id,
+                        shared_resource_id,
+                        project_id,
+                        service_id,
+                        kind,
+                        compatibility_fingerprint,
+                        desired_revision,
+                        lifecycle,
+                        orphaned_at_unix_seconds,
+                    }))
+                },
+            )
+            .collect()
+    }
+
+    fn active_logical_reference_count(
+        &self,
+        shared_resource_id: &str,
+    ) -> Result<u64, StateStoreError> {
+        let count = self.connection.query_row(
+            "SELECT COUNT(*) FROM logical_resources
+             WHERE shared_resource_id = ?1 AND lifecycle = 'active'",
+            [shared_resource_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+
+        u64::try_from(count).map_err(|_| StateStoreError::CorruptState {
+            detail: format!(
+                "shared resource '{shared_resource_id}' has invalid active reference count {count}"
+            ),
+        })
     }
 
     fn insert_credential_if_absent(
@@ -792,6 +977,54 @@ fn load_resource_ownership(
                     schema_version: row.get(4)?,
                     retention: row.get(5)?,
                     lifecycle: row.get(6)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
+struct PersistedLogicalResourceOwnership {
+    shared_resource_id: String,
+    project_id: String,
+    service_id: String,
+    kind: String,
+    compatibility_fingerprint: String,
+    lifecycle: String,
+}
+
+impl PersistedLogicalResourceOwnership {
+    fn matches(&self, resource: &LogicalResourceRecord) -> bool {
+        self.shared_resource_id == resource.shared_resource_id()
+            && self.project_id == resource.project_id()
+            && self.service_id == resource.service_id()
+            && self.kind == resource.kind()
+            && self.compatibility_fingerprint == resource.compatibility_fingerprint()
+    }
+
+    fn is_active(&self) -> bool {
+        self.lifecycle == ResourceLifecycle::Active.label()
+    }
+}
+
+fn load_logical_resource_ownership(
+    connection: &Connection,
+    logical_resource_id: &str,
+) -> Result<Option<PersistedLogicalResourceOwnership>, StateStoreError> {
+    connection
+        .query_row(
+            "SELECT shared_resource_id, project_id, service_id, kind,
+                    compatibility_fingerprint, lifecycle
+             FROM logical_resources WHERE logical_resource_id = ?1",
+            [logical_resource_id],
+            |row| {
+                Ok(PersistedLogicalResourceOwnership {
+                    shared_resource_id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    service_id: row.get(2)?,
+                    kind: row.get(3)?,
+                    compatibility_fingerprint: row.get(4)?,
+                    lifecycle: row.get(5)?,
                 })
             },
         )
