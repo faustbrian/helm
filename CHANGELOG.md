@@ -108,6 +108,9 @@ All notable changes to this project are documented in this file.
 - Added restart-safe certificate bundle recovery that verifies every immutable
   stored revision, deterministically selects the latest renewal generation,
   and blocks unexpected or ambiguous private TLS state.
+- Restricted the gateway container to individual read-only wildcard leaf
+  mounts so the Stackctl CA private key never enters the workload plane, and
+  tied gateway replacement identity to the immutable certificate generation.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

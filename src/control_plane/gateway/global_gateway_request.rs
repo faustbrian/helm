@@ -3,6 +3,7 @@ use crate::control_plane::engine::{
     ContainerCreateOptions, EngineError, GatewayContainerRequestOptions, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, gateway_container_request,
 };
+use sha2::{Digest, Sha256};
 
 const GATEWAY_IMAGE: &str = concat!(
     "caddy@sha256:",
@@ -17,13 +18,19 @@ const GATEWAY_SCHEMA_VERSION: u32 = 8;
 pub(crate) fn global_gateway_request(
     options: GlobalGatewayRequestOptions,
 ) -> Result<ContainerCreateOptions, EngineError> {
+    if options.certificate_revision.is_empty() {
+        return Err(EngineError::InvalidRequest {
+            detail: "gateway certificate revision must not be empty".to_owned(),
+        });
+    }
+    let desired_revision = gateway_revision(&options.certificate_revision);
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id,
         kind: ResourceKind::Gateway,
         project_id: None,
         compatibility_fingerprint: GATEWAY_PROFILE.to_owned(),
         schema_version: GATEWAY_SCHEMA_VERSION,
-        desired_revision: GATEWAY_IMAGE.to_owned(),
+        desired_revision,
         retention: RetentionClass::Disposable,
     })?
     .with_resource_id(GATEWAY_RESOURCE_ID)?;
@@ -31,9 +38,20 @@ pub(crate) fn global_gateway_request(
     gateway_container_request(GatewayContainerRequestOptions::new(
         GATEWAY_IMAGE.to_owned(),
         GATEWAY_NETWORK.to_owned(),
-        options.tls_directory,
+        options.certificate_path,
+        options.private_key_path,
         options.bootstrap_config_path,
         options.admin_runtime_directory,
         metadata,
     ))
+}
+
+fn gateway_revision(certificate_revision: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"stackctl-global-gateway-v1\0");
+    hasher.update(GATEWAY_IMAGE.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(certificate_revision.as_bytes());
+
+    format!("sha256:{}", hex::encode(hasher.finalize()))
 }

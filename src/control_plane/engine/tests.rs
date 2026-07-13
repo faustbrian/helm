@@ -926,7 +926,8 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
         )
         .to_owned(),
         "stackctl".to_owned(),
-        std::path::PathBuf::from("/state/tls"),
+        std::path::PathBuf::from("/state/tls/wildcard.crt"),
+        std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
         std::path::PathBuf::from("/state/gateway/run"),
         metadata,
@@ -966,9 +967,20 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
     );
     let mounts = host.mounts.expect("gateway mounts");
     assert!(mounts.iter().any(|mount| {
-        mount.source.as_deref() == Some("/state/tls")
-            && mount.target.as_deref() == Some("/etc/stackctl/tls")
+        mount.source.as_deref() == Some("/state/tls/wildcard.crt")
+            && mount.target.as_deref() == Some("/etc/stackctl/tls/wildcard.crt")
             && mount.read_only == Some(true)
+    }));
+    assert!(mounts.iter().any(|mount| {
+        mount.source.as_deref() == Some("/state/tls/wildcard.key")
+            && mount.target.as_deref() == Some("/etc/stackctl/tls/wildcard.key")
+            && mount.read_only == Some(true)
+    }));
+    assert!(mounts.iter().all(|mount| {
+        !mount
+            .source
+            .as_deref()
+            .is_some_and(|source| source.ends_with("/ca.key"))
     }));
     assert!(mounts.iter().any(|mount| {
         mount.source.as_deref() == Some("/state/gateway/config.json")

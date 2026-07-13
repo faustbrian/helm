@@ -5,7 +5,8 @@ use super::{
 use std::time::Duration;
 
 const GATEWAY_CONTAINER_NAME: &str = "stackctl-gateway";
-const GATEWAY_TLS_DIRECTORY: &str = "/etc/stackctl/tls";
+const GATEWAY_CERTIFICATE_PATH: &str = "/etc/stackctl/tls/wildcard.crt";
+const GATEWAY_PRIVATE_KEY_PATH: &str = "/etc/stackctl/tls/wildcard.key";
 const GATEWAY_CONFIG_PATH: &str = "/etc/stackctl/config.json";
 const GATEWAY_RUNTIME_DIRECTORY: &str = "/run/stackctl";
 
@@ -13,7 +14,8 @@ const GATEWAY_RUNTIME_DIRECTORY: &str = "/run/stackctl";
 pub(crate) fn gateway_container_request(
     options: GatewayContainerRequestOptions,
 ) -> Result<ContainerCreateOptions, EngineError> {
-    let tls_directory = utf8_path("TLS directory", &options.tls_directory)?;
+    let certificate_path = utf8_path("certificate", &options.certificate_path)?;
+    let private_key_path = utf8_path("private key", &options.private_key_path)?;
     let bootstrap_config_path = utf8_path("bootstrap config", &options.bootstrap_config_path)?;
     let admin_runtime_directory =
         utf8_path("admin runtime directory", &options.admin_runtime_directory)?;
@@ -23,7 +25,14 @@ pub(crate) fn gateway_container_request(
             .with_network(options.network)?
             .with_port_binding(PortBinding::loopback(80, 80)?)
             .with_port_binding(PortBinding::loopback(443, 443)?)
-            .with_bind_mount(BindMount::read_only(tls_directory, GATEWAY_TLS_DIRECTORY)?)
+            .with_bind_mount(BindMount::read_only(
+                certificate_path,
+                GATEWAY_CERTIFICATE_PATH,
+            )?)
+            .with_bind_mount(BindMount::read_only(
+                private_key_path,
+                GATEWAY_PRIVATE_KEY_PATH,
+            )?)
             .with_bind_mount(BindMount::read_only(
                 bootstrap_config_path,
                 GATEWAY_CONFIG_PATH,

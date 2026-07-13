@@ -37,7 +37,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 fn production_gateway_request_pins_official_caddy_and_global_ownership() {
     let request = global_gateway_request(GlobalGatewayRequestOptions {
         installation_id: "install-1".to_owned(),
-        tls_directory: "/state/tls/bundle".into(),
+        certificate_path: "/state/tls/bundle/wildcard.crt".into(),
+        private_key_path: "/state/tls/bundle/wildcard.key".into(),
+        certificate_revision: "bundle-v1".to_owned(),
         bootstrap_config_path: "/state/gateway/config.json".into(),
         admin_runtime_directory: "/state/gateway/run".into(),
     })
@@ -59,6 +61,17 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
     assert_eq!(request.metadata().installation_id(), "install-1");
     assert_eq!(request.metadata().kind(), ResourceKind::Gateway);
     assert_eq!(request.metadata().resource_id(), Some("gateway"));
+
+    let renewed = global_gateway_request(GlobalGatewayRequestOptions {
+        installation_id: "install-1".to_owned(),
+        certificate_path: "/state/tls/renewed/wildcard.crt".into(),
+        private_key_path: "/state/tls/renewed/wildcard.key".into(),
+        certificate_revision: "bundle-v2".to_owned(),
+        bootstrap_config_path: "/state/gateway/config.json".into(),
+        admin_runtime_directory: "/state/gateway/run".into(),
+    })
+    .expect("renewed gateway request");
+    assert_ne!(renewed.metadata(), request.metadata());
 }
 
 #[cfg(unix)]
@@ -1192,7 +1205,8 @@ fn gateway_request(metadata: ManagedResourceMetadata) -> ContainerCreateOptions 
         )
         .to_owned(),
         "stackctl".to_owned(),
-        std::path::PathBuf::from("/state/tls"),
+        std::path::PathBuf::from("/state/tls/wildcard.crt"),
+        std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
         std::path::PathBuf::from("/state/gateway/run"),
         metadata,
