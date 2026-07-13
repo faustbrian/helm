@@ -104,6 +104,8 @@ All notable changes to this project are documented in this file.
   responses cannot enter runtime planning or container reconciliation.
 - Added project-runtime reconciliation that validates the complete application
   request before building or reusing its derived image and starting the workload.
+- Added bounded non-shell Composer, Node, Bun, and repository-hook execution
+  inside the matching owned application container through the direct Engine API.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

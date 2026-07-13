@@ -1,17 +1,19 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    JavaScriptRuntimeSpec, ProjectProcessPlan, ProjectProcessPlanOptions,
-    ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
-    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
-    project_process_request, reconcile_project_application, reconcile_project_process,
-    reconcile_project_runtime,
+    JavaScriptRuntimeSpec, ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
+    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
+    ProjectRuntimeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
+    RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions, WorkloadReconcileAction,
+    WorkloadReconcileOptions, application_container_request, project_process_request,
+    reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
+    run_project_command,
 };
 use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
-    ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
-    ContainerRestartPolicy, ContainerState, EngineError, EngineFuture, HealthObserver,
-    ImageBuildRequest, ImageBuilder, ImageId, ManagedResourceMetadata,
+    CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
+    ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
+    ContainerLogStream, ContainerRestartPolicy, ContainerState, EngineError, EngineFuture,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
     RetentionClass, reconstruct_owned_container,
 };
@@ -21,6 +23,7 @@ use crate::control_plane::state::{
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::Duration;
 
 #[test]
 fn equivalent_runtime_inputs_reuse_one_content_addressed_image() {
@@ -216,6 +219,174 @@ fn project_runtime_build_failures_do_not_create_application_containers() {
 }
 
 #[test]
+fn project_tools_and_hooks_are_structured_container_commands() {
+    let cases = [
+        (
+            ProjectCommand::Composer {
+                arguments: vec!["install".to_owned(), "--no-interaction".to_owned()],
+            },
+            vec!["composer", "install", "--no-interaction"],
+        ),
+        (
+            ProjectCommand::Node {
+                arguments: vec!["scripts/build.mjs".to_owned()],
+            },
+            vec!["node", "scripts/build.mjs"],
+        ),
+        (
+            ProjectCommand::Bun {
+                arguments: vec!["run".to_owned(), "build".to_owned()],
+            },
+            vec!["bun", "run", "build"],
+        ),
+        (
+            ProjectCommand::Hook {
+                name: "post-create".to_owned(),
+                arguments: vec!["php".to_owned(), "artisan".to_owned(), "migrate".to_owned()],
+            },
+            vec!["php", "artisan", "migrate"],
+        ),
+    ];
+
+    for (command, expected) in cases {
+        let plan = ProjectCommandPlan::new(ProjectCommandPlanOptions {
+            project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+                .expect("project identity"),
+            command,
+            environment: BTreeMap::from([("APP_ENV".to_owned(), "local".to_owned())]),
+            input: Vec::new(),
+            timeout: Duration::from_secs(300),
+        })
+        .expect("project command plan");
+
+        assert_eq!(plan.arguments(), expected);
+        assert_eq!(plan.working_directory(), "/workspace");
+        assert!(plan.action().contains("project 'bill'"));
+        assert!(!plan.arguments().iter().any(|argument| argument == "sh"));
+    }
+}
+
+#[test]
+fn project_hook_validation_and_debug_output_do_not_leak_arguments() {
+    let unsafe_command = ProjectCommand::Hook {
+        name: "Post Create".to_owned(),
+        arguments: vec!["php".to_owned()],
+    };
+    let sensitive_command = ProjectCommand::Hook {
+        name: "post-create".to_owned(),
+        arguments: vec!["php".to_owned(), "project-secret".to_owned()],
+    };
+
+    let error = ProjectCommandPlan::new(ProjectCommandPlanOptions {
+        project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+            .expect("project identity"),
+        command: unsafe_command,
+        environment: BTreeMap::new(),
+        input: Vec::new(),
+        timeout: Duration::from_secs(300),
+    })
+    .expect_err("invalid hook name");
+
+    assert_eq!(
+        error.to_string(),
+        "project hook name 'Post Create' is invalid"
+    );
+    assert!(!format!("{sensitive_command:?}").contains("project-secret"));
+    let sensitive_plan = ProjectCommandPlan::new(ProjectCommandPlanOptions {
+        project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+            .expect("project identity"),
+        command: sensitive_command,
+        environment: BTreeMap::new(),
+        input: Vec::new(),
+        timeout: Duration::from_secs(300),
+    })
+    .expect("sensitive hook plan");
+    assert!(!format!("{sensitive_plan:?}").contains("project-secret"));
+}
+
+#[test]
+fn project_commands_reject_foreign_application_targets_before_engine_exec() {
+    let plan = ProjectCommandPlan::new(ProjectCommandPlanOptions {
+        project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+            .expect("project identity"),
+        command: ProjectCommand::Composer {
+            arguments: vec!["install".to_owned()],
+        },
+        environment: BTreeMap::new(),
+        input: Vec::new(),
+        timeout: Duration::from_secs(300),
+    })
+    .expect("project command plan");
+    let container = reconstruct_owned_container(
+        &ObservedContainer::new(
+            ContainerId::new("shop-app"),
+            project_application_metadata("shop", "sha256:runtime").labels(),
+        ),
+        "install-1",
+        8,
+    )
+    .expect("owned foreign application");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(run_project_command(
+            &UnreachableCommandExecutor,
+            &container,
+            &plan,
+        ))
+        .expect_err("foreign project application");
+
+    assert_eq!(
+        error.to_string(),
+        "project command for 'bill' cannot execute in project application 'shop'"
+    );
+}
+
+#[test]
+fn project_commands_execute_through_attached_engine_sessions() {
+    let plan = ProjectCommandPlan::new(ProjectCommandPlanOptions {
+        project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+            .expect("project identity"),
+        command: ProjectCommand::Node {
+            arguments: vec!["scripts/build.mjs".to_owned()],
+        },
+        environment: BTreeMap::new(),
+        input: Vec::new(),
+        timeout: Duration::from_secs(300),
+    })
+    .expect("project command plan");
+    let container = reconstruct_owned_container(
+        &ObservedContainer::new(
+            ContainerId::new("bill-app"),
+            project_application_metadata("bill", "sha256:runtime").labels(),
+        ),
+        "install-1",
+        8,
+    )
+    .expect("owned project application");
+    let executor = RecordingProjectCommandExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(run_project_command(&executor, &container, &plan))
+        .expect("attached project command");
+
+    assert_eq!(
+        executor
+            .arguments
+            .lock()
+            .expect("command arguments")
+            .as_slice(),
+        &[vec!["node".to_owned(), "scripts/build.mjs".to_owned()]]
+    );
+}
+
+#[test]
 fn project_applications_use_private_networking_without_host_ports() {
     let plan = application_plan("bill", "/work/bill");
 
@@ -383,7 +554,7 @@ fn project_application_reconciliation_keeps_healthy_desired_runtime() {
     let request = application_request("sha256:desired-v1");
     let mut engine = RecordingWorkloadEngine {
         observed: vec![ObservedContainer::new(
-            crate::control_plane::engine::ContainerId::new("bill-app"),
+            ContainerId::new("bill-app"),
             request.metadata().labels(),
         )],
         state: ContainerState::Running,
@@ -416,7 +587,7 @@ fn project_application_reconciliation_replaces_disposable_revision_drift() {
     let request = application_request("sha256:desired-v2");
     let mut engine = RecordingWorkloadEngine {
         observed: vec![ObservedContainer::new(
-            crate::control_plane::engine::ContainerId::new("bill-app"),
+            ContainerId::new("bill-app"),
             old_request.metadata().labels(),
         )],
         state: ContainerState::Running,
@@ -449,14 +620,8 @@ fn project_application_reconciliation_rejects_duplicate_owned_runtimes() {
     let labels = request.metadata().labels();
     let mut engine = RecordingWorkloadEngine {
         observed: vec![
-            ObservedContainer::new(
-                crate::control_plane::engine::ContainerId::new("bill-app-1"),
-                labels.clone(),
-            ),
-            ObservedContainer::new(
-                crate::control_plane::engine::ContainerId::new("bill-app-2"),
-                labels,
-            ),
+            ObservedContainer::new(ContainerId::new("bill-app-1"), labels.clone()),
+            ObservedContainer::new(ContainerId::new("bill-app-2"), labels),
         ],
         ..RecordingWorkloadEngine::default()
     };
@@ -512,12 +677,9 @@ fn project_process_reconciliation_selects_only_its_exact_resource_identity() {
     let scheduler = process_request("scheduler", "sha256:scheduler-v1");
     let mut engine = RecordingWorkloadEngine {
         observed: vec![
+            ObservedContainer::new(ContainerId::new("bill-worker"), worker.metadata().labels()),
             ObservedContainer::new(
-                crate::control_plane::engine::ContainerId::new("bill-worker"),
-                worker.metadata().labels(),
-            ),
-            ObservedContainer::new(
-                crate::control_plane::engine::ContainerId::new("bill-scheduler"),
+                ContainerId::new("bill-scheduler"),
                 scheduler.metadata().labels(),
             ),
         ],
@@ -779,6 +941,64 @@ impl ImageBuilder for RecordingWorkloadEngine {
     }
 }
 
+struct UnreachableCommandExecutor;
+
+impl CommandExecutor for UnreachableCommandExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        panic!("foreign project command reached Engine exec")
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        panic!("foreign project command reached Engine status")
+    }
+}
+
+#[derive(Default)]
+struct RecordingProjectCommandExecutor {
+    arguments: Mutex<Vec<Vec<String>>>,
+}
+
+impl CommandExecutor for RecordingProjectCommandExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.arguments
+            .lock()
+            .expect("command arguments")
+            .push(request.arguments().to_vec());
+        let container_id = container.id().clone();
+        Box::pin(async move {
+            let (writer, _reader) = tokio::io::duplex(1024);
+            let output: ContainerLogStream<'static> = Box::pin(futures_util::stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("project-command"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(0)) })
+    }
+}
+
 impl ContainerDiscovery for RecordingWorkloadEngine {
     fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
         Box::pin(async { Ok(self.observed.clone()) })
@@ -794,7 +1014,7 @@ impl ContainerLifecycle for RecordingWorkloadEngine {
             self.created.push(options.clone());
             reconstruct_owned_container(
                 &ObservedContainer::new(
-                    crate::control_plane::engine::ContainerId::new("created-application"),
+                    ContainerId::new("created-application"),
                     options.metadata().labels(),
                 ),
                 options.metadata().installation_id(),
@@ -900,6 +1120,22 @@ fn runtime_application_metadata(runtime_image: &RuntimeImageBuildPlan) -> Manage
         retention: RetentionClass::Disposable,
     })
     .expect("application metadata")
+}
+
+fn project_application_metadata(
+    project: &str,
+    compatibility_fingerprint: &str,
+) -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication,
+        project_id: Some(project.to_owned()),
+        compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("project application metadata")
 }
 
 fn project_runtime_options<'plan>(
