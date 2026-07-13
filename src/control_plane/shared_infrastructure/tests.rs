@@ -11,19 +11,21 @@ use super::{
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, generate_credential_secret,
-    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
+    SqlServerSharedInstancePlanOptions, generate_credential_secret, plan_mailpit_project_resources,
+    plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_object_store_project_resources, provision_postgres_logical_resource,
+    plan_sql_server_project_resources, provision_mongodb_logical_resource,
+    provision_mysql_logical_resource, provision_object_store_project_resources,
+    provision_postgres_logical_resource, provision_sql_server_logical_resource,
     reconcile_mailpit_authentication, reconcile_mongodb_project_resources,
     reconcile_mysql_project_resources, reconcile_object_store_project_resources,
     reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
-    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
+    revoke_rabbitmq_project_access, run_provisioning_job, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -3000,6 +3002,165 @@ fn mysql_logical_provisioning_keeps_both_passwords_out_of_command_debug() {
     assert!(!request_debug.contains("project-secret"));
 }
 
+#[test]
+fn sql_server_instances_are_private_persistent_and_secret_safe() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("sqlserver", "2022"),
+    )])
+    .pop()
+    .expect("shared SQL Server plan");
+    let instance = SqlServerSharedInstancePlan::new(
+        &shared,
+        SqlServerSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:sqlserver-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("StrongRoot1".to_owned()),
+            accept_eula: true,
+            sqlcmd_path: "/opt/mssql-tools18/bin/sqlcmd".to_owned(),
+        },
+    )
+    .expect("SQL Server instance");
+
+    assert!(instance.container().port_bindings().is_empty());
+    assert_eq!(instance.container().network(), Some("stackctl"));
+    assert_eq!(instance.data_mount_target(), "/var/opt/mssql");
+    assert_eq!(instance.container().volume_mounts().len(), 1);
+    assert_eq!(
+        instance
+            .container()
+            .health_check()
+            .expect("SQL Server health")
+            .engine_test(),
+        vec![
+            "CMD",
+            "/opt/mssql-tools18/bin/sqlcmd",
+            "-C",
+            "-S",
+            "127.0.0.1",
+            "-U",
+            "sa",
+            "-Q",
+            "SET NOCOUNT ON; SELECT 1",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(instance.bootstrap_credential().secret(), "StrongRoot1");
+    assert!(!format!("{instance:?}").contains("StrongRoot1"));
+}
+
+#[test]
+fn sql_server_projects_get_database_login_and_managed_environment() {
+    let instance = sql_server_instance();
+    let project = plan_sql_server_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("StrongProject1".to_owned()),
+    )
+    .expect("SQL Server project resources");
+
+    assert_eq!(project.logical().database_name(), "stackctl_bill_database");
+    assert_eq!(project.logical().username(), "st_bill_database");
+    assert!(project.logical().stdin_sql().contains("CREATE DATABASE"));
+    assert!(project.logical().stdin_sql().contains("ALTER LOGIN"));
+    assert!(project.logical().stdin_sql().contains("StrongProject1"));
+    assert_eq!(
+        project.environment().values().get("DB_CONNECTION"),
+        Some(&"sqlsrv".to_owned())
+    );
+    assert_eq!(
+        project.environment().values().get("DB_HOST"),
+        Some(&instance.container().name().to_owned())
+    );
+    assert!(!format!("{project:?}").contains("StrongProject1"));
+}
+
+#[test]
+fn sql_server_provisioning_keeps_passwords_out_of_command_debug() {
+    let instance = sql_server_instance();
+    let project = plan_sql_server_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("StrongProject1".to_owned()),
+    )
+    .expect("SQL Server project resources");
+    let container = owned_shared_container("sqlserver-container", "sha256:sqlserver-2022");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_sql_server_logical_resource(
+            &executor,
+            &container,
+            &instance,
+            project.logical(),
+        ))
+        .expect("provision SQL Server resource");
+    runtime.block_on(tokio::task::yield_now());
+
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(request_debug.contains("SQLCMDPASSWORD"));
+    assert!(!request_debug.contains("StrongRoot1"));
+    assert!(!request_debug.contains("StrongProject1"));
+}
+
+#[test]
+fn sql_server_reconciliation_converges_instance_database_and_login() {
+    let instance = sql_server_instance();
+    let project = plan_sql_server_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("StrongProject1".to_owned()),
+    )
+    .expect("SQL Server project resources");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_sql_server_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile SQL Server project resources");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert!(
+        String::from_utf8(
+            engine
+                .command_input
+                .lock()
+                .expect("SQL Server command input")
+                .clone()
+        )
+        .expect("SQL Server SQL UTF-8")
+        .contains("StrongProject1")
+    );
+}
+
 struct SequentialEntropy;
 
 impl CredentialEntropy for SequentialEntropy {
@@ -3197,6 +3358,29 @@ fn sql_profile(implementation: &str, major_version: &str) -> CompatibilityProfil
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid SQL compatibility profile")
+}
+
+fn sql_server_instance() -> SqlServerSharedInstancePlan {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("sqlserver", "2022"),
+    )])
+    .pop()
+    .expect("shared SQL Server plan");
+    SqlServerSharedInstancePlan::new(
+        &shared,
+        SqlServerSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:sqlserver-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("StrongRoot1".to_owned()),
+            accept_eula: true,
+            sqlcmd_path: "/opt/mssql-tools18/bin/sqlcmd".to_owned(),
+        },
+    )
+    .expect("SQL Server instance")
 }
 
 fn cache_profile(

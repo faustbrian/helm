@@ -66,6 +66,12 @@ pub(crate) use shared_service_request::SharedServiceRequest;
 pub(crate) use shared_volume_reconcile_action::SharedVolumeReconcileAction;
 pub(crate) use shared_volume_reconcile_options::SharedVolumeReconcileOptions;
 pub(crate) use shared_volume_reconcile_result::SharedVolumeReconcileResult;
+pub(crate) use sql_server::{
+    SqlServerLogicalResourcePlan, SqlServerPlanError, SqlServerProjectResources,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    plan_sql_server_project_resources, provision_sql_server_logical_resource,
+    reconcile_sql_server_project_resources,
+};
 pub(crate) use store_credential_secret::store_credential_secret;
 
 mod compatibility_fingerprint;
@@ -102,4 +108,5 @@ mod shared_service_request;
 mod shared_volume_reconcile_action;
 mod shared_volume_reconcile_options;
 mod shared_volume_reconcile_result;
+mod sql_server;
 mod store_credential_secret;

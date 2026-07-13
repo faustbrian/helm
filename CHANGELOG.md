@@ -27,6 +27,8 @@ All notable changes to this project are documented in this file.
   deterministic bucket identities, scoped policies, and secret-safe reconciliation.
 - Kept RustFS dedicated until its external admin-client lifecycle and recovery
   behavior prove the same bucket, identity, and policy isolation contract.
+- Added compatibility-keyed SQL Server instances with persistent storage,
+  readiness, and idempotent per-project database and login reconciliation.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and
