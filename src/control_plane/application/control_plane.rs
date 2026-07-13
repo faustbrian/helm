@@ -1,5 +1,6 @@
 use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
 use crate::control_plane::state::{ProjectRecord, StateStore};
+use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
 pub(crate) struct ControlPlane<Store> {
@@ -13,6 +14,11 @@ where
     /// Creates a control plane around one durable state capability.
     pub(crate) fn new(state_store: Store) -> Self {
         Self { state_store }
+    }
+
+    /// Loads the complete authoritative watched-root set.
+    pub(crate) fn watched_roots(&self) -> Result<Vec<PathBuf>, ControlPlaneError> {
+        self.state_store.watched_roots().map_err(Into::into)
     }
 
     /// Plans all sources, then atomically persists the validated batch.

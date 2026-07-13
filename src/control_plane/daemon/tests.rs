@@ -1,7 +1,10 @@
 use super::{
     DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, ProjectDiscoveryOptions,
     RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
+    reconcile_watched_roots,
 };
+use crate::control_plane::application::ControlPlane;
+use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -230,6 +233,64 @@ fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
     assert!(diagnostics.contains("stackctl config migrate --to yaml"));
 
     std::fs::remove_dir_all(&root).expect("remove TOML fixture");
+}
+
+#[test]
+fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
+    let root = temporary_directory("fail-closed-reconciliation");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    let mut control_plane = ControlPlane::new(store);
+
+    let applied = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        10_000,
+    )
+    .expect("complete scan");
+    assert!(applied.was_applied());
+    assert_eq!(applied.report().sources().len(), 1);
+    assert_eq!(
+        applied
+            .registry()
+            .expect("published registry")
+            .projects()
+            .len(),
+        1
+    );
+
+    std::fs::remove_file(project.join(".stackctl.yaml")).expect("remove project config");
+    let legacy = root.join("legacy");
+    std::fs::create_dir(&legacy).expect("legacy directory");
+    std::fs::write(legacy.join(".stackctl.toml"), "project = 'legacy'\n").expect("legacy config");
+
+    let blocked = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        12_345,
+    )
+    .expect("incomplete scan is a durable diagnostic");
+    assert!(!blocked.was_applied());
+    assert_eq!(blocked.report().issues().len(), 1);
+
+    drop(control_plane);
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let projects = store.projects().expect("load retained registry");
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].project_name(), "bill");
+
+    drop(store);
+    std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
 }
 
 #[cfg(unix)]

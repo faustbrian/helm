@@ -72,6 +72,9 @@ All notable changes to this project are documented in this file.
 - Added direct-Engine PostgreSQL source retirement that validates the exact
   owned source and journaled cutover before idempotently dropping only its
   database and role while retaining the shared service container.
+- Added a fail-closed singleton discovery reconciliation boundary that reads
+  authoritative watched roots and publishes a registry only after a complete,
+  issue-free scan, preserving the last valid registry on partial discovery.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
