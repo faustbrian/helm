@@ -38,4 +38,8 @@ impl PostgresMigrationTargetReconcileResult {
     pub(crate) const fn bootstrap_credential(&self) -> &CredentialRecord {
         self.plan.bootstrap_credential()
     }
+
+    pub(crate) const fn plan(&self) -> &PostgresSharedInstancePlan {
+        &self.plan
+    }
 }

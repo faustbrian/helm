@@ -10,7 +10,7 @@ pub(crate) type MigrationFuture<'operation, T> =
     Pin<Box<dyn Future<Output = Result<T, MigrationOperationError>> + Send + 'operation>>;
 
 /// Idempotent resource-specific operations used by the migration coordinator.
-pub(crate) trait MigrationOperations {
+pub(crate) trait MigrationOperations: Send {
     fn backup<'operation>(
         &'operation mut self,
         checkpoint: &'operation MigrationRecord,

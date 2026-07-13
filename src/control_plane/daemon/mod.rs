@@ -1,6 +1,7 @@
 mod active_project_backup;
 mod active_project_command;
 mod active_project_log_session;
+mod active_project_restore;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
 mod daemon_iteration_result;
@@ -27,6 +28,7 @@ mod engine_reconciliation_schedule;
 mod execute_project_logs;
 mod execute_queued_project_backup;
 mod execute_queued_project_command;
+mod execute_queued_project_restore;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
 mod image_reference_resolution;
@@ -55,10 +57,13 @@ mod project_log_request;
 mod project_log_session_registry;
 mod project_log_session_registry_error;
 mod project_log_target;
+mod project_restore_execution_options;
+mod project_restore_execution_result;
 mod project_restore_queue;
 mod project_restore_queue_error;
 mod publish_project_backup_result;
 mod publish_project_command_result;
+mod publish_project_restore_result;
 mod queued_project_backup;
 mod queued_project_command;
 mod queued_project_restore;
@@ -82,6 +87,8 @@ mod unix_daemon_project_backups;
 mod unix_daemon_project_commands;
 mod unix_daemon_project_logs;
 #[cfg(unix)]
+mod unix_daemon_project_restores;
+#[cfg(unix)]
 mod unix_daemon_runtime;
 #[cfg(unix)]
 mod unix_daemon_runtime_error;
@@ -94,6 +101,7 @@ mod validate_project_workload_adoption;
 pub(crate) use active_project_backup::ActiveProjectBackup;
 pub(crate) use active_project_command::ActiveProjectCommand;
 pub(crate) use active_project_log_session::ActiveProjectLogSession;
+pub(crate) use active_project_restore::ActiveProjectRestore;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
@@ -125,6 +133,7 @@ pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
 pub(crate) use execute_project_logs::execute_project_logs;
 pub(crate) use execute_queued_project_backup::execute_queued_project_backup;
 pub(crate) use execute_queued_project_command::execute_queued_project_command;
+pub(crate) use execute_queued_project_restore::execute_queued_project_restore;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
 pub(crate) use image_reference_resolution::ImageReferenceResolution;
@@ -159,10 +168,13 @@ pub(crate) use project_log_request::ProjectLogRequest;
 pub(crate) use project_log_session_registry::ProjectLogSessionRegistry;
 pub(crate) use project_log_session_registry_error::ProjectLogSessionRegistryError;
 pub(crate) use project_log_target::ProjectLogTarget;
+pub(crate) use project_restore_execution_options::ProjectRestoreExecutionOptions;
+pub(crate) use project_restore_execution_result::ProjectRestoreExecutionResult;
 pub(crate) use project_restore_queue::ProjectRestoreQueue;
 pub(crate) use project_restore_queue_error::ProjectRestoreQueueError;
 pub(crate) use publish_project_backup_result::publish_project_backup_result;
 pub(crate) use publish_project_command_result::publish_project_command_result;
+pub(crate) use publish_project_restore_result::publish_project_restore_result;
 pub(crate) use queued_project_backup::QueuedProjectBackup;
 pub(crate) use queued_project_command::QueuedProjectCommand;
 pub(crate) use queued_project_restore::{QueuedProjectRestore, QueuedProjectRestoreOptions};

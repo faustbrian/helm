@@ -1,14 +1,15 @@
 use super::{
-    ActiveProjectBackup, ActiveProjectCommand, ActiveProjectLogSession, BollardUnixEngineConnector,
-    DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
-    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
-    ImageReferenceResolution, IpcEventJournal, ProjectBackupQueue, ProjectCommandQueue,
-    ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
-    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_daemon_operation_queues, validate_project_workload_adoption,
+    ActiveProjectBackup, ActiveProjectCommand, ActiveProjectLogSession, ActiveProjectRestore,
+    BollardUnixEngineConnector, DaemonIterationResult, DaemonRequestDispatchOptions,
+    DiscoveryScheduler, EngineConnectionOutcome, EngineConnectionSupervisor,
+    EngineImageReferenceResolution, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
+    FilesystemEventWatcher, ImageReferenceResolution, IpcEventJournal, ProjectBackupQueue,
+    ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -61,9 +62,10 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) active_project_backup: Option<ActiveProjectBackup>,
+    pub(super) active_project_restore: Option<ActiveProjectRestore>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
-    options: UnixDaemonRuntimeOptions,
+    pub(super) options: UnixDaemonRuntimeOptions,
 }
 
 impl UnixDaemonRuntime {
@@ -127,6 +129,7 @@ impl UnixDaemonRuntime {
             active_project_logs: BTreeMap::new(),
             active_project_command: None,
             active_project_backup: None,
+            active_project_restore: None,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -218,12 +221,14 @@ impl UnixDaemonRuntime {
                     }
                     if !self.has_active_project_command()
                         && !self.has_active_project_backup()
+                        && !self.has_active_project_restore()
                         && self.engine_reconciliation.may_reconcile()
                     {
                         self.reconcile_engine_plane(now);
                     }
                     self.drive_project_commands(now, unix_time_seconds());
                     self.drive_project_backups(now, unix_time_seconds());
+                    self.drive_project_restores(now, unix_time_seconds());
                     self.drive_project_logs(now);
                 }
                 Err(error) => {

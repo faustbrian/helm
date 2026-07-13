@@ -4,12 +4,13 @@ use super::{
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
     ImageReferenceResolution, IpcEventJournal, ProjectBackupExecutionOptions, ProjectBackupQueue,
     ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreQueue,
-    QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore, ResourceHealthRegistry,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_project_backup,
-    execute_queued_project_command, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
+    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedProjectBackup, QueuedProjectCommand,
+    QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
+    publish_project_restore_result, reconcile_watched_roots, requires_followup_reconciliation,
     restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
@@ -20,7 +21,11 @@ use crate::control_plane::daemon::ipc::{
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
+use crate::control_plane::migration::MigrationExecutionResult;
 use crate::control_plane::resolve_execution_plan;
+use crate::control_plane::shared_infrastructure::{
+    CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
+};
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
@@ -621,6 +626,81 @@ fn daemon_restart_restores_only_queued_project_restores() {
 }
 
 #[test]
+fn project_restore_result_publishes_operator_gated_cutover_evidence() {
+    use base64::Engine as _;
+
+    let root = temporary_directory("project-restore-result");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let mut control_plane = ControlPlane::new(store);
+    let mut journal = IpcEventJournal::default();
+    let queued = QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "restore-42".to_owned(),
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+    })
+    .expect("restore intent");
+    let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+        operation_id: "restore-42".to_owned(),
+        kind: "project_restore".to_owned(),
+        payload_json: queued.payload_json().expect("durable restore payload"),
+        status: DaemonOperationStatus::Queued,
+        created_at_unix_seconds: 100,
+        updated_at_unix_seconds: 100,
+    });
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    let accepted = control_plane
+        .enqueue_daemon_operation(&operation, &accepted_json, journal.capacity())
+        .expect("durable queued operation");
+    journal
+        .append_record(accepted)
+        .expect("accepted event record");
+    drop(
+        control_plane
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "restore-42",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 101,
+                event_kind_json: None,
+                event_retention_limit: journal.capacity(),
+            })
+            .expect("running operation"),
+    );
+
+    publish_project_restore_result(
+        &mut control_plane,
+        &mut journal,
+        ProjectRestoreExecutionResult::new(
+            queued,
+            Ok(MigrationExecutionResult::AwaitingConfirmation),
+        ),
+        102,
+    )
+    .expect("publish restore result");
+
+    let events = journal.events_after(Some(0)).expect("restore events");
+    assert_eq!(events.len(), 3);
+    let IpcEventKind::Output { data_base64, .. } = events[1].kind() else {
+        panic!("restore evidence must precede completion");
+    };
+    let evidence = base64::engine::general_purpose::STANDARD
+        .decode(data_base64)
+        .expect("decode restore evidence");
+    let evidence: serde_json::Value =
+        serde_json::from_slice(&evidence).expect("restore evidence JSON");
+    assert_eq!(evidence["migration_id"], "restore-42");
+    assert_eq!(evidence["state"], "awaiting_confirmation");
+    assert_eq!(events[2].kind(), &IpcEventKind::Completed);
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove restore result fixture");
+}
+
+#[test]
 fn project_backup_intent_is_secret_free_and_survives_a_durable_round_trip() {
     let queued = QueuedProjectBackup::new(
         "backup-42".to_owned(),
@@ -712,6 +792,222 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
     assert!(recovery_point.join("manifest.json").is_file());
 
     std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
+fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
+    let root = temporary_directory("queued-postgres-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path.clone(),
+        project_path.join(".stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: postgres\n    version: \"17\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("PostgreSQL instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "postgres-source",
+        "install-1",
+        "postgres-source",
+        &fingerprint,
+    )]);
+    let source = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "stackctl_bill_database".to_owned(),
+            shared_resource_id: "postgres-source".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: fingerprint.clone(),
+            desired_revision: "sha256:source".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let source_credential = crate::control_plane::state::CredentialRecord::new(
+        crate::control_plane::state::CredentialRecordOptions {
+            credential_id: "bill/database/postgresql".to_owned(),
+            project_id: Some("bill".to_owned()),
+            service_id: "database".to_owned(),
+            username: "stackctl_bill_database_role".to_owned(),
+            secret: "project-secret".to_owned(),
+            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
+        },
+    );
+    let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
+    let administrator = crate::control_plane::state::CredentialRecord::new(
+        crate::control_plane::state::CredentialRecordOptions {
+            credential_id: format!("shared/{fingerprint_id}/postgresql-bootstrap"),
+            project_id: None,
+            service_id: "postgresql".to_owned(),
+            username: "stackctl_admin".to_owned(),
+            secret: "source-admin".to_owned(),
+            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
+        },
+    );
+    let source_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:source".to_owned(),
+        values: BTreeMap::from([
+            ("DB_HOST".to_owned(), "postgres-source".to_owned()),
+            (
+                "DB_DATABASE".to_owned(),
+                "stackctl_bill_database".to_owned(),
+            ),
+            (
+                "DB_USERNAME".to_owned(),
+                source_credential.username().to_owned(),
+            ),
+            (
+                "DB_PASSWORD".to_owned(),
+                source_credential.secret().to_owned(),
+            ),
+        ]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let backup_root = root.join("backups");
+    let backup = runtime
+        .block_on(execute_queued_project_backup(
+            engine.clone(),
+            ProjectBackupExecutionOptions {
+                operation: QueuedProjectBackup::new(
+                    "backup-42".to_owned(),
+                    "bill".to_owned(),
+                    "database".to_owned(),
+                    source.logical_resource_id().to_owned(),
+                    source.kind().to_owned(),
+                    fingerprint.clone(),
+                )
+                .expect("backup intent"),
+                logical_resource: Ok(source.clone()),
+                credential: Ok(source_credential.clone()),
+                installation_id: "install-1".to_owned(),
+                schema_version: 8,
+                backup_root: backup_root.clone(),
+                created_at_unix_seconds: 40_000,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .outcome()
+        .as_ref()
+        .expect("verified backup")
+        .clone();
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: source.logical_resource_id().to_owned(),
+        resource_kind: source.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: backup.reference().to_owned(),
+        artifact_sha256: backup.artifact_sha256().to_owned(),
+        artifact_size_bytes: backup.artifact_size_bytes(),
+        created_at_unix_seconds: 40_000,
+        verified_at_unix_seconds: 40_001,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_project(&ProjectRecord::new(
+            project_path,
+            "bill".to_owned(),
+            Vec::new(),
+        ))
+        .expect("project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&source))
+        .expect("source ownership");
+    store
+        .insert_credential_if_absent(&source_credential)
+        .expect("source credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator");
+    store
+        .replace_managed_environment(&source_environment)
+        .expect("source environment");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    drop(store);
+
+    let result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0x44),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                operation_id: "restore-42".to_owned(),
+                recovery_point_id: "backup-42".to_owned(),
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                logical_resource_id: source.logical_resource_id().to_owned(),
+                kind: source.kind().to_owned(),
+                compatibility_fingerprint: fingerprint,
+            })
+            .expect("restore intent"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 40_002,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        result.outcome(),
+        &Ok(MigrationExecutionResult::AwaitingConfirmation)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert_eq!(
+        store.migrations().expect("migrations")[0].phase(),
+        MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.managed_environments().expect("environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&"stackctl-migration-restore-42".to_owned())
+    );
+    assert!(
+        engine
+            .created()
+            .contains(&"stackctl-migration-restore-42".to_owned())
+    );
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove restore fixture");
+}
+
+struct FixedRestoreEntropy(u8);
+
+impl CredentialEntropy for FixedRestoreEntropy {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CredentialGenerationError> {
+        bytes.fill(self.0);
+
+        Ok(())
+    }
 }
 
 #[test]
@@ -3016,6 +3312,7 @@ struct RecordingProjectCommandExecution {
     lifecycle_started: std::sync::Mutex<Vec<String>>,
     stopped: std::sync::Mutex<Vec<String>>,
     removed: std::sync::Mutex<Vec<String>>,
+    created_volumes: std::sync::Mutex<Vec<String>>,
 }
 
 impl RecordingProjectCommandEngine {
@@ -3131,13 +3428,37 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .lock()
             .expect("command environments")
             .push(request.environment().clone());
+        let verification_output = request
+            .arguments()
+            .iter()
+            .any(|argument| argument.starts_with("--command=SELECT current_database()"))
+            .then(|| {
+                let database = request
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| argument.strip_prefix("--dbname="))
+                    .expect("verification database");
+                let role = request
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| argument.strip_prefix("--username="))
+                    .expect("verification role");
+
+                format!("{database}\t{role}\t0\t0\n").into_bytes()
+            });
         let container_id = container.id().clone();
         Box::pin(async move {
-            let (writer, _reader) = tokio::io::duplex(1024);
+            let (writer, mut reader) = tokio::io::duplex(1024);
+            tokio::spawn(async move {
+                let mut input = Vec::new();
+                tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut input)
+                    .await
+                    .expect("consume command input");
+            });
             let output: crate::control_plane::engine::ContainerLogStream<'static> =
                 Box::pin(futures_util::stream::iter([
                     Ok(crate::control_plane::engine::LogChunk::stdout(
-                        b"installed\n".to_vec(),
+                        verification_output.unwrap_or_else(|| b"installed\n".to_vec()),
                     )),
                     Ok(crate::control_plane::engine::LogChunk::new(
                         crate::control_plane::engine::LogStreamKind::Stderr,
@@ -3254,6 +3575,52 @@ impl crate::control_plane::engine::HealthObserver for RecordingProjectCommandEng
         _container: &'operation crate::control_plane::engine::OwnedContainer,
     ) -> crate::control_plane::engine::EngineFuture<'operation, ContainerHealth> {
         Box::pin(async { Ok(ContainerHealth::Healthy) })
+    }
+}
+
+impl crate::control_plane::engine::VolumeDiscovery for RecordingProjectCommandEngine {
+    fn discover_managed_volumes(
+        &self,
+    ) -> crate::control_plane::engine::EngineFuture<
+        '_,
+        Vec<crate::control_plane::engine::ObservedVolume>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+impl crate::control_plane::engine::VolumeManager for RecordingProjectCommandEngine {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        options: &'operation crate::control_plane::engine::VolumeCreateOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::OwnedVolume,
+    > {
+        self.execution
+            .created_volumes
+            .lock()
+            .expect("created volumes")
+            .push(options.name().to_owned());
+        let observed = crate::control_plane::engine::ObservedVolume::new(
+            options.name(),
+            options.metadata().labels(),
+        );
+        let owned = crate::control_plane::engine::reconstruct_owned_volume(
+            &observed,
+            options.metadata().installation_id(),
+            options.metadata().schema_version(),
+        )
+        .expect("created volume ownership");
+
+        Box::pin(async move { Ok(owned) })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
     }
 }
 

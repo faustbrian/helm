@@ -23,6 +23,9 @@ pub(crate) use migration_operation_error::MigrationOperationError;
 pub(crate) use migration_operations::{MigrationFuture, MigrationOperations};
 pub(crate) use migration_rollback_plan::MigrationRollbackPlan;
 pub(crate) use migration_target_plan::MigrationTargetPlan;
-pub(crate) use postgres::{PostgresBackupOptions, backup_postgres_database};
+pub(crate) use postgres::{
+    EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
+    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
+};
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};

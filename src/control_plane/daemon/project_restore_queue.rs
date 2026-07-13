@@ -48,6 +48,10 @@ impl ProjectRestoreQueue {
         self.pending.pop_front()
     }
 
+    pub(crate) fn front(&self) -> Option<&QueuedProjectRestore> {
+        self.pending.front()
+    }
+
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedProjectRestore> {
         let index = self
             .pending

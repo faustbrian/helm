@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added asynchronous singleton PostgreSQL restore execution that resolves the
+  exact current compatibility plan, reconciles an isolated retained target,
+  restores and verifies immutable catalog evidence, atomically cuts project
+  environment state over, and stops at an explicit confirmation gate while
+  retaining the untouched source for rollback. Commands, backups, restores,
+  and normal Engine reconciliation are serialized around this mutation.
 - Added typed singleton restore admission for exact verified recovery points,
   with secret-free durable queue payloads, bounded serialization, queued replay
   after daemon restart, and explicit terminalization of ambiguous interrupted

@@ -6,7 +6,7 @@ use super::{
 use std::path::{Path, PathBuf};
 
 /// Durable control-plane state needed independently of any runtime backend.
-pub(crate) trait StateStore {
+pub(crate) trait StateStore: Send {
     /// Initializes immutable installation identity, or verifies an exact replay.
     fn initialize_installation(
         &mut self,

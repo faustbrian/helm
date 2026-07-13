@@ -23,7 +23,7 @@ pub(crate) struct PostgresMigrationOperations<'operation, E, R> {
 impl<'operation, E, R> PostgresMigrationOperations<'operation, E, R>
 where
     E: CommandExecutor + Sync,
-    R: PostgresSourceRetirement,
+    R: PostgresSourceRetirement + Send,
 {
     pub(crate) fn new(
         executor: &'operation E,
@@ -43,7 +43,7 @@ where
 impl<E, R> MigrationOperations for PostgresMigrationOperations<'_, E, R>
 where
     E: CommandExecutor + Sync,
-    R: PostgresSourceRetirement,
+    R: PostgresSourceRetirement + Send,
 {
     fn backup<'operation>(
         &'operation mut self,
