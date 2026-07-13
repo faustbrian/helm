@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Retained the last complete validated project registry in the daemon Engine
+  schedule while conflicted scans block further mutation, preserving exact
+  desired context for recovery after the conflict is corrected.
 - Made complete gateway snapshot revisions derive from their sorted domain and
   upstream content, preventing changed route sets from reusing a stale
   caller-supplied revision and being skipped as already active.

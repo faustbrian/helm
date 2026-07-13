@@ -350,6 +350,14 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     engine_schedule.observe(&applied);
     assert!(engine_schedule.may_reconcile());
     assert!(engine_schedule.is_due());
+    assert_eq!(
+        engine_schedule
+            .desired_registry()
+            .expect("last complete registry")
+            .projects()[0]
+            .project_name(),
+        "bill"
+    );
     engine_schedule.complete();
     assert!(!engine_schedule.is_due());
     assert_eq!(applied.report().sources().len(), 1);
@@ -377,6 +385,14 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     engine_schedule.observe(&blocked);
     assert!(!engine_schedule.may_reconcile());
     assert!(!engine_schedule.is_due());
+    assert_eq!(
+        engine_schedule
+            .desired_registry()
+            .expect("retained complete registry")
+            .projects()[0]
+            .project_name(),
+        "bill"
+    );
     assert_eq!(blocked.report().issues().len(), 1);
 
     drop(control_plane);
