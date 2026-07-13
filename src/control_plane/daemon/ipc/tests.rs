@@ -2,6 +2,7 @@ use super::{
     IPC_PROTOCOL_VERSION, IpcPayload, IpcRequest, IpcResponse, IpcResult, decode_request_frame,
     decode_response_frame, encode_frame,
 };
+use std::path::PathBuf;
 
 #[test]
 fn request_frames_round_trip_with_version_id_and_typed_payload() {
@@ -14,6 +15,21 @@ fn request_frames_round_trip_with_version_id_and_typed_payload() {
     assert_eq!(decoded, request);
     assert_eq!(decoded.protocol_version(), IPC_PROTOCOL_VERSION);
     assert_eq!(decoded.request_id(), "request-42");
+}
+
+#[test]
+fn project_adoption_requests_round_trip_with_the_exact_target_path() {
+    let request = IpcRequest::new(
+        "adopt-42",
+        IpcPayload::AdoptProject {
+            canonical_path: PathBuf::from("/work/bill"),
+        },
+    );
+
+    let frame = encode_frame(&request).expect("encode adoption request");
+    let decoded = decode_request_frame(&frame).expect("decode adoption request");
+
+    assert_eq!(decoded, request);
 }
 
 #[test]

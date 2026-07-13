@@ -880,6 +880,16 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+
+    let adopt = Cli::parse_from(["stackctl", "daemon", "adopt", "/work/bill"]);
+    if let commands::Commands::Daemon(args) = adopt.command {
+        let commands::DaemonCommands::Adopt(args) = args.command else {
+            panic!("expected daemon adopt command");
+        };
+        assert_eq!(args.path, PathBuf::from("/work/bill"));
+    } else {
+        panic!("expected daemon command");
+    }
 }
 
 #[test]

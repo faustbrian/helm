@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
 pub(crate) struct ControlPlane<Store> {
-    state_store: Store,
+    pub(super) state_store: Store,
 }
 
 impl<Store> ControlPlane<Store>

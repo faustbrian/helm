@@ -1,3 +1,4 @@
+mod adopt_project;
 mod control_plane;
 mod control_plane_error;
 mod desired_registry;

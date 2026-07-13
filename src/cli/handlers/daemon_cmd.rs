@@ -5,7 +5,7 @@
 mod service;
 mod trust;
 
-use crate::cli::args::{DaemonArgs, DaemonCommands, DaemonWatchArgs};
+use crate::cli::args::{DaemonAdoptArgs, DaemonArgs, DaemonCommands, DaemonWatchArgs};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
 use std::path::Path;
@@ -17,8 +17,44 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Service(service_args) => service::handle_daemon_service(service_args),
         DaemonCommands::Status => handle_daemon_status(),
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
+        DaemonCommands::Adopt(adopt) => handle_daemon_adopt(adopt),
         DaemonCommands::Trust(trust_args) => trust::handle_daemon_trust(trust_args),
     }
+}
+
+#[cfg(unix)]
+fn handle_daemon_adopt(args: &DaemonAdoptArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let canonical_path = std::fs::canonicalize(&args.path)?;
+    let response = send_singleton_request(IpcPayload::AdoptProject { canonical_path })?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::ProjectAdopted { project_id },
+        } => {
+            output::event(
+                "daemon",
+                LogLevel::Success,
+                &format!("Adopted retained state for project '{project_id}'"),
+                Persistence::Persistent,
+            );
+            Ok(())
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let diagnostic = diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("project adoption failed: {diagnostic}")
+        }
+        outcome => anyhow::bail!("unexpected project adoption response: {outcome:?}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_adopt(_args: &DaemonAdoptArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {

@@ -3,16 +3,18 @@ use super::{
     EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector,
     EngineReconciliationPlanOptions, ProjectDiscoveryOptions, RetryBackoff, RetryBackoffOptions,
     SingletonLease, discover_project_sources, dispatch_daemon_request, plan_engine_reconciliation,
-    reconcile_watched_roots,
+    reconcile_watched_roots, requires_followup_reconciliation,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
     StateStore,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -767,6 +769,83 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn daemon_adoption_request_reactivates_the_exact_registered_project() {
+    let root = temporary_directory("ipc-adoption");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(
+        project_path.clone(),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    );
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::new(),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist environment");
+    store
+        .orphan_project(&project_path, 12_345)
+        .expect("orphan project state");
+    store
+        .replace_project(&project)
+        .expect("register adoption target");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "adopt-42",
+        IpcPayload::AdoptProject {
+            canonical_path: project_path,
+        },
+    );
+
+    let response = dispatch_daemon_request(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        &request,
+        20_000,
+    );
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "adopt-42",
+            IpcResult::ProjectAdopted {
+                project_id: "bill".to_owned(),
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(&root).expect("remove adoption fixture");
+}
+
+#[test]
+fn mutating_daemon_requests_schedule_a_complete_followup_scan() {
+    let adopt = IpcRequest::new(
+        "adopt-42",
+        IpcPayload::AdoptProject {
+            canonical_path: PathBuf::from("/work/bill"),
+        },
+    );
+
+    assert!(requires_followup_reconciliation(&adopt));
+    assert!(requires_followup_reconciliation(&IpcRequest::new(
+        "reconcile-42",
+        IpcPayload::Reconcile,
+    )));
+    assert!(!requires_followup_reconciliation(&IpcRequest::new(
+        "ping-42",
+        IpcPayload::Ping,
+    )));
 }
 
 #[cfg(unix)]

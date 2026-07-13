@@ -15,4 +15,6 @@ pub(crate) enum IpcResult {
         issue_count: usize,
         applied: bool,
     },
+    /// Confirms exact retained state was atomically reactivated.
+    ProjectAdopted { project_id: String },
 }

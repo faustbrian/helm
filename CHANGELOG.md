@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit project adoption through the singleton IPC boundary, restoring
+  orphaned workloads, logical tenants, credentials, and managed environments
+  atomically while preserving superseded retained resources as history.
+- Added authoritative follow-up discovery after mutating daemon requests so
+  adopted projects re-enter the normal validated Engine convergence pipeline.
 - Added a pre-mutation adoption gate that blocks reappearing project services
   when their only durable workload ownership is orphaned or retained, while
   permitting active scopes to keep older replacement history.

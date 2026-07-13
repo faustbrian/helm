@@ -1,6 +1,12 @@
 use super::{ControlPlane, ProjectSource, plan_project_registry};
-use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::state::{
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+};
 use crate::control_plane::{ServiceDeploymentStrategy, resolve_execution_plan};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -111,6 +117,128 @@ fn complete_discovery_reconciliation_unregisters_missing_projects() {
     let projects = store.projects().expect("load projects");
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0].canonical_path(), Path::new("/work/shop"));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn explicit_adoption_restores_current_state_without_reactivating_replacement_history() {
+    let database_path = temporary_database_path();
+    let project = ProjectRecord::new(
+        PathBuf::from("/work/bill"),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    );
+    let current = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-current".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:runtime".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:current".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let history = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-history".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:old-runtime".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:old".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Retained,
+        orphaned_at_unix_seconds: Some(10_000),
+    })
+    .with_scope_id("app");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:database".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "bill".to_owned(),
+        secret: "retained-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::from([("DB_PASSWORD".to_owned(), "retained-secret".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(&[current.clone(), history.clone()])
+        .expect("persist physical ownership");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical ownership");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist environment");
+    store
+        .orphan_project(project.canonical_path(), 12_345)
+        .expect("orphan project");
+    store
+        .replace_project(&project)
+        .expect("register exact adoption target");
+    let mut control_plane = ControlPlane::new(store);
+
+    let adopted = control_plane
+        .adopt_project(project.canonical_path())
+        .expect("adopt retained project state");
+
+    assert_eq!(adopted, "bill");
+    drop(control_plane);
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let resources = store.resources().expect("load physical ownership");
+    assert_eq!(
+        resources
+            .iter()
+            .find(|resource| resource.resource_id() == current.resource_id())
+            .expect("current resource")
+            .lifecycle(),
+        ResourceLifecycle::Active
+    );
+    assert_eq!(
+        resources
+            .iter()
+            .find(|resource| resource.resource_id() == history.resource_id())
+            .expect("replacement history")
+            .lifecycle(),
+        ResourceLifecycle::Retained
+    );
+    assert_eq!(
+        store.logical_resources().expect("logical ownership")[0].lifecycle(),
+        ResourceLifecycle::Active
+    );
+    assert_eq!(
+        store.credentials().expect("credentials")[0].lifecycle(),
+        CredentialLifecycle::Active
+    );
+    assert_eq!(
+        store.managed_environments().expect("environment")[0].lifecycle(),
+        EnvironmentLifecycle::Active
+    );
 
     drop(store);
     remove_database(&database_path);

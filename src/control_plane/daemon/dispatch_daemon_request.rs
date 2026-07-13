@@ -37,6 +37,22 @@ where
                 ),
             }
         }
+        IpcPayload::AdoptProject { canonical_path } => {
+            match control_plane.adopt_project(canonical_path) {
+                Ok(project_id) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::ProjectAdopted { project_id },
+                ),
+                Err(error) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_adoption_failed",
+                        error.to_string(),
+                        false,
+                    )],
+                ),
+            }
+        }
         IpcPayload::Cancel { .. } | IpcPayload::SubscribeEvents { .. } => IpcResponse::failure(
             request.request_id(),
             vec![IpcDiagnostic::new(

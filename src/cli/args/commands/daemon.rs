@@ -2,12 +2,14 @@
 //!
 //! Contains cli args for `stackctl daemon` workflows.
 
+mod adopt;
 mod service;
 mod trust;
 
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
+pub(crate) use adopt::DaemonAdoptArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
 };
@@ -29,6 +31,8 @@ pub(crate) enum DaemonCommands {
     Status,
     /// Request one immediate complete watched-root reconciliation
     Reconcile,
+    /// Explicitly reactivate the exact retained state for one project
+    Adopt(DaemonAdoptArgs),
     /// Manage trust for the singleton Stackctl certificate authority
     Trust(DaemonTrustArgs),
 }

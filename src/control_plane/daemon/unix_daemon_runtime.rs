@@ -4,7 +4,7 @@ use super::{
     FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions, SingletonLease,
     UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
-    validate_project_workload_adoption,
+    requires_followup_reconciliation, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -134,6 +134,12 @@ impl UnixDaemonRuntime {
                 now_unix_seconds,
             )
         })?;
+        if request
+            .as_ref()
+            .is_some_and(requires_followup_reconciliation)
+        {
+            self.scheduler.record_filesystem_event(now);
+        }
 
         Ok(DaemonIterationResult::new(
             scan_reason,
