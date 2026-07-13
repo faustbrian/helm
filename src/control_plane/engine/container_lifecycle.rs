@@ -1,4 +1,4 @@
-use super::{ContainerCreateOptions, ContainerId, ContainerState, EngineError};
+use super::{ContainerCreateOptions, ContainerState, EngineError, OwnedContainer};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -11,25 +11,25 @@ pub(crate) trait ContainerLifecycle {
     fn create<'operation>(
         &'operation mut self,
         options: &'operation ContainerCreateOptions,
-    ) -> EngineFuture<'operation, ContainerId>;
+    ) -> EngineFuture<'operation, OwnedContainer>;
 
     fn start<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()>;
 
     fn stop<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()>;
 
     fn remove<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()>;
 
     fn inspect<'operation>(
         &'operation self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerState>;
 }

@@ -1,8 +1,8 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedNetwork,
-    OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager,
+    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedContainer,
+    OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager,
     classify_observed_resource, gateway_container_request,
 };
 use bollard::ClientVersion;
@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use super::bollard_engine_adapter::{
     create_request, managed_container_list_request, network_create_request, observed_container,
-    validate_engine_api_version, verify_owned_network_labels, verify_owned_volume_labels,
-    volume_create_request,
+    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
+    verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -72,12 +72,28 @@ fn container_lifecycle_is_an_object_safe_replaceable_strategy() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("test runtime");
-    let id = runtime
+    let container = runtime
         .block_on(create_through_strategy(&mut backend, &options))
         .expect("create container");
 
-    assert_eq!(id.as_str(), "container-1");
+    assert_eq!(container.id().as_str(), "container-1");
     assert_eq!(backend.created, vec![options]);
+}
+
+#[test]
+fn container_mutation_rejects_missing_or_changed_ownership_labels() {
+    let container = OwnedContainer::new(
+        ContainerId::new("container-1"),
+        project_metadata(ResourceKind::ProjectApplication),
+    );
+
+    let error = verify_owned_container_labels(&container, &std::collections::HashMap::new())
+        .expect_err("unlabelled container");
+
+    assert_eq!(
+        error.to_string(),
+        "refusing to mutate container 'container-1' because its Engine ownership labels no longer match"
+    );
 }
 
 #[test]
@@ -504,7 +520,7 @@ fn global_metadata(kind: ResourceKind) -> ManagedResourceMetadata {
 fn create_through_strategy<'operation>(
     strategy: &'operation mut dyn ContainerLifecycle,
     options: &'operation ContainerCreateOptions,
-) -> EngineFuture<'operation, ContainerId> {
+) -> EngineFuture<'operation, OwnedContainer> {
     strategy.create(options)
 }
 
@@ -603,38 +619,40 @@ impl ContainerLifecycle for RecordingContainerBackend {
     fn create<'operation>(
         &'operation mut self,
         options: &'operation ContainerCreateOptions,
-    ) -> EngineFuture<'operation, ContainerId> {
+    ) -> EngineFuture<'operation, OwnedContainer> {
         Box::pin(async move {
             self.created.push(options.clone());
-
-            Ok(ContainerId::new("container-1"))
+            Ok(OwnedContainer::new(
+                ContainerId::new("container-1"),
+                options.metadata().clone(),
+            ))
         })
     }
 
     fn start<'operation>(
         &'operation mut self,
-        _container: &'operation ContainerId,
+        _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async { Ok(()) })
     }
 
     fn stop<'operation>(
         &'operation mut self,
-        _container: &'operation ContainerId,
+        _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async { Ok(()) })
     }
 
     fn remove<'operation>(
         &'operation mut self,
-        _container: &'operation ContainerId,
+        _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async { Ok(()) })
     }
 
     fn inspect<'operation>(
         &'operation self,
-        _container: &'operation ContainerId,
+        _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerState> {
         Box::pin(async { Ok(ContainerState::Running) })
     }

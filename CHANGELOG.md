@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
   and complete ownership labels for the shared Stackctl bridge network.
 - Hardened v8 network deletion to require typed ownership proof and a fresh
   Engine-label match instead of accepting an arbitrary network identifier.
+- Hardened v8 container start, stop, and deletion operations to accept only
+  typed owned containers and revalidate Engine labels immediately before mutation.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.

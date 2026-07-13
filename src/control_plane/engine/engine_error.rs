@@ -12,6 +12,7 @@ pub(crate) enum EngineError {
         detail: String,
     },
     OwnershipMismatch {
+        action: &'static str,
         resource_kind: &'static str,
         resource_id: String,
     },
@@ -28,11 +29,12 @@ impl Display for EngineError {
                 formatter.write_str(detail)
             }
             Self::OwnershipMismatch {
+                action,
                 resource_kind,
                 resource_id,
             } => write!(
                 formatter,
-                "refusing to delete {resource_kind} '{resource_id}' because its Engine ownership labels no longer match"
+                "refusing to {action} {resource_kind} '{resource_id}' because its Engine ownership labels no longer match"
             ),
             Self::Timeout {
                 action,

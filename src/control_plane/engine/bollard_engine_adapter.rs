@@ -2,8 +2,8 @@ use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineError, EngineFuture, NetworkCreateOptions, NetworkId, NetworkManager, ObservedContainer,
-    ObservedResourceOwnership, OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeManager,
-    classify_observed_resource,
+    ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume, VolumeCreateOptions,
+    VolumeManager, classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
@@ -67,7 +67,7 @@ impl ContainerLifecycle for BollardEngineAdapter {
     fn create<'operation>(
         &'operation mut self,
         options: &'operation ContainerCreateOptions,
-    ) -> EngineFuture<'operation, ContainerId> {
+    ) -> EngineFuture<'operation, OwnedContainer> {
         Box::pin(async move {
             let (query, body) = create_request(options);
             let response = bounded_engine_operation("create container", request_timeout(), async {
@@ -78,18 +78,34 @@ impl ContainerLifecycle for BollardEngineAdapter {
             })
             .await?;
 
-            Ok(ContainerId::new(response.id))
+            Ok(OwnedContainer::new(
+                ContainerId::new(response.id),
+                options.metadata().clone(),
+            ))
         })
     }
 
     fn start<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
             bounded_engine_operation("start container", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify container ownership", error))?;
+                verify_owned_container_labels(
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )?;
+
                 self.docker
-                    .start_container(container.as_str(), None)
+                    .start_container(container.id().as_str(), None)
                     .await
                     .map_err(|error| backend_error("start container", error))
             })
@@ -99,12 +115,25 @@ impl ContainerLifecycle for BollardEngineAdapter {
 
     fn stop<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
             bounded_engine_operation("stop container", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify container ownership", error))?;
+                verify_owned_container_labels(
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )?;
+
                 self.docker
-                    .stop_container(container.as_str(), None)
+                    .stop_container(container.id().as_str(), None)
                     .await
                     .map_err(|error| backend_error("stop container", error))
             })
@@ -114,12 +143,25 @@ impl ContainerLifecycle for BollardEngineAdapter {
 
     fn remove<'operation>(
         &'operation mut self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
             bounded_engine_operation("remove container", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify container ownership", error))?;
+                verify_owned_container_labels(
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )?;
+
                 self.docker
-                    .remove_container(container.as_str(), None)
+                    .remove_container(container.id().as_str(), None)
                     .await
                     .map_err(|error| backend_error("remove container", error))
             })
@@ -129,13 +171,13 @@ impl ContainerLifecycle for BollardEngineAdapter {
 
     fn inspect<'operation>(
         &'operation self,
-        container: &'operation ContainerId,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerState> {
         Box::pin(async move {
             bounded_engine_operation("inspect container", request_timeout(), async {
                 match self
                     .docker
-                    .inspect_container(container.as_str(), None)
+                    .inspect_container(container.id().as_str(), None)
                     .await
                 {
                     Ok(response) => {
@@ -176,6 +218,21 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .collect()
         })
     }
+}
+
+pub(super) fn verify_owned_container_labels(
+    container: &OwnedContainer,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
+    if labels_match_metadata(labels, container.metadata()) {
+        return Ok(());
+    }
+
+    Err(EngineError::OwnershipMismatch {
+        action: "mutate",
+        resource_kind: "container",
+        resource_id: container.id().as_str().to_owned(),
+    })
 }
 
 impl NetworkManager for BollardEngineAdapter {
@@ -232,6 +289,7 @@ pub(super) fn verify_owned_network_labels(
     }
 
     Err(EngineError::OwnershipMismatch {
+        action: "delete",
         resource_kind: "network",
         resource_id: network.id().as_str().to_owned(),
     })
@@ -287,6 +345,7 @@ pub(super) fn verify_owned_volume_labels(
     }
 
     Err(EngineError::OwnershipMismatch {
+        action: "delete",
         resource_kind: "volume",
         resource_id: volume.name().to_owned(),
     })
