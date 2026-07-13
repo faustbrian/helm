@@ -63,6 +63,9 @@ All notable changes to this project are documented in this file.
 - Added symmetric atomic rollback planning that restores retained project
   routes and environment state, marks v8 logical targets as retained, and
   preserves recovery evidence with the terminal rollback checkpoint.
+- Added atomic migration target ownership so a provisioned logical tenant,
+  its exact stable project credential, and the target checkpoint become
+  durable together or all remain absent after a failed validation or restart.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

@@ -44,6 +44,10 @@ pub(crate) enum StateStoreError {
     },
     /// A migration checkpoint time moved backwards.
     MigrationTimeRegression { migration_id: String },
+    /// A provisioned target does not match its exact durable ownership state.
+    InvalidMigrationTarget { detail: String },
+    /// A target credential differs from the stable value already persisted.
+    MigrationTargetCredentialConflict { credential_id: String },
     /// A cutover plan does not describe one exact active project transition.
     InvalidMigrationCutover { detail: String },
     /// A rollback plan does not restore one exact project and retain its targets.
@@ -130,6 +134,13 @@ impl Display for StateStoreError {
                 formatter,
                 "migration '{migration_id}' update time predates durable state"
             ),
+            Self::InvalidMigrationTarget { detail } => {
+                write!(formatter, "invalid migration target: {detail}")
+            }
+            Self::MigrationTargetCredentialConflict { credential_id } => write!(
+                formatter,
+                "migration target credential '{credential_id}' differs from durable state"
+            ),
             Self::InvalidMigrationCutover { detail } => {
                 write!(formatter, "invalid migration cutover: {detail}")
             }
@@ -170,6 +181,8 @@ impl Error for StateStoreError {
             | Self::MigrationEvidenceConflict { .. }
             | Self::InvalidMigrationTransition { .. }
             | Self::MigrationTimeRegression { .. }
+            | Self::InvalidMigrationTarget { .. }
+            | Self::MigrationTargetCredentialConflict { .. }
             | Self::InvalidMigrationCutover { .. }
             | Self::InvalidMigrationRollback { .. }
             | Self::ProjectAdoptionTargetMissing { .. }

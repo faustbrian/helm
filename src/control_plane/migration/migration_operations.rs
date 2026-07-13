@@ -1,5 +1,6 @@
 use super::{
     MigrationBackup, MigrationCutoverPlan, MigrationOperationError, MigrationRollbackPlan,
+    MigrationTargetPlan,
 };
 use crate::control_plane::state::MigrationRecord;
 use std::future::Future;
@@ -18,7 +19,7 @@ pub(crate) trait MigrationOperations {
     fn provision_target<'operation>(
         &'operation mut self,
         checkpoint: &'operation MigrationRecord,
-    ) -> MigrationFuture<'operation, String>;
+    ) -> MigrationFuture<'operation, MigrationTargetPlan>;
 
     fn restore<'operation>(
         &'operation mut self,

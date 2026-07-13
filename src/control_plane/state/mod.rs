@@ -1,4 +1,5 @@
 mod credential_lifecycle;
+mod credential_persistence;
 mod credential_record;
 mod credential_record_options;
 mod engine_provider;

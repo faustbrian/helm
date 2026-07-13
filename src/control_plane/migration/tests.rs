@@ -1,12 +1,13 @@
 use super::{
     MigrationBackup, MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture,
-    MigrationOperations, MigrationRollbackPlan, confirm_migration, execute_migration,
-    rollback_migration,
+    MigrationOperations, MigrationRollbackPlan, MigrationTargetPlan, confirm_migration,
+    execute_migration, rollback_migration,
 };
 use crate::control_plane::state::{
-    EnvironmentLifecycle, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
-    MigrationRecordOptions, ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -59,6 +60,14 @@ fn migration_executes_to_reversible_cutover_without_retiring_v7() {
         assert_eq!(
             store.managed_environments().expect("load environment"),
             vec![cutover_environment()]
+        );
+        assert_eq!(
+            store.logical_resources().expect("owned target"),
+            vec![active_target_logical_resource()]
+        );
+        assert_eq!(
+            store.credentials().expect("target credential"),
+            vec![target_credential()]
         );
 
         drop(store);
@@ -321,6 +330,17 @@ fn target_logical_resource(lifecycle: ResourceLifecycle) -> LogicalResourceRecor
     })
 }
 
+fn target_credential() -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/postgresql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database_role".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    })
+}
+
 fn migration_store(database_path: &Path) -> SqliteStateStore {
     let mut store = SqliteStateStore::open(database_path).expect("open state");
     store
@@ -329,10 +349,6 @@ fn migration_store(database_path: &Path) -> SqliteStateStore {
     store
         .replace_managed_environment(&original_environment())
         .expect("persist original environment");
-    store
-        .upsert_logical_resources(&[active_target_logical_resource()])
-        .expect("persist active target logical resource");
-
     store
 }
 
@@ -361,10 +377,16 @@ impl MigrationOperations for RecordingMigrationOperations {
     fn provision_target<'operation>(
         &'operation mut self,
         migration: &'operation MigrationRecord,
-    ) -> MigrationFuture<'operation, String> {
+    ) -> MigrationFuture<'operation, MigrationTargetPlan> {
         self.calls.push("provision");
         self.received_phases.push(migration.phase());
-        Box::pin(async { Ok("postgres-v8-bill".to_owned()) })
+        Box::pin(async {
+            MigrationTargetPlan::new(
+                "postgres-v8-bill",
+                active_target_logical_resource(),
+                target_credential(),
+            )
+        })
     }
 
     fn restore<'operation>(

@@ -38,24 +38,24 @@ pub(crate) async fn execute_migration(
                 persist(store, options)?
             }
             MigrationPhase::BackupVerified => {
-                let target_resource_id = operations
+                let target = operations
                     .provision_target(&checkpoint)
                     .await
                     .map_err(|source| operation_error("target provisioning", source))?;
-                if target_resource_id.is_empty() {
-                    return Err(MigrationError::InvalidCheckpoint {
-                        detail: "target provisioning returned an empty resource identity"
-                            .to_owned(),
-                    });
-                }
                 let mut options = next_options(
                     inventory,
                     &checkpoint,
                     MigrationPhase::TargetProvisioned,
                     updated_at_unix_seconds,
                 );
-                options.target_resource_id = Some(target_resource_id);
-                persist(store, options)?
+                options.target_resource_id = Some(target.target_resource_id().to_owned());
+                let target_checkpoint = checkpoint_from_options(options)?;
+                store.record_migration_target(
+                    target.logical_resource(),
+                    target.credential(),
+                    &target_checkpoint,
+                )?;
+                target_checkpoint
             }
             MigrationPhase::TargetProvisioned => {
                 let backup_reference = required(

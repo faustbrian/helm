@@ -1,3 +1,4 @@
+use super::credential_persistence::{credential_from_persisted, persist_credential_if_absent};
 use super::logical_resource_persistence::{
     load_logical_resource_ownership, persist_logical_resources,
 };
@@ -5,8 +6,8 @@ use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    CredentialLifecycle, CredentialRecord, EngineProvider, EnvironmentLifecycle,
+    InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
     ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
     ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
     ResourceRetention, StateStore, StateStoreError,
@@ -754,38 +755,10 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing = load_credential(&transaction, credential.credential_id())?;
-
-        if let Some(existing) = existing {
-            if existing.project_id() != credential.project_id()
-                || existing.service_id() != credential.service_id()
-                || existing.username() != credential.username()
-            {
-                return Err(StateStoreError::CredentialOwnershipConflict {
-                    credential_id: credential.credential_id().to_owned(),
-                });
-            }
-
-            transaction.commit()?;
-            return Ok(existing);
-        }
-
-        transaction.execute(
-            "INSERT INTO credentials (\n\
-                 credential_id, project_id, service_id, username, secret, lifecycle\n\
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                credential.credential_id(),
-                credential.project_id(),
-                credential.service_id(),
-                credential.username(),
-                credential.secret(),
-                credential.lifecycle().label(),
-            ],
-        )?;
+        let persisted = persist_credential_if_absent(&transaction, credential)?;
         transaction.commit()?;
 
-        Ok(credential.clone())
+        Ok(persisted)
     }
 
     fn credentials(&self) -> Result<Vec<CredentialRecord>, StateStoreError> {
@@ -877,6 +850,53 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        persist_migration_record(&transaction, migration)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn record_migration_target(
+        &mut self,
+        target: &LogicalResourceRecord,
+        credential: &CredentialRecord,
+        migration: &MigrationRecord,
+    ) -> Result<(), StateStoreError> {
+        if migration.phase() != MigrationPhase::TargetProvisioned
+            || target.lifecycle() != ResourceLifecycle::Active
+            || credential.lifecycle() != CredentialLifecycle::Active
+            || target.project_id() != migration.project_id()
+            || credential.project_id() != Some(migration.project_id())
+            || credential.service_id() != target.service_id()
+            || target.compatibility_fingerprint() != migration.target_compatibility_fingerprint()
+        {
+            return Err(StateStoreError::InvalidMigrationTarget {
+                detail: "active logical ownership, credential, and target checkpoint must match"
+                    .to_owned(),
+            });
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered_project = transaction
+            .query_row(
+                "SELECT 1 FROM projects WHERE project_name = ?1",
+                [migration.project_id()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if registered_project != Some(1) {
+            return Err(StateStoreError::InvalidMigrationTarget {
+                detail: "the exact migration project is not registered".to_owned(),
+            });
+        }
+        persist_logical_resources(&transaction, std::slice::from_ref(target))?;
+        let stable_credential = persist_credential_if_absent(&transaction, credential)?;
+        if stable_credential != *credential {
+            return Err(StateStoreError::MigrationTargetCredentialConflict {
+                credential_id: credential.credential_id().to_owned(),
+            });
+        }
         persist_migration_record(&transaction, migration)?;
         transaction.commit()?;
 
@@ -1140,51 +1160,6 @@ fn load_resource_ownership(
         )
         .optional()
         .map_err(Into::into)
-}
-
-fn load_credential(
-    connection: &Connection,
-    credential_id: &str,
-) -> Result<Option<CredentialRecord>, StateStoreError> {
-    let persisted = connection
-        .query_row(
-            "SELECT credential_id, project_id, service_id, username, secret, lifecycle\n\
-             FROM credentials WHERE credential_id = ?1",
-            [credential_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                ))
-            },
-        )
-        .optional()?;
-
-    persisted.map(credential_from_persisted).transpose()
-}
-
-fn credential_from_persisted(
-    persisted: (String, Option<String>, String, String, String, String),
-) -> Result<CredentialRecord, StateStoreError> {
-    let (credential_id, project_id, service_id, username, secret, lifecycle) = persisted;
-    let lifecycle = CredentialLifecycle::from_label(&lifecycle).ok_or_else(|| {
-        StateStoreError::CorruptState {
-            detail: format!("credential '{credential_id}' has unknown lifecycle '{lifecycle}'"),
-        }
-    })?;
-
-    Ok(CredentialRecord::new(CredentialRecordOptions {
-        credential_id,
-        project_id,
-        service_id,
-        username,
-        secret,
-        lifecycle,
-    }))
 }
 
 fn load_installation(

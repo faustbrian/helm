@@ -153,6 +153,56 @@ fn migration_records_require_proof_before_destructive_phases() {
 }
 
 #[test]
+fn rejected_migration_target_ownership_rolls_back_logical_state_and_checkpoint() {
+    let database_path = temporary_database_path("migration-target-transaction");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let target = logical_resource_record("bill/database", "bill", "database");
+    let stable_credential = credential_record("stable-secret");
+    let conflicting_credential = credential_record("replacement-secret");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .insert_credential_if_absent(&stable_credential)
+        .expect("persist stable credential");
+    store
+        .record_migration(&migration_record(MigrationPhase::Inventoried, 10))
+        .expect("record inventory");
+    store
+        .record_migration(&migration_record(MigrationPhase::BackupVerified, 11))
+        .expect("record verified backup");
+
+    let error = store
+        .record_migration_target(
+            &target,
+            &conflicting_credential,
+            &migration_record(MigrationPhase::TargetProvisioned, 12),
+        )
+        .expect_err("reject changed target credential");
+
+    assert_eq!(
+        error.to_string(),
+        "migration target credential 'bill/database/primary' differs from durable state"
+    );
+    assert!(
+        store
+            .logical_resources()
+            .expect("no partial logical target")
+            .is_empty()
+    );
+    assert_eq!(
+        store.credentials().expect("stable credential"),
+        vec![stable_credential]
+    );
+    assert_eq!(
+        store.migrations().expect("verified checkpoint")[0].phase(),
+        MigrationPhase::BackupVerified
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn migration_cutover_replaces_desired_state_and_checkpoint_atomically() {
     let database_path = temporary_database_path("migration-cutover");
     let original_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
