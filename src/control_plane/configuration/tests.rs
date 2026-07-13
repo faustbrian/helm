@@ -42,6 +42,11 @@ services:
     preset: laravel
     image: ghcr.io/stackctl/php:8.4
     php_extensions: [redis, intl]
+    command: [php, artisan, octane:start]
+    environment:
+      APP_ENV: local
+      DB_PASSWORD: project-secret
+      OCTANE_SERVER: frankenphp
     depends_on: [db]
   db:
     preset: postgres
@@ -56,10 +61,68 @@ services:
     assert_eq!(app.preset(), Some("laravel"));
     assert_eq!(app.image(), Some("ghcr.io/stackctl/php:8.4"));
     assert_eq!(app.php_extensions(), ["intl", "redis"]);
+    assert_eq!(
+        app.command().expect("application command"),
+        ["php", "artisan", "octane:start"]
+    );
+    assert_eq!(
+        app.environment(),
+        &std::collections::BTreeMap::from([
+            ("APP_ENV".to_owned(), "local".to_owned()),
+            ("DB_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("OCTANE_SERVER".to_owned(), "frankenphp".to_owned()),
+        ])
+    );
+    assert!(!format!("{app:?}").contains("project-secret"));
     assert_eq!(app.version(), None);
     assert_eq!(database.preset(), Some("postgres"));
     assert_eq!(database.version(), Some("17"));
     assert_eq!(database.database(), Some("bill"));
+}
+
+#[test]
+fn desired_state_rejects_unsafe_runtime_process_configuration() {
+    let empty_command = r#"
+schema_version: 8
+services:
+  worker:
+    preset: queue-worker
+    command: []
+"#;
+    let empty_executable = r#"
+schema_version: 8
+services:
+  worker:
+    preset: queue-worker
+    command: [""]
+"#;
+    let invalid_environment_key = r#"
+schema_version: 8
+services:
+  worker:
+    preset: queue-worker
+    environment:
+      BAD=KEY: value
+"#;
+
+    assert_eq!(
+        desired_from(empty_command)
+            .expect_err("empty command")
+            .to_string(),
+        "service 'worker' command must contain a non-empty executable"
+    );
+    assert_eq!(
+        desired_from(empty_executable)
+            .expect_err("empty executable")
+            .to_string(),
+        "service 'worker' command must contain a non-empty executable"
+    );
+    assert_eq!(
+        desired_from(invalid_environment_key)
+            .expect_err("invalid environment key")
+            .to_string(),
+        "service 'worker' declares invalid environment key 'BAD=KEY'"
+    );
 }
 
 #[test]

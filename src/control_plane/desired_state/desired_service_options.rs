@@ -1,4 +1,5 @@
 use crate::control_plane::ServiceIdentity;
+use std::collections::BTreeMap;
 
 /// Complete validated declarative fields for one desired v8 service.
 pub(crate) struct DesiredServiceOptions {
@@ -9,4 +10,6 @@ pub(crate) struct DesiredServiceOptions {
     pub(crate) version: Option<String>,
     pub(crate) php_extensions: Vec<String>,
     pub(crate) database: Option<String>,
+    pub(crate) command: Option<Vec<String>>,
+    pub(crate) environment: BTreeMap<String, String>,
 }

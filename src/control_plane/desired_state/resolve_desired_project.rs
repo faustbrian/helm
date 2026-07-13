@@ -40,6 +40,8 @@ pub(crate) fn resolve_desired_project(
         }
         let version = optional_non_empty(name, "version", raw_service.version())?;
         let database = optional_non_empty(name, "database", raw_service.database())?;
+        let command = validate_command(name, raw_service.command())?;
+        let environment = validate_environment(name, raw_service.environment())?;
         let mut php_extensions = raw_service.php_extensions().to_vec();
         php_extensions.sort();
         for pair in php_extensions.windows(2) {
@@ -69,6 +71,8 @@ pub(crate) fn resolve_desired_project(
                 version,
                 php_extensions,
                 database,
+                command,
+                environment,
             }),
         );
     }
@@ -93,6 +97,60 @@ pub(crate) fn resolve_desired_project(
         startup_order,
         route_claims,
     ))
+}
+
+fn validate_command(
+    service: &str,
+    command: Option<&[String]>,
+) -> Result<Option<Vec<String>>, DesiredProjectError> {
+    let Some(command) = command else {
+        return Ok(None);
+    };
+
+    if command.first().is_none_or(String::is_empty) {
+        return Err(invalid_service(
+            service,
+            "command must contain a non-empty executable",
+        ));
+    }
+    if command.iter().any(|argument| argument.contains('\0')) {
+        return Err(invalid_service(
+            service,
+            "command must not contain NUL bytes",
+        ));
+    }
+
+    Ok(Some(command.to_vec()))
+}
+
+fn validate_environment(
+    service: &str,
+    environment: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, DesiredProjectError> {
+    for (key, value) in environment {
+        if !valid_environment_key(key) {
+            return Err(invalid_service(
+                service,
+                format!("declares invalid environment key '{key}'"),
+            ));
+        }
+        if value.contains('\0') {
+            return Err(invalid_service(
+                service,
+                format!("environment value for '{key}' must not contain NUL bytes"),
+            ));
+        }
+    }
+
+    Ok(environment.clone())
+}
+
+fn valid_environment_key(key: &str) -> bool {
+    let mut bytes = key.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn optional_non_empty(

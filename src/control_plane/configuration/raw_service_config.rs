@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 /// The initial strict v8 service configuration boundary.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -12,6 +13,9 @@ pub(crate) struct RawServiceConfig {
     #[serde(default)]
     depends_on: Vec<String>,
     database: Option<String>,
+    command: Option<Vec<String>>,
+    #[serde(default)]
+    environment: BTreeMap<String, String>,
 }
 
 impl RawServiceConfig {
@@ -43,5 +47,15 @@ impl RawServiceConfig {
     /// Returns the exact requested logical database name.
     pub(crate) fn database(&self) -> Option<&str> {
         self.database.as_deref()
+    }
+
+    /// Returns the exact requested process command when declared.
+    pub(crate) fn command(&self) -> Option<&[String]> {
+        self.command.as_deref()
+    }
+
+    /// Returns exact project-visible process environment values.
+    pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
+        &self.environment
     }
 }

@@ -29,6 +29,9 @@ All notable changes to this project are documented in this file.
   atomically registering discoveries and orphaning every project whose config vanished.
 - Added executable dedicated application-container requests with exact ownership,
   Linux platform, private networking, source mount, environment, command, and no host ports.
+- Added strict v8 YAML process commands and deterministic environment mappings,
+  including pre-mutation validation of executables, variable names, NUL bytes,
+  and debug redaction of environment values.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
