@@ -23,7 +23,7 @@ pub(crate) fn global_gateway_request(
             detail: "gateway certificate revision must not be empty".to_owned(),
         });
     }
-    let desired_revision = gateway_revision(&options.certificate_revision);
+    let desired_revision = gateway_revision(&options.certificate_revision, &options.container_user);
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id,
         kind: ResourceKind::Gateway,
@@ -38,6 +38,7 @@ pub(crate) fn global_gateway_request(
     gateway_container_request(GatewayContainerRequestOptions::new(
         GATEWAY_IMAGE.to_owned(),
         GATEWAY_NETWORK.to_owned(),
+        options.container_user,
         options.certificate_path,
         options.private_key_path,
         options.bootstrap_config_path,
@@ -46,12 +47,14 @@ pub(crate) fn global_gateway_request(
     ))
 }
 
-fn gateway_revision(certificate_revision: &str) -> String {
+fn gateway_revision(certificate_revision: &str, container_user: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"stackctl-global-gateway-v1\0");
     hasher.update(GATEWAY_IMAGE.as_bytes());
     hasher.update(b"\0");
     hasher.update(certificate_revision.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(container_user.as_bytes());
 
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }

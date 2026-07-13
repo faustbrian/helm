@@ -926,6 +926,7 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
         )
         .to_owned(),
         "stackctl".to_owned(),
+        "501:20".to_owned(),
         std::path::PathBuf::from("/state/tls/wildcard.crt"),
         std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
@@ -935,6 +936,7 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
     .expect("immutable gateway options");
 
     let (_, body) = create_request(&options);
+    assert_eq!(body.user.as_deref(), Some("501:20"));
     let host = body.host_config.expect("gateway host config");
 
     assert_eq!(host.network_mode.as_deref(), Some("stackctl"));

@@ -2,18 +2,20 @@ use super::{
     CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayConfigurationAction,
     GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPlaneOptions,
     GatewayPortAvailability, GatewayPortProbe, GatewayReadinessOptions, GatewayReconcileAction,
-    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, GlobalGatewayRequestOptions,
-    LocalhostResolver, SystemGatewayPortProbe, global_gateway_request, preflight_gateway_ports,
-    reconcile_gateway, reconcile_gateway_configuration, reconcile_gateway_plane,
-    render_caddy_document, store_caddy_bootstrap, verify_gateway_ports_available,
-    verify_stackctl_localhost_resolution, wait_for_gateway_ready,
+    GatewayReconcileOptions, GatewayRoute, GatewayRuntimeAssetOptions, GatewaySnapshot,
+    GlobalGatewayRequestOptions, LocalhostResolver, SystemGatewayPortProbe, global_gateway_request,
+    preflight_gateway_ports, prepare_gateway_runtime_assets, reconcile_gateway,
+    reconcile_gateway_configuration, reconcile_gateway_plane, render_caddy_document,
+    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    wait_for_gateway_ready,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
     ContainerState, EngineError, EngineFuture, GatewayContainerRequestOptions, HealthObserver,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer,
-    PublishedPortBinding, PublishedPortDiscovery, ResourceKind, RetentionClass,
-    gateway_container_request, reconstruct_owned_container,
+    ImageId, ImageResolver, ImmutableImageReference, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, PublishedPortBinding,
+    PublishedPortDiscovery, ResourceKind, RetentionClass, gateway_container_request,
+    reconstruct_owned_container,
 };
 use serde_json::Value;
 use std::cell::RefCell;
@@ -33,10 +35,52 @@ use super::CaddyUnixAdminClient;
 #[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(unix)]
+#[test]
+fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-gateway-assets-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    let options = GatewayRuntimeAssetOptions {
+        runtime_directory: &root,
+        installation_id: "install-1",
+        container_user: "501:20",
+        now: time::macros::datetime!(2026-07-13 12:00 UTC),
+    };
+
+    let initial = prepare_gateway_runtime_assets(options).expect("prepare gateway assets");
+    let recovered = prepare_gateway_runtime_assets(options).expect("recover gateway assets");
+
+    assert_eq!(initial.request(), recovered.request());
+    assert_eq!(initial.bootstrap_paths(), recovered.bootstrap_paths());
+    assert!(initial.bootstrap_paths().config_path().is_file());
+    assert!(initial.bootstrap_paths().runtime_directory().is_dir());
+    assert_eq!(
+        initial.request().bind_mounts().len(),
+        4,
+        "leaf certificate, leaf key, bootstrap, and admin runtime only"
+    );
+    assert!(
+        initial
+            .request()
+            .bind_mounts()
+            .iter()
+            .all(|mount| { !mount.source().ends_with("/ca.key") })
+    );
+
+    std::fs::remove_dir_all(root).expect("remove gateway asset fixture");
+}
+
 #[test]
 fn production_gateway_request_pins_official_caddy_and_global_ownership() {
     let request = global_gateway_request(GlobalGatewayRequestOptions {
         installation_id: "install-1".to_owned(),
+        container_user: "501:20".to_owned(),
         certificate_path: "/state/tls/bundle/wildcard.crt".into(),
         private_key_path: "/state/tls/bundle/wildcard.key".into(),
         certificate_revision: "bundle-v1".to_owned(),
@@ -54,6 +98,7 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
         )
     );
     assert_eq!(request.network(), Some("stackctl"));
+    assert_eq!(request.user(), Some("501:20"));
     assert_eq!(
         request.command(),
         ["caddy", "run", "--config", "/etc/stackctl/config.json"]
@@ -64,6 +109,7 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
 
     let renewed = global_gateway_request(GlobalGatewayRequestOptions {
         installation_id: "install-1".to_owned(),
+        container_user: "501:20".to_owned(),
         certificate_path: "/state/tls/renewed/wildcard.crt".into(),
         private_key_path: "/state/tls/renewed/wildcard.key".into(),
         certificate_revision: "bundle-v2".to_owned(),
@@ -325,6 +371,7 @@ fn gateway_reconciliation_creates_starts_and_observes_a_missing_gateway() {
     assert_eq!(result.action(), GatewayReconcileAction::Created);
     assert_eq!(result.health(), ContainerHealth::Starting);
     assert_eq!(result.container().id().as_str(), "created-gateway");
+    assert_eq!(engine.images, vec![request.image().to_owned()]);
     assert_eq!(engine.created, vec![request]);
     assert_eq!(engine.started.len(), 1);
     assert_eq!(host_probe.addresses.borrow().len(), 4);
@@ -1205,6 +1252,7 @@ fn gateway_request(metadata: ManagedResourceMetadata) -> ContainerCreateOptions 
         )
         .to_owned(),
         "stackctl".to_owned(),
+        "501:20".to_owned(),
         std::path::PathBuf::from("/state/tls/wildcard.crt"),
         std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
@@ -1263,6 +1311,7 @@ impl HealthObserver for SequencedHealthObserver {
 }
 
 struct RecordingGatewayEngine {
+    images: Vec<String>,
     observed: Vec<ObservedContainer>,
     published: Vec<PublishedPortBinding>,
     state: ContainerState,
@@ -1277,6 +1326,7 @@ struct RecordingGatewayEngine {
 impl Default for RecordingGatewayEngine {
     fn default() -> Self {
         Self {
+            images: Vec::new(),
             observed: Vec::new(),
             published: Vec::new(),
             state: ContainerState::Missing,
@@ -1287,6 +1337,18 @@ impl Default for RecordingGatewayEngine {
             stopped: Vec::new(),
             removed: Vec::new(),
         }
+    }
+}
+
+impl ImageResolver for RecordingGatewayEngine {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        Box::pin(async move {
+            self.images.push(reference.as_str().to_owned());
+            ImageId::new(format!("sha256:{}", "a".repeat(64)))
+        })
     }
 }
 

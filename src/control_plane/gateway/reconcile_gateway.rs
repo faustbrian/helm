@@ -4,8 +4,8 @@ use super::{
 };
 use crate::control_plane::engine::{
     ContainerDiscovery, ContainerHealth, ContainerLifecycle, ContainerState, HealthObserver,
-    ObservedResourceOwnership, OwnedContainer, PublishedPortDiscovery, ResourceKind,
-    reconstruct_owned_container,
+    ImageResolver, ImmutableImageReference, ObservedResourceOwnership, OwnedContainer,
+    PublishedPortDiscovery, ResourceKind, reconstruct_owned_container,
 };
 
 /// Restores the singleton owned gateway without mutating unrelated containers.
@@ -14,9 +14,19 @@ pub(crate) async fn reconcile_gateway<E>(
     options: GatewayReconcileOptions<'_>,
 ) -> Result<GatewayReconcileResult, GatewayError>
 where
-    E: ContainerDiscovery + ContainerLifecycle + HealthObserver + PublishedPortDiscovery,
+    E: ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + ImageResolver
+        + PublishedPortDiscovery,
 {
     validate_request(&options)?;
+    let image = ImmutableImageReference::new(options.request.image())
+        .map_err(|error| engine_error("validate gateway image", error))?;
+    engine
+        .ensure_image(&image)
+        .await
+        .map_err(|error| engine_error("resolve gateway image", error))?;
 
     let observed = engine
         .discover_managed()

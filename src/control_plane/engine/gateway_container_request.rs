@@ -22,6 +22,7 @@ pub(crate) fn gateway_container_request(
 
     let request =
         ContainerCreateOptions::new(GATEWAY_CONTAINER_NAME, options.image, options.metadata)?
+            .with_user(options.user)?
             .with_network(options.network)?
             .with_port_binding(PortBinding::loopback(80, 80)?)
             .with_port_binding(PortBinding::loopback(443, 443)?)

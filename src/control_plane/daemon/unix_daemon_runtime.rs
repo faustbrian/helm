@@ -7,13 +7,17 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
 use crate::control_plane::engine::NetworkCreateOptions;
+use crate::control_plane::gateway::{
+    GatewayReconcileOptions, GatewayRuntimeAssetOptions, SystemGatewayPortProbe,
+    prepare_gateway_runtime_assets, reconcile_gateway,
+};
 use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
@@ -23,6 +27,7 @@ pub(crate) struct UnixDaemonRuntime {
     filesystem_watcher: FilesystemEventWatcher,
     engine_runtime: tokio::runtime::Runtime,
     engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
+    runtime_directory: PathBuf,
     global_network_request: NetworkCreateOptions,
     engine_reconciliation: EngineReconciliationSchedule,
     control_plane: ControlPlane<SqliteStateStore>,
@@ -40,8 +45,9 @@ impl UnixDaemonRuntime {
         let runtime_directory = options
             .socket_path
             .parent()
-            .ok_or_else(|| invalid("daemon socket path must have a parent directory"))?;
-        prepare_runtime_directory(runtime_directory)?;
+            .ok_or_else(|| invalid("daemon socket path must have a parent directory"))?
+            .to_path_buf();
+        prepare_runtime_directory(&runtime_directory)?;
         let lease = SingletonLease::acquire(&options.lease_path)?;
         remove_stale_socket(&options.socket_path)?;
         let listener = UnixIpcListener::bind(&options.socket_path)?;
@@ -71,6 +77,7 @@ impl UnixDaemonRuntime {
             filesystem_watcher,
             engine_runtime,
             engine_connection,
+            runtime_directory,
             global_network_request,
             engine_reconciliation: EngineReconciliationSchedule::default(),
             control_plane: ControlPlane::new(store),
@@ -186,16 +193,8 @@ impl UnixDaemonRuntime {
             },
         ));
 
-        match result {
-            Ok(result) => {
-                self.engine_reconciliation.complete();
-                if result.action() == GlobalNetworkReconcileAction::Created {
-                    tracing::info!(
-                        network_id = result.network().id().as_str(),
-                        "created the global Stackctl Engine network"
-                    );
-                }
-            }
+        let network = match result {
+            Ok(result) => result,
             Err(GlobalNetworkReconcileError::EngineUnavailable { action, detail }) => {
                 let retry = self.engine_connection.invalidate(now);
                 tracing::debug!(
@@ -205,10 +204,65 @@ impl UnixDaemonRuntime {
                     error = detail,
                     "global network reconciliation lost the selected Engine; retry scheduled"
                 );
+
+                return;
             }
             Err(error) => {
                 self.engine_reconciliation.complete();
                 tracing::error!(error = %error, "global Engine network reconciliation blocked");
+
+                return;
+            }
+        };
+        if network.action() == GlobalNetworkReconcileAction::Created {
+            tracing::info!(
+                network_id = network.network().id().as_str(),
+                "created the global Stackctl Engine network"
+            );
+        }
+
+        let container_user = format!(
+            "{}:{}",
+            rustix::process::geteuid().as_raw(),
+            rustix::process::getegid().as_raw()
+        );
+        let assets = match prepare_gateway_runtime_assets(GatewayRuntimeAssetOptions {
+            runtime_directory: &self.runtime_directory,
+            installation_id: self.global_network_request.metadata().installation_id(),
+            container_user: &container_user,
+            now: time::OffsetDateTime::now_utc(),
+        }) {
+            Ok(assets) => assets,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "gateway host asset preparation blocked");
+
+                return;
+            }
+        };
+        let gateway = self.engine_runtime.block_on(reconcile_gateway(
+            engine,
+            GatewayReconcileOptions {
+                request: assets.request(),
+                installation_id: assets.request().metadata().installation_id(),
+                schema_version: assets.request().metadata().schema_version(),
+                host_probe: &SystemGatewayPortProbe,
+            },
+        ));
+
+        match gateway {
+            Ok(gateway) => {
+                self.engine_reconciliation.complete();
+                tracing::debug!(
+                    action = ?gateway.action(),
+                    health = ?gateway.health(),
+                    certificate_action = ?assets.certificate_action(),
+                    "global gateway reconciliation completed"
+                );
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "global gateway reconciliation blocked");
             }
         }
     }

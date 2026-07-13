@@ -4,7 +4,8 @@ use super::{
     wait_for_gateway_ready,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, PublishedPortDiscovery,
+    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, ImageResolver,
+    PublishedPortDiscovery,
 };
 
 /// Reconciles gateway ownership, readiness, and complete routes in safe order.
@@ -14,7 +15,11 @@ pub(crate) async fn reconcile_gateway_plane<E>(
     options: GatewayPlaneOptions<'_>,
 ) -> Result<GatewayPlaneResult, GatewayError>
 where
-    E: ContainerDiscovery + ContainerLifecycle + HealthObserver + PublishedPortDiscovery,
+    E: ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + ImageResolver
+        + PublishedPortDiscovery,
 {
     let gateway = reconcile_gateway(engine, options.gateway).await?;
     let health = if gateway.health() == ContainerHealth::Healthy {

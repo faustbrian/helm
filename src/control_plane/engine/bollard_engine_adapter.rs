@@ -1202,6 +1202,7 @@ pub(super) fn create_request(
     let query = query.build();
     let body = ContainerCreateBody {
         image: Some(options.image().to_owned()),
+        user: options.user().map(str::to_owned),
         cmd: (!options.command().is_empty()).then(|| options.command().to_vec()),
         env: (!options.environment().is_empty()).then(|| {
             options

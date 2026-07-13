@@ -111,6 +111,12 @@ All notable changes to this project are documented in this file.
 - Restricted the gateway container to individual read-only wildcard leaf
   mounts so the Stackctl CA private key never enters the workload plane, and
   tied gateway replacement identity to the immutable certificate generation.
+- Wired the singleton daemon to prepare restart-safe TLS/bootstrap assets,
+  resolve the pinned gateway image, and reconcile one loopback-only gateway
+  container after the global network and a complete valid registry scan.
+- Run the gateway as the daemon user's numeric UID and GID so its private
+  `0600` admin socket remains accessible to the owning user on native Linux
+  while the image's low-port capability still permits loopback ports 80/443.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

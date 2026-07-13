@@ -12,6 +12,7 @@ pub(crate) struct ContainerCreateOptions {
     name: String,
     image: String,
     metadata: ManagedResourceMetadata,
+    user: Option<String>,
     platform: Option<String>,
     network: Option<String>,
     port_bindings: Vec<PortBinding>,
@@ -49,6 +50,7 @@ impl ContainerCreateOptions {
             name,
             image,
             metadata,
+            user: None,
             platform: None,
             network: None,
             port_bindings: Vec::new(),
@@ -59,6 +61,27 @@ impl ContainerCreateOptions {
             health_check: None,
             restart_policy: None,
         })
+    }
+
+    /// Runs the container with one explicit numeric Linux UID and GID.
+    pub(crate) fn with_user(mut self, user: impl Into<String>) -> Result<Self, EngineError> {
+        let user = user.into();
+        let valid = user.split_once(':').is_some_and(|(uid, gid)| {
+            !uid.is_empty()
+                && !gid.is_empty()
+                && uid.bytes().all(|byte| byte.is_ascii_digit())
+                && gid.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        if !valid {
+            return Err(EngineError::InvalidRequest {
+                detail: format!(
+                    "managed container user '{user}' must be a numeric Linux UID:GID pair"
+                ),
+            });
+        }
+        self.user = Some(user);
+
+        Ok(self)
     }
 
     pub(crate) fn with_network(mut self, network: impl Into<String>) -> Result<Self, EngineError> {
@@ -194,6 +217,10 @@ impl ContainerCreateOptions {
         &self.metadata
     }
 
+    pub(crate) fn user(&self) -> Option<&str> {
+        self.user.as_deref()
+    }
+
     pub(crate) fn platform(&self) -> Option<&str> {
         self.platform.as_deref()
     }
@@ -238,6 +265,7 @@ impl Debug for ContainerCreateOptions {
             .field("name", &self.name)
             .field("image", &self.image)
             .field("metadata", &self.metadata)
+            .field("user", &self.user)
             .field("platform", &self.platform)
             .field("network", &self.network)
             .field("port_bindings", &self.port_bindings)
