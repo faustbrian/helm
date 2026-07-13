@@ -1,7 +1,8 @@
 use super::{
     BackupArtifactManifest, DeletionDecision, PruneAuthorization, RestoreTarget,
     RestoreTargetError, evaluate_deletion, restore_verified_backup, store_backup_artifact,
-    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
+    store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
+    verify_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
@@ -365,6 +366,44 @@ fn backup_store_streams_large_artifacts_without_requiring_one_byte_buffer() {
     verify_stored_backup_artifact(&stored, 42_001).expect("verified streamed backup");
 
     std::fs::remove_dir_all(&root).expect("remove streamed backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_store_streams_async_artifacts_directly_into_recovery_points() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("backup runtime");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-async-stream-{}-{}",
+        std::process::id(),
+        50_004
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+    let bytes = vec![b'y'; 256 * 1024 + 29];
+    let mut reader = std::io::Cursor::new(bytes.clone());
+
+    let stored = runtime
+        .block_on(store_backup_artifact_from_async_reader(
+            &resource,
+            &mut reader,
+            43_000,
+            &root,
+        ))
+        .expect("async streamed backup");
+
+    assert_eq!(
+        std::fs::read(stored.artifact_file()).expect("artifact contents"),
+        bytes
+    );
+    verify_stored_backup_artifact(&stored, 43_001).expect("verified async streamed backup");
+
+    std::fs::remove_dir_all(&root).expect("remove async backup fixture");
 }
 
 #[cfg(unix)]

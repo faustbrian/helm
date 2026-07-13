@@ -6,6 +6,8 @@ use crate::control_plane::state::ResourceRecord;
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Read};
 use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
 /// Atomically stores one in-memory artifact through the streaming store.
 pub(crate) fn store_backup_artifact(
@@ -31,23 +33,12 @@ pub(crate) fn store_backup_artifact_from_reader(
     root: &Path,
 ) -> Result<StoredBackupArtifact, BackupVerificationError> {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     if created_at_unix_seconds < 0 {
         return Err(BackupVerificationError::InvalidCreationTime);
     }
-    prepare_private_directory(root)?;
-    let resource_directory = root.join(backup_identity_hash(resource));
-    prepare_private_directory(&resource_directory)?;
-
-    let pending = resource_directory.join(format!(".pending-{created_at_unix_seconds}"));
-    remove_incomplete_pending_directory(&pending)?;
-    fs::create_dir(&pending)
-        .map_err(|error| storage_error("create pending backup directory", &pending, error))?;
-    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))
-        .map_err(|error| storage_error("protect pending backup directory", &pending, error))?;
-
-    let pending_stored = StoredBackupArtifact::new(&pending);
+    let (resource_directory, pending, pending_stored) =
+        prepare_pending_backup(resource, created_at_unix_seconds, root)?;
     let (artifact_sha256, artifact_size_bytes) =
         write_private_artifact(pending_stored.artifact_file(), &mut artifact)?;
     let manifest = BackupArtifactManifest::from_checksum(
@@ -56,63 +47,20 @@ pub(crate) fn store_backup_artifact_from_reader(
         artifact_size_bytes,
         created_at_unix_seconds,
     )?;
-    let mut manifest_bytes = serde_json::to_vec_pretty(&manifest).map_err(|error| {
-        BackupVerificationError::InvalidManifest {
-            detail: format!("failed to encode backup manifest: {error}"),
-        }
-    })?;
-    manifest_bytes.push(b'\n');
+    let manifest_bytes = encode_manifest(&manifest)?;
     write_private_file(pending_stored.manifest_file(), &manifest_bytes)?;
     fs::File::open(&pending)
         .and_then(|directory| directory.sync_all())
         .map_err(|error| storage_error("sync pending backup directory", &pending, error))?;
 
-    let destination = resource_directory.join(format!(
-        "{}-{}",
+    publish_pending_backup(
+        resource,
         created_at_unix_seconds,
-        manifest.artifact_sha256()
-    ));
-    let stored = StoredBackupArtifact::new(&destination);
-    if destination.exists() {
-        let evidence = verify_stored_backup_artifact(&stored, created_at_unix_seconds)?;
-        if !evidence.matches(resource) {
-            return Err(BackupVerificationError::Storage {
-                detail: format!(
-                    "existing backup recovery point '{}' belongs to another resource",
-                    destination.display()
-                ),
-            });
-        }
-        let existing_manifest = fs::read(stored.manifest_file()).map_err(|error| {
-            storage_error(
-                "read existing backup manifest",
-                stored.manifest_file(),
-                error,
-            )
-        })?;
-        if existing_manifest != manifest_bytes {
-            return Err(BackupVerificationError::Storage {
-                detail: format!(
-                    "existing backup recovery point '{}' does not match the requested artifact",
-                    destination.display()
-                ),
-            });
-        }
-        fs::remove_dir_all(&pending)
-            .map_err(|error| storage_error("discard duplicate pending backup", &pending, error))?;
-
-        return Ok(stored);
-    }
-
-    fs::rename(&pending, &destination)
-        .map_err(|error| storage_error("publish backup recovery point", &destination, error))?;
-    fs::File::open(&resource_directory)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| {
-            storage_error("sync backup resource directory", &resource_directory, error)
-        })?;
-
-    Ok(stored)
+        &resource_directory,
+        &pending,
+        &manifest,
+        &manifest_bytes,
+    )
 }
 
 #[cfg(not(unix))]
@@ -186,7 +134,10 @@ fn write_private_artifact(
 }
 
 #[cfg(unix)]
-fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), BackupVerificationError> {
+pub(super) fn write_private_file(
+    path: &Path,
+    contents: &[u8],
+) -> Result<(), BackupVerificationError> {
     use std::fs::OpenOptions;
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -250,8 +201,110 @@ fn remove_incomplete_pending_directory(path: &Path) -> Result<(), BackupVerifica
 }
 
 #[cfg(unix)]
-fn storage_error(action: &str, path: &Path, error: std::io::Error) -> BackupVerificationError {
+pub(super) fn storage_error(
+    action: &str,
+    path: &Path,
+    error: std::io::Error,
+) -> BackupVerificationError {
     BackupVerificationError::Storage {
         detail: format!("failed to {action} '{}': {error}", path.display()),
     }
+}
+
+#[cfg(unix)]
+pub(super) fn prepare_pending_backup(
+    resource: &ResourceRecord,
+    created_at_unix_seconds: i64,
+    root: &Path,
+) -> Result<(PathBuf, PathBuf, StoredBackupArtifact), BackupVerificationError> {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    if created_at_unix_seconds < 0 {
+        return Err(BackupVerificationError::InvalidCreationTime);
+    }
+    prepare_private_directory(root)?;
+    let resource_directory = root.join(backup_identity_hash(resource));
+    prepare_private_directory(&resource_directory)?;
+    let pending = resource_directory.join(format!(".pending-{created_at_unix_seconds}"));
+    remove_incomplete_pending_directory(&pending)?;
+    fs::create_dir(&pending)
+        .map_err(|error| storage_error("create pending backup directory", &pending, error))?;
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))
+        .map_err(|error| storage_error("protect pending backup directory", &pending, error))?;
+    let pending_stored = StoredBackupArtifact::new(&pending);
+
+    Ok((resource_directory, pending, pending_stored))
+}
+
+pub(super) fn encode_manifest(
+    manifest: &BackupArtifactManifest,
+) -> Result<Vec<u8>, BackupVerificationError> {
+    let mut bytes = serde_json::to_vec_pretty(manifest).map_err(|error| {
+        BackupVerificationError::InvalidManifest {
+            detail: format!("failed to encode backup manifest: {error}"),
+        }
+    })?;
+    bytes.push(b'\n');
+
+    Ok(bytes)
+}
+
+#[cfg(unix)]
+pub(super) fn publish_pending_backup(
+    resource: &ResourceRecord,
+    created_at_unix_seconds: i64,
+    resource_directory: &Path,
+    pending: &Path,
+    manifest: &BackupArtifactManifest,
+    manifest_bytes: &[u8],
+) -> Result<StoredBackupArtifact, BackupVerificationError> {
+    use std::fs;
+
+    let destination = resource_directory.join(format!(
+        "{}-{}",
+        created_at_unix_seconds,
+        manifest.artifact_sha256()
+    ));
+    let stored = StoredBackupArtifact::new(&destination);
+    if destination.exists() {
+        let evidence = verify_stored_backup_artifact(&stored, created_at_unix_seconds)?;
+        if !evidence.matches(resource) {
+            return Err(BackupVerificationError::Storage {
+                detail: format!(
+                    "existing backup recovery point '{}' belongs to another resource",
+                    destination.display()
+                ),
+            });
+        }
+        let existing_manifest = fs::read(stored.manifest_file()).map_err(|error| {
+            storage_error(
+                "read existing backup manifest",
+                stored.manifest_file(),
+                error,
+            )
+        })?;
+        if existing_manifest != manifest_bytes {
+            return Err(BackupVerificationError::Storage {
+                detail: format!(
+                    "existing backup recovery point '{}' does not match the requested artifact",
+                    destination.display()
+                ),
+            });
+        }
+        fs::remove_dir_all(pending)
+            .map_err(|error| storage_error("discard duplicate pending backup", pending, error))?;
+
+        return Ok(stored);
+    }
+
+    fs::rename(pending, &destination)
+        .map_err(|error| storage_error("publish backup recovery point", &destination, error))?;
+    fs::File::open(resource_directory)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| {
+            storage_error("sync backup resource directory", resource_directory, error)
+        })?;
+
+    Ok(stored)
 }
