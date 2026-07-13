@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added atomic user-private Unix persistence for immutable v8 TLS bundles with
+  redacted debug output and verified idempotent revisions.
 - Added Rust-native v8 generation for a Stackctl-owned local CA and renewable
   `*.stackctl.localhost` gateway certificate without host OpenSSL or Caddy PKI.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
