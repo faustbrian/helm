@@ -1,8 +1,9 @@
 use super::{
     CertificateTrustStore, DebianCertificateTrustStore, FilesystemCertificateStore, HostCommand,
-    HostCommandExecutor, HostCommandOutput, LocalCaIdentity, MacOsCertificateTrustStore,
-    TrustChange, TrustStoreError, WindowsCertificateTrustStore, ensure_ca_trusted,
-    generate_local_certificates, remove_ca_trust, renew_local_leaf_certificate,
+    HostCommandExecutor, HostCommandOutput, LocalCaIdentity, LocalCertificateReconcileAction,
+    MacOsCertificateTrustStore, TrustChange, TrustStoreError, WindowsCertificateTrustStore,
+    ensure_ca_trusted, generate_local_certificates, reconcile_local_certificates, remove_ca_trust,
+    renew_local_leaf_certificate,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -84,6 +85,54 @@ fn routine_leaf_renewal_preserves_the_trusted_ca() {
     let (_, leaf) = parse_x509_certificate(&leaf_pem.contents).expect("leaf X.509");
 
     assert_eq!(leaf.issuer(), ca.subject());
+}
+
+#[test]
+fn certificate_reconciliation_generates_material_when_none_exists() {
+    let now = datetime!(2026-07-13 12:00 UTC);
+
+    let result = reconcile_local_certificates(None, now).expect("generate certificate material");
+
+    assert_eq!(result.action(), LocalCertificateReconcileAction::Generated);
+    assert_eq!(
+        result.bundle().leaf_renew_after(),
+        datetime!(2026-09-26 12:00 UTC)
+    );
+}
+
+#[test]
+fn certificate_reconciliation_keeps_material_before_renewal_is_due() {
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("certificate bundle");
+
+    let result = reconcile_local_certificates(Some(&bundle), datetime!(2026-09-26 11:59:59 UTC))
+        .expect("retain certificate material");
+
+    assert_eq!(result.action(), LocalCertificateReconcileAction::Unchanged);
+    assert_eq!(result.bundle(), &bundle);
+}
+
+#[test]
+fn certificate_reconciliation_renews_only_the_leaf_when_due() {
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("certificate bundle");
+
+    let result = reconcile_local_certificates(Some(&bundle), bundle.leaf_renew_after())
+        .expect("renew certificate material");
+
+    assert_eq!(result.action(), LocalCertificateReconcileAction::Renewed);
+    assert_eq!(
+        result.bundle().ca_certificate_pem(),
+        bundle.ca_certificate_pem()
+    );
+    assert_eq!(
+        result.bundle().ca_private_key_pem(),
+        bundle.ca_private_key_pem()
+    );
+    assert_ne!(
+        result.bundle().leaf_certificate_pem(),
+        bundle.leaf_certificate_pem()
+    );
 }
 
 #[test]
