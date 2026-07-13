@@ -131,6 +131,9 @@ All notable changes to this project are documented in this file.
 - Added executable RabbitMQ shared-instance plans with atomic hash-only
   definitions mounts, core boot import, stable node identity, private
   networking, pinned Linux images, and retained broker data volumes.
+- Added RabbitMQ project composition with deterministic virtual-host users,
+  durable credentials, and complete managed AMQP connection environments for
+  project applications sharing a compatible broker.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

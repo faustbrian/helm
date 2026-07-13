@@ -7,9 +7,9 @@ use super::{
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_redis_project_resources, plan_shared_instances,
-    provision_mysql_logical_resource, provision_postgres_logical_resource, reload_redis_acl,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
+    plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
+    reload_redis_acl, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -343,6 +343,58 @@ fn rabbitmq_materializes_one_private_persistent_definition_backed_instance() {
     assert!(debug.contains("read_only: true"));
     assert!(debug.contains("RABBITMQ_CONFIG_FILE"));
     assert!(debug.contains("RABBITMQ_NODENAME"));
+}
+
+#[test]
+fn rabbitmq_project_resources_compose_vhost_credential_and_environment() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "broker",
+        rabbitmq_profile("4"),
+    )])
+    .pop()
+    .expect("shared RabbitMQ plan");
+    let instance = RabbitMqSharedInstancePlan::new(
+        &shared,
+        RabbitMqSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:rabbitmq-v1".to_owned(),
+            definitions_directory: "/private/rabbitmq/mounted".into(),
+        },
+    )
+    .expect("RabbitMQ instance");
+
+    let project = plan_rabbitmq_project_resources(
+        "bill",
+        "broker",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("RabbitMQ project resources");
+
+    assert_eq!(project.definition().username(), "st_bill_broker");
+    assert_eq!(project.definition().vhost(), "stackctl_bill_broker");
+    assert_eq!(project.credential().credential_id(), "bill/broker/rabbitmq");
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            (
+                "RABBITMQ_HOST".to_owned(),
+                instance.container().name().to_owned()
+            ),
+            ("RABBITMQ_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("RABBITMQ_PORT".to_owned(), "5672".to_owned()),
+            ("RABBITMQ_USERNAME".to_owned(), "st_bill_broker".to_owned()),
+            (
+                "RABBITMQ_VHOST".to_owned(),
+                "stackctl_bill_broker".to_owned()
+            ),
+        ])
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
 }
 
 #[test]

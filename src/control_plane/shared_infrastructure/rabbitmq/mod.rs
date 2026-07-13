@@ -1,16 +1,20 @@
+pub(crate) use plan_rabbitmq_project_resources::plan_rabbitmq_project_resources;
 pub(crate) use rabbitmq_definitions::RabbitMqDefinitions;
 pub(crate) use rabbitmq_password_hash::RabbitMqPasswordHash;
 pub(crate) use rabbitmq_plan_error::RabbitMqPlanError;
 pub(crate) use rabbitmq_project_definition::RabbitMqProjectDefinition;
+pub(crate) use rabbitmq_project_resources::RabbitMqProjectResources;
 pub(crate) use rabbitmq_shared_instance_plan::RabbitMqSharedInstancePlan;
 pub(crate) use rabbitmq_shared_instance_plan_options::RabbitMqSharedInstancePlanOptions;
 pub(crate) use store_rabbitmq_definitions::store_rabbitmq_definitions;
 pub(crate) use stored_rabbitmq_paths::StoredRabbitMqPaths;
 
+mod plan_rabbitmq_project_resources;
 mod rabbitmq_definitions;
 mod rabbitmq_password_hash;
 mod rabbitmq_plan_error;
 mod rabbitmq_project_definition;
+mod rabbitmq_project_resources;
 mod rabbitmq_shared_instance_plan;
 mod rabbitmq_shared_instance_plan_options;
 mod store_rabbitmq_definitions;
