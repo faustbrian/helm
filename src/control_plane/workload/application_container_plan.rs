@@ -1,7 +1,7 @@
 use super::validate_image_digest::validate_image_digest;
 use super::{ApplicationContainerPlanOptions, WorkloadPlanError};
+use crate::control_plane::RouteIdentity;
 use crate::control_plane::gateway::GatewayRoute;
-use crate::control_plane::{RouteIdentity, ServiceIdentity};
 use std::path::{Path, PathBuf};
 
 /// One dedicated project runtime reachable only through the private gateway.
@@ -39,10 +39,12 @@ impl ApplicationContainerPlan {
             ));
         }
 
-        let container_name = format!("stackctl-{}-app", options.project.as_str());
-        let service = ServiceIdentity::new("app")
-            .map_err(|error| WorkloadPlanError::new(error.to_string()))?;
-        let route = RouteIdentity::new(&options.project, &service)
+        let container_name = format!(
+            "stackctl-{}-{}",
+            options.project.as_str(),
+            options.service.as_str()
+        );
+        let route = RouteIdentity::new(&options.project, &options.service)
             .map_err(|error| WorkloadPlanError::new(error.to_string()))?;
         let gateway_route = GatewayRoute::new(
             route.domain(),

@@ -8,7 +8,6 @@ use super::{
     reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
     run_project_command,
 };
-use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
@@ -20,6 +19,7 @@ use crate::control_plane::engine::{
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
+use crate::control_plane::{ProjectIdentity, ServiceIdentity};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -428,6 +428,24 @@ fn project_applications_use_private_networking_without_host_ports() {
 }
 
 #[test]
+fn application_plans_preserve_the_declared_service_identity() {
+    let mut options = application_options("bill", "/work/bill");
+    options.service = ServiceIdentity::new("reverb").expect("service identity");
+
+    let plan = ApplicationContainerPlan::new(options).expect("reverb application plan");
+
+    assert_eq!(plan.container_name(), "stackctl-bill-reverb");
+    assert_eq!(
+        plan.gateway_route().domain(),
+        "bill-reverb.stackctl.localhost"
+    );
+    assert_eq!(
+        plan.gateway_route().upstream(),
+        "http://stackctl-bill-reverb:8080"
+    );
+}
+
+#[test]
 fn equal_runtime_images_still_produce_dedicated_project_containers() {
     let bill = application_plan("bill", "/work/bill");
     let shop = application_plan("shop", "/work/shop");
@@ -736,8 +754,7 @@ fn project_process_reconciliation_selects_only_its_exact_resource_identity() {
 fn project_workers_materialize_as_supervised_private_linux_containers() {
     let project =
         ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
-    let service =
-        crate::control_plane::ServiceIdentity::new("queue-worker").expect("service identity");
+    let service = ServiceIdentity::new("queue-worker").expect("service identity");
     let plan = ProjectProcessPlan::new(ProjectProcessPlanOptions {
         project,
         service,
@@ -807,7 +824,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
 fn project_process_rejects_environment_owned_by_another_project() {
     let project =
         ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
-    let service = crate::control_plane::ServiceIdentity::new("worker").expect("service identity");
+    let service = ServiceIdentity::new("worker").expect("service identity");
 
     let error = ProjectProcessPlan::new(ProjectProcessPlanOptions {
         project,
@@ -881,8 +898,7 @@ fn application_request(desired_revision: &str) -> ContainerCreateOptions {
 fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {
     let project =
         ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
-    let service_identity =
-        crate::control_plane::ServiceIdentity::new(service).expect("service identity");
+    let service_identity = ServiceIdentity::new(service).expect("service identity");
     let plan = ProjectProcessPlan::new(ProjectProcessPlanOptions {
         project,
         service: service_identity,
@@ -1102,6 +1118,7 @@ fn application_options(project: &str, path: &str) -> ApplicationContainerPlanOpt
     ApplicationContainerPlanOptions {
         project: ProjectIdentity::resolve(Some(project), Path::new(path))
             .expect("project identity"),
+        service: ServiceIdentity::new("app").expect("service identity"),
         image_digest: concat!(
             "ghcr.io/stackctl/php@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -1176,6 +1193,7 @@ fn project_runtime_options<'plan>(
         runtime_image,
         project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
             .expect("project identity"),
+        service: ServiceIdentity::new("app").expect("service identity"),
         source_path,
         network_name: "stackctl-private".to_owned(),
         internal_http_port: 8080,

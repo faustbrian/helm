@@ -21,6 +21,7 @@ where
     validate_ownership(&options)?;
     let plan = ApplicationContainerPlan::new(ApplicationContainerPlanOptions {
         project: options.project,
+        service: options.service,
         image_digest: PREFLIGHT_IMAGE_ID.to_owned(),
         source_path: options.source_path,
         network_name: options.network_name,

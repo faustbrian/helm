@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Made application workload plans preserve each declared service identity in
+  deterministic container names and gateway routes instead of rewriting every
+  application-like service to `app`.
 - Limited deterministic gateway route ownership to project applications,
   attribution-aware shared UIs, and explicit custom-image services so database,
   queue, and scheduler services no longer reserve nonexistent HTTP domains.

@@ -1,12 +1,13 @@
 use super::{RuntimeEnvironment, RuntimeImageBuildPlan};
-use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::ManagedResourceMetadata;
+use crate::control_plane::{ProjectIdentity, ServiceIdentity};
 use std::path::PathBuf;
 
 /// Complete inputs for one project application reconciliation.
 pub(crate) struct ProjectRuntimeReconcileOptions<'operation> {
     pub(crate) runtime_image: &'operation RuntimeImageBuildPlan,
     pub(crate) project: ProjectIdentity,
+    pub(crate) service: ServiceIdentity,
     pub(crate) source_path: PathBuf,
     pub(crate) network_name: String,
     pub(crate) internal_http_port: u16,
