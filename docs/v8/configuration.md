@@ -114,8 +114,12 @@ automatic discovery never executes them on the host.
 
 ## V7 migration
 
-`stackctl config migrate --to yaml` reads v7 TOML in an isolated module, emits a
-candidate YAML file, compares resolved v7 meaning, and reports semantic
-differences. It never deletes or overwrites the source without approval. Normal
-v8 discovery rejects TOML with the exact migration command and never edits a
-repository automatically.
+`stackctl config migrate --to yaml` reads v7 TOML in an isolated module and
+emits `.stackctl.yaml` plus `.stackctl-migration-report.json` using atomic file
+publication. The
+report binds the candidate to the source checksum and lists value-redacted
+semantic differences. The candidate must pass strict v8 parsing and desired
+state resolution before publication. Existing outputs and the v7 source are
+never overwritten; blocking differences leave review artifacts but perform no
+cutover. Normal v8 discovery rejects TOML with the exact migration command and
+never edits a repository automatically.

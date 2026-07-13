@@ -31,6 +31,8 @@ All notable changes to this project are documented in this file.
   readiness, and idempotent per-project database and login reconciliation.
 - Added private stateless Gotenberg sharing by exact immutable profile with
   module-aware readiness and daemon-managed project endpoints.
+- Replaced in-place v7 config rewriting with non-destructive strict v8 YAML
+  candidates, checksum-bound semantic reports, and explicit review blockers.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

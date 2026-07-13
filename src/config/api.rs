@@ -3,15 +3,19 @@
 //! Contains config api logic used by Stackctl command workflows.
 
 mod config_io;
+mod config_migration_result;
 mod load_save;
 mod lockfile;
 mod migrate;
+mod migrate_config_options;
+mod migration_difference;
 mod presets;
 mod project;
 mod runtime_env;
 mod services;
 mod sql_client_flavor;
 
+pub use config_migration_result::ConfigMigrationResult;
 pub(crate) use load_save::load_raw_config_with;
 pub use load_save::{
     LoadConfigPathOptions, RawConfigPathOptions, SaveConfigPathOptions, load_config,
@@ -21,7 +25,9 @@ pub use lockfile::{
     LockfileDiff, build_image_lock, load_lockfile_with, lockfile_diff, save_lockfile_with,
     verify_lockfile_with,
 };
-pub use migrate::{MigrateConfigOptions, migrate_config_with};
+pub use migrate::migrate_config_with;
+pub use migrate_config_options::MigrateConfigOptions;
+pub use migration_difference::MigrationDifference;
 pub use presets::{preset_names, preset_preview};
 pub use project::{
     ProjectRootPathOptions, config_path_in_dir, init_config, project_root, project_root_with,

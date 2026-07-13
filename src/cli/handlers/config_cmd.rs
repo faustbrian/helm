@@ -18,13 +18,36 @@ pub(crate) fn handle_config_migrate(
     quiet: bool,
     config_path: Option<&Path>,
     project_root: Option<&Path>,
+    to: &str,
 ) -> Result<()> {
-    let path = config::migrate_config_with(config::MigrateConfigOptions {
+    let result = config::migrate_config_with(config::MigrateConfigOptions {
         config_path,
         project_root,
         runtime_env: None,
+        to,
     })?;
-    log::info_if_not_quiet(quiet, "config", &format!("Migrated {}", path.display()));
+    log::info_if_not_quiet(
+        quiet,
+        "config",
+        &format!(
+            "Wrote v8 candidate {} and report {}; retained {}",
+            result.candidate().display(),
+            result.report().display(),
+            result.source().display()
+        ),
+    );
+    if result.has_blocking_differences() {
+        let paths = result
+            .differences()
+            .iter()
+            .filter(|difference| difference.blocking())
+            .map(config::MigrationDifference::path)
+            .collect::<Vec<_>>()
+            .join(", ");
+        anyhow::bail!(
+            "v8 candidate requires review for: {paths}; the v7 source was retained and no cutover occurred"
+        );
+    }
     Ok(())
 }
 
@@ -143,15 +166,17 @@ image = "nginx:1.29"
 "#,
         );
 
-        handle_config_migrate(false, Some(&config_path), None)?;
+        handle_config_migrate(false, Some(&config_path), None, "yaml")?;
         assert!(config_path.exists());
+        assert!(root.join(".stackctl.yaml").exists());
+        assert!(root.join(".stackctl-migration-report.json").exists());
         Ok(())
     }
 
     #[test]
     fn handle_config_migrate_fails_without_config_path() {
         let root = temp_root();
-        let result = handle_config_migrate(false, Some(&root.join("missing.toml")), None);
+        let result = handle_config_migrate(false, Some(&root.join("missing.toml")), None, "yaml");
         assert!(result.is_err());
     }
 }

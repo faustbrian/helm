@@ -441,7 +441,7 @@ fn config_cli_parses_migrate_subcommand() {
     match cli.command {
         Commands::Config(args) => assert!(matches!(
             args.command,
-            Some(crate::cli::args::ConfigCommands::Migrate)
+            Some(crate::cli::args::ConfigCommands::Migrate { to }) if to == "yaml"
         )),
         _ => panic!("expected config command"),
     }
