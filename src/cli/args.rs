@@ -21,6 +21,7 @@ pub(crate) use crate::javascript::{
 };
 pub(crate) use arg_enums::{PortStrategyArg, PullPolicyArg, ShareProviderArg};
 pub(crate) use commands::Commands;
+pub(crate) use commands::LogsArgs;
 pub(crate) use commands::OpenArgs;
 pub(crate) use commands::PhpToolArgs;
 pub(crate) use commands::ShareCommands;

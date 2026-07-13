@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict v8 `logs` streaming for exact declared application and shared
+  services through bounded daemon-owned Engine sessions, preserving attributed
+  stdout and stderr without Docker CLI, host Caddy, or durable log storage.
 - Added the typed v8 project-log session protocol and bounded, binary-safe
   in-memory cursor buffer required to stream Engine logs without storing
   application output in SQLite or invoking the Docker CLI.
