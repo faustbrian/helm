@@ -1,8 +1,11 @@
 use super::{
     CaddyGatewayProvider, GatewayConfiguration, GatewayDocumentLoader, GatewayError, GatewayFuture,
-    GatewayRoute, GatewaySnapshot, render_caddy_document, store_caddy_bootstrap,
+    GatewayRoute, GatewaySnapshot, LocalhostResolver, render_caddy_document, store_caddy_bootstrap,
+    verify_stackctl_localhost_resolution,
 };
 use serde_json::Value;
+use std::cell::RefCell;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 #[cfg(unix)]
@@ -71,6 +74,35 @@ fn gateway_upstreams_must_use_internal_plain_http() {
     assert_eq!(
         error.to_string(),
         "gateway upstream 'https://shop-app:8443' must use internal plain HTTP"
+    );
+}
+
+#[test]
+fn stackctl_localhost_preflight_accepts_only_loopback_answers() {
+    let resolver = RecordingLocalhostResolver::returning(vec![
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ]);
+
+    verify_stackctl_localhost_resolution(&resolver).expect("loopback resolution");
+
+    assert_eq!(
+        resolver.hosts.borrow().as_slice(),
+        &["stackctl-probe.stackctl.localhost"]
+    );
+}
+
+#[test]
+fn stackctl_localhost_preflight_rejects_non_loopback_answers() {
+    let resolver =
+        RecordingLocalhostResolver::returning(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))]);
+
+    let error = verify_stackctl_localhost_resolution(&resolver)
+        .expect_err("non-loopback answer must fail closed");
+
+    assert_eq!(
+        error.to_string(),
+        "stackctl-probe.stackctl.localhost resolved to non-loopback address 192.0.2.10"
     );
 }
 
@@ -362,5 +394,27 @@ impl GatewayConfiguration for RecordingGatewayProvider {
 
     fn active_revision(&self) -> GatewayFuture<'_, Option<String>> {
         Box::pin(async { Ok(None) })
+    }
+}
+
+struct RecordingLocalhostResolver {
+    hosts: RefCell<Vec<String>>,
+    addresses: Vec<IpAddr>,
+}
+
+impl RecordingLocalhostResolver {
+    fn returning(addresses: Vec<IpAddr>) -> Self {
+        Self {
+            hosts: RefCell::default(),
+            addresses,
+        }
+    }
+}
+
+impl LocalhostResolver for RecordingLocalhostResolver {
+    fn resolve(&self, host: &str) -> Result<Vec<IpAddr>, GatewayError> {
+        self.hosts.borrow_mut().push(host.to_owned());
+
+        Ok(self.addresses.clone())
     }
 }

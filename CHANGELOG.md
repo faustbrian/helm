@@ -50,6 +50,8 @@ All notable changes to this project are documented in this file.
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and
   the host runtime directory used by the mounted Caddy admin socket.
+- Added a replaceable `.stackctl.localhost` setup preflight that fails closed
+  when the operating system returns no address or any non-loopback address.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
