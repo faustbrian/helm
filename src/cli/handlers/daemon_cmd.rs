@@ -3,6 +3,7 @@
 //! Contains pre-config daemon command routing used by Stackctl command workflows.
 
 mod backup;
+mod migration_decision;
 mod restore;
 mod service;
 mod trust;
@@ -89,6 +90,18 @@ fn handle_daemon_backups(_args: &DaemonBackupsArgs) -> Result<()> {
 fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
     match &args.command {
         DaemonMigrationCommands::Status(status) => handle_daemon_migration_status(status),
+        DaemonMigrationCommands::Confirm(decision) => {
+            migration_decision::handle_migration_decision(
+                decision,
+                crate::control_plane::IpcMigrationDecision::Confirm,
+            )
+        }
+        DaemonMigrationCommands::Rollback(decision) => {
+            migration_decision::handle_migration_decision(
+                decision,
+                crate::control_plane::IpcMigrationDecision::Rollback,
+            )
+        }
     }
 }
 

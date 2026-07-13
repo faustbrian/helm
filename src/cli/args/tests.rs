@@ -896,10 +896,36 @@ fn daemon_command_variants_parse() {
         let commands::DaemonCommands::Migration(args) = args.command else {
             panic!("expected daemon migration command");
         };
-        let commands::DaemonMigrationCommands::Status(args) = args.command;
+        let commands::DaemonMigrationCommands::Status(args) = args.command else {
+            panic!("expected daemon migration status command");
+        };
         assert_eq!(args.path, PathBuf::from("/work/bill"));
     } else {
         panic!("expected daemon command");
+    }
+
+    for command in ["confirm", "rollback"] {
+        let migration = Cli::parse_from([
+            "stackctl",
+            "daemon",
+            "migration",
+            command,
+            "restore-42",
+            "/work/bill",
+        ]);
+        let commands::Commands::Daemon(args) = migration.command else {
+            panic!("expected daemon command");
+        };
+        let commands::DaemonCommands::Migration(args) = args.command else {
+            panic!("expected daemon migration command");
+        };
+        let args = match args.command {
+            commands::DaemonMigrationCommands::Confirm(args) if command == "confirm" => args,
+            commands::DaemonMigrationCommands::Rollback(args) if command == "rollback" => args,
+            _ => panic!("expected daemon migration {command} command"),
+        };
+        assert_eq!(args.migration_id, "restore-42");
+        assert_eq!(args.path, PathBuf::from("/work/bill"));
     }
 
     let backup = Cli::parse_from(["stackctl", "daemon", "backup", "database", "/work/bill"]);

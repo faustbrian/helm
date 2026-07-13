@@ -17,7 +17,8 @@ pub(crate) use adopt::DaemonAdoptArgs;
 pub(crate) use backup::DaemonBackupArgs;
 pub(crate) use backups::DaemonBackupsArgs;
 pub(crate) use migration::{
-    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationStatusArgs,
+    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
+    DaemonMigrationStatusArgs,
 };
 pub(crate) use restore::DaemonRestoreArgs;
 pub(crate) use service::{

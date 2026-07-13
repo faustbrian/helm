@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit `stackctl daemon migration confirm` and `rollback` commands
+  that follow durable daemon operations and validate exact terminal evidence.
 - Added asynchronous confirm-or-rollback execution that reconstructs exact
   source and retained-target ownership from durable migration checkpoints,
   serializes decisions against all other Engine mutation, retires PostgreSQL
