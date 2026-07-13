@@ -1,14 +1,11 @@
 use super::{
+    CONTAINER_ADMIN_SOCKET_PATH, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
     GatewayRuntimeAssetError, GatewayRuntimeAssetOptions, GatewayRuntimeAssets, GatewaySnapshot,
     GlobalGatewayRequestOptions, global_gateway_request, render_caddy_document,
     store_caddy_bootstrap,
 };
 use crate::control_plane::tls::{FilesystemCertificateStore, reconcile_local_certificates};
 use std::path::Path;
-
-const CONTAINER_CERTIFICATE_PATH: &str = "/etc/stackctl/tls/wildcard.crt";
-const CONTAINER_PRIVATE_KEY_PATH: &str = "/etc/stackctl/tls/wildcard.key";
-const CONTAINER_ADMIN_SOCKET_PATH: &str = "/run/stackctl/admin.sock";
 
 /// Recovers or creates all private host assets before gateway reconciliation.
 pub(crate) fn prepare_gateway_runtime_assets(

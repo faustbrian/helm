@@ -61,6 +61,9 @@ pub(crate) use gateway_route::GatewayRoute;
 pub(crate) use gateway_runtime_asset_error::GatewayRuntimeAssetError;
 pub(crate) use gateway_runtime_asset_options::GatewayRuntimeAssetOptions;
 pub(crate) use gateway_runtime_assets::GatewayRuntimeAssets;
+pub(super) use gateway_runtime_assets::{
+    CONTAINER_ADMIN_SOCKET_PATH, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
+};
 pub(crate) use gateway_snapshot::GatewaySnapshot;
 pub(crate) use global_gateway_request::global_gateway_request;
 pub(crate) use global_gateway_request_options::GlobalGatewayRequestOptions;

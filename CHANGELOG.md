@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Connected complete immutable-application Engine plans to the singleton daemon,
+  reconciling every workload before atomically publishing its content-derived
+  route snapshot through the containerized gateway's private admin socket.
 - Added immutable custom-application planning from resolved services to exact
   per-service Engine ownership, content-derived revisions, and gateway routes,
   rejecting mutable or unresolved image artifacts before mutation.

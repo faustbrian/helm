@@ -1,5 +1,5 @@
 use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
-use crate::control_plane::state::{ProjectRecord, StateStore};
+use crate::control_plane::state::{ManagedEnvironmentRecord, ProjectRecord, StateStore};
 use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
@@ -19,6 +19,13 @@ where
     /// Loads the complete authoritative watched-root set.
     pub(crate) fn watched_roots(&self) -> Result<Vec<PathBuf>, ControlPlaneError> {
         self.state_store.watched_roots().map_err(Into::into)
+    }
+
+    /// Loads daemon-owned project environments for Engine planning.
+    pub(crate) fn managed_environments(
+        &self,
+    ) -> Result<Vec<ManagedEnvironmentRecord>, ControlPlaneError> {
+        self.state_store.managed_environments().map_err(Into::into)
     }
 
     /// Plans all sources, then atomically persists the validated batch.

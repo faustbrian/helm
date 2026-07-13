@@ -1,6 +1,12 @@
 use super::StoredGatewayBootstrapPaths;
+#[cfg(unix)]
+use super::{CaddyGatewayProvider, CaddyUnixAdminClient};
 use crate::control_plane::engine::ContainerCreateOptions;
 use crate::control_plane::tls::LocalCertificateReconcileAction;
+
+pub(crate) const CONTAINER_CERTIFICATE_PATH: &str = "/etc/stackctl/tls/wildcard.crt";
+pub(crate) const CONTAINER_PRIVATE_KEY_PATH: &str = "/etc/stackctl/tls/wildcard.key";
+pub(crate) const CONTAINER_ADMIN_SOCKET_PATH: &str = "/run/stackctl/admin.sock";
 
 /// Verified host assets and exact Engine request for the singleton gateway.
 pub(crate) struct GatewayRuntimeAssets {
@@ -32,5 +38,15 @@ impl GatewayRuntimeAssets {
 
     pub(crate) const fn certificate_action(&self) -> LocalCertificateReconcileAction {
         self.certificate_action
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn configuration_provider(&self) -> CaddyGatewayProvider<CaddyUnixAdminClient> {
+        CaddyGatewayProvider::new(
+            CaddyUnixAdminClient::new(self.bootstrap_paths.admin_socket_path()),
+            CONTAINER_CERTIFICATE_PATH,
+            CONTAINER_PRIVATE_KEY_PATH,
+            CONTAINER_ADMIN_SOCKET_PATH,
+        )
     }
 }

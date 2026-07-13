@@ -1,21 +1,25 @@
 use super::{
     BollardUnixEngineConnector, DaemonIterationResult, DiscoveryScheduler, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineReconciliationSchedule, FilesystemEventWatcher, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
-    dispatch_daemon_request, initialize_default_installation, reconcile_watched_roots,
+    EngineConnectionSupervisor, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
+    FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
 use crate::control_plane::engine::NetworkCreateOptions;
 use crate::control_plane::gateway::{
-    GatewayReconcileOptions, GatewayRuntimeAssetOptions, SystemGatewayPortProbe,
-    prepare_gateway_runtime_assets, reconcile_gateway,
+    GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
+    SystemGatewayPortProbe, prepare_gateway_runtime_assets, reconcile_gateway_plane,
 };
 use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
 use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::workload::{
+    WorkloadReconcileError, WorkloadReconcileOptions, reconcile_project_application,
+};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -186,6 +190,47 @@ impl UnixDaemonRuntime {
         if !self.engine_connection.is_connected() || !self.engine_reconciliation.is_due() {
             return;
         }
+        let Some(execution) = self.engine_reconciliation.execution_plan() else {
+            self.engine_reconciliation.complete();
+            tracing::error!("Engine reconciliation was due without a resolved execution plan");
+
+            return;
+        };
+        let managed_environments = match self.control_plane.managed_environments() {
+            Ok(environments) => environments,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "managed environment loading blocked");
+
+                return;
+            }
+        };
+        let platform = match runtime_linux_platform() {
+            Ok(platform) => platform,
+            Err(detail) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = detail, "Engine platform planning blocked");
+
+                return;
+            }
+        };
+        let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
+            execution,
+            managed_environments: &managed_environments,
+            installation_id: self.global_network_request.metadata().installation_id(),
+            schema_version: self.global_network_request.metadata().schema_version(),
+            platform,
+            network_name: self.global_network_request.name(),
+            internal_http_port: 8080,
+        }) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "complete Engine reconciliation planning blocked");
+
+                return;
+            }
+        };
         let Some(engine) = self.engine_connection.engine_mut() else {
             return;
         };
@@ -226,6 +271,50 @@ impl UnixDaemonRuntime {
             );
         }
 
+        for application in engine_plan.applications() {
+            let result = self.engine_runtime.block_on(reconcile_project_application(
+                engine,
+                WorkloadReconcileOptions {
+                    request: application.request(),
+                    installation_id: self.global_network_request.metadata().installation_id(),
+                    schema_version: self.global_network_request.metadata().schema_version(),
+                },
+            ));
+            match result {
+                Ok(result) => tracing::debug!(
+                    project = application
+                        .request()
+                        .metadata()
+                        .project_id()
+                        .unwrap_or_default(),
+                    service = application
+                        .request()
+                        .metadata()
+                        .resource_id()
+                        .unwrap_or_default(),
+                    action = ?result.action(),
+                    "project application reconciliation completed"
+                ),
+                Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                    let retry = self.engine_connection.invalidate(now);
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "project application reconciliation lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+                Err(error) => {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(error = %error, "project application reconciliation blocked");
+
+                    return;
+                }
+            }
+        }
+
         let container_user = format!(
             "{}:{}",
             rustix::process::geteuid().as_raw(),
@@ -245,22 +334,39 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let gateway = self.engine_runtime.block_on(reconcile_gateway(
-            engine,
+        let mut provider = assets.configuration_provider();
+        let gateway_options = match GatewayPlaneOptions::new(
             GatewayReconcileOptions {
                 request: assets.request(),
                 installation_id: assets.request().metadata().installation_id(),
                 schema_version: assets.request().metadata().schema_version(),
                 host_probe: &SystemGatewayPortProbe,
             },
+            engine_plan.gateway(),
+            Duration::from_secs(10),
+            Duration::from_millis(100),
+        ) {
+            Ok(options) => options,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "gateway plane planning blocked");
+
+                return;
+            }
+        };
+        let gateway = self.engine_runtime.block_on(reconcile_gateway_plane(
+            engine,
+            &mut provider,
+            gateway_options,
         ));
 
         match gateway {
             Ok(gateway) => {
                 self.engine_reconciliation.complete();
                 tracing::debug!(
-                    action = ?gateway.action(),
+                    action = ?gateway.gateway_action(),
                     health = ?gateway.health(),
+                    configuration_action = ?gateway.configuration_action(),
                     certificate_action = ?assets.certificate_action(),
                     "global gateway reconciliation completed"
                 );
@@ -325,6 +431,16 @@ fn remove_stale_socket(path: &Path) -> Result<(), UnixDaemonRuntimeError> {
         )),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(source) => Err(file_system_error("inspect socket", path, source)),
+    }
+}
+
+fn runtime_linux_platform() -> Result<&'static str, String> {
+    match std::env::consts::ARCH {
+        "aarch64" => Ok("linux/arm64"),
+        "x86_64" => Ok("linux/amd64"),
+        architecture => Err(format!(
+            "host architecture '{architecture}' has no supported Linux Engine platform mapping"
+        )),
     }
 }
 

@@ -1,11 +1,13 @@
 use super::{
     DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector, ProjectDiscoveryOptions,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
-    dispatch_daemon_request, reconcile_watched_roots,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector,
+    EngineReconciliationPlanOptions, ProjectDiscoveryOptions, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, discover_project_sources, dispatch_daemon_request, plan_engine_reconciliation,
+    reconcile_watched_roots,
 };
-use crate::control_plane::application::ControlPlane;
+use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
+use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -91,6 +93,75 @@ fn engine_connection_retries_only_after_backoff_and_recovers() {
         runtime.block_on(supervisor.poll(disconnected_at + reconnect.duration() / 2)),
         EngineConnectionOutcome::BackingOff { .. }
     ));
+}
+
+#[test]
+fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        concat!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+            "    image: ghcr.io/acme/bill@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        )
+        .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    assert_eq!(plan.applications().len(), 1);
+    assert_eq!(plan.applications()[0].request().name(), "stackctl-bill-app");
+    assert_eq!(plan.gateway().routes().len(), 1);
+    assert_eq!(
+        plan.gateway().routes()[0].domain(),
+        "bill-app.stackctl.localhost"
+    );
+}
+
+#[test]
+fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        concat!(
+            "schema_version: 8\nproject: bill\nservices:\n",
+            "  db:\n    preset: postgres\n",
+            "  app:\n    image: ghcr.io/acme/bill@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            "    depends_on: [db]\n"
+        )
+        .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect_err("unsupported shared service");
+
+    assert_eq!(
+        error.to_string(),
+        "service 'bill-db' strategy SharedByCompatibility has no registered Engine reconciler"
+    );
 }
 
 #[test]

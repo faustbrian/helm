@@ -15,12 +15,16 @@ mod engine_connection_outcome;
 mod engine_connection_supervisor;
 mod engine_connection_supervisor_error;
 mod engine_connector;
+mod engine_reconciliation_plan;
+mod engine_reconciliation_plan_error;
+mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
 mod initialize_default_installation;
 mod installation_initialization_error;
 mod ipc;
+mod plan_engine_reconciliation;
 mod project_discovery_error;
 mod project_discovery_issue;
 mod project_discovery_options;
@@ -65,6 +69,9 @@ pub(crate) use engine_connection_outcome::EngineConnectionOutcome;
 pub(crate) use engine_connection_supervisor::EngineConnectionSupervisor;
 pub(crate) use engine_connection_supervisor_error::EngineConnectionSupervisorError;
 pub(crate) use engine_connector::{EngineConnectionFuture, EngineConnector};
+pub(crate) use engine_reconciliation_plan::EngineReconciliationPlan;
+pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
+pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
@@ -74,6 +81,7 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 pub(crate) use ipc::{
     IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,
 };
+pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
 pub(crate) use project_discovery_error::ProjectDiscoveryError;
 pub(crate) use project_discovery_issue::ProjectDiscoveryIssue;
 pub(crate) use project_discovery_options::ProjectDiscoveryOptions;
