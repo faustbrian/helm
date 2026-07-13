@@ -41,6 +41,7 @@ mod cli;
 
 use cli::args::Cli;
 mod config;
+mod control_plane;
 mod daemon;
 mod database;
 mod dependency_order;
