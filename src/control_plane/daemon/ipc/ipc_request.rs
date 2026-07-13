@@ -32,4 +32,9 @@ impl IpcRequest {
     pub(crate) fn request_id(&self) -> &str {
         &self.request_id
     }
+
+    /// Returns the typed operation carried by this request.
+    pub(crate) const fn payload(&self) -> &IpcPayload {
+        &self.payload
+    }
 }

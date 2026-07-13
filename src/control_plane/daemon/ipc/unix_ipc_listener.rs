@@ -1,4 +1,7 @@
-use super::IpcError;
+use super::{
+    IpcError, IpcRequest, IpcResponse, decode_request_frame, encode_frame, frame::MAX_FRAME_BYTES,
+};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
@@ -7,7 +10,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub(crate) struct UnixIpcListener {
     path: PathBuf,
-    _listener: UnixListener,
+    listener: UnixListener,
 }
 
 impl UnixIpcListener {
@@ -31,8 +34,44 @@ impl UnixIpcListener {
 
         Ok(Self {
             path: path.to_path_buf(),
-            _listener: listener,
+            listener,
         })
+    }
+
+    /// Accepts, validates, dispatches, and answers one bounded request.
+    pub(crate) fn serve_next<Handler>(&self, handler: Handler) -> Result<IpcRequest, IpcError>
+    where
+        Handler: FnOnce(&IpcRequest) -> IpcResponse,
+    {
+        let (mut stream, _peer) = self
+            .listener
+            .accept()
+            .map_err(|source| self.endpoint_error(source))?;
+        let mut frame = Vec::new();
+        {
+            let bounded = (&mut stream).take((MAX_FRAME_BYTES + 1) as u64);
+            BufReader::new(bounded)
+                .read_until(b'\n', &mut frame)
+                .map_err(|source| self.endpoint_error(source))?;
+        }
+        let request = decode_request_frame(&frame)?;
+        let response = handler(&request);
+        let response_frame = encode_frame(&response)?;
+        stream
+            .write_all(&response_frame)
+            .map_err(|source| self.endpoint_error(source))?;
+        stream
+            .flush()
+            .map_err(|source| self.endpoint_error(source))?;
+
+        Ok(request)
+    }
+
+    fn endpoint_error(&self, source: std::io::Error) -> IpcError {
+        IpcError::EndpointIo {
+            path: self.path.clone(),
+            source,
+        }
     }
 }
 

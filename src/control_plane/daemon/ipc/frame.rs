@@ -2,7 +2,7 @@ use super::{IPC_PROTOCOL_VERSION, IpcError, IpcRequest, IpcResponse};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-const MAX_FRAME_BYTES: usize = 1_048_576;
+pub(super) const MAX_FRAME_BYTES: usize = 1_048_576;
 
 /// Encodes one typed value as a newline-delimited JSON frame.
 pub(crate) fn encode_frame<T>(value: &T) -> Result<Vec<u8>, IpcError>

@@ -75,6 +75,9 @@ All notable changes to this project are documented in this file.
 - Added a fail-closed singleton discovery reconciliation boundary that reads
   authoritative watched roots and publishes a registry only after a complete,
   issue-free scan, preserving the last valid registry on partial discovery.
+- Added bounded request/response serving on the user-only Unix daemon socket,
+  with strict typed decoding, request correlation, and oversized-frame
+  rejection before dispatch.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

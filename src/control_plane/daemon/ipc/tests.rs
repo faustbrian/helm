@@ -114,3 +114,77 @@ fn unix_listener_is_user_only_and_exclusive() {
     drop(listener);
     assert!(!socket_path.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn unix_listener_serves_one_bounded_correlated_request() {
+    use super::UnixIpcListener;
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let socket_path = std::env::temp_dir().join(format!("s8-{}-{unique}.sock", std::process::id()));
+    let listener = UnixIpcListener::bind(&socket_path).expect("bind IPC listener");
+    let server = std::thread::spawn(move || {
+        listener
+            .serve_next(|request| {
+                assert_eq!(request.payload(), &IpcPayload::Ping);
+                IpcResponse::success(request.request_id(), IpcResult::Pong)
+            })
+            .expect("serve IPC request")
+    });
+    let request = IpcRequest::new("ping-42", IpcPayload::Ping);
+    let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
+    client
+        .write_all(&encode_frame(&request).expect("encode request"))
+        .expect("write request");
+    let mut response_frame = Vec::new();
+    BufReader::new(client)
+        .read_until(b'\n', &mut response_frame)
+        .expect("read response");
+
+    let response = decode_response_frame(&response_frame).expect("decode response");
+    assert_eq!(response, IpcResponse::success("ping-42", IpcResult::Pong));
+    assert_eq!(server.join().expect("join IPC server"), request);
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_listener_rejects_oversized_input_before_dispatch() {
+    use super::{UnixIpcListener, frame::MAX_FRAME_BYTES};
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let socket_path = std::env::temp_dir().join(format!("s8-{}-{unique}.sock", std::process::id()));
+    let listener = UnixIpcListener::bind(&socket_path).expect("bind IPC listener");
+    let dispatched = Arc::new(AtomicBool::new(false));
+    let server_dispatched = Arc::clone(&dispatched);
+    let server = std::thread::spawn(move || {
+        listener.serve_next(|request| {
+            server_dispatched.store(true, Ordering::Release);
+            IpcResponse::success(request.request_id(), IpcResult::Pong)
+        })
+    });
+    let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
+    client
+        .write_all(&vec![b'x'; MAX_FRAME_BYTES + 1])
+        .expect("write oversized request");
+
+    let error = server
+        .join()
+        .expect("join IPC server")
+        .expect_err("oversized input must fail");
+    assert!(error.to_string().contains("maximum is 1048576 bytes"));
+    assert!(!dispatched.load(Ordering::Acquire));
+}
