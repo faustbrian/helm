@@ -5,8 +5,7 @@ use super::store_backup_artifact::{
     encode_manifest, prepare_pending_backup, publish_pending_backup, storage_error,
     write_private_file,
 };
-use super::{BackupVerificationError, StoredBackupArtifact};
-use crate::control_plane::state::ResourceRecord;
+use super::{BackupResourceIdentity, BackupVerificationError, StoredBackupArtifact};
 #[cfg(unix)]
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -17,7 +16,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// Streams one asynchronous input directly into an immutable recovery point.
 #[cfg(unix)]
 pub(crate) async fn store_backup_artifact_from_async_reader(
-    resource: &ResourceRecord,
+    resource: &BackupResourceIdentity,
     artifact: &mut (impl AsyncRead + Unpin),
     created_at_unix_seconds: i64,
     root: &Path,
@@ -97,7 +96,7 @@ pub(crate) async fn store_backup_artifact_from_async_reader(
 
 #[cfg(not(unix))]
 pub(crate) async fn store_backup_artifact_from_async_reader(
-    _resource: &ResourceRecord,
+    _resource: &BackupResourceIdentity,
     _artifact: &mut (impl AsyncRead + Unpin),
     _created_at_unix_seconds: i64,
     root: &Path,

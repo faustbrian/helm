@@ -1,11 +1,13 @@
 use super::{
-    BackupArtifactManifest, DeletionDecision, PruneAuthorization, RestoreTarget,
-    RestoreTargetError, evaluate_deletion, restore_verified_backup, store_backup_artifact,
+    BackupArtifactManifest, BackupResourceIdentity, DeletionDecision, PruneAuthorization,
+    RestoreTarget, RestoreTargetError, evaluate_deletion, restore_verified_backup,
+    store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention,
 };
 
 #[test]
@@ -387,10 +389,11 @@ fn backup_store_streams_async_artifacts_directly_into_recovery_points() {
     );
     let bytes = vec![b'y'; 256 * 1024 + 29];
     let mut reader = std::io::Cursor::new(bytes.clone());
+    let identity = BackupResourceIdentity::from_resource(&resource);
 
     let stored = runtime
         .block_on(store_backup_artifact_from_async_reader(
-            &resource,
+            &identity,
             &mut reader,
             43_000,
             &root,
@@ -404,6 +407,39 @@ fn backup_store_streams_async_artifacts_directly_into_recovery_points() {
     verify_stored_backup_artifact(&stored, 43_001).expect("verified async streamed backup");
 
     std::fs::remove_dir_all(&root).expect("remove async backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn logical_resources_in_one_shared_service_have_distinct_backup_identities() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-logical-identity-{}-{}",
+        std::process::id(),
+        50_005
+    ));
+    let bill = logical_resource("bill/database", "bill");
+    let shop = logical_resource("shop/database", "shop");
+    let bill_identity = BackupResourceIdentity::from_logical(&bill, "install-1");
+    let shop_identity = BackupResourceIdentity::from_logical(&shop, "install-1");
+
+    let bill_backup =
+        store_backup_artifact_for_identity(&bill_identity, b"bill data", 44_000, &root)
+            .expect("bill backup");
+    let shop_backup =
+        store_backup_artifact_for_identity(&shop_identity, b"shop data", 44_000, &root)
+            .expect("shop backup");
+
+    assert_ne!(bill_backup, shop_backup);
+    assert_eq!(
+        std::fs::read(bill_backup.artifact_file()).expect("bill artifact"),
+        b"bill data"
+    );
+    assert_eq!(
+        std::fs::read(shop_backup.artifact_file()).expect("shop artifact"),
+        b"shop data"
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove logical backup fixture");
 }
 
 #[cfg(unix)]
@@ -783,5 +819,19 @@ fn resource(
         retention,
         lifecycle,
         orphaned_at_unix_seconds,
+    })
+}
+
+fn logical_resource(logical_resource_id: &str, project_id: &str) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical_resource_id.to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: project_id.to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
     })
 }

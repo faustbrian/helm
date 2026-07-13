@@ -2,6 +2,7 @@
 mod tests;
 
 mod backup_artifact_manifest;
+mod backup_resource_identity;
 mod backup_verification_error;
 mod deletion_decision;
 mod evaluate_deletion;
@@ -19,6 +20,7 @@ mod verify_backup_artifact;
 mod verify_stored_backup_artifact;
 
 pub(crate) use backup_artifact_manifest::BackupArtifactManifest;
+pub(crate) use backup_resource_identity::BackupResourceIdentity;
 pub(crate) use backup_verification_error::BackupVerificationError;
 pub(crate) use deletion_decision::DeletionDecision;
 pub(crate) use evaluate_deletion::evaluate_deletion;
@@ -27,7 +29,9 @@ pub(crate) use restore_error::RestoreError;
 pub(crate) use restore_target::RestoreTarget;
 pub(crate) use restore_target_error::RestoreTargetError;
 pub(crate) use restore_verified_backup::restore_verified_backup;
-pub(crate) use store_backup_artifact::{store_backup_artifact, store_backup_artifact_from_reader};
+pub(crate) use store_backup_artifact::{
+    store_backup_artifact, store_backup_artifact_for_identity, store_backup_artifact_from_reader,
+};
 pub(crate) use store_backup_artifact_from_async_reader::store_backup_artifact_from_async_reader;
 pub(crate) use stored_backup_artifact::StoredBackupArtifact;
 pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;

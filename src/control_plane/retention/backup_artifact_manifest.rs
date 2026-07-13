@@ -1,4 +1,4 @@
-use super::BackupVerificationError;
+use super::{BackupResourceIdentity, BackupVerificationError};
 use crate::control_plane::state::ResourceRecord;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -31,7 +31,7 @@ impl BackupArtifactManifest {
         }
 
         Self::from_checksum(
-            resource,
+            &BackupResourceIdentity::from_resource(resource),
             hex::encode(Sha256::digest(artifact)),
             u64::try_from(artifact.len()).map_err(|_| {
                 BackupVerificationError::InvalidManifest {
@@ -43,7 +43,7 @@ impl BackupArtifactManifest {
     }
 
     pub(super) fn from_checksum(
-        resource: &ResourceRecord,
+        resource: &BackupResourceIdentity,
         artifact_sha256: String,
         artifact_size_bytes: u64,
         created_at_unix_seconds: i64,
@@ -52,7 +52,7 @@ impl BackupArtifactManifest {
             schema_version: 1,
             resource_id: resource.resource_id().to_owned(),
             installation_id: resource.installation_id().to_owned(),
-            resource_kind: resource.kind().to_owned(),
+            resource_kind: resource.resource_kind().to_owned(),
             compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
             artifact_sha256,
             artifact_size_bytes,

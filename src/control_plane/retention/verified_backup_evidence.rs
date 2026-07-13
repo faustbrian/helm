@@ -1,3 +1,4 @@
+use super::BackupResourceIdentity;
 use crate::control_plane::state::ResourceRecord;
 
 /// Checksum proof bound to the exact persistent resource it protects.
@@ -34,9 +35,13 @@ impl VerifiedBackupEvidence {
     }
 
     pub(super) fn matches(&self, resource: &ResourceRecord) -> bool {
+        self.matches_identity(&BackupResourceIdentity::from_resource(resource))
+    }
+
+    pub(super) fn matches_identity(&self, resource: &BackupResourceIdentity) -> bool {
         self.resource_id == resource.resource_id()
             && self.installation_id == resource.installation_id()
-            && self.resource_kind == resource.kind()
+            && self.resource_kind == resource.resource_kind()
             && self.compatibility_fingerprint == resource.compatibility_fingerprint()
             && !self.artifact_sha256.is_empty()
             && self.verified_at_unix_seconds >= 0

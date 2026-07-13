@@ -27,6 +27,9 @@ All notable changes to this project are documented in this file.
 - Added asynchronous immutable backup persistence so Engine command output
   streams directly into private, checksummed, atomically published recovery
   points without whole-artifact buffering or a second scratch copy.
+- Bound backup manifests and storage paths to exact Engine or logical resource
+  identities so project databases sharing one service cannot collide or
+  authorize recovery using another tenant's evidence.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

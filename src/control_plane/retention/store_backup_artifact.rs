@@ -1,5 +1,5 @@
 use super::{
-    BackupArtifactManifest, BackupVerificationError, StoredBackupArtifact,
+    BackupArtifactManifest, BackupResourceIdentity, BackupVerificationError, StoredBackupArtifact,
     verify_stored_backup_artifact,
 };
 use crate::control_plane::state::ResourceRecord;
@@ -16,7 +16,22 @@ pub(crate) fn store_backup_artifact(
     created_at_unix_seconds: i64,
     root: &Path,
 ) -> Result<StoredBackupArtifact, BackupVerificationError> {
-    store_backup_artifact_from_reader(
+    store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_resource(resource),
+        artifact,
+        created_at_unix_seconds,
+        root,
+    )
+}
+
+/// Atomically stores bytes for an Engine or logical resource identity.
+pub(crate) fn store_backup_artifact_for_identity(
+    resource: &BackupResourceIdentity,
+    artifact: &[u8],
+    created_at_unix_seconds: i64,
+    root: &Path,
+) -> Result<StoredBackupArtifact, BackupVerificationError> {
+    store_backup_artifact_from_reader_for_identity(
         resource,
         Cursor::new(artifact),
         created_at_unix_seconds,
@@ -28,6 +43,21 @@ pub(crate) fn store_backup_artifact(
 #[cfg(unix)]
 pub(crate) fn store_backup_artifact_from_reader(
     resource: &ResourceRecord,
+    artifact: impl Read,
+    created_at_unix_seconds: i64,
+    root: &Path,
+) -> Result<StoredBackupArtifact, BackupVerificationError> {
+    store_backup_artifact_from_reader_for_identity(
+        &BackupResourceIdentity::from_resource(resource),
+        artifact,
+        created_at_unix_seconds,
+        root,
+    )
+}
+
+#[cfg(unix)]
+fn store_backup_artifact_from_reader_for_identity(
+    resource: &BackupResourceIdentity,
     mut artifact: impl Read,
     created_at_unix_seconds: i64,
     root: &Path,
@@ -78,13 +108,28 @@ pub(crate) fn store_backup_artifact_from_reader(
     })
 }
 
-fn backup_identity_hash(resource: &ResourceRecord) -> String {
+#[cfg(not(unix))]
+fn store_backup_artifact_from_reader_for_identity(
+    _resource: &BackupResourceIdentity,
+    _artifact: impl Read,
+    _created_at_unix_seconds: i64,
+    root: &Path,
+) -> Result<StoredBackupArtifact, BackupVerificationError> {
+    Err(BackupVerificationError::Storage {
+        detail: format!(
+            "secure backup persistence is not implemented for '{}' on this platform",
+            root.display()
+        ),
+    })
+}
+
+fn backup_identity_hash(resource: &BackupResourceIdentity) -> String {
     let mut digest = Sha256::new();
     digest.update(b"stackctl-backup-resource-v1\0");
     for value in [
         resource.installation_id(),
         resource.resource_id(),
-        resource.kind(),
+        resource.resource_kind(),
         resource.compatibility_fingerprint(),
     ] {
         digest.update(value.as_bytes());
@@ -213,7 +258,7 @@ pub(super) fn storage_error(
 
 #[cfg(unix)]
 pub(super) fn prepare_pending_backup(
-    resource: &ResourceRecord,
+    resource: &BackupResourceIdentity,
     created_at_unix_seconds: i64,
     root: &Path,
 ) -> Result<(PathBuf, PathBuf, StoredBackupArtifact), BackupVerificationError> {
@@ -252,7 +297,7 @@ pub(super) fn encode_manifest(
 
 #[cfg(unix)]
 pub(super) fn publish_pending_backup(
-    resource: &ResourceRecord,
+    resource: &BackupResourceIdentity,
     created_at_unix_seconds: i64,
     resource_directory: &Path,
     pending: &Path,
@@ -269,7 +314,7 @@ pub(super) fn publish_pending_backup(
     let stored = StoredBackupArtifact::new(&destination);
     if destination.exists() {
         let evidence = verify_stored_backup_artifact(&stored, created_at_unix_seconds)?;
-        if !evidence.matches(resource) {
+        if !evidence.matches_identity(resource) {
             return Err(BackupVerificationError::Storage {
                 detail: format!(
                     "existing backup recovery point '{}' belongs to another resource",
