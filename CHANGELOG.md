@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Redis and Valkey shared-instance strategies with exact engine/version/
+  image/platform fingerprints, durable admin and project credentials, one
+  daemon-owned atomic ACL snapshot, project-scoped users and key prefixes,
+  persistent physical ownership, and managed cache environments.
 - Added a backend-neutral prepared shared-instance strategy boundary and routed
   PostgreSQL, MySQL, and MariaDB through it. Exact MySQL-family compatibility
   groups now reserve stable bootstrap/project credentials, start one physical

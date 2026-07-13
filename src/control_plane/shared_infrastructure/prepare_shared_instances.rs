@@ -1,7 +1,8 @@
 use super::{
     CredentialEntropy, MySqlPreparationOptions, PostgresPreparationOptions, PreparedSharedInstance,
-    SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
+    RedisPreparationOptions, SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
     prepare_mysql_shared_instances, prepare_postgres_shared_instances,
+    prepare_redis_shared_instances,
 };
 use crate::control_plane::state::StateStore;
 
@@ -47,6 +48,21 @@ where
             .pop()
             .map(PreparedSharedInstance::MySql)
             .ok_or_else(|| invalid("MySQL-family strategy returned no prepared instance")),
+            "redis" | "valkey" => prepare_redis_shared_instances(
+                store,
+                std::slice::from_ref(instance),
+                entropy,
+                RedisPreparationOptions {
+                    installation_id: options.installation_id,
+                    network_name: options.network_name,
+                    schema_version: options.schema_version,
+                    state_directory: options.state_directory,
+                },
+            )
+            .map_err(invalid)?
+            .pop()
+            .map(PreparedSharedInstance::Redis)
+            .ok_or_else(|| invalid("Redis-compatible strategy returned no prepared instance")),
             implementation => Err(invalid(format!(
                 "shared implementation '{implementation}' has no registered preparation strategy"
             ))),

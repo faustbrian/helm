@@ -63,10 +63,11 @@ pub(crate) use reconcile_prepared_shared_instance::reconcile_prepared_shared_ins
 pub(crate) use reconcile_shared_service::reconcile_shared_service;
 pub(crate) use reconcile_shared_volume::reconcile_shared_volume;
 pub(crate) use redis::{
-    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,
-    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, StoredRedisAclPaths,
-    plan_redis_project_resources, reconcile_redis_acl_snapshot, reload_redis_acl,
-    store_redis_acl_snapshot,
+    PreparedRedisSharedInstance, RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError,
+    RedisPreparationError, RedisPreparationOptions, RedisProjectResources, RedisSharedInstancePlan,
+    RedisSharedInstancePlanOptions, StoredRedisAclPaths, plan_redis_project_resources,
+    prepare_redis_shared_instances, reconcile_prepared_redis_instance,
+    reconcile_redis_acl_snapshot, reload_redis_acl, store_redis_acl_snapshot,
 };
 pub(crate) use resolve_execution_shared_instances::resolve_execution_shared_instances;
 pub(crate) use run_provisioning_job::run_provisioning_job;

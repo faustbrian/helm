@@ -28,6 +28,8 @@ pub(crate) fn resolve_execution_shared_instances(
             "postgres" | "pg" | "pgsql" => "postgresql",
             "mysql" => "mysql",
             "mariadb" | "maria" => "mariadb",
+            "redis" => "redis",
+            "valkey" => "valkey",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",
@@ -64,7 +66,10 @@ pub(crate) fn resolve_execution_shared_instances(
             extensions: Vec::new(),
             immutable_settings: BTreeMap::new(),
             persistence: PersistenceMode::Persistent,
-            isolation: IsolationCapability::DatabaseAndRole,
+            isolation: match implementation {
+                "redis" | "valkey" => IsolationCapability::AclAndPrefix,
+                _ => IsolationCapability::DatabaseAndRole,
+            },
             platform_architecture: Some(platform.to_owned()),
         })
         .map_err(invalid)?;

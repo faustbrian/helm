@@ -1,10 +1,13 @@
-use super::{PreparedMySqlSharedInstance, PreparedPostgresSharedInstance};
+use super::{
+    PreparedMySqlSharedInstance, PreparedPostgresSharedInstance, PreparedRedisSharedInstance,
+};
 use crate::control_plane::state::ManagedEnvironmentRecord;
 
 /// Backend-specific prepared state hidden behind one daemon strategy boundary.
 pub(crate) enum PreparedSharedInstance {
     Postgres(PreparedPostgresSharedInstance),
     MySql(PreparedMySqlSharedInstance),
+    Redis(PreparedRedisSharedInstance),
 }
 
 impl PreparedSharedInstance {
@@ -34,6 +37,20 @@ impl PreparedSharedInstance {
                     )
                 })
                 .collect(),
+            Self::Redis(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| {
+                    (
+                        project
+                            .credential()
+                            .project_id()
+                            .expect("project Redis credential owner")
+                            .to_owned(),
+                        project.credential().service_id().to_owned(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -45,6 +62,11 @@ impl PreparedSharedInstance {
                 .map(|project| project.environment())
                 .collect(),
             Self::MySql(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| project.environment())
+                .collect(),
+            Self::Redis(prepared) => prepared
                 .projects()
                 .iter()
                 .map(|project| project.environment())

@@ -231,6 +231,7 @@ impl UnixDaemonRuntime {
                 installation_id: self.global_network_request.metadata().installation_id(),
                 network_name: self.global_network_request.name(),
                 schema_version: self.global_network_request.metadata().schema_version(),
+                state_directory: &self.runtime_directory,
             },
         ) {
             Ok(prepared) => prepared,
