@@ -8,7 +8,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 5;
+const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -135,6 +135,27 @@ impl SqliteStateStore {
                      values_json TEXT NOT NULL,\n\
                      lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
                  ) STRICT;",
+            )?;
+        }
+
+        if found < 6 {
+            transaction.execute_batch(
+                "ALTER TABLE credentials RENAME TO credentials_v5;\n\
+                 DROP INDEX credentials_project_idx;\n\
+                 CREATE TABLE credentials (\n\
+                     credential_id TEXT PRIMARY KEY NOT NULL,\n\
+                     project_id TEXT,\n\
+                     service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
+                     username TEXT NOT NULL CHECK(length(username) > 0),\n\
+                     secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
+                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
+                 ) STRICT;\n\
+                 INSERT INTO credentials\n\
+                     (credential_id, project_id, service_id, username, secret, lifecycle)\n\
+                 SELECT credential_id, project_id, service_id, username, secret, lifecycle\n\
+                 FROM credentials_v5;\n\
+                 DROP TABLE credentials_v5;\n\
+                 CREATE INDEX credentials_project_idx ON credentials(project_id);",
             )?;
         }
 
@@ -522,7 +543,7 @@ impl StateStore for SqliteStateStore {
             .query_map([], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
@@ -630,7 +651,7 @@ fn load_credential(
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
@@ -644,7 +665,7 @@ fn load_credential(
 }
 
 fn credential_from_persisted(
-    persisted: (String, String, String, String, String, String),
+    persisted: (String, Option<String>, String, String, String, String),
 ) -> Result<CredentialRecord, StateStoreError> {
     let (credential_id, project_id, service_id, username, secret, lifecycle) = persisted;
     let lifecycle = CredentialLifecycle::from_label(&lifecycle).ok_or_else(|| {

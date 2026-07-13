@@ -16,8 +16,8 @@ impl CredentialRecord {
         &self.options.credential_id
     }
 
-    pub(crate) fn project_id(&self) -> &str {
-        &self.options.project_id
+    pub(crate) fn project_id(&self) -> Option<&str> {
+        self.options.project_id.as_deref()
     }
 
     pub(crate) fn service_id(&self) -> &str {

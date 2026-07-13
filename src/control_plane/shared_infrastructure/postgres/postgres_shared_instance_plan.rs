@@ -6,6 +6,7 @@ use crate::control_plane::engine::{
 use crate::control_plane::shared_infrastructure::{
     IsolationCapability, PersistenceMode, SharedInstancePlan,
 };
+use crate::control_plane::state::{CredentialLifecycle, CredentialRecord, CredentialRecordOptions};
 use std::collections::BTreeMap;
 
 const POSTGRES_LEGACY_DATA_TARGET: &str = "/var/lib/postgresql/data";
@@ -16,6 +17,7 @@ pub(crate) struct PostgresSharedInstancePlan {
     container: ContainerCreateOptions,
     volume: Option<VolumeCreateOptions>,
     data_mount_target: String,
+    bootstrap_credential: CredentialRecord,
 }
 
 impl PostgresSharedInstancePlan {
@@ -55,6 +57,14 @@ impl PostgresSharedInstancePlan {
             retention,
             fingerprint,
         )?;
+        let bootstrap_credential = CredentialRecord::new(CredentialRecordOptions {
+            credential_id: format!("shared/{identity}/postgresql-bootstrap"),
+            project_id: None,
+            service_id: "postgresql".to_owned(),
+            username: "stackctl_admin".to_owned(),
+            secret: options.bootstrap_secret.expose().to_owned(),
+            lifecycle: CredentialLifecycle::Active,
+        });
         let data_mount_target = data_mount_target(profile.major_version(), profile)?;
         let mut container = ContainerCreateOptions::new(
             &container_name,
@@ -69,7 +79,7 @@ impl PostgresSharedInstancePlan {
                 ("POSTGRES_USER".to_owned(), "stackctl_admin".to_owned()),
                 (
                     "POSTGRES_PASSWORD".to_owned(),
-                    options.bootstrap_secret.expose().to_owned(),
+                    bootstrap_credential.secret().to_owned(),
                 ),
             ]))
         })
@@ -93,6 +103,7 @@ impl PostgresSharedInstancePlan {
             container,
             volume,
             data_mount_target,
+            bootstrap_credential,
         })
     }
 
@@ -106,6 +117,10 @@ impl PostgresSharedInstancePlan {
 
     pub(crate) fn data_mount_target(&self) -> &str {
         &self.data_mount_target
+    }
+
+    pub(crate) const fn bootstrap_credential(&self) -> &CredentialRecord {
+        &self.bootstrap_credential
     }
 }
 

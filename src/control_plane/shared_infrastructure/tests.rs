@@ -222,6 +222,9 @@ fn postgres_shared_instances_materialize_one_private_persistent_container() {
     );
     assert_eq!(plan.data_mount_target(), "/var/lib/postgresql/data");
     assert!(plan.volume().is_some());
+    assert_eq!(plan.bootstrap_credential().project_id(), None);
+    assert_eq!(plan.bootstrap_credential().secret(), "root-secret");
+    assert!(!format!("{:?}", plan.bootstrap_credential()).contains("root-secret"));
     assert!(!format!("{:?}", plan.container()).contains("root-secret"));
 }
 

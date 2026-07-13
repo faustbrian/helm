@@ -14,7 +14,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 5);
+    assert_eq!(store.schema_version().expect("schema version"), 6);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -409,7 +409,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 5);
+    assert_eq!(store.schema_version().expect("schema version"), 6);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -419,6 +419,42 @@ fn version_one_state_migrates_without_losing_project_ownership() {
         )]
     );
     assert!(store.resources().expect("new resource table").is_empty());
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
+    let database_path = temporary_database_path("v5-credential-migration");
+    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
+    connection
+        .execute_batch(
+            "CREATE TABLE credentials (\n\
+                 credential_id TEXT PRIMARY KEY NOT NULL,\n\
+                 project_id TEXT NOT NULL CHECK(length(project_id) > 0),\n\
+                 service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
+                 username TEXT NOT NULL CHECK(length(username) > 0),\n\
+                 secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
+                 lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
+             ) STRICT;\n\
+             CREATE INDEX credentials_project_idx ON credentials(project_id);\n\
+             INSERT INTO credentials VALUES (\n\
+                 'bill/database/primary', 'bill', 'database',\n\
+                 'stackctl_bill', 'secret-first', 'active'\n\
+             );\n\
+             PRAGMA user_version = 5;",
+        )
+        .expect("seed version-five credentials");
+    drop(connection);
+
+    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
+
+    assert_eq!(store.schema_version().expect("schema version"), 6);
+    assert_eq!(
+        store.credentials().expect("preserved credentials"),
+        vec![credential_record("secret-first")]
+    );
 
     drop(store);
     remove_database(&database_path);
@@ -454,7 +490,7 @@ fn resource_record(
 fn credential_record(secret: &str) -> CredentialRecord {
     CredentialRecord::new(CredentialRecordOptions {
         credential_id: "bill/database/primary".to_owned(),
-        project_id: "bill".to_owned(),
+        project_id: Some("bill".to_owned()),
         service_id: "database".to_owned(),
         username: "stackctl_bill".to_owned(),
         secret: secret.to_owned(),

@@ -20,7 +20,7 @@ pub(crate) fn plan_postgres_project_resources(
     let logical = PostgresLogicalResourcePlan::new(project_id, service_id, secret.clone())?;
     let credential = CredentialRecord::new(CredentialRecordOptions {
         credential_id: logical.credential_id().to_owned(),
-        project_id: project_id.to_owned(),
+        project_id: Some(project_id.to_owned()),
         service_id: service_id.to_owned(),
         username: logical.role_name().to_owned(),
         secret: secret.expose().to_owned(),
