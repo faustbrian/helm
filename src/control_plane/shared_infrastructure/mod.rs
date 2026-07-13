@@ -8,6 +8,10 @@ pub(crate) use credential_entropy::CredentialEntropy;
 pub(crate) use credential_generation_error::CredentialGenerationError;
 pub(crate) use credential_secret::CredentialSecret;
 pub(crate) use generate_credential_secret::generate_credential_secret;
+pub(crate) use gotenberg::{
+    GotenbergPlanError, GotenbergProjectResources, GotenbergSharedInstancePlan,
+    GotenbergSharedInstancePlanOptions, plan_gotenberg_project_resources,
+};
 pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use mailpit::{
     MailpitAuthenticationSnapshot, MailpitPlanError, MailpitProjectDefinition,
@@ -82,6 +86,7 @@ mod credential_entropy;
 mod credential_generation_error;
 mod credential_secret;
 mod generate_credential_secret;
+mod gotenberg;
 mod isolation_capability;
 mod logical_service_consumer;
 mod mailpit;

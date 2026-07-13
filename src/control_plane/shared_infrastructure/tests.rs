@@ -1,18 +1,20 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
-    CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
-    MailpitAuthenticationSnapshot, MailpitProjectDefinition, MailpitSharedInstancePlan,
-    MailpitSharedInstancePlanOptions, MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan,
-    MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlSharedInstancePlan,
-    MySqlSharedInstancePlanOptions, ObjectStoreFlavor, ObjectStoreProjectResources,
-    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions, PersistenceMode,
-    PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    ProvisioningJobOptions, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    CredentialEntropy, CredentialGenerationError, CredentialSecret, GotenbergSharedInstancePlan,
+    GotenbergSharedInstancePlanOptions, IsolationCapability, MailpitAuthenticationSnapshot,
+    MailpitProjectDefinition, MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions,
+    MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
+    MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
+    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
+    ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
+    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, ProvisioningJobOptions,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
     SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, generate_credential_secret, plan_mailpit_project_resources,
+    SqlServerSharedInstancePlanOptions, generate_credential_secret,
+    plan_gotenberg_project_resources, plan_mailpit_project_resources,
     plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
@@ -215,6 +217,80 @@ fn compatible_object_stores_get_one_private_persistent_instance() {
         assert_eq!(instance.root_credential().secret(), "root-secret");
         assert!(!format!("{instance:?}").contains("root-secret"));
     }
+}
+
+#[test]
+fn gotenberg_is_one_private_stateless_instance_per_exact_profile() {
+    let shared = plan_shared_instances(vec![
+        SharedServiceRequest::new("bill", "pdf", gotenberg_profile("8")),
+        SharedServiceRequest::new("shop", "pdf", gotenberg_profile("8")),
+    ])
+    .pop()
+    .expect("shared Gotenberg plan");
+    let instance = GotenbergSharedInstancePlan::new(
+        &shared,
+        GotenbergSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:gotenberg-v1".to_owned(),
+        },
+    )
+    .expect("Gotenberg instance");
+
+    assert!(instance.container().port_bindings().is_empty());
+    assert!(instance.container().volume_mounts().is_empty());
+    assert_eq!(instance.container().network(), Some("stackctl"));
+    assert_eq!(
+        instance
+            .container()
+            .health_check()
+            .expect("Gotenberg health")
+            .engine_test(),
+        [
+            "CMD",
+            "curl",
+            "--fail",
+            "--silent",
+            "http://127.0.0.1:3000/health",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(shared.consumers().len(), 2);
+}
+
+#[test]
+fn gotenberg_projects_receive_the_shared_internal_endpoint() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "pdf",
+        gotenberg_profile("8"),
+    )])
+    .pop()
+    .expect("shared Gotenberg plan");
+    let instance = GotenbergSharedInstancePlan::new(
+        &shared,
+        GotenbergSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:gotenberg-v1".to_owned(),
+        },
+    )
+    .expect("Gotenberg instance");
+
+    let project =
+        plan_gotenberg_project_resources("bill", &instance).expect("Gotenberg project resources");
+
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([(
+            "GOTENBERG_URL".to_owned(),
+            format!("http://{}:3000", instance.container().name()),
+        )])
+    );
 }
 
 #[test]
@@ -3433,6 +3509,20 @@ fn mailpit_profile(major_version: &str) -> CompatibilityProfile {
         platform_architecture: Some("linux/amd64".to_owned()),
     })
     .expect("Mailpit compatibility profile")
+}
+
+fn gotenberg_profile(major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: "gotenberg".to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("gotenberg/gotenberg@sha256:{}", "9".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Ephemeral,
+        isolation: IsolationCapability::None,
+        platform_architecture: Some("linux/amd64".to_owned()),
+    })
+    .expect("valid Gotenberg compatibility profile")
 }
 
 fn object_store_profile(implementation: &str, major_version: &str) -> CompatibilityProfile {

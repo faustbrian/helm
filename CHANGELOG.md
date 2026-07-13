@@ -29,6 +29,8 @@ All notable changes to this project are documented in this file.
   behavior prove the same bucket, identity, and policy isolation contract.
 - Added compatibility-keyed SQL Server instances with persistent storage,
   readiness, and idempotent per-project database and login reconciliation.
+- Added private stateless Gotenberg sharing by exact immutable profile with
+  module-aware readiness and daemon-managed project endpoints.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and
