@@ -3,7 +3,7 @@ use super::{
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
     NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedContainer,
     OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager,
-    classify_observed_resource, gateway_container_request,
+    classify_observed_resource, gateway_container_request, reconstruct_owned_container,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -324,6 +324,28 @@ fn complete_current_installation_labels_reconstruct_owned_metadata() {
     let ownership = classify_observed_resource(&metadata.labels(), "install-1", 8);
 
     assert_eq!(ownership, ObservedResourceOwnership::Owned(metadata));
+}
+
+#[test]
+fn managed_container_observations_reconstruct_mutable_owned_handles() {
+    let metadata = project_metadata(ResourceKind::ProjectApplication);
+    let observed = ObservedContainer::new(ContainerId::new("container-1"), metadata.labels());
+
+    let owned = reconstruct_owned_container(&observed, "install-1", 8)
+        .expect("current installation container");
+
+    assert_eq!(owned.id().as_str(), "container-1");
+    assert_eq!(owned.metadata(), &metadata);
+}
+
+#[test]
+fn unmanaged_container_observations_never_reconstruct_mutable_handles() {
+    let observed = ObservedContainer::new(ContainerId::new("container-1"), BTreeMap::new());
+
+    let ownership =
+        reconstruct_owned_container(&observed, "install-1", 8).expect_err("unmanaged container");
+
+    assert_eq!(ownership, ObservedResourceOwnership::Unmanaged);
 }
 
 #[test]
