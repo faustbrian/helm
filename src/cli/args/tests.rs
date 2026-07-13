@@ -785,6 +785,24 @@ fn command_variants_parse() {
         panic!("expected config schema command");
     }
 
+    let config_validate = Cli::parse_from([
+        "stackctl",
+        "config",
+        "validate",
+        "/work/bill/.stackctl.yaml",
+    ]);
+    if let commands::Commands::Config(commands::ConfigArgs { command, .. }) =
+        config_validate.command
+    {
+        assert!(matches!(
+            command,
+            Some(ConfigCommands::Validate { path })
+                if path == Some(PathBuf::from("/work/bill/.stackctl.yaml"))
+        ));
+    } else {
+        panic!("expected config validate command");
+    }
+
     let env = Cli::parse_from(["stackctl", "env", "generate", "--output", "/tmp/env-out"]);
     if let commands::Commands::Env(commands::EnvArgs { command, .. }) = env.command {
         assert!(

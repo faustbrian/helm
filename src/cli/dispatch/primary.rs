@@ -32,6 +32,9 @@ pub(super) fn dispatch_primary(
                 context.project_root(),
             ),
             Some(ConfigCommands::Schema) => handlers::handle_config_schema(),
+            Some(ConfigCommands::Validate { ref path }) => {
+                handlers::handle_config_validate(path.as_deref(), context.quiet())
+            }
             None => handlers::handle_config(config, &args.format),
         }),
         Commands::Preset(args) => Some(match &args.command {

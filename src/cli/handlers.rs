@@ -7,6 +7,7 @@ mod app_create_cmd;
 mod artisan_cmd;
 mod config_cmd;
 mod config_schema_cmd;
+mod config_validate_cmd;
 mod daemon_cmd;
 mod docker_ops;
 mod doctor_cmd;
@@ -50,6 +51,7 @@ pub(crate) use artisan_cmd::{
 };
 pub(crate) use config_cmd::{handle_config, handle_config_migrate};
 pub(crate) use config_schema_cmd::handle_config_schema;
+pub(crate) use config_validate_cmd::handle_config_validate;
 pub(crate) use daemon_cmd::handle_daemon;
 pub(crate) use docker_ops::{
     HandleAttachOptions, HandleCpOptions, HandleEventsOptions, HandleInspectOptions,

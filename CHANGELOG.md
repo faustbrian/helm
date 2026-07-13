@@ -36,6 +36,8 @@ All notable changes to this project are documented in this file.
   YAML shape, including DNS identities, string versions, commands, and environment values.
 - Added offline `stackctl config schema` output that requires no project configuration,
   daemon state, or container-engine connection.
+- Added read-only `stackctl config validate [PATH]` parsing and desired-state
+  resolution that runs without daemon or container-engine availability.
 - Added dedicated Engine-backed project process plans for workers and schedulers,
   with immutable Linux images, private networking, no published ports, restart supervision,
   and secret-safe desired-plan diagnostics.

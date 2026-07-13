@@ -48,6 +48,13 @@ pub(super) fn handle_setup_commands(
         return Ok(true);
     }
 
+    if let Commands::Config(args) = &cli.command
+        && let Some(ConfigCommands::Validate { path }) = &args.command
+    {
+        handlers::handle_config_validate(path.as_deref(), context.quiet())?;
+        return Ok(true);
+    }
+
     if let Commands::Daemon(args) = &cli.command {
         handlers::handle_daemon(args)?;
         return Ok(true);

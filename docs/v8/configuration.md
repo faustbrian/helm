@@ -54,6 +54,10 @@ The v8 editor contract is bundled at
 `https://stackctl.dev/schemas/project/v8.json`. It is available without a
 project, daemon, or container engine through `stackctl config schema`.
 
+`stackctl config validate [PATH]` parses and resolves the complete v8 desired
+state without writing the project file or contacting the daemon or container
+engine. Without a path it reads `.stackctl.yaml` in the current directory.
+
 ## Project identity and routes
 
 The project name is explicit `project` when present; otherwise it is the exact

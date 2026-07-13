@@ -126,6 +126,67 @@ mod tests {
     }
 
     #[test]
+    fn config_validate_resolves_v8_yaml_offline_without_modifying_it() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-validate-command-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create project directory");
+        let path = root.join(".stackctl.yaml");
+        let source = concat!(
+            "schema_version: 8\n",
+            "project: bill\n",
+            "services:\n",
+            "  app:\n",
+            "    preset: laravel\n"
+        );
+        fs::write(&path, source).expect("write v8 config");
+
+        let result = super::run(Cli::parse_from([
+            "stackctl",
+            "config",
+            "validate",
+            path.to_str().expect("config path"),
+        ]));
+
+        assert!(result.is_ok());
+        assert_eq!(fs::read_to_string(path).expect("reread config"), source);
+    }
+
+    #[test]
+    fn config_validate_reports_the_path_for_invalid_desired_state() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-invalid-validate-command-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create project directory");
+        let path = root.join(".stackctl.yaml");
+        let source = "schema_version: 8\nservices:\n  app: {}\n";
+        fs::write(&path, source).expect("write invalid v8 config");
+
+        let error = super::run(Cli::parse_from([
+            "stackctl",
+            "config",
+            "validate",
+            path.to_str().expect("config path"),
+        ]))
+        .expect_err("invalid desired state");
+
+        let diagnostic = format!("{error:#}");
+        assert!(diagnostic.contains(&path.display().to_string()));
+        assert!(diagnostic.contains("service 'app' must declare at least a preset or image"));
+        assert_eq!(fs::read_to_string(path).expect("reread config"), source);
+    }
+
+    #[test]
     fn run_dispatches_secondary_status_via_full_pipeline() {
         let project_root = minimal_config_dir();
         crate::docker::with_test_runtime_lock(|| {
