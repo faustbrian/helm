@@ -1,10 +1,11 @@
 use super::{
-    DaemonIterationResult, DiscoveryScheduler, SingletonLease, UnixDaemonRuntimeError,
-    UnixDaemonRuntimeOptions, dispatch_daemon_request, reconcile_watched_roots,
+    DaemonIterationResult, DiscoveryScheduler, FilesystemEventWatcher, SingletonLease,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
-use crate::control_plane::state::SqliteStateStore;
+use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -13,6 +14,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 pub(crate) struct UnixDaemonRuntime {
     _lease: SingletonLease,
     listener: UnixIpcListener,
+    filesystem_watcher: FilesystemEventWatcher,
     control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
@@ -35,11 +37,13 @@ impl UnixDaemonRuntime {
         let listener = UnixIpcListener::bind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
         let store = SqliteStateStore::open(&options.state_database_path)?;
+        let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
 
         Ok(Self {
             _lease: lease,
             listener,
+            filesystem_watcher,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -54,6 +58,9 @@ impl UnixDaemonRuntime {
     ) -> Result<DaemonIterationResult, UnixDaemonRuntimeError> {
         if now_unix_seconds < 0 {
             return Err(invalid("daemon wall-clock time must not be negative"));
+        }
+        if self.filesystem_watcher.take_change()? {
+            self.record_filesystem_event(now);
         }
 
         let scan_reason = self.scheduler.take_due(now);

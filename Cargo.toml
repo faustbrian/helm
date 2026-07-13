@@ -39,6 +39,7 @@ getrandom = "0.2.17"
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
 x509-parser = "0.18.1"
 tar = "0.4"
+notify = "8.2.0"
 
 [lints.rust]
 # Absolute safety - forbid unsafe code entirely

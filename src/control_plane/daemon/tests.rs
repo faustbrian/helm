@@ -426,6 +426,86 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
 
 #[cfg(unix)]
 #[test]
+fn singleton_unix_runtime_reconciles_after_a_watched_root_change() {
+    use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+
+    let fixture = std::env::temp_dir().join(format!(
+        "s8w-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    let root = fixture.join("projects");
+    let runtime_directory = fixture.join("runtime");
+    std::fs::create_dir_all(&root).expect("watch test root");
+    std::fs::create_dir(&runtime_directory).expect("runtime directory");
+    let database_path = runtime_directory.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    drop(store);
+    let options = UnixDaemonRuntimeOptions {
+        state_database_path: database_path.clone(),
+        lease_path: runtime_directory.join("daemon.lock"),
+        socket_path: runtime_directory.join("daemon.sock"),
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        scheduler_options: DiscoverySchedulerOptions::new(
+            Duration::from_millis(25),
+            Duration::from_millis(250),
+            Duration::from_secs(60),
+        )
+        .expect("scheduler options"),
+        idle_poll_interval: Duration::from_millis(5),
+    };
+    let started_at = Instant::now();
+    let mut runtime = UnixDaemonRuntime::new(options, started_at).expect("singleton runtime");
+    runtime
+        .run_iteration(started_at, 10_000)
+        .expect("initial daemon iteration");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let iteration = loop {
+        let now = Instant::now();
+        let iteration = runtime
+            .run_iteration(now, 10_001)
+            .expect("event-driven daemon iteration");
+        if iteration.scan_reason() == Some(DiscoveryScanReason::FilesystemEvents) {
+            break iteration;
+        }
+        assert!(
+            now < deadline,
+            "filesystem event did not trigger reconciliation"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    };
+
+    assert!(
+        iteration
+            .reconciliation()
+            .expect("filesystem reconciliation")
+            .was_applied()
+    );
+    drop(runtime);
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let projects = store.projects().expect("load registered projects");
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].project_name(), "bill");
+    drop(store);
+    std::fs::remove_dir_all(&fixture).expect("remove runtime fixture");
+}
+
+#[cfg(unix)]
+#[test]
 fn singleton_unix_runtime_never_deletes_a_non_socket_endpoint() {
     use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
 

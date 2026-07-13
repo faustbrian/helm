@@ -90,6 +90,9 @@ All notable changes to this project are documented in this file.
 - Replaced project-scoped daemon start, status, stop, logs, and hidden run
   commands with singleton status and reconciliation over typed IPC, removing
   TOML PID sessions and the legacy per-project supervisor implementation.
+- Added bounded native watched-root notifications to the singleton daemon,
+  feeding the existing debounce scheduler while retaining periodic complete
+  scans as the correctness fallback.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
