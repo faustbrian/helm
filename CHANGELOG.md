@@ -27,6 +27,8 @@ All notable changes to this project are documented in this file.
   isolated TOML migration diagnostics, size limits, and symlink-safe YAML loading.
 - Added complete-scan project reconciliation that validates the full registry before
   atomically registering discoveries and orphaning every project whose config vanished.
+- Added executable dedicated application-container requests with exact ownership,
+  Linux platform, private networking, source mount, environment, command, and no host ports.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected

@@ -1,5 +1,13 @@
-use super::{ApplicationContainerPlan, ApplicationContainerPlanOptions};
+use super::{
+    ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
+    application_container_request,
+};
 use crate::control_plane::ProjectIdentity;
+use crate::control_plane::engine::{
+    ContainerRestartPolicy, ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind,
+    RetentionClass,
+};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 #[test]
@@ -39,6 +47,66 @@ fn mutable_application_images_fail_before_engine_planning() {
         error.to_string(),
         "application image 'ghcr.io/stackctl/php:8.4' must use an immutable sha256 digest"
     );
+}
+
+#[test]
+fn relative_application_source_paths_fail_before_engine_mutation() {
+    let mut options = application_options("bill", "/work/bill");
+    options.source_path = PathBuf::from("relative/bill");
+
+    let error = ApplicationContainerPlan::new(options).expect_err("relative source path");
+
+    assert_eq!(
+        error.to_string(),
+        "application source path 'relative/bill' must be absolute"
+    );
+}
+
+#[test]
+fn application_plan_materializes_one_private_owned_linux_engine_request() {
+    let plan = application_plan("bill", "/work/bill");
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:runtime-php-84".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("application metadata");
+
+    let request = application_container_request(ApplicationContainerRequestOptions {
+        plan,
+        metadata,
+        platform: "linux/arm64".to_owned(),
+        command: vec![
+            "stackctl-runtime".to_owned(),
+            "serve".to_owned(),
+            "--port=8080".to_owned(),
+        ],
+        environment: BTreeMap::from([
+            ("APP_ENV".to_owned(), "local".to_owned()),
+            ("DB_PASSWORD".to_owned(), "project-secret".to_owned()),
+        ]),
+    })
+    .expect("application Engine request");
+
+    assert_eq!(request.name(), "stackctl-bill-app");
+    assert_eq!(request.platform(), Some("linux/arm64"));
+    assert_eq!(request.network(), Some("stackctl-private"));
+    assert!(request.port_bindings().is_empty());
+    assert_eq!(request.bind_mounts().len(), 1);
+    assert_eq!(request.bind_mounts()[0].source(), "/work/bill");
+    assert_eq!(request.bind_mounts()[0].target(), "/workspace");
+    assert!(!request.bind_mounts()[0].is_read_only());
+    assert_eq!(request.command()[0], "stackctl-runtime");
+    assert_eq!(
+        request.restart_policy(),
+        Some(ContainerRestartPolicy::UnlessStopped)
+    );
+    assert!(request.environment().contains_key("DB_PASSWORD"));
+    assert!(!format!("{request:?}").contains("project-secret"));
 }
 
 fn application_plan(project: &str, path: &str) -> ApplicationContainerPlan {

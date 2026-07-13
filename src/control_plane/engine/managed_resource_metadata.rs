@@ -102,4 +102,12 @@ impl ManagedResourceMetadata {
     pub(crate) const fn kind(&self) -> ResourceKind {
         self.kind
     }
+
+    pub(crate) fn project_id(&self) -> Option<&str> {
+        self.project_id.as_deref()
+    }
+
+    pub(crate) const fn retention(&self) -> RetentionClass {
+        self.retention
+    }
 }

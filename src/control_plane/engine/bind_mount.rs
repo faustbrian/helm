@@ -39,15 +39,15 @@ impl BindMount {
         Ok(mount)
     }
 
-    pub(super) fn source(&self) -> &str {
+    pub(crate) fn source(&self) -> &str {
         &self.source
     }
 
-    pub(super) fn target(&self) -> &str {
+    pub(crate) fn target(&self) -> &str {
         &self.target
     }
 
-    pub(super) const fn is_read_only(&self) -> bool {
+    pub(crate) const fn is_read_only(&self) -> bool {
         self.read_only
     }
 }

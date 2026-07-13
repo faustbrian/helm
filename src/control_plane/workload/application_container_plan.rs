@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 /// One dedicated project runtime reachable only through the private gateway.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ApplicationContainerPlan {
+    project_id: String,
     container_name: String,
     image_digest: String,
     source_path: PathBuf,
@@ -22,6 +23,13 @@ impl ApplicationContainerPlan {
             return Err(WorkloadPlanError::new(
                 "application private network name must not be empty",
             ));
+        }
+
+        if !options.source_path.is_absolute() {
+            return Err(WorkloadPlanError::new(format!(
+                "application source path '{}' must be absolute",
+                options.source_path.display()
+            )));
         }
 
         if options.internal_http_port == 0 {
@@ -42,6 +50,7 @@ impl ApplicationContainerPlan {
         .map_err(|error| WorkloadPlanError::new(error.to_string()))?;
 
         Ok(Self {
+            project_id: options.project.as_str().to_owned(),
             container_name,
             image_digest: options.image_digest,
             source_path: options.source_path,
@@ -53,6 +62,10 @@ impl ApplicationContainerPlan {
 
     pub(crate) fn container_name(&self) -> &str {
         &self.container_name
+    }
+
+    pub(crate) fn project_id(&self) -> &str {
+        &self.project_id
     }
 
     pub(crate) fn image_digest(&self) -> &str {

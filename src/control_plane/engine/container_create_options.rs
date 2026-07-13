@@ -169,35 +169,35 @@ impl ContainerCreateOptions {
         &self.metadata
     }
 
-    pub(super) fn platform(&self) -> Option<&str> {
+    pub(crate) fn platform(&self) -> Option<&str> {
         self.platform.as_deref()
     }
 
-    pub(super) fn network(&self) -> Option<&str> {
+    pub(crate) fn network(&self) -> Option<&str> {
         self.network.as_deref()
     }
 
-    pub(super) fn port_bindings(&self) -> &[PortBinding] {
+    pub(crate) fn port_bindings(&self) -> &[PortBinding] {
         &self.port_bindings
     }
 
-    pub(super) fn bind_mounts(&self) -> &[BindMount] {
+    pub(crate) fn bind_mounts(&self) -> &[BindMount] {
         &self.bind_mounts
     }
 
-    pub(super) fn volume_mounts(&self) -> &[VolumeMount] {
+    pub(crate) fn volume_mounts(&self) -> &[VolumeMount] {
         &self.volume_mounts
     }
 
-    pub(super) fn command(&self) -> &[String] {
+    pub(crate) fn command(&self) -> &[String] {
         &self.command
     }
 
-    pub(super) const fn environment(&self) -> &BTreeMap<String, String> {
+    pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
     }
 
-    pub(super) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {
+    pub(crate) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {
         self.restart_policy
     }
 }
