@@ -31,8 +31,8 @@ use crate::control_plane::state::{
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
     OrphanedProjectWorkloadOptions, WorkloadReconcileError, WorkloadReconcileOptions,
-    reconcile_project_application, reconcile_project_process, stop_orphaned_project_workloads,
-    workload_resource_record,
+    reconcile_project_application, reconcile_project_process, reconcile_project_service,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -625,6 +625,59 @@ impl UnixDaemonRuntime {
                 Err(error) => {
                     self.engine_reconciliation.complete();
                     tracing::error!(error = %error, "project application reconciliation blocked");
+
+                    return;
+                }
+            }
+        }
+
+        for service in engine_plan.dedicated_services() {
+            let result = self.engine_runtime.block_on(reconcile_project_service(
+                engine,
+                WorkloadReconcileOptions {
+                    request: service,
+                    installation_id: self.global_network_request.metadata().installation_id(),
+                    schema_version: self.global_network_request.metadata().schema_version(),
+                },
+            ));
+            match result {
+                Ok(result) => {
+                    if let Err(error) = health_snapshot.record(
+                        result.container().id().as_str(),
+                        result.health(),
+                        observed_at_unix_seconds,
+                    ) {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "project service health snapshot publication blocked");
+
+                        return;
+                    }
+                    workload_resources.push(workload_resource_record(&result));
+                    tracing::debug!(
+                        project = service.metadata().project_id().unwrap_or_default(),
+                        service = service.metadata().resource_id().unwrap_or_default(),
+                        action = ?result.action(),
+                        "dedicated project service reconciliation completed"
+                    );
+                }
+                Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "dedicated project service reconciliation lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+                Err(error) => {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(error = %error, "dedicated project service reconciliation blocked");
 
                     return;
                 }

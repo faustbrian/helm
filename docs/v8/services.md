@@ -45,6 +45,14 @@ container. Provisioning a logical resource must not restart a compatible
 shared instance. Changing an immutable compatibility field creates a new
 instance and explicit migration, never an in-place reinterpretation.
 
+Dedicated project services use a common Engine substrate: exact project and
+service ownership, deterministic container naming, immutable image and numeric
+major version, Linux platform selection, the private Stackctl network, declared
+command and environment, restart supervision, no host ports, and no implicit
+gateway route. This substrate does not by itself make a stateful preset
+complete; each such preset still requires its documented retained-volume,
+authenticated-readiness, backup, restore, and upgrade contracts.
+
 This matrix is enforced by the closed v8 service deployment strategy resolver.
 Unknown presets fail, aliases resolve identically, and every "share only after"
 entry remains dedicated until its isolation acceptance tests are implemented.

@@ -6,6 +6,7 @@ use crate::control_plane::workload::ImmutableProjectApplicationPlan;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EngineReconciliationPlan {
     applications: Vec<ImmutableProjectApplicationPlan>,
+    dedicated_services: Vec<ContainerCreateOptions>,
     processes: Vec<ContainerCreateOptions>,
     gateway: GatewaySnapshot,
 }
@@ -13,11 +14,13 @@ pub(crate) struct EngineReconciliationPlan {
 impl EngineReconciliationPlan {
     pub(super) const fn new(
         applications: Vec<ImmutableProjectApplicationPlan>,
+        dedicated_services: Vec<ContainerCreateOptions>,
         processes: Vec<ContainerCreateOptions>,
         gateway: GatewaySnapshot,
     ) -> Self {
         Self {
             applications,
+            dedicated_services,
             processes,
             gateway,
         }
@@ -29,6 +32,10 @@ impl EngineReconciliationPlan {
 
     pub(crate) fn processes(&self) -> &[ContainerCreateOptions] {
         &self.processes
+    }
+
+    pub(crate) fn dedicated_services(&self) -> &[ContainerCreateOptions] {
+        &self.dedicated_services
     }
 
     pub(crate) const fn gateway(&self) -> &GatewaySnapshot {

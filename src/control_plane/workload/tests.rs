@@ -7,7 +7,8 @@ use super::{
     RuntimeImageBuildPlanOptions, WorkloadReconcileAction, WorkloadReconcileOptions,
     application_container_request, plan_immutable_project_application, project_process_request,
     reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
-    run_project_command, stop_orphaned_project_workloads, workload_resource_record,
+    reconcile_project_service, run_project_command, stop_orphaned_project_workloads,
+    workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -832,6 +833,35 @@ fn project_process_reconciliation_creates_and_starts_a_missing_worker() {
 }
 
 #[test]
+fn dedicated_project_service_reconciliation_creates_exact_missing_service() {
+    let request = dedicated_service_request("cache", "sha256:desired-v1");
+    let mut engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_service(
+            &mut engine,
+            WorkloadReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile missing dedicated service");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Created);
+    assert_eq!(
+        result.container().metadata().kind(),
+        ResourceKind::ProjectService
+    );
+    assert_eq!(result.container().metadata().resource_id(), Some("cache"));
+    assert_eq!(engine.created, vec![request]);
+    assert_eq!(engine.started.len(), 1);
+}
+
+#[test]
 fn orphaned_project_workloads_are_stopped_without_deleting_their_containers() {
     let request = application_request("sha256:desired-v1");
     let observed = ObservedContainer::new(
@@ -1058,6 +1088,31 @@ fn application_request(desired_revision: &str) -> ContainerCreateOptions {
         environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
     })
     .expect("application request")
+}
+
+fn dedicated_service_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectService,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:memcached-1".to_owned(),
+        schema_version: 8,
+        desired_revision: desired_revision.to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("dedicated service metadata")
+    .with_resource_id(service)
+    .expect("dedicated service resource identity");
+
+    ContainerCreateOptions::new(
+        format!("stackctl-bill-{service}"),
+        concat!(
+            "memcached@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ),
+        metadata,
+    )
+    .expect("dedicated service request")
 }
 
 fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {

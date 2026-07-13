@@ -12,6 +12,10 @@ pub(crate) fn validate_project_workload_adoption(
         let kind = match service.strategy() {
             ServiceDeploymentStrategy::ProjectApplication => ResourceKind::ProjectApplication,
             ServiceDeploymentStrategy::ProjectProcess => ResourceKind::ProjectProcess,
+            ServiceDeploymentStrategy::DedicatedProject
+            | ServiceDeploymentStrategy::DedicatedUntilIsolationProven => {
+                ResourceKind::ProjectService
+            }
             _ => continue,
         };
         let matching = resources

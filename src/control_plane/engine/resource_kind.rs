@@ -4,6 +4,7 @@
 pub(crate) enum ResourceKind {
     ProjectApplication,
     ProjectProcess,
+    ProjectService,
     SharedService,
     Gateway,
     Network,
@@ -17,6 +18,7 @@ impl ResourceKind {
         match self {
             Self::ProjectApplication => "project_application",
             Self::ProjectProcess => "project_process",
+            Self::ProjectService => "project_service",
             Self::SharedService => "shared_service",
             Self::Gateway => "gateway",
             Self::Network => "network",
@@ -30,6 +32,7 @@ impl ResourceKind {
         match label {
             "project_application" => Some(Self::ProjectApplication),
             "project_process" => Some(Self::ProjectProcess),
+            "project_service" => Some(Self::ProjectService),
             "shared_service" => Some(Self::SharedService),
             "gateway" => Some(Self::Gateway),
             "network" => Some(Self::Network),

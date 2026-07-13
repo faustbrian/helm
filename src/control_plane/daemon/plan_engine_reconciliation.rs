@@ -7,7 +7,8 @@ use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
 use crate::control_plane::workload::{
-    ImmutableProjectApplicationOptions, ProjectProcessOperationOptions,
+    DedicatedProjectServiceOptions, ImmutableProjectApplicationOptions,
+    ProjectProcessOperationOptions, plan_dedicated_project_service,
     plan_immutable_project_application, plan_project_process_operation,
 };
 use sha2::{Digest, Sha256};
@@ -19,6 +20,7 @@ pub(crate) fn plan_engine_reconciliation(
 ) -> Result<EngineReconciliationPlan, EngineReconciliationPlanError> {
     super::validate_project_workload_adoption(options.execution, options.durable_resources)?;
     let mut applications = Vec::new();
+    let mut dedicated_services = Vec::new();
     let mut process_services = Vec::new();
     let mut routes = options.shared_routes.to_vec();
 
@@ -41,6 +43,23 @@ pub(crate) fn plan_engine_reconciliation(
         }
         if service.strategy() == ServiceDeploymentStrategy::ProjectProcess {
             process_services.push(service);
+            continue;
+        }
+        if matches!(
+            service.strategy(),
+            ServiceDeploymentStrategy::DedicatedProject
+                | ServiceDeploymentStrategy::DedicatedUntilIsolationProven
+        ) {
+            dedicated_services.push(
+                plan_dedicated_project_service(DedicatedProjectServiceOptions {
+                    service,
+                    installation_id: options.installation_id,
+                    schema_version: options.schema_version,
+                    platform: options.platform,
+                    network_name: options.network_name,
+                })
+                .map_err(invalid)?,
+            );
             continue;
         }
         if service.strategy() != ServiceDeploymentStrategy::ProjectApplication {
@@ -128,6 +147,7 @@ pub(crate) fn plan_engine_reconciliation(
 
     Ok(EngineReconciliationPlan::new(
         applications,
+        dedicated_services,
         processes,
         gateway,
     ))

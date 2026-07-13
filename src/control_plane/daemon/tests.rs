@@ -476,6 +476,57 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
     );
 }
 
+#[test]
+fn complete_engine_plans_include_dedicated_project_services_without_routes() {
+    let image = concat!(
+        "memcached@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  cache:\n    preset: memcached\n    version: '1'\n    image: {image}\n    command: [memcached, -m, '128']\n    environment:\n      CACHE_NAMESPACE: bill\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    assert_eq!(plan.dedicated_services().len(), 1);
+    let service = &plan.dedicated_services()[0];
+    assert_eq!(service.name(), "stackctl-bill-cache");
+    assert_eq!(service.image(), image);
+    assert_eq!(
+        service.metadata().kind(),
+        crate::control_plane::engine::ResourceKind::ProjectService
+    );
+    assert_eq!(service.metadata().project_id(), Some("bill"));
+    assert_eq!(service.metadata().resource_id(), Some("cache"));
+    assert_eq!(service.network(), Some("stackctl"));
+    assert_eq!(service.platform(), Some("linux/arm64"));
+    assert_eq!(service.command(), ["memcached", "-m", "128"]);
+    assert_eq!(
+        service.environment().get("CACHE_NAMESPACE"),
+        Some(&"bill".to_owned())
+    );
+    assert!(service.port_bindings().is_empty());
+    assert!(plan.gateway().routes().is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn managed_environment_planning_replaces_absent_shared_values_with_empty_state() {

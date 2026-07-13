@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added the v8 dedicated-project-service Engine substrate for conservative
+  presets, with exact ownership, immutable images and versions, deterministic
+  names, private networking, restart supervision, durable lifecycle, live
+  health, and no implicit host port or gateway route.
 - Changed v8 Engine invalidation to atomically discard all in-memory health
   observations before reconnect backoff, preventing disconnected resources from
   retaining a recently healthy projection.

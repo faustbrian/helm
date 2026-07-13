@@ -28,7 +28,9 @@ where
             Ok(owned)
                 if matches!(
                     owned.metadata().kind(),
-                    ResourceKind::ProjectApplication | ResourceKind::ProjectProcess
+                    ResourceKind::ProjectApplication
+                        | ResourceKind::ProjectProcess
+                        | ResourceKind::ProjectService
                 ) =>
             {
                 owned

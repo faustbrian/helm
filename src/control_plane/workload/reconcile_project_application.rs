@@ -218,7 +218,9 @@ fn validate_request(
                 detail: "project workload reconciliation requires a project owner".to_owned(),
             })?;
     let resource_id = match expected_kind {
-        ResourceKind::ProjectApplication | ResourceKind::ProjectProcess => Some(
+        ResourceKind::ProjectApplication
+        | ResourceKind::ProjectProcess
+        | ResourceKind::ProjectService => Some(
             metadata
                 .resource_id()
                 .ok_or_else(|| WorkloadReconcileError::InvalidRequest {
@@ -264,6 +266,9 @@ fn duplicate_detail(
         (ResourceKind::ProjectProcess, Some(resource_id)) => format!(
             "project '{project_id}' process '{resource_id}' owns {count} containers; refusing to guess"
         ),
+        (ResourceKind::ProjectService, Some(resource_id)) => format!(
+            "project '{project_id}' service '{resource_id}' owns {count} containers; refusing to guess"
+        ),
         _ => format!("project '{project_id}' owns {count} ambiguous workload containers"),
     }
 }
@@ -272,6 +277,7 @@ const fn kind_name(kind: ResourceKind) -> &'static str {
     match kind {
         ResourceKind::ProjectApplication => "project application",
         ResourceKind::ProjectProcess => "project process",
+        ResourceKind::ProjectService => "project service",
         _ => "project workload",
     }
 }
