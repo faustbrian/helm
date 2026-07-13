@@ -1,7 +1,7 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DeletionDecision, PruneAuthorization,
-    RestoreTarget, RestoreTargetError, evaluate_deletion, restore_verified_backup,
-    store_backup_artifact, store_backup_artifact_for_identity,
+    RestoreTarget, RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
+    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
 };
@@ -440,6 +440,40 @@ fn logical_resources_in_one_shared_service_have_distinct_backup_identities() {
     );
 
     std::fs::remove_dir_all(&root).expect("remove logical backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn stored_backup_open_rejects_linked_recovery_points() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-linked-reference-{}-{}",
+        std::process::id(),
+        50_006
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+    let stored = store_backup_artifact(&resource, b"recoverable bytes", 45_000, &root)
+        .expect("stored linked fixture");
+    let linked = root.join("linked-recovery-point");
+    symlink(stored.recovery_point(), &linked).expect("link recovery point");
+
+    let error = open_stored_backup_artifact(linked.to_str().expect("linked reference"))
+        .expect_err("linked recovery point");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "backup recovery point '{}' must be a real directory",
+            linked.display()
+        )
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove linked backup fixture");
 }
 
 #[cfg(unix)]

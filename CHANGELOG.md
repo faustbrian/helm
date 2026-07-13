@@ -36,6 +36,9 @@ All notable changes to this project are documented in this file.
 - Changed resumable migration operations to receive their durable phase
   checkpoint so restore and cutover adapters can enforce journaled checksum,
   size, target, and rollback evidence after daemon restarts.
+- Added direct-Engine PostgreSQL restores that reject non-absolute or linked
+  recovery points, verify logical ownership and journaled checksum and size,
+  then stream the exact custom dump into its isolated target transaction.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

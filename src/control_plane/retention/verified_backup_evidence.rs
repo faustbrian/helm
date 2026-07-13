@@ -38,7 +38,7 @@ impl VerifiedBackupEvidence {
         self.matches_identity(&BackupResourceIdentity::from_resource(resource))
     }
 
-    pub(super) fn matches_identity(&self, resource: &BackupResourceIdentity) -> bool {
+    pub(crate) fn matches_identity(&self, resource: &BackupResourceIdentity) -> bool {
         self.resource_id == resource.resource_id()
             && self.installation_id == resource.installation_id()
             && self.resource_kind == resource.resource_kind()

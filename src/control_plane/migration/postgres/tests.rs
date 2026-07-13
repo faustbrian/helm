@@ -1,18 +1,26 @@
-use super::{PostgresBackupOptions, backup_postgres_database};
+use super::{
+    PostgresBackupOptions, PostgresRestoreOptions, backup_postgres_database,
+    restore_postgres_database,
+};
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerId, ContainerLogStream, EngineFuture, LogChunk, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
     RetentionClass, reconstruct_owned_container,
 };
+use crate::control_plane::retention::{
+    BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
+};
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle,
+    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ResourceLifecycle,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, duplex};
 
@@ -108,8 +116,112 @@ fn failed_postgres_dump_never_publishes_partial_recovery_point() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn postgres_restore_verifies_journaled_backup_before_streaming_to_target() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL restore runtime");
+    let root = backup_root("restore");
+    let logical = logical_resource();
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let dump = b"verified custom dump";
+    let stored = store_backup_artifact_for_identity(&identity, dump, 47_000, &root)
+        .expect("stored restore fixture");
+    let evidence = verify_stored_backup_artifact(&stored, 47_001).expect("backup evidence");
+    let checkpoint = restore_checkpoint(
+        stored.recovery_point().to_str().expect("backup reference"),
+        evidence.artifact_sha256(),
+        evidence.artifact_size_bytes(),
+    );
+    let credential = credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresRestoreOptions {
+        checkpoint: &checkpoint,
+        source_logical_resource: &logical,
+        credential: &credential,
+        installation_id: "install-1",
+        target_database_name: "stackctl_bill_database_restore",
+        verified_at_unix_seconds: 47_001,
+        timeout: Duration::from_secs(5),
+    };
+
+    runtime
+        .block_on(restore_postgres_database(&executor, &container, &options))
+        .expect("PostgreSQL restore");
+
+    assert_eq!(*executor.input.lock().expect("restored input"), dump);
+    let expected_request = CommandRequest::new(
+        vec![
+            "pg_restore".to_owned(),
+            "--exit-on-error".to_owned(),
+            "--single-transaction".to_owned(),
+            "--no-owner".to_owned(),
+            "--no-privileges".to_owned(),
+            "--username=stackctl_admin".to_owned(),
+            "--dbname=stackctl_bill_database_restore".to_owned(),
+        ],
+        BTreeMap::from([("PGPASSWORD".to_owned(), "do-not-log".to_owned())]),
+        None,
+    )
+    .expect("expected restore request");
+    assert_eq!(
+        *executor.request.lock().expect("restore request"),
+        Some(expected_request)
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove PostgreSQL restore fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn postgres_restore_rejects_journal_checksum_mismatch_before_target_command() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL restore runtime");
+    let root = backup_root("restore-mismatch");
+    let logical = logical_resource();
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let stored = store_backup_artifact_for_identity(&identity, b"verified dump", 48_000, &root)
+        .expect("stored mismatch fixture");
+    let checkpoint = restore_checkpoint(
+        stored.recovery_point().to_str().expect("backup reference"),
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        13,
+    );
+    let credential = credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresRestoreOptions {
+        checkpoint: &checkpoint,
+        source_logical_resource: &logical,
+        credential: &credential,
+        installation_id: "install-1",
+        target_database_name: "stackctl_bill_database_restore",
+        verified_at_unix_seconds: 48_001,
+        timeout: Duration::from_secs(5),
+    };
+
+    let error = runtime
+        .block_on(restore_postgres_database(&executor, &container, &options))
+        .expect_err("mismatched PostgreSQL restore");
+
+    assert_eq!(
+        error.to_string(),
+        "PostgreSQL restore backup does not match its durable checkpoint"
+    );
+    assert!(executor.request.lock().expect("restore request").is_none());
+
+    std::fs::remove_dir_all(&root).expect("remove restore mismatch fixture");
+}
+
 struct RecordingExecutor {
     request: Mutex<Option<CommandRequest>>,
+    input: Arc<Mutex<Vec<u8>>>,
+    input_complete: Arc<AtomicBool>,
     dump: Vec<u8>,
     exit_status: i64,
 }
@@ -118,6 +230,8 @@ impl RecordingExecutor {
     fn new(dump: Vec<u8>, exit_status: i64) -> Self {
         Self {
             request: Mutex::new(None),
+            input: Arc::new(Mutex::new(Vec::new())),
+            input_complete: Arc::new(AtomicBool::new(false)),
             dump,
             exit_status,
         }
@@ -132,6 +246,8 @@ impl CommandExecutor for RecordingExecutor {
     ) -> EngineFuture<'operation, CommandSession> {
         *self.request.lock().expect("request lock") = Some(request.clone());
         let dump = self.dump.clone();
+        let captured_input = Arc::clone(&self.input);
+        let input_complete = Arc::clone(&self.input_complete);
         let container_id = container.id().clone();
 
         Box::pin(async move {
@@ -142,6 +258,8 @@ impl CommandExecutor for RecordingExecutor {
                     .read_to_end(&mut input)
                     .await
                     .expect("drain command stdin");
+                *captured_input.lock().expect("captured command input") = input;
+                input_complete.store(true, Ordering::Release);
             });
             let output: ContainerLogStream<'static> =
                 Box::pin(stream::iter(vec![Ok(LogChunk::stdout(dump))]));
@@ -160,7 +278,13 @@ impl CommandExecutor for RecordingExecutor {
         _execution_id: &'operation CommandExecutionId,
         _container_id: &'operation ContainerId,
     ) -> EngineFuture<'operation, CommandStatus> {
-        Box::pin(async move { Ok(CommandStatus::Exited(self.exit_status)) })
+        Box::pin(async move {
+            while !self.input_complete.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+
+            Ok(CommandStatus::Exited(self.exit_status))
+        })
     }
 }
 
@@ -187,6 +311,25 @@ fn credential() -> CredentialRecord {
         secret: "do-not-log".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     })
+}
+
+fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRecord {
+    MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "migration-bill-database".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase: MigrationPhase::TargetProvisioned,
+        backup_reference: Some(reference.to_owned()),
+        backup_artifact_sha256: Some(checksum.to_owned()),
+        backup_artifact_size_bytes: Some(size),
+        target_resource_id: Some("stackctl_bill_database_restore".to_owned()),
+        rollback_reference: Some("v7:bill/database".to_owned()),
+        updated_at_unix_seconds: 47_000,
+    })
+    .expect("restore checkpoint")
 }
 
 fn owned_container() -> OwnedContainer {
