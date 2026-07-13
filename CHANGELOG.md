@@ -125,6 +125,9 @@ All notable changes to this project are documented in this file.
 - Added bounded live Redis and Valkey ACL reloads with implementation-specific
   CLI authentication environments, explicit server-error exit propagation, and
   raw admin credentials excluded from command arguments and diagnostics.
+- Added deterministic RabbitMQ core definitions with project-isolated virtual
+  hosts and users, official salted SHA-256 password encoding, collision
+  rejection, stable ordering, and no raw credentials in rendered JSON.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

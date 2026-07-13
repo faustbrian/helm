@@ -22,6 +22,9 @@ pub(crate) use postgres::{
     PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, plan_postgres_project_resources,
     provision_postgres_logical_resource,
 };
+pub(crate) use rabbitmq::{
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
+};
 pub(crate) use redis::{
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,
     RedisSharedInstancePlan, RedisSharedInstancePlanOptions, StoredRedisAclPaths,
@@ -45,6 +48,7 @@ mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
 mod postgres;
+mod rabbitmq;
 mod redis;
 mod shared_instance_plan;
 mod shared_service_request;

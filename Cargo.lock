@@ -1386,6 +1386,7 @@ name = "stackctl"
 version = "7.0.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bollard",
  "clap",
  "clap_complete",

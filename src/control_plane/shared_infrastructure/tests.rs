@@ -3,11 +3,12 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan,
-    RedisSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
-    plan_mysql_project_resources, plan_postgres_project_resources, plan_redis_project_resources,
-    plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
-    reload_redis_acl, store_redis_acl_snapshot,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition, RedisAclProject,
+    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
+    plan_postgres_project_resources, plan_redis_project_resources, plan_shared_instances,
+    provision_mysql_logical_resource, provision_postgres_logical_resource, reload_redis_acl,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -149,6 +150,95 @@ fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
         "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     );
     assert_eq!(format!("{secret:?}"), "CredentialSecret([REDACTED])");
+}
+
+#[test]
+fn rabbitmq_password_hashes_match_the_documented_salted_sha256_format() {
+    let hash = RabbitMqPasswordHash::from_salt(
+        CredentialSecret::new("project-secret".to_owned()),
+        [1, 2, 3, 4],
+    );
+
+    assert_eq!(
+        hash.encoded(),
+        "AQIDBC+1G1c0sCkZnSk4UmOklfTffD0p+fnkx/QqloCOZ0es"
+    );
+    assert_eq!(format!("{hash:?}"), "RabbitMqPasswordHash([REDACTED])");
+}
+
+#[test]
+fn rabbitmq_definitions_are_deterministic_isolated_and_hash_only() {
+    let definitions = RabbitMqDefinitions::new(vec![
+        RabbitMqProjectDefinition::new(
+            "shop",
+            "broker",
+            CredentialSecret::new("shop-secret".to_owned()),
+        )
+        .expect("shop definition"),
+        RabbitMqProjectDefinition::new(
+            "bill",
+            "broker",
+            CredentialSecret::new("bill-secret".to_owned()),
+        )
+        .expect("bill definition"),
+    ])
+    .expect("RabbitMQ definitions");
+    let document: serde_json::Value =
+        serde_json::from_slice(definitions.contents()).expect("definitions JSON");
+
+    assert_eq!(
+        document["vhosts"],
+        serde_json::json!([
+            {"name": "stackctl_bill_broker"},
+            {"name": "stackctl_shop_broker"}
+        ])
+    );
+    assert_eq!(document["users"][0]["name"], "st_bill_broker");
+    assert_eq!(
+        document["users"][0]["hashing_algorithm"],
+        "rabbit_password_hashing_sha256"
+    );
+    assert_eq!(document["users"][0]["tags"], serde_json::json!([]));
+    assert_eq!(
+        document["permissions"][0],
+        serde_json::json!({
+            "user": "st_bill_broker",
+            "vhost": "stackctl_bill_broker",
+            "configure": ".*",
+            "write": ".*",
+            "read": ".*"
+        })
+    );
+    assert!(!String::from_utf8_lossy(definitions.contents()).contains("secret"));
+    assert_eq!(
+        format!("{definitions:?}"),
+        "RabbitMqDefinitions { project_count: 2 }"
+    );
+}
+
+#[test]
+fn rabbitmq_definitions_reject_deterministic_identity_collisions() {
+    let definitions = vec![
+        RabbitMqProjectDefinition::new(
+            "bill-api",
+            "broker",
+            CredentialSecret::new("one".to_owned()),
+        )
+        .expect("first definition"),
+        RabbitMqProjectDefinition::new(
+            "bill",
+            "api-broker",
+            CredentialSecret::new("two".to_owned()),
+        )
+        .expect("second definition"),
+    ];
+
+    let error = RabbitMqDefinitions::new(definitions).expect_err("identity collision");
+
+    assert_eq!(
+        error.to_string(),
+        "RabbitMQ user 'st_bill_api_broker' is defined more than once"
+    );
 }
 
 #[test]
