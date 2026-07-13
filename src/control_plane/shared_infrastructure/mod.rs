@@ -56,9 +56,11 @@ pub(crate) use prepare_shared_instances::prepare_shared_instances;
 pub(crate) use prepared_shared_instance::PreparedSharedInstance;
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
 pub(crate) use rabbitmq::{
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
+    PreparedRabbitMqSharedInstance, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError,
+    RabbitMqPreparationError, RabbitMqPreparationOptions, RabbitMqProjectDefinition,
     RabbitMqProjectResources, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
-    StoredRabbitMqPaths, plan_rabbitmq_project_resources, reconcile_rabbitmq_definitions,
+    StoredRabbitMqPaths, plan_rabbitmq_project_resources, prepare_rabbitmq_shared_instances,
+    reconcile_prepared_rabbitmq_instance, reconcile_rabbitmq_definitions,
     reload_rabbitmq_definitions, revoke_rabbitmq_project_access, store_rabbitmq_definitions,
 };
 pub(crate) use reconcile_prepared_shared_instance::reconcile_prepared_shared_instance;

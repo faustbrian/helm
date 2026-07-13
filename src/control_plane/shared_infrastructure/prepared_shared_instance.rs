@@ -1,6 +1,6 @@
 use super::{
     PreparedMySqlSharedInstance, PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
-    PreparedRedisSharedInstance,
+    PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance,
 };
 use crate::control_plane::state::ManagedEnvironmentRecord;
 
@@ -10,6 +10,7 @@ pub(crate) enum PreparedSharedInstance {
     MySql(PreparedMySqlSharedInstance),
     Redis(PreparedRedisSharedInstance),
     ObjectStore(PreparedObjectStoreSharedInstance),
+    RabbitMq(PreparedRabbitMqSharedInstance),
 }
 
 impl PreparedSharedInstance {
@@ -67,6 +68,20 @@ impl PreparedSharedInstance {
                     )
                 })
                 .collect(),
+            Self::RabbitMq(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| {
+                    (
+                        project
+                            .credential()
+                            .project_id()
+                            .expect("project RabbitMQ credential owner")
+                            .to_owned(),
+                        project.credential().service_id().to_owned(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -88,6 +103,11 @@ impl PreparedSharedInstance {
                 .map(|project| project.environment())
                 .collect(),
             Self::ObjectStore(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| project.environment())
+                .collect(),
+            Self::RabbitMq(prepared) => prepared
                 .projects()
                 .iter()
                 .map(|project| project.environment())

@@ -477,6 +477,113 @@ fn minio_strategy_publishes_isolated_policies_for_two_projects() {
     std::fs::remove_dir_all(root).expect("remove strategy state");
 }
 
+#[cfg(unix)]
+#[test]
+fn rabbitmq_strategy_publishes_isolated_vhosts_for_two_projects() {
+    let image = concat!(
+        "rabbitmq@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_database_source("/work/bill", "bill", "rabbitmq", "4", image),
+        shared_database_source("/work/shop", "shop", "rabbitmq", "4", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-rabbitmq-strategy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("strategy state directory");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("RABBITMQ_PASSWORD")
+        .expect("first project password")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared[0].profile().implementation(), "rabbitmq");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("RABBITMQ_PASSWORD")
+            .expect("replayed project password"),
+        &first_password
+    );
+    assert_eq!(store.credentials().expect("durable credentials").len(), 2);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 1);
+    let identity = shared[0]
+        .fingerprint()
+        .as_str()
+        .strip_prefix("sha256:")
+        .expect("fingerprint identity");
+    let definitions = std::fs::read_to_string(
+        root.join("shared")
+            .join(identity)
+            .join("rabbitmq-definitions/mounted/definitions.json"),
+    )
+    .expect("RabbitMQ definitions");
+    assert!(definitions.contains("stackctl_bill_db"));
+    assert!(definitions.contains("stackctl_shop_db"));
+    assert!(definitions.contains("st_bill_db"));
+    assert!(definitions.contains("st_shop_db"));
+    assert!(!definitions.contains(&first_password));
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove strategy state");
+}
+
 #[test]
 fn postgres_preparation_reuses_durable_bootstrap_and_project_secrets() {
     let image = concat!(

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added RabbitMQ shared-instance convergence with exact compatibility grouping,
+  replay-stable project credentials, one atomically published hash-only
+  definitions snapshot, isolated vhost/user pairs, persistent physical and
+  logical ownership, and managed broker environments.
 - Added MinIO shared-object-store convergence with exact compatibility
   grouping, durable root and project credentials, deterministic bucket-scoped
   policies, one physical process and volume, and project-specific AWS

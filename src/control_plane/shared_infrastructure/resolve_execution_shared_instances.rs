@@ -31,6 +31,7 @@ pub(crate) fn resolve_execution_shared_instances(
             "redis" => "redis",
             "valkey" => "valkey",
             "minio" => "minio",
+            "rabbitmq" => "rabbitmq",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",
@@ -70,6 +71,7 @@ pub(crate) fn resolve_execution_shared_instances(
             isolation: match implementation {
                 "redis" | "valkey" => IsolationCapability::AclAndPrefix,
                 "minio" => IsolationCapability::BucketAndPolicy,
+                "rabbitmq" => IsolationCapability::VirtualHostAndUser,
                 _ => IsolationCapability::DatabaseAndRole,
             },
             platform_architecture: Some(platform.to_owned()),
