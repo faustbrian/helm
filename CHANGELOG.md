@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Added an executable v8 retention policy that keeps active resources, ages out
   disposable orphans, and blocks persistent deletion without explicit prune
   intent and verified backup evidence.
+- Bound persistent prune authorization to checksum-verified backup bytes and
+  the exact installation, resource, and compatibility fingerprint being deleted.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected

@@ -13,22 +13,24 @@ pub(crate) fn evaluate_deletion(
     }
 
     match resource.retention() {
-        ResourceRetention::Persistent => evaluate_persistent(authorization),
+        ResourceRetention::Persistent => evaluate_persistent(resource, authorization),
         ResourceRetention::Disposable | ResourceRetention::BuildCache => {
             evaluate_disposable(resource, now_unix_seconds, orphan_retention_seconds)
         }
     }
 }
 
-const fn evaluate_persistent(authorization: PruneAuthorization) -> DeletionDecision {
+fn evaluate_persistent(
+    resource: &ResourceRecord,
+    authorization: PruneAuthorization,
+) -> DeletionDecision {
     match authorization {
         PruneAuthorization::None => DeletionDecision::StopAndRetain,
+        PruneAuthorization::Explicit { backup: None } => DeletionDecision::AwaitVerifiedBackup,
         PruneAuthorization::Explicit {
-            verified_backup: false,
-        } => DeletionDecision::AwaitVerifiedBackup,
-        PruneAuthorization::Explicit {
-            verified_backup: true,
-        } => DeletionDecision::DeleteAuthorized,
+            backup: Some(backup),
+        } if backup.matches(resource) => DeletionDecision::DeleteAuthorized,
+        PruneAuthorization::Explicit { backup: Some(_) } => DeletionDecision::AwaitVerifiedBackup,
     }
 }
 
