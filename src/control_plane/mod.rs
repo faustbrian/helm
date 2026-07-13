@@ -1,4 +1,5 @@
 mod configuration;
+mod daemon;
 mod desired_state;
 mod dns_label;
 mod identity_error;

@@ -16,6 +16,8 @@ All notable changes to this project are documented in this file.
   validation, stable ordering, and complete cycle diagnostics.
 - Added a transactional v8 SQLite state-store contract for durable project and
   route ownership, atomic migrations, restart recovery, and interrupted writes.
+- Added an OS-backed per-user v8 daemon lease contract with exclusive ownership,
+  stale-PID-independent recovery, and user-only Unix permissions.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
