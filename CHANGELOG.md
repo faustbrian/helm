@@ -137,6 +137,9 @@ All notable changes to this project are documented in this file.
 - Added bounded live RabbitMQ core-definition imports through the broker's
   built-in CLI so project vhosts and users converge without management plugins,
   host tools, credentials, or shared-container restarts.
+- Added shared MongoDB instance and logical-resource plans with private
+  file-backed root initialization, database-scoped read-write users, idempotent
+  create/update scripts over stdin, and retained owned data volumes.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

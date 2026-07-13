@@ -1,6 +1,7 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
+    MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
@@ -152,6 +153,66 @@ fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
         "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     );
     assert_eq!(format!("{secret:?}"), "CredentialSecret([REDACTED])");
+}
+
+#[test]
+fn mongodb_shared_instances_use_private_secret_files_and_retained_data() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        mongodb_profile("8"),
+    )])
+    .pop()
+    .expect("shared MongoDB plan");
+    let plan = MongoDbSharedInstancePlan::new(
+        &shared,
+        MongoDbSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mongodb-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mongo-root".to_owned()),
+            bootstrap_secret_file: "/private/mongodb/root-password".into(),
+        },
+    )
+    .expect("MongoDB instance");
+
+    assert_eq!(plan.data_mount_target(), "/data/db");
+    assert_eq!(
+        plan.bootstrap_secret_target(),
+        "/run/stackctl-secrets/mongodb-root-password"
+    );
+    assert!(plan.volume().is_some());
+    assert_eq!(plan.bootstrap_credential().username(), "stackctl_admin");
+    let debug = format!("{:?}", plan.container());
+    assert!(debug.contains("/private/mongodb/root-password"));
+    assert!(debug.contains("read_only: true"));
+    assert!(debug.contains("MONGO_INITDB_ROOT_PASSWORD_FILE"));
+    assert!(!debug.contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_logical_resources_are_idempotent_database_scoped_and_stdin_only() {
+    let plan = MongoDbLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+        CredentialSecret::new("mongo-root".to_owned()),
+    )
+    .expect("MongoDB logical plan");
+
+    assert_eq!(plan.database_name(), "stackctl_bill_database");
+    assert_eq!(plan.username(), "st_bill_database");
+    assert_eq!(plan.credential_id(), "bill/database/mongodb");
+    assert_eq!(plan.command_arguments(), ["mongosh", "--quiet", "--nodb"]);
+    assert!(plan.stdin_script().contains("getUser"));
+    assert!(plan.stdin_script().contains("updateUser"));
+    assert!(plan.stdin_script().contains("createUser"));
+    assert!(plan.stdin_script().contains("readWrite"));
+    assert!(plan.stdin_script().contains("project-secret"));
+    assert!(plan.stdin_script().contains("mongo-root"));
+    assert!(!format!("{plan:?}").contains("project-secret"));
+    assert!(!format!("{plan:?}").contains("mongo-root"));
 }
 
 #[test]
@@ -1219,6 +1280,20 @@ fn rabbitmq_profile(major_version: &str) -> CompatibilityProfile {
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid RabbitMQ compatibility profile")
+}
+
+fn mongodb_profile(major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: "mongodb".to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("mongo@sha256:{}", "e".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::DatabaseAndRole,
+        platform_architecture: Some("linux/arm64".to_owned()),
+    })
+    .expect("valid MongoDB compatibility profile")
 }
 
 fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {
