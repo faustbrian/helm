@@ -1,15 +1,16 @@
+use super::persisted_migration::PersistedMigration;
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
     EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectAdoptionPlan, ProjectRecord,
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
-    StateStoreError,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 7;
+const CURRENT_SCHEMA_VERSION: u32 = 8;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -179,6 +180,34 @@ impl SqliteStateStore {
                      ON logical_resources(project_id);
                  CREATE INDEX logical_resources_shared_idx
                      ON logical_resources(shared_resource_id, lifecycle);",
+            )?;
+        }
+
+        if found < 8 {
+            transaction.execute_batch(
+                "CREATE TABLE migrations (
+                     migration_id TEXT PRIMARY KEY NOT NULL CHECK(length(migration_id) > 0),
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                     source_revision TEXT NOT NULL CHECK(length(source_revision) > 0),
+                     target_revision TEXT NOT NULL CHECK(length(target_revision) > 0),
+                     source_compatibility_fingerprint TEXT NOT NULL
+                         CHECK(length(source_compatibility_fingerprint) > 0),
+                     target_compatibility_fingerprint TEXT NOT NULL
+                         CHECK(length(target_compatibility_fingerprint) > 0),
+                     phase TEXT NOT NULL CHECK(phase IN (
+                         'inventoried', 'backup_verified', 'target_provisioned',
+                         'data_restored', 'target_verified', 'cutover',
+                         'confirmed', 'rolled_back'
+                     )),
+                     backup_artifact_sha256 TEXT,
+                     backup_artifact_size_bytes INTEGER
+                         CHECK(backup_artifact_size_bytes >= 0),
+                     target_resource_id TEXT,
+                     rollback_reference TEXT,
+                     updated_at_unix_seconds INTEGER NOT NULL
+                         CHECK(updated_at_unix_seconds >= 0)
+                 ) STRICT;
+                 CREATE INDEX migrations_project_idx ON migrations(project_id);",
             )?;
         }
 
@@ -902,6 +931,166 @@ impl StateStore for SqliteStateStore {
                     ))
                 },
             )
+            .collect()
+    }
+
+    fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = transaction
+            .query_row(
+                "SELECT migration_id, project_id, source_revision, target_revision,
+                        source_compatibility_fingerprint,
+                        target_compatibility_fingerprint, phase,
+                        backup_artifact_sha256, backup_artifact_size_bytes,
+                        target_resource_id, rollback_reference,
+                        updated_at_unix_seconds
+                 FROM migrations WHERE migration_id = ?1",
+                [migration.migration_id()],
+                |row| {
+                    Ok(PersistedMigration {
+                        migration_id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        source_revision: row.get(2)?,
+                        target_revision: row.get(3)?,
+                        source_compatibility_fingerprint: row.get(4)?,
+                        target_compatibility_fingerprint: row.get(5)?,
+                        phase: row.get(6)?,
+                        backup_artifact_sha256: row.get(7)?,
+                        backup_artifact_size_bytes: row.get(8)?,
+                        target_resource_id: row.get(9)?,
+                        rollback_reference: row.get(10)?,
+                        updated_at_unix_seconds: row.get(11)?,
+                    })
+                },
+            )
+            .optional()?
+            .map(PersistedMigration::into_record)
+            .transpose()?;
+
+        if let Some(existing) = existing {
+            if existing == *migration {
+                transaction.commit()?;
+                return Ok(());
+            }
+            if !migration.has_same_identity(&existing) {
+                return Err(StateStoreError::MigrationIdentityConflict {
+                    migration_id: migration.migration_id().to_owned(),
+                });
+            }
+            if !migration.preserves_evidence_from(&existing) {
+                return Err(StateStoreError::MigrationEvidenceConflict {
+                    migration_id: migration.migration_id().to_owned(),
+                });
+            }
+            if migration.updated_at_unix_seconds() < existing.updated_at_unix_seconds() {
+                return Err(StateStoreError::MigrationTimeRegression {
+                    migration_id: migration.migration_id().to_owned(),
+                });
+            }
+            if !existing.phase().can_advance_to(migration.phase()) {
+                return Err(StateStoreError::InvalidMigrationTransition {
+                    migration_id: migration.migration_id().to_owned(),
+                    from: existing.phase().label().to_owned(),
+                    to: migration.phase().label().to_owned(),
+                });
+            }
+
+            transaction.execute(
+                "UPDATE migrations SET
+                     phase = ?1,
+                     backup_artifact_sha256 = ?2,
+                     backup_artifact_size_bytes = ?3,
+                     target_resource_id = ?4,
+                     rollback_reference = ?5,
+                     updated_at_unix_seconds = ?6
+                 WHERE migration_id = ?7",
+                params![
+                    migration.phase().label(),
+                    migration.backup_artifact_sha256(),
+                    migration
+                        .backup_artifact_size_bytes()
+                        .map(|size| size as i64),
+                    migration.target_resource_id(),
+                    migration.rollback_reference(),
+                    migration.updated_at_unix_seconds(),
+                    migration.migration_id(),
+                ],
+            )?;
+        } else {
+            if migration.phase() != MigrationPhase::Inventoried {
+                return Err(StateStoreError::InvalidMigrationTransition {
+                    migration_id: migration.migration_id().to_owned(),
+                    from: "absent".to_owned(),
+                    to: migration.phase().label().to_owned(),
+                });
+            }
+            transaction.execute(
+                "INSERT INTO migrations (
+                     migration_id, project_id, source_revision, target_revision,
+                     source_compatibility_fingerprint,
+                     target_compatibility_fingerprint, phase,
+                     backup_artifact_sha256, backup_artifact_size_bytes,
+                     target_resource_id, rollback_reference,
+                     updated_at_unix_seconds
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    migration.migration_id(),
+                    migration.project_id(),
+                    migration.source_revision(),
+                    migration.target_revision(),
+                    migration.source_compatibility_fingerprint(),
+                    migration.target_compatibility_fingerprint(),
+                    migration.phase().label(),
+                    migration.backup_artifact_sha256(),
+                    migration
+                        .backup_artifact_size_bytes()
+                        .map(|size| size as i64),
+                    migration.target_resource_id(),
+                    migration.rollback_reference(),
+                    migration.updated_at_unix_seconds(),
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT migration_id, project_id, source_revision, target_revision,
+                    source_compatibility_fingerprint,
+                    target_compatibility_fingerprint, phase,
+                    backup_artifact_sha256, backup_artifact_size_bytes,
+                    target_resource_id, rollback_reference,
+                    updated_at_unix_seconds
+             FROM migrations ORDER BY migration_id",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok(PersistedMigration {
+                    migration_id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    source_revision: row.get(2)?,
+                    target_revision: row.get(3)?,
+                    source_compatibility_fingerprint: row.get(4)?,
+                    target_compatibility_fingerprint: row.get(5)?,
+                    phase: row.get(6)?,
+                    backup_artifact_sha256: row.get(7)?,
+                    backup_artifact_size_bytes: row.get(8)?,
+                    target_resource_id: row.get(9)?,
+                    rollback_reference: row.get(10)?,
+                    updated_at_unix_seconds: row.get(11)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(PersistedMigration::into_record)
             .collect()
     }
 }

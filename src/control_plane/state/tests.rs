@@ -1,9 +1,10 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
     EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectAdoptionPlan,
-    ProjectAdoptionPlanOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    MigrationRecordOptions, ProjectAdoptionPlan, ProjectAdoptionPlanOptions, ProjectRecord,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
+    StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,11 +16,140 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 7);
+    assert_eq!(store.schema_version().expect("schema version"), 8);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
     remove_database(&database_path);
+}
+
+#[test]
+fn migration_journal_survives_restart_and_advances_without_skips() {
+    let database_path = temporary_database_path("migration-journal");
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        store
+            .record_migration(&migration_record(MigrationPhase::Inventoried, 10))
+            .expect("record inventory");
+        store
+            .record_migration(&migration_record(MigrationPhase::BackupVerified, 11))
+            .expect("record backup");
+        store
+            .record_migration(&migration_record(MigrationPhase::TargetProvisioned, 12))
+            .expect("record target");
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+
+    assert_eq!(
+        store.migrations().expect("load migrations"),
+        vec![migration_record(MigrationPhase::TargetProvisioned, 12)]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn migration_journal_rejects_skips_identity_drift_and_terminal_changes() {
+    let database_path = temporary_database_path("migration-transitions");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .record_migration(&migration_record(MigrationPhase::Inventoried, 10))
+        .expect("record inventory");
+
+    let skipped = store
+        .record_migration(&migration_record(MigrationPhase::TargetProvisioned, 12))
+        .expect_err("reject skipped backup");
+    assert_eq!(
+        skipped.to_string(),
+        "migration 'migration-bill' cannot advance from 'inventoried' to 'target_provisioned'"
+    );
+
+    let mut drifted = migration_options(MigrationPhase::BackupVerified, 11);
+    drifted.target_revision = "sha256:different".to_owned();
+    let drifted = MigrationRecord::new(drifted).expect("valid drifted record");
+    let drift = store
+        .record_migration(&drifted)
+        .expect_err("reject migration identity drift");
+    assert_eq!(
+        drift.to_string(),
+        "migration 'migration-bill' immutable identity differs from durable state"
+    );
+
+    store
+        .record_migration(&migration_record(MigrationPhase::BackupVerified, 11))
+        .expect("record verified backup");
+    let mut replaced_evidence = migration_options(MigrationPhase::TargetProvisioned, 12);
+    replaced_evidence.backup_artifact_sha256 = Some("sha256:replacement".to_owned());
+    let replaced_evidence = MigrationRecord::new(replaced_evidence).expect("valid replacement");
+    let evidence = store
+        .record_migration(&replaced_evidence)
+        .expect_err("reject replaced backup evidence");
+    assert_eq!(
+        evidence.to_string(),
+        "migration 'migration-bill' durable evidence cannot be replaced"
+    );
+
+    let stale = store
+        .record_migration(&migration_record(MigrationPhase::TargetProvisioned, 9))
+        .expect_err("reject stale checkpoint");
+    assert_eq!(
+        stale.to_string(),
+        "migration 'migration-bill' update time predates durable state"
+    );
+
+    for (phase, updated_at) in [
+        (MigrationPhase::TargetProvisioned, 12),
+        (MigrationPhase::DataRestored, 13),
+        (MigrationPhase::TargetVerified, 14),
+        (MigrationPhase::Cutover, 15),
+        (MigrationPhase::Confirmed, 16),
+    ] {
+        store
+            .record_migration(&migration_record(phase, updated_at))
+            .expect("advance migration");
+    }
+
+    let terminal = store
+        .record_migration(&migration_record(MigrationPhase::RolledBack, 17))
+        .expect_err("reject terminal transition");
+    assert_eq!(
+        terminal.to_string(),
+        "migration 'migration-bill' cannot advance from 'confirmed' to 'rolled_back'"
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn migration_records_require_proof_before_destructive_phases() {
+    let mut options = migration_options(MigrationPhase::BackupVerified, 11);
+    options.backup_artifact_sha256 = None;
+    options.backup_artifact_size_bytes = None;
+    let backup_error = MigrationRecord::new(options).expect_err("missing backup proof");
+    assert_eq!(
+        backup_error.to_string(),
+        "migration phase 'backup_verified' requires verified backup evidence"
+    );
+
+    let mut options = migration_options(MigrationPhase::TargetProvisioned, 12);
+    options.target_resource_id = None;
+    let target_error = MigrationRecord::new(options).expect_err("missing target identity");
+    assert_eq!(
+        target_error.to_string(),
+        "migration phase 'target_provisioned' requires a target resource identity"
+    );
+
+    let mut options = migration_options(MigrationPhase::Cutover, 15);
+    options.rollback_reference = None;
+    let rollback_error = MigrationRecord::new(options).expect_err("missing rollback material");
+    assert_eq!(
+        rollback_error.to_string(),
+        "migration phase 'cutover' requires retained rollback material"
+    );
 }
 
 #[test]
@@ -821,7 +951,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 7);
+    assert_eq!(store.schema_version().expect("schema version"), 8);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -862,7 +992,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 7);
+    assert_eq!(store.schema_version().expect("schema version"), 8);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -935,6 +1065,34 @@ fn managed_environment(values: BTreeMap<String, String>) -> ManagedEnvironmentRe
         values,
         lifecycle: EnvironmentLifecycle::Active,
     })
+}
+
+fn migration_record(phase: MigrationPhase, updated_at_unix_seconds: i64) -> MigrationRecord {
+    MigrationRecord::new(migration_options(phase, updated_at_unix_seconds))
+        .expect("valid migration record")
+}
+
+fn migration_options(
+    phase: MigrationPhase,
+    updated_at_unix_seconds: i64,
+) -> MigrationRecordOptions {
+    MigrationRecordOptions {
+        migration_id: "migration-bill".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase,
+        backup_artifact_sha256: (phase >= MigrationPhase::BackupVerified)
+            .then(|| "sha256:backup".to_owned()),
+        backup_artifact_size_bytes: (phase >= MigrationPhase::BackupVerified).then_some(1_024),
+        target_resource_id: (phase >= MigrationPhase::TargetProvisioned)
+            .then(|| "postgres-shared-17".to_owned()),
+        rollback_reference: (phase >= MigrationPhase::Cutover)
+            .then(|| "retained:v7-resource".to_owned()),
+        updated_at_unix_seconds,
+    }
 }
 
 fn temporary_database_path(name: &str) -> PathBuf {

@@ -32,6 +32,18 @@ pub(crate) enum StateStoreError {
     ProjectAdoptionRequired { project_id: String },
     /// A project adoption plan is structurally unsafe.
     InvalidProjectAdoption { detail: String },
+    /// A migration identity cannot silently change after inventory.
+    MigrationIdentityConflict { migration_id: String },
+    /// Backup, target, or rollback evidence changed after being recorded.
+    MigrationEvidenceConflict { migration_id: String },
+    /// A migration checkpoint skipped, regressed, or changed a terminal phase.
+    InvalidMigrationTransition {
+        migration_id: String,
+        from: String,
+        to: String,
+    },
+    /// A migration checkpoint time moved backwards.
+    MigrationTimeRegression { migration_id: String },
     /// The requested adoption target is not the registered project path.
     ProjectAdoptionTargetMissing { project_id: String, path: PathBuf },
     /// Durable project state does not exactly match the adoption plan.
@@ -94,6 +106,26 @@ impl Display for StateStoreError {
             Self::InvalidProjectAdoption { detail } => {
                 write!(formatter, "invalid project adoption plan: {detail}")
             }
+            Self::MigrationIdentityConflict { migration_id } => write!(
+                formatter,
+                "migration '{migration_id}' immutable identity differs from durable state"
+            ),
+            Self::MigrationEvidenceConflict { migration_id } => write!(
+                formatter,
+                "migration '{migration_id}' durable evidence cannot be replaced"
+            ),
+            Self::InvalidMigrationTransition {
+                migration_id,
+                from,
+                to,
+            } => write!(
+                formatter,
+                "migration '{migration_id}' cannot advance from '{from}' to '{to}'"
+            ),
+            Self::MigrationTimeRegression { migration_id } => write!(
+                formatter,
+                "migration '{migration_id}' update time predates durable state"
+            ),
             Self::ProjectAdoptionTargetMissing { project_id, path } => write!(
                 formatter,
                 "project '{project_id}' cannot be adopted at '{}' because that exact target is not registered",
@@ -124,6 +156,10 @@ impl Error for StateStoreError {
             | Self::ResourceAdoptionRequired { .. }
             | Self::ProjectAdoptionRequired { .. }
             | Self::InvalidProjectAdoption { .. }
+            | Self::MigrationIdentityConflict { .. }
+            | Self::MigrationEvidenceConflict { .. }
+            | Self::InvalidMigrationTransition { .. }
+            | Self::MigrationTimeRegression { .. }
             | Self::ProjectAdoptionTargetMissing { .. }
             | Self::ProjectAdoptionStateMismatch { .. }
             | Self::CorruptState { .. } => None,

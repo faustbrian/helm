@@ -1,6 +1,6 @@
 use super::{
     CredentialRecord, InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord,
-    ProjectAdoptionPlan, ProjectRecord, ResourceRecord, StateStoreError,
+    MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -87,4 +87,10 @@ pub(crate) trait StateStore {
 
     /// Loads all retained managed environments in stable project order.
     fn managed_environments(&self) -> Result<Vec<ManagedEnvironmentRecord>, StateStoreError>;
+
+    /// Records one monotonic, crash-recoverable migration checkpoint.
+    fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError>;
+
+    /// Loads migration checkpoints in stable identity order.
+    fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
 }
