@@ -7,9 +7,10 @@ use super::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
-    plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
+    SharedServiceRequest, generate_credential_secret, plan_mongodb_project_resources,
+    plan_mysql_project_resources, plan_postgres_project_resources, plan_rabbitmq_project_resources,
+    plan_redis_project_resources, plan_shared_instances, provision_mongodb_logical_resource,
+    provision_mysql_logical_resource, provision_postgres_logical_resource,
     reload_rabbitmq_definitions, reload_redis_acl, store_credential_secret,
     store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
@@ -259,6 +260,80 @@ fn mongodb_logical_resources_are_idempotent_database_scoped_and_stdin_only() {
     assert!(plan.stdin_script().contains("mongo-root"));
     assert!(!format!("{plan:?}").contains("project-secret"));
     assert!(!format!("{plan:?}").contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_project_resources_compose_user_credential_and_environment() {
+    let (instance, _) = mongodb_instance();
+    let project = plan_mongodb_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MongoDB project resources");
+
+    assert_eq!(project.logical().database_name(), "stackctl_bill_database");
+    assert_eq!(project.credential().username(), "st_bill_database");
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            (
+                "MONGODB_DATABASE".to_owned(),
+                "stackctl_bill_database".to_owned()
+            ),
+            (
+                "MONGODB_HOST".to_owned(),
+                instance.container().name().to_owned()
+            ),
+            ("MONGODB_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("MONGODB_PORT".to_owned(), "27017".to_owned()),
+            ("MONGODB_USERNAME".to_owned(), "st_bill_database".to_owned()),
+        ])
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
+    assert!(!format!("{project:?}").contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_provisioning_streams_both_secrets_and_checks_exit_status() {
+    let (instance, container) = mongodb_instance();
+    let project = plan_mongodb_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MongoDB project resources");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_mongodb_logical_resource(
+            &executor,
+            &container,
+            project.logical(),
+        ))
+        .expect("provision MongoDB resource");
+    runtime.block_on(tokio::task::yield_now());
+
+    let stdin = String::from_utf8(executor.stdin.lock().expect("recorded stdin").clone())
+        .expect("script UTF-8");
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(stdin.contains("project-secret"));
+    assert!(stdin.contains("mongo-root"));
+    assert!(request_debug.contains("argument_count: 3"));
+    assert!(!request_debug.contains("project-secret"));
+    assert!(!request_debug.contains("mongo-root"));
 }
 
 #[test]
@@ -1340,6 +1415,31 @@ fn mongodb_profile(major_version: &str) -> CompatibilityProfile {
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid MongoDB compatibility profile")
+}
+
+fn mongodb_instance() -> (MongoDbSharedInstancePlan, OwnedContainer) {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        mongodb_profile("8"),
+    )])
+    .pop()
+    .expect("shared MongoDB plan");
+    let instance = MongoDbSharedInstancePlan::new(
+        &shared,
+        MongoDbSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mongodb-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mongo-root".to_owned()),
+            bootstrap_secret_file: "/private/mongodb/root-password".into(),
+        },
+    )
+    .expect("MongoDB instance");
+    let container = owned_shared_container("mongodb-container", "sha256:mongodb-8");
+
+    (instance, container)
 }
 
 fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {

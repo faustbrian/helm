@@ -11,8 +11,9 @@ pub(crate) use generate_credential_secret::generate_credential_secret;
 pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
 pub(crate) use mongodb::{
-    MongoDbLogicalResourcePlan, MongoDbPlanError, MongoDbSharedInstancePlan,
-    MongoDbSharedInstancePlanOptions,
+    MongoDbLogicalResourcePlan, MongoDbPlanError, MongoDbProjectResources,
+    MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions, plan_mongodb_project_resources,
+    provision_mongodb_logical_resource,
 };
 pub(crate) use mysql::{
     MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlProjectResources,

@@ -143,6 +143,9 @@ All notable changes to this project are documented in this file.
 - Added atomic immutable managed-secret persistence with exact-content
   reconciliation and user-only Unix directory and file permissions for
   file-backed container bootstrap credentials.
+- Added complete MongoDB project composition and bounded provisioning with
+  stable credentials, managed connection environments, database-scoped roles,
+  and both administrative and project secrets confined to redacted stdin.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
