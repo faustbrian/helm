@@ -96,6 +96,8 @@ All notable changes to this project are documented in this file.
   Caddy configuration without relying on curl, a shell, or image defaults.
 - Added a non-mutating gateway port preflight that checks both loopback families,
   reports every known owner, and never falls back to random public ports.
+- Added unfiltered structured Engine discovery for running containers' published
+  TCP ports so gateway diagnostics can identify foreign container owners.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

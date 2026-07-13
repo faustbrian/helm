@@ -7,10 +7,10 @@ use super::{
     ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
     NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, ResourceMetrics, RetentionClass,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
-    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
-    reconstruct_owned_volume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
+    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
+    VolumeManager, VolumeMount, classify_observed_resource, gateway_container_request,
+    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -18,7 +18,7 @@ use bollard::models::{
     ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats, ContainerNetworkStats,
     ContainerPidsStats, ContainerState as EngineContainerState, ContainerStatsResponse,
     ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Health, HealthStatusEnum,
-    Network, Volume,
+    Network, PortSummary, PortSummaryTypeEnum, Volume,
 };
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
@@ -30,8 +30,9 @@ use super::bollard_engine_adapter::{
     container_resource_metrics, create_request, image_pull_request, log_chunk, log_request,
     managed_container_events_request, managed_container_list_request, managed_network_list_request,
     managed_volume_list_request, network_create_request, observed_container, observed_network,
-    observed_volume, validate_engine_api_version, verify_owned_container_labels,
-    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
+    observed_volume, published_port_bindings, published_port_list_request,
+    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
+    verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -714,6 +715,94 @@ fn bollard_request_maps_only_typed_values_and_reserved_labels() {
         body.labels.expect("ownership labels"),
         options.metadata().labels().into_iter().collect()
     );
+}
+
+#[test]
+fn published_port_discovery_uses_unfiltered_running_container_inventory() {
+    let request = published_port_list_request();
+
+    assert!(!request.all);
+    assert_eq!(request.filters, None);
+    assert!(!request.size);
+}
+
+#[test]
+fn published_port_discovery_preserves_engine_owner_and_tcp_bindings() {
+    let bindings = published_port_bindings(ContainerSummary {
+        id: Some("container-1".to_owned()),
+        names: Some(vec!["/legacy-proxy".to_owned()]),
+        ports: Some(vec![
+            PortSummary {
+                ip: Some("127.0.0.1".to_owned()),
+                private_port: 8080,
+                public_port: Some(80),
+                typ: Some(PortSummaryTypeEnum::TCP),
+            },
+            PortSummary {
+                ip: Some("127.0.0.1".to_owned()),
+                private_port: 5353,
+                public_port: Some(53),
+                typ: Some(PortSummaryTypeEnum::UDP),
+            },
+            PortSummary {
+                ip: None,
+                private_port: 8443,
+                public_port: Some(443),
+                typ: Some(PortSummaryTypeEnum::TCP),
+            },
+        ]),
+        ..ContainerSummary::default()
+    })
+    .expect("published ports");
+
+    assert_eq!(
+        bindings,
+        vec![
+            PublishedPortBinding::new(
+                "container-1",
+                "legacy-proxy",
+                "127.0.0.1".parse().expect("host IP"),
+                80,
+            )
+            .expect("binding"),
+            PublishedPortBinding::new(
+                "container-1",
+                "legacy-proxy",
+                "0.0.0.0".parse().expect("unspecified host IP"),
+                443,
+            )
+            .expect("all-interface binding"),
+        ]
+    );
+}
+
+#[test]
+fn published_port_discovery_rejects_invalid_engine_host_addresses() {
+    let error = published_port_bindings(ContainerSummary {
+        id: Some("container-1".to_owned()),
+        names: Some(vec!["/legacy-proxy".to_owned()]),
+        ports: Some(vec![PortSummary {
+            ip: Some("not-an-ip".to_owned()),
+            private_port: 8080,
+            public_port: Some(80),
+            typ: Some(PortSummaryTypeEnum::TCP),
+        }]),
+        ..ContainerSummary::default()
+    })
+    .expect_err("invalid Engine host address");
+
+    assert!(
+        error.to_string().starts_with(
+            "Engine returned invalid host IP 'not-an-ip' for container 'legacy-proxy':"
+        )
+    );
+}
+
+#[test]
+fn published_port_discovery_is_an_object_safe_engine_capability() {
+    fn accepts_published_ports(_source: &dyn PublishedPortDiscovery) {}
+
+    let _ = accepts_published_ports;
 }
 
 #[test]

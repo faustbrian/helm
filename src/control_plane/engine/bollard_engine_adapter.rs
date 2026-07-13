@@ -9,8 +9,8 @@ use super::{
     ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
     NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
     ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource,
+    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ResourceMetrics,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -19,8 +19,8 @@ use bollard::models::{
     ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
     ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary, EventMessage,
     EventMessageTypeEnum, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountType, Network,
-    NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
-    VolumeCreateRequest,
+    NetworkCreateRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy, RestartPolicyNameEnum,
+    Volume, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
@@ -233,6 +233,24 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .into_iter()
             .map(observed_container)
             .collect()
+        })
+    }
+}
+
+impl PublishedPortDiscovery for BollardEngineAdapter {
+    fn discover_published_tcp_ports(&self) -> EngineFuture<'_, Vec<PublishedPortBinding>> {
+        Box::pin(async move {
+            bounded_engine_operation("list published TCP ports", request_timeout(), async {
+                self.docker
+                    .list_containers(Some(published_port_list_request()))
+                    .await
+                    .map_err(|error| backend_error("list published TCP ports", error))
+            })
+            .await?
+            .into_iter()
+            .map(published_port_bindings)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|bindings| bindings.into_iter().flatten().collect())
         })
     }
 }
@@ -1221,6 +1239,57 @@ pub(super) fn managed_container_list_request() -> bollard::query_parameters::Lis
         .all(true)
         .filters(&filters)
         .build()
+}
+
+pub(super) fn published_port_list_request() -> bollard::query_parameters::ListContainersOptions {
+    ListContainersOptionsBuilder::default().all(false).build()
+}
+
+pub(super) fn published_port_bindings(
+    summary: ContainerSummary,
+) -> Result<Vec<PublishedPortBinding>, EngineError> {
+    let ports = summary
+        .ports
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|port| port.typ == Some(PortSummaryTypeEnum::TCP))
+        .filter_map(|port| port.public_port.map(|public_port| (port.ip, public_port)))
+        .collect::<Vec<_>>();
+
+    if ports.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let id = summary.id.ok_or_else(|| EngineError::Backend {
+        detail: "Engine returned a published TCP port without a container ID".to_owned(),
+    })?;
+    let name = summary
+        .names
+        .unwrap_or_default()
+        .into_iter()
+        .map(|name| {
+            let engine_name = name.strip_prefix('/').unwrap_or(&name);
+            engine_name.to_owned()
+        })
+        .filter(|name| !name.is_empty())
+        .min()
+        .unwrap_or_else(|| id.clone());
+
+    ports
+        .into_iter()
+        .map(|(host_ip, host_port)| {
+            let host_ip = match host_ip.as_deref() {
+                None | Some("") => std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                Some(host_ip) => host_ip.parse().map_err(|error| EngineError::Backend {
+                    detail: format!(
+                        "Engine returned invalid host IP '{host_ip}' for container '{name}': {error}"
+                    ),
+                })?,
+            };
+
+            PublishedPortBinding::new(id.clone(), name.clone(), host_ip, host_port)
+        })
+        .collect()
 }
 
 pub(super) fn managed_network_list_request() -> bollard::query_parameters::ListNetworksOptions {
