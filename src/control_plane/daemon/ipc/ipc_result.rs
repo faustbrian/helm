@@ -1,4 +1,4 @@
-use super::{IpcEvent, IpcManagedEnvironment, IpcProjectStatus};
+use super::{IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcProjectStatus};
 use serde::{Deserialize, Serialize};
 
 /// A typed successful daemon operation result.
@@ -22,6 +22,13 @@ pub(crate) enum IpcResult {
     ProjectStatus { project: IpcProjectStatus },
     /// Returns explicitly requested managed values over the user-only channel.
     ProjectEnvironment { environment: IpcManagedEnvironment },
+    /// Returns one bounded ordered page without persisting application logs.
+    ProjectLogs {
+        session_id: String,
+        chunks: Vec<IpcLogChunk>,
+        latest_sequence: u64,
+        state: IpcLogSessionState,
+    },
     /// Returns the retained ordered daemon events after one optional cursor.
     Events {
         events: Vec<IpcEvent>,

@@ -1,7 +1,7 @@
 use super::{
-    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcNodePackageManager, IpcPayload,
-    IpcProjectCommand, IpcRequest, IpcResponse, IpcResult, decode_request_frame,
-    decode_response_frame, encode_frame,
+    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,
+    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand, IpcRequest, IpcResponse,
+    IpcResult, decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::path::PathBuf;
@@ -62,6 +62,59 @@ fn project_environment_requests_round_trip_with_the_exact_target_path() {
     let decoded = decode_request_frame(&frame).expect("decode environment request");
 
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn project_log_sessions_preserve_exact_services_and_bounded_polling() {
+    let open = IpcRequest::new(
+        "logs-42",
+        IpcPayload::OpenProjectLogs {
+            canonical_path: PathBuf::from("/work/bill"),
+            services: vec!["app".to_owned(), "db".to_owned()],
+            follow: true,
+            tail: Some(100),
+        },
+    );
+    let poll = IpcRequest::new(
+        "logs-poll-42",
+        IpcPayload::PollProjectLogs {
+            session_id: "logs-42".to_owned(),
+            after_sequence: Some(8),
+            max_chunks: 64,
+        },
+    );
+
+    for request in [open, poll] {
+        let frame = encode_frame(&request).expect("encode log request");
+        assert_eq!(
+            decode_request_frame(&frame).expect("decode log request"),
+            request
+        );
+    }
+}
+
+#[test]
+fn project_log_responses_preserve_binary_safe_ordered_chunks() {
+    let response = IpcResponse::success(
+        "logs-poll-42",
+        IpcResult::ProjectLogs {
+            session_id: "logs-42".to_owned(),
+            chunks: vec![IpcLogChunk::new(
+                9,
+                "app".to_owned(),
+                IpcOutputStream::Stderr,
+                "AP8=".to_owned(),
+            )],
+            latest_sequence: 9,
+            state: IpcLogSessionState::Streaming,
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode log response");
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode log response"),
+        response
+    );
 }
 
 #[test]

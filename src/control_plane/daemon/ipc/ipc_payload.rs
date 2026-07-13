@@ -17,6 +17,19 @@ pub(crate) enum IpcPayload {
     ProjectStatus { canonical_path: PathBuf },
     /// Explicitly exports daemon-owned values for one exact registered project.
     ProjectEnvironment { canonical_path: PathBuf },
+    /// Opens one ownership-scoped, bounded in-memory container log session.
+    OpenProjectLogs {
+        canonical_path: PathBuf,
+        services: Vec<String>,
+        follow: bool,
+        tail: Option<u32>,
+    },
+    /// Reads an ordered page from one active project log session.
+    PollProjectLogs {
+        session_id: String,
+        after_sequence: Option<u64>,
+        max_chunks: u16,
+    },
     /// Cancels an active request or stream by request ID.
     Cancel { target_request_id: String },
     /// Starts or resumes the ordered daemon event stream.

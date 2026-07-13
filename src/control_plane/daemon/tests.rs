@@ -2,15 +2,17 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
-    ProjectCommandQueue, ProjectDiscoveryOptions, QueuedProjectCommand, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
-    execute_queued_project_command, plan_engine_reconciliation, publish_project_command_result,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, QueuedProjectCommand,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
+    dispatch_daemon_request, execute_queued_project_command, plan_engine_reconciliation,
+    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand, IpcProjectStatus,
-    IpcRequest, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcOutputStream, IpcPayload,
+    IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceLifecycle, IpcResourceStatus,
+    IpcResponse, IpcResult,
 };
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
@@ -23,6 +25,42 @@ use crate::control_plane::state::{
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn project_log_buffer_is_bounded_and_fails_loudly_for_expired_cursors() {
+    let mut buffer = ProjectLogBuffer::new(2).expect("log buffer");
+    buffer.append("app", IpcOutputStream::Stdout, b"one");
+    buffer.append("app", IpcOutputStream::Stderr, b"two");
+    buffer.append("db", IpcOutputStream::Stdout, b"three");
+
+    let error = buffer.poll(Some(0), 10).expect_err("expired cursor");
+    assert!(error.to_string().contains("expired"));
+
+    let (chunks, cursor, state) = buffer.poll(Some(1), 10).expect("retained page");
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks[0].sequence(), 2);
+    assert_eq!(chunks[1].service(), "db");
+    assert_eq!(cursor, 3);
+    assert_eq!(state, IpcLogSessionState::Streaming);
+}
+
+#[test]
+fn project_log_buffer_pages_without_skipping_and_exposes_terminal_state() {
+    let mut buffer = ProjectLogBuffer::new(4).expect("log buffer");
+    buffer.append("app", IpcOutputStream::Stdout, b"one");
+    buffer.append("app", IpcOutputStream::Stdout, b"two");
+    buffer.complete();
+
+    let (first, first_cursor, state) = buffer.poll(None, 1).expect("first page");
+    assert_eq!(first.len(), 1);
+    assert_eq!(first_cursor, 1);
+    assert_eq!(state, IpcLogSessionState::Completed);
+
+    let (second, second_cursor, state) = buffer.poll(Some(first_cursor), 1).expect("second page");
+    assert_eq!(second.len(), 1);
+    assert_eq!(second_cursor, 2);
+    assert!(state.terminal());
+}
 
 #[test]
 fn queued_project_commands_execute_only_in_the_exact_owned_application() {

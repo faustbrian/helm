@@ -334,6 +334,16 @@ where
                 },
             )
         }
+        IpcPayload::OpenProjectLogs { .. } | IpcPayload::PollProjectLogs { .. } => {
+            IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "project_logs_unavailable",
+                    "project log sessions are not available in this daemon build",
+                    true,
+                )],
+            )
+        }
         IpcPayload::Cancel { .. } => IpcResponse::failure(
             request.request_id(),
             vec![IpcDiagnostic::new(
