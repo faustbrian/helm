@@ -1,6 +1,6 @@
 use super::{
-    PostgresBackupOptions, PostgresRestoreOptions, backup_postgres_database,
-    restore_postgres_database,
+    PostgresBackupOptions, PostgresRestoreOptions, PostgresVerifyTargetOptions,
+    backup_postgres_database, restore_postgres_database, verify_postgres_target,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -265,6 +265,65 @@ fn postgres_restore_rejects_administrator_as_the_target_owner() {
     std::fs::remove_dir_all(&root).expect("remove restore owner fixture");
 }
 
+#[test]
+fn postgres_target_verification_accepts_owned_valid_catalog() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL verification runtime");
+    let checkpoint = target_checkpoint(MigrationPhase::DataRestored);
+    let credential = project_credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(
+        b"stackctl_bill_database_restore\tstackctl_bill_database_role\t0\t0\n".to_vec(),
+        0,
+    );
+    let options = PostgresVerifyTargetOptions {
+        checkpoint: &checkpoint,
+        credential: &credential,
+        installation_id: "install-1",
+        target_database_name: "stackctl_bill_database_restore",
+        target_role_name: "stackctl_bill_database_role",
+        timeout: Duration::from_secs(5),
+    };
+
+    runtime
+        .block_on(verify_postgres_target(&executor, &container, &options))
+        .expect("verified PostgreSQL target");
+}
+
+#[test]
+fn postgres_target_verification_rejects_wrong_owner_or_invalid_catalog() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL verification runtime");
+    let checkpoint = target_checkpoint(MigrationPhase::DataRestored);
+    let credential = project_credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(
+        b"stackctl_bill_database_restore\tstackctl_admin\t1\t0\n".to_vec(),
+        0,
+    );
+    let options = PostgresVerifyTargetOptions {
+        checkpoint: &checkpoint,
+        credential: &credential,
+        installation_id: "install-1",
+        target_database_name: "stackctl_bill_database_restore",
+        target_role_name: "stackctl_bill_database_role",
+        timeout: Duration::from_secs(5),
+    };
+
+    let error = runtime
+        .block_on(verify_postgres_target(&executor, &container, &options))
+        .expect_err("invalid PostgreSQL target");
+
+    assert_eq!(
+        error.to_string(),
+        "PostgreSQL target catalog verification returned unexpected evidence"
+    );
+}
+
 struct RecordingExecutor {
     request: Mutex<Option<CommandRequest>>,
     input: Arc<Mutex<Vec<u8>>>,
@@ -388,6 +447,27 @@ fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRe
         updated_at_unix_seconds: 47_000,
     })
     .expect("restore checkpoint")
+}
+
+fn target_checkpoint(phase: MigrationPhase) -> MigrationRecord {
+    MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "migration-bill-database".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase,
+        backup_reference: Some("/private/backups/bill".to_owned()),
+        backup_artifact_sha256: Some(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        ),
+        backup_artifact_size_bytes: Some(13),
+        target_resource_id: Some("stackctl_bill_database_restore".to_owned()),
+        rollback_reference: Some("v7:bill/database".to_owned()),
+        updated_at_unix_seconds: 50_000,
+    })
+    .expect("target checkpoint")
 }
 
 fn owned_container() -> OwnedContainer {
