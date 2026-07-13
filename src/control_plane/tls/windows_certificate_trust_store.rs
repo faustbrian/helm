@@ -18,7 +18,11 @@ impl<E> WindowsCertificateTrustStore<E> {
 }
 
 impl<E: HostCommandExecutor> CertificateTrustStore for WindowsCertificateTrustStore<E> {
-    fn contains(&self, identity: &LocalCaIdentity) -> Result<bool, TrustStoreError> {
+    fn contains(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<bool, TrustStoreError> {
         let output = self.executor.execute(&HostCommand::new(
             "certutil",
             ["-user", "-store", "Root", identity.sha1_hex()],
@@ -52,7 +56,11 @@ impl<E: HostCommandExecutor> CertificateTrustStore for WindowsCertificateTrustSt
         require_host_command_success("install Stackctl CA in Windows Current User roots", &output)
     }
 
-    fn remove(&self, identity: &LocalCaIdentity) -> Result<(), TrustStoreError> {
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<(), TrustStoreError> {
         let output = self.executor.execute(&HostCommand::new(
             "certutil",
             ["-user", "-delstore", "Root", identity.sha1_hex()],

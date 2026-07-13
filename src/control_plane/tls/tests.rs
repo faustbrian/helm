@@ -1,9 +1,10 @@
 use super::{
-    CertificateTrustStore, DebianCertificateTrustStore, FilesystemCertificateStore, HostCommand,
-    HostCommandExecutor, HostCommandOutput, LocalCaIdentity, LocalCertificateReconcileAction,
-    MacOsCertificateTrustStore, TrustChange, TrustStoreError, WindowsCertificateTrustStore,
-    ensure_ca_trusted, generate_local_certificates, reconcile_local_certificates, remove_ca_trust,
-    renew_local_leaf_certificate,
+    CertificateTrustStore, CurrentCaTrustStatus, DebianCertificateTrustStore,
+    FilesystemCertificateStore, HostCommand, HostCommandExecutor, HostCommandOutput,
+    LocalCaIdentity, LocalCertificateReconcileAction, MacOsCertificateTrustStore, TrustChange,
+    TrustStoreError, WindowsCertificateTrustStore, ensure_ca_trusted, generate_local_certificates,
+    inspect_current_ca_trust, install_current_ca_trust, reconcile_local_certificates,
+    remove_ca_trust, remove_current_ca_trust, renew_local_leaf_certificate,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -192,48 +193,151 @@ fn trust_reconciliation_installs_a_missing_ca_once() {
 }
 
 #[test]
+fn current_ca_trust_install_recovers_one_persisted_identity_idempotently() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RecordingTrustStore::default();
+    let now = datetime!(2026-07-13 12:00 UTC);
+
+    let first = install_current_ca_trust(&certificates, &trust, now).expect("install current CA");
+    let second = install_current_ca_trust(&certificates, &trust, now).expect("retain current CA");
+    let (_, paths) = certificates
+        .load_current()
+        .expect("load current CA")
+        .expect("persisted CA");
+
+    assert_eq!(first.change(), TrustChange::Installed);
+    assert_eq!(second.change(), TrustChange::Unchanged);
+    assert_eq!(first.identity(), second.identity());
+    assert_eq!(
+        trust.installed.borrow().as_slice(),
+        &[paths.ca_certificate()]
+    );
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn current_ca_trust_status_is_read_only_and_distinguishes_missing_trust() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RecordingTrustStore::default();
+
+    assert_eq!(
+        inspect_current_ca_trust(&certificates, &trust).expect("inspect absent CA"),
+        CurrentCaTrustStatus::Absent
+    );
+    let installed =
+        install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
+            .expect("install current CA");
+    assert_eq!(
+        inspect_current_ca_trust(&certificates, &trust).expect("inspect trusted CA"),
+        CurrentCaTrustStatus::Trusted(installed.identity().clone())
+    );
+
+    trust.trusted.set(false);
+    assert_eq!(
+        inspect_current_ca_trust(&certificates, &trust).expect("inspect untrusted CA"),
+        CurrentCaTrustStatus::Untrusted(installed.identity().clone())
+    );
+    assert_eq!(trust.installed.borrow().len(), 1);
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn current_ca_trust_removal_requires_persisted_exact_identity() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RecordingTrustStore::default();
+
+    assert_eq!(
+        remove_current_ca_trust(&certificates, &trust).expect("remove absent CA"),
+        None
+    );
+    let installed =
+        install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
+            .expect("install current CA");
+    let removed = remove_current_ca_trust(&certificates, &trust)
+        .expect("remove current CA")
+        .expect("persisted CA identity");
+    let unchanged = remove_current_ca_trust(&certificates, &trust)
+        .expect("repeat removal")
+        .expect("persisted CA identity");
+
+    assert_eq!(removed.change(), TrustChange::Removed);
+    assert_eq!(unchanged.change(), TrustChange::Unchanged);
+    assert_eq!(removed.identity(), installed.identity());
+    assert_eq!(
+        trust.removed.borrow().as_slice(),
+        &[installed.identity().clone()]
+    );
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
 fn trust_removal_targets_only_the_exact_installed_ca() {
     let (identity, certificate_path) = trust_fixture();
     let store = RecordingTrustStore::default();
 
     assert_eq!(
-        remove_ca_trust(&store, &identity).expect("missing trust"),
+        remove_ca_trust(&store, &identity, &certificate_path).expect("missing trust"),
         TrustChange::Unchanged
     );
     ensure_ca_trusted(&store, &identity, &certificate_path).expect("install trust");
     assert_eq!(
-        remove_ca_trust(&store, &identity).expect("remove exact trust"),
+        remove_ca_trust(&store, &identity, &certificate_path).expect("remove exact trust"),
         TrustChange::Removed
     );
     assert_eq!(store.removed.borrow().as_slice(), &[identity]);
 }
 
 #[test]
-fn macos_trust_store_queries_the_exact_sha256_identity() {
-    let (identity, _) = trust_fixture();
-    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success(format!(
-        "SHA-256 hash: {}\n",
-        identity.sha256_hex()
-    ))]);
+fn macos_trust_store_verifies_the_exact_persisted_ca_with_user_trust() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success("")]);
     let store = MacOsCertificateTrustStore::new(runner.clone());
 
-    assert!(store.contains(&identity).expect("query Keychain"));
+    assert!(
+        store
+            .contains(&identity, &certificate_path)
+            .expect("evaluate user trust")
+    );
     assert_eq!(
         runner.commands(),
         vec![HostCommand::new(
             "security",
             [
-                "find-certificate",
-                "-a",
-                "-Z",
-                "/Library/Keychains/System.keychain",
+                "verify-cert",
+                "-c",
+                certificate_path.to_str().expect("UTF-8 certificate path"),
+                "-p",
+                "basic",
+                "-l",
+                "-L",
+                "-q",
             ]
         )]
     );
 }
 
 #[test]
-fn macos_trust_store_installs_and_removes_only_the_exact_ca() {
+fn macos_trust_store_reports_failed_local_verification_as_untrusted() {
+    let (identity, certificate_path) = trust_fixture();
+    let store = MacOsCertificateTrustStore::new(RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::failure("certificate verification failed"),
+    ]));
+
+    assert!(
+        !store
+            .contains(&identity, &certificate_path)
+            .expect("evaluate missing user trust")
+    );
+}
+
+#[test]
+fn macos_trust_store_installs_and_removes_only_the_exact_user_ca() {
     let (identity, certificate_path) = trust_fixture();
     let runner = RecordingCommandExecutor::with_outputs([
         HostCommandOutput::success(""),
@@ -244,32 +348,27 @@ fn macos_trust_store_installs_and_removes_only_the_exact_ca() {
     store
         .install(&identity, &certificate_path)
         .expect("install Keychain CA");
-    store.remove(&identity).expect("remove Keychain CA");
+    store
+        .remove(&identity, &certificate_path)
+        .expect("remove Keychain CA");
 
     assert_eq!(
         runner.commands(),
         vec![
             HostCommand::new(
-                "sudo",
+                "security",
                 [
-                    "security",
                     "add-trusted-cert",
-                    "-d",
                     "-r",
                     "trustRoot",
-                    "-k",
-                    "/Library/Keychains/System.keychain",
                     certificate_path.to_str().expect("UTF-8 certificate path"),
                 ]
             ),
             HostCommand::new(
-                "sudo",
+                "security",
                 [
-                    "security",
-                    "delete-certificate",
-                    "-Z",
-                    identity.sha256_hex(),
-                    "/Library/Keychains/System.keychain",
+                    "remove-trusted-cert",
+                    certificate_path.to_str().expect("UTF-8 certificate path"),
                 ]
             ),
         ]
@@ -282,7 +381,11 @@ fn windows_trust_store_queries_the_current_user_root_by_exact_thumbprint() {
     let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success("")]);
     let store = WindowsCertificateTrustStore::new(runner.clone());
 
-    assert!(store.contains(&identity).expect("query Windows root store"));
+    assert!(
+        store
+            .contains(&identity, &PathBuf::from("C:/stackctl/ca.crt"))
+            .expect("query Windows root store")
+    );
     assert_eq!(
         runner.commands(),
         vec![HostCommand::new(
@@ -300,7 +403,11 @@ fn windows_trust_store_treats_only_not_found_as_missing() {
     )]);
     let store = WindowsCertificateTrustStore::new(runner);
 
-    assert!(!store.contains(&identity).expect("missing Windows root"));
+    assert!(
+        !store
+            .contains(&identity, &PathBuf::from("C:/stackctl/ca.crt"))
+            .expect("missing Windows root")
+    );
 }
 
 #[test]
@@ -315,7 +422,9 @@ fn windows_trust_store_installs_and_removes_the_current_user_ca() {
     store
         .install(&identity, &certificate_path)
         .expect("install Windows CA");
-    store.remove(&identity).expect("remove Windows CA");
+    store
+        .remove(&identity, &certificate_path)
+        .expect("remove Windows CA");
 
     assert_eq!(
         runner.commands(),
@@ -347,13 +456,21 @@ fn debian_trust_store_verifies_its_fingerprint_named_certificate() {
     let runner = RecordingCommandExecutor::default();
     let store = DebianCertificateTrustStore::with_local_ca_directory(runner, root.clone());
 
-    assert!(!store.contains(&identity).expect("missing Debian CA"));
+    assert!(
+        !store
+            .contains(&identity, &root.join("source-ca.crt"))
+            .expect("missing Debian CA")
+    );
     std::fs::write(
         store.managed_certificate_path(&identity),
         bundle.ca_certificate_pem(),
     )
     .expect("write managed Debian CA");
-    assert!(store.contains(&identity).expect("matching Debian CA"));
+    assert!(
+        store
+            .contains(&identity, &root.join("source-ca.crt"))
+            .expect("matching Debian CA")
+    );
 
     std::fs::remove_dir_all(root).expect("remove local CA directory");
 }
@@ -379,7 +496,7 @@ fn debian_trust_store_refuses_a_conflicting_managed_file() {
     .expect("write conflicting Debian CA");
 
     let error = store
-        .contains(&identity)
+        .contains(&identity, &root.join("source-ca.crt"))
         .expect_err("conflicting managed CA must fail");
 
     assert!(
@@ -408,7 +525,9 @@ fn debian_trust_store_installs_and_removes_through_the_os_mechanism() {
     store
         .install(&identity, &certificate_path)
         .expect("install Debian CA");
-    store.remove(&identity).expect("remove Debian CA");
+    store
+        .remove(&identity, &certificate_path)
+        .expect("remove Debian CA");
 
     assert_eq!(
         runner.commands(),
@@ -589,7 +708,11 @@ struct RecordingTrustStore {
 }
 
 impl CertificateTrustStore for RecordingTrustStore {
-    fn contains(&self, _identity: &LocalCaIdentity) -> Result<bool, TrustStoreError> {
+    fn contains(
+        &self,
+        _identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<bool, TrustStoreError> {
         Ok(self.trusted.get())
     }
 
@@ -606,7 +729,11 @@ impl CertificateTrustStore for RecordingTrustStore {
         Ok(())
     }
 
-    fn remove(&self, identity: &LocalCaIdentity) -> Result<(), TrustStoreError> {
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
         self.removed.borrow_mut().push(identity.clone());
         self.trusted.set(false);
 

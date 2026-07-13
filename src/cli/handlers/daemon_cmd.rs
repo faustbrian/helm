@@ -3,6 +3,7 @@
 //! Contains pre-config daemon command routing used by Stackctl command workflows.
 
 mod service;
+mod trust;
 
 use crate::cli::args::{DaemonArgs, DaemonCommands, DaemonWatchArgs};
 use crate::output::{self, LogLevel, Persistence};
@@ -16,6 +17,7 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Service(service_args) => service::handle_daemon_service(service_args),
         DaemonCommands::Status => handle_daemon_status(),
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
+        DaemonCommands::Trust(trust_args) => trust::handle_daemon_trust(trust_args),
     }
 }
 

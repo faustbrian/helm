@@ -1269,6 +1269,24 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
+    for (action, expected) in [
+        ("install", crate::cli::args::DaemonTrustCommands::Install),
+        ("status", crate::cli::args::DaemonTrustCommands::Status),
+        ("remove", crate::cli::args::DaemonTrustCommands::Remove),
+    ] {
+        let trust = Cli::try_parse_from(["stackctl", "daemon", "trust", action])
+            .expect("parse singleton daemon trust command");
+        match trust.command {
+            Commands::Daemon(args) => match args.command {
+                crate::cli::args::DaemonCommands::Trust(trust_args) => {
+                    assert_eq!(trust_args.command, expected);
+                }
+                _ => panic!("expected daemon trust subcommand"),
+            },
+            _ => panic!("expected daemon command"),
+        }
+    }
+
     assert!(
         Cli::try_parse_from(["stackctl", "daemon", "start", "--path", "/tmp/project"]).is_err()
     );

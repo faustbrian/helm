@@ -7,7 +7,7 @@ pub(crate) fn ensure_ca_trusted(
     identity: &LocalCaIdentity,
     certificate_path: &Path,
 ) -> Result<TrustChange, TrustStoreError> {
-    if store.contains(identity)? {
+    if store.contains(identity, certificate_path)? {
         return Ok(TrustChange::Unchanged);
     }
 

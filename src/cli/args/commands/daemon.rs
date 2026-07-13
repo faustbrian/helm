@@ -3,6 +3,7 @@
 //! Contains cli args for `stackctl daemon` workflows.
 
 mod service;
+mod trust;
 
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
@@ -10,6 +11,7 @@ use std::path::PathBuf;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
 };
+pub(crate) use trust::{DaemonTrustArgs, DaemonTrustCommands};
 
 #[derive(Args)]
 pub(crate) struct DaemonArgs {
@@ -27,6 +29,8 @@ pub(crate) enum DaemonCommands {
     Status,
     /// Request one immediate complete watched-root reconciliation
     Reconcile,
+    /// Manage trust for the singleton Stackctl certificate authority
+    Trust(DaemonTrustArgs),
 }
 
 #[derive(Args)]

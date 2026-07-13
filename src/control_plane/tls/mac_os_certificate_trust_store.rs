@@ -4,9 +4,7 @@ use super::{
 };
 use std::path::Path;
 
-const SYSTEM_KEYCHAIN: &str = "/Library/Keychains/System.keychain";
-
-/// macOS System Keychain adapter for one exact Stackctl CA.
+/// macOS per-user trust adapter for one exact Stackctl CA.
 pub(crate) struct MacOsCertificateTrustStore<E> {
     executor: E,
 }
@@ -18,17 +16,29 @@ impl<E> MacOsCertificateTrustStore<E> {
 }
 
 impl<E: HostCommandExecutor> CertificateTrustStore for MacOsCertificateTrustStore<E> {
-    fn contains(&self, identity: &LocalCaIdentity) -> Result<bool, TrustStoreError> {
+    fn contains(
+        &self,
+        _identity: &LocalCaIdentity,
+        certificate_path: &Path,
+    ) -> Result<bool, TrustStoreError> {
+        let certificate_path = certificate_path.to_str().ok_or_else(|| {
+            TrustStoreError::new("macOS CA certificate path must contain valid UTF-8")
+        })?;
         let output = self.executor.execute(&HostCommand::new(
             "security",
-            ["find-certificate", "-a", "-Z", SYSTEM_KEYCHAIN],
+            [
+                "verify-cert",
+                "-c",
+                certificate_path,
+                "-p",
+                "basic",
+                "-l",
+                "-L",
+                "-q",
+            ],
         ))?;
-        require_host_command_success("inspect macOS System Keychain", &output)?;
 
-        Ok(output.stdout().lines().any(|line| {
-            line.strip_prefix("SHA-256 hash:")
-                .is_some_and(|hash| hash.trim().eq_ignore_ascii_case(identity.sha256_hex()))
-        }))
+        Ok(output.succeeded())
     }
 
     fn install(
@@ -40,34 +50,26 @@ impl<E: HostCommandExecutor> CertificateTrustStore for MacOsCertificateTrustStor
             TrustStoreError::new("macOS CA certificate path must contain valid UTF-8")
         })?;
         let output = self.executor.execute(&HostCommand::new(
-            "sudo",
-            [
-                "security",
-                "add-trusted-cert",
-                "-d",
-                "-r",
-                "trustRoot",
-                "-k",
-                SYSTEM_KEYCHAIN,
-                certificate_path,
-            ],
+            "security",
+            ["add-trusted-cert", "-r", "trustRoot", certificate_path],
         ))?;
 
-        require_host_command_success("install Stackctl CA in macOS System Keychain", &output)
+        require_host_command_success("install Stackctl CA in macOS user trust settings", &output)
     }
 
-    fn remove(&self, identity: &LocalCaIdentity) -> Result<(), TrustStoreError> {
+    fn remove(
+        &self,
+        _identity: &LocalCaIdentity,
+        certificate_path: &Path,
+    ) -> Result<(), TrustStoreError> {
+        let certificate_path = certificate_path.to_str().ok_or_else(|| {
+            TrustStoreError::new("macOS CA certificate path must contain valid UTF-8")
+        })?;
         let output = self.executor.execute(&HostCommand::new(
-            "sudo",
-            [
-                "security",
-                "delete-certificate",
-                "-Z",
-                identity.sha256_hex(),
-                SYSTEM_KEYCHAIN,
-            ],
+            "security",
+            ["remove-trusted-cert", certificate_path],
         ))?;
 
-        require_host_command_success("remove Stackctl CA from macOS System Keychain", &output)
+        require_host_command_success("remove Stackctl CA from macOS user trust settings", &output)
     }
 }

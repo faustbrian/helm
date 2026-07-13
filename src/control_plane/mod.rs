@@ -45,6 +45,15 @@ pub(crate) use service_strategy::{
 pub(crate) use shared_infrastructure::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability, PersistenceMode,
 };
+#[cfg(target_os = "linux")]
+pub(crate) use tls::DebianCertificateTrustStore;
+#[cfg(target_os = "macos")]
+pub(crate) use tls::MacOsCertificateTrustStore;
+pub(crate) use tls::{
+    CertificateTrustStore, CurrentCaTrustStatus, FilesystemCertificateStore,
+    ProcessHostCommandExecutor, TrustChange, inspect_current_ca_trust, install_current_ca_trust,
+    remove_current_ca_trust,
+};
 pub(crate) use validate_route_claims::validate_route_claims;
 pub(crate) use validated_route_registry::ValidatedRouteRegistry;
 

@@ -19,7 +19,7 @@ pub(crate) use app::{
 };
 pub(crate) use daemon::{
     DaemonArgs, DaemonCommands, DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs,
-    DaemonServicePrintArgs, DaemonWatchArgs,
+    DaemonServicePrintArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
 };
 
 #[cfg(test)]

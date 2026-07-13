@@ -117,6 +117,10 @@ All notable changes to this project are documented in this file.
 - Run the gateway as the daemon user's numeric UID and GID so its private
   `0600` admin socket remains accessible to the owning user on native Linux
   while the image's low-port capability still permits loopback ports 80/443.
+- Added `daemon trust <install|status|remove>` as the explicit one-time trust
+  lifecycle for the exact immutable CA shared with the singleton gateway.
+- Changed macOS trust setup from privileged System Keychain mutation to
+  per-user trust with local certificate verification and exact file removal.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

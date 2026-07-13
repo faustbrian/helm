@@ -37,7 +37,11 @@ impl<E> DebianCertificateTrustStore<E> {
 }
 
 impl<E: HostCommandExecutor> CertificateTrustStore for DebianCertificateTrustStore<E> {
-    fn contains(&self, identity: &LocalCaIdentity) -> Result<bool, TrustStoreError> {
+    fn contains(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<bool, TrustStoreError> {
         let managed_path = self.managed_certificate_path(identity);
         let certificate = match std::fs::read_to_string(&managed_path) {
             Ok(certificate) => certificate,
@@ -87,7 +91,11 @@ impl<E: HostCommandExecutor> CertificateTrustStore for DebianCertificateTrustSto
         require_host_command_success("update Debian system CA certificates", &update)
     }
 
-    fn remove(&self, identity: &LocalCaIdentity) -> Result<(), TrustStoreError> {
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<(), TrustStoreError> {
         let managed_path = self.managed_certificate_path(identity);
         let target = utf8_path("managed Debian CA", &managed_path)?;
         let remove = self
