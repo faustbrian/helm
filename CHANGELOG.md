@@ -109,6 +109,10 @@ All notable changes to this project are documented in this file.
   profiles, root credential ownership, private networking, and retained volumes.
 - Added MySQL-family project composition with isolated schemas/users, scoped
   grants, stable credentials, and private managed application environments.
+- Added one reusable bounded attached-command runner for secret stdin, output
+  draining, status polling, timeouts, and redacted execution diagnostics.
+- Added direct MySQL and MariaDB logical-resource execution using attached SQL
+  stdin and environment-only root authentication inside owned containers.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

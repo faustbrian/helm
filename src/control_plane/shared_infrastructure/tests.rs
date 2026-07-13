@@ -4,7 +4,8 @@ use super::{
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
     SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_shared_instances, provision_postgres_logical_resource,
+    plan_postgres_project_resources, plan_shared_instances, provision_mysql_logical_resource,
+    provision_postgres_logical_resource,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -455,6 +456,67 @@ fn mysql_project_resources_isolate_schema_user_and_application_environment() {
     assert!(!format!("{project:?}").contains("project-secret"));
 }
 
+#[test]
+fn mysql_logical_provisioning_keeps_both_passwords_out_of_command_debug() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let instance = MySqlSharedInstancePlan::new(
+        &shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mysql-root".to_owned()),
+        },
+    )
+    .expect("MySQL instance");
+    let project = plan_mysql_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MySQL project resources");
+    let container = owned_shared_container("mysql-container", "sha256:mysql-8");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_mysql_logical_resource(
+            &executor,
+            &container,
+            &instance,
+            project.logical(),
+        ))
+        .expect("provision MySQL resource");
+    runtime.block_on(tokio::task::yield_now());
+
+    let stdin = executor.stdin.lock().expect("recorded stdin").clone();
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(
+        String::from_utf8(stdin)
+            .expect("SQL UTF-8")
+            .contains("project-secret")
+    );
+    assert!(request_debug.contains("MYSQL_PWD"));
+    assert!(!request_debug.contains("mysql-root"));
+    assert!(!request_debug.contains("project-secret"));
+}
+
 struct SequentialEntropy;
 
 impl CredentialEntropy for SequentialEntropy {
@@ -535,6 +597,24 @@ fn sql_profile(implementation: &str, major_version: &str) -> CompatibilityProfil
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid SQL compatibility profile")
+}
+
+fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::SharedService,
+            project_id: None,
+            compatibility_fingerprint: fingerprint.to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("owned metadata");
+    let observed = ObservedContainer::new(ContainerId::new(id), metadata.labels());
+
+    reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle")
 }
 
 fn postgres_options(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprintOptions {

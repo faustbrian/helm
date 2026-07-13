@@ -27,4 +27,11 @@ impl MySqlFlavor {
             Self::MariaDb => "MARIADB_ROOT_PASSWORD",
         }
     }
+
+    pub(super) const fn client_executable(self) -> &'static str {
+        match self {
+            Self::MySql => "mysql",
+            Self::MariaDb => "mariadb",
+        }
+    }
 }

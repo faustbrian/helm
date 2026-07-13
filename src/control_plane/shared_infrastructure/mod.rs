@@ -12,6 +12,7 @@ pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use mysql::{
     MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlProjectResources,
     MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, plan_mysql_project_resources,
+    provision_mysql_logical_resource,
 };
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
