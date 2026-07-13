@@ -6,10 +6,13 @@ use super::{
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
 use std::collections::BTreeMap;
+use std::future::pending;
+use std::time::Duration;
 
 use super::bollard_engine_adapter::{
     create_request, managed_container_list_request, observed_container, validate_engine_api_version,
 };
+use super::bounded_engine_operation::bounded_engine_operation;
 
 #[test]
 fn managed_metadata_generates_complete_reserved_ownership_labels() {
@@ -271,6 +274,34 @@ fn older_engine_api_versions_fail_before_reconciliation() {
     assert_eq!(
         error.to_string(),
         "Engine API version 1.40 is unsupported; version 1.41 or newer is required"
+    );
+}
+
+#[test]
+fn engine_operation_deadlines_return_structured_timeouts() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(bounded_engine_operation(
+            "inspect container",
+            Duration::from_millis(1),
+            pending::<Result<(), super::EngineError>>(),
+        ))
+        .expect_err("operation deadline");
+
+    assert_eq!(
+        error,
+        super::EngineError::Timeout {
+            action: "inspect container".to_owned(),
+            timeout_milliseconds: 1,
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "Engine operation 'inspect container' timed out after 1 ms"
     );
 }
 

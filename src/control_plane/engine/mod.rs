@@ -1,4 +1,5 @@
 mod bollard_engine_adapter;
+mod bounded_engine_operation;
 mod classify_observed_resource;
 mod container_create_options;
 mod container_discovery;

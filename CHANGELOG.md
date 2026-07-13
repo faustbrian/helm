@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added structured v8 Engine operation deadlines across negotiation, lifecycle,
+  inspection, and discovery so stalled requests remain bounded and cancellable.
 - Added a narrow v8 container discovery capability with direct Engine API
   rescans, managed-label filtering, and backend-independent observations.
 - Added v8 observed-resource ownership classification that reconstructs complete

@@ -5,8 +5,16 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum EngineError {
-    InvalidRequest { detail: String },
-    Backend { detail: String },
+    InvalidRequest {
+        detail: String,
+    },
+    Backend {
+        detail: String,
+    },
+    Timeout {
+        action: String,
+        timeout_milliseconds: u64,
+    },
 }
 
 impl Display for EngineError {
@@ -15,6 +23,13 @@ impl Display for EngineError {
             Self::InvalidRequest { detail } | Self::Backend { detail } => {
                 formatter.write_str(detail)
             }
+            Self::Timeout {
+                action,
+                timeout_milliseconds,
+            } => write!(
+                formatter,
+                "Engine operation '{action}' timed out after {timeout_milliseconds} ms"
+            ),
         }
     }
 }

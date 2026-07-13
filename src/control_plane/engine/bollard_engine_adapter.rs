@@ -1,3 +1,4 @@
+use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineError, EngineFuture, ObservedContainer,
@@ -8,6 +9,7 @@ use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOpt
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+use std::time::Duration;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
 const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
@@ -61,11 +63,13 @@ impl ContainerLifecycle for BollardEngineAdapter {
     ) -> EngineFuture<'operation, ContainerId> {
         Box::pin(async move {
             let (query, body) = create_request(options);
-            let response = self
-                .docker
-                .create_container(Some(query), body)
-                .await
-                .map_err(|error| backend_error("create container", error))?;
+            let response = bounded_engine_operation("create container", request_timeout(), async {
+                self.docker
+                    .create_container(Some(query), body)
+                    .await
+                    .map_err(|error| backend_error("create container", error))
+            })
+            .await?;
 
             Ok(ContainerId::new(response.id))
         })
@@ -76,10 +80,13 @@ impl ContainerLifecycle for BollardEngineAdapter {
         container: &'operation ContainerId,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
-            self.docker
-                .start_container(container.as_str(), None)
-                .await
-                .map_err(|error| backend_error("start container", error))
+            bounded_engine_operation("start container", request_timeout(), async {
+                self.docker
+                    .start_container(container.as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("start container", error))
+            })
+            .await
         })
     }
 
@@ -88,10 +95,13 @@ impl ContainerLifecycle for BollardEngineAdapter {
         container: &'operation ContainerId,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
-            self.docker
-                .stop_container(container.as_str(), None)
-                .await
-                .map_err(|error| backend_error("stop container", error))
+            bounded_engine_operation("stop container", request_timeout(), async {
+                self.docker
+                    .stop_container(container.as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("stop container", error))
+            })
+            .await
         })
     }
 
@@ -100,10 +110,13 @@ impl ContainerLifecycle for BollardEngineAdapter {
         container: &'operation ContainerId,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
-            self.docker
-                .remove_container(container.as_str(), None)
-                .await
-                .map_err(|error| backend_error("remove container", error))
+            bounded_engine_operation("remove container", request_timeout(), async {
+                self.docker
+                    .remove_container(container.as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("remove container", error))
+            })
+            .await
         })
     }
 
@@ -112,28 +125,31 @@ impl ContainerLifecycle for BollardEngineAdapter {
         container: &'operation ContainerId,
     ) -> EngineFuture<'operation, ContainerState> {
         Box::pin(async move {
-            match self
-                .docker
-                .inspect_container(container.as_str(), None)
-                .await
-            {
-                Ok(response) => {
-                    let running = response
-                        .state
-                        .and_then(|state| state.running)
-                        .unwrap_or(false);
+            bounded_engine_operation("inspect container", request_timeout(), async {
+                match self
+                    .docker
+                    .inspect_container(container.as_str(), None)
+                    .await
+                {
+                    Ok(response) => {
+                        let running = response
+                            .state
+                            .and_then(|state| state.running)
+                            .unwrap_or(false);
 
-                    if running {
-                        Ok(ContainerState::Running)
-                    } else {
-                        Ok(ContainerState::Stopped)
+                        if running {
+                            Ok(ContainerState::Running)
+                        } else {
+                            Ok(ContainerState::Stopped)
+                        }
                     }
+                    Err(BollardError::DockerResponseServerError {
+                        status_code: 404, ..
+                    }) => Ok(ContainerState::Missing),
+                    Err(error) => Err(backend_error("inspect container", error)),
                 }
-                Err(BollardError::DockerResponseServerError {
-                    status_code: 404, ..
-                }) => Ok(ContainerState::Missing),
-                Err(error) => Err(backend_error("inspect container", error)),
-            }
+            })
+            .await
         })
     }
 }
@@ -141,13 +157,16 @@ impl ContainerLifecycle for BollardEngineAdapter {
 impl ContainerDiscovery for BollardEngineAdapter {
     fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
         Box::pin(async move {
-            self.docker
-                .list_containers(Some(managed_container_list_request()))
-                .await
-                .map_err(|error| backend_error("list managed containers", error))?
-                .into_iter()
-                .map(observed_container)
-                .collect()
+            bounded_engine_operation("list managed containers", request_timeout(), async {
+                self.docker
+                    .list_containers(Some(managed_container_list_request()))
+                    .await
+                    .map_err(|error| backend_error("list managed containers", error))
+            })
+            .await?
+            .into_iter()
+            .map(observed_container)
+            .collect()
         })
     }
 }
@@ -204,14 +223,22 @@ pub(super) fn observed_container(
 }
 
 async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {
-    let docker = docker
-        .negotiate_version()
-        .await
-        .map_err(|error| backend_error("negotiate Engine API version", error))?;
+    let docker =
+        bounded_engine_operation("negotiate Engine API version", request_timeout(), async {
+            docker
+                .negotiate_version()
+                .await
+                .map_err(|error| backend_error("negotiate Engine API version", error))
+        })
+        .await?;
 
     validate_engine_api_version(docker.client_version())?;
 
     Ok(docker)
+}
+
+const fn request_timeout() -> Duration {
+    Duration::from_secs(REQUEST_TIMEOUT_SECONDS)
 }
 
 pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), EngineError> {
