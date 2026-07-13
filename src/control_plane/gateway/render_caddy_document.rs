@@ -13,10 +13,15 @@ pub(crate) fn render_caddy_document(
     let private_key_path = absolute_utf8_path("private key", private_key_path)?;
     let admin_socket_path = absolute_utf8_path("admin socket", admin_socket_path)?;
     let admin_address = format!("unix/{admin_socket_path}|0600");
-    let routes = snapshot
+    let proxy_routes = snapshot
         .routes()
         .iter()
-        .map(caddy_route)
+        .map(caddy_proxy_route)
+        .collect::<Vec<_>>();
+    let redirect_routes = snapshot
+        .routes()
+        .iter()
+        .map(caddy_https_redirect_route)
         .collect::<Vec<_>>();
     let document = json!({
         "admin": {
@@ -39,12 +44,12 @@ pub(crate) fn render_caddy_document(
                     "stackctl_http": {
                         "listen": [":80"],
                         "protocols": ["h1"],
-                        "routes": routes
+                        "routes": redirect_routes
                     },
                     "stackctl_https": {
                         "listen": [":443"],
                         "protocols": ["h1", "h2"],
-                        "routes": routes,
+                        "routes": proxy_routes,
                         "tls_connection_policies": [{}]
                     }
                 }
@@ -61,13 +66,27 @@ pub(crate) fn render_caddy_document(
     ))
 }
 
-fn caddy_route(route: &GatewayRoute) -> Value {
+fn caddy_proxy_route(route: &GatewayRoute) -> Value {
     json!({
         "match": [{ "host": [route.domain()] }],
         "handle": [{
             "handler": "reverse_proxy",
             "upstreams": [{ "dial": route.upstream().trim_start_matches("http://") }],
             "stream_close_delay": "5m"
+        }],
+        "terminal": true
+    })
+}
+
+fn caddy_https_redirect_route(route: &GatewayRoute) -> Value {
+    json!({
+        "match": [{ "host": [route.domain()] }],
+        "handle": [{
+            "handler": "static_response",
+            "status_code": 308,
+            "headers": {
+                "Location": ["https://{http.request.host}{http.request.uri}"]
+            }
         }],
         "terminal": true
     })

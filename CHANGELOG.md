@@ -90,6 +90,8 @@ All notable changes to this project are documented in this file.
   validation, mandatory ownership labels, offline networking, and cache verification.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
+- Changed the gateway HTTP listener to deterministic 308 redirects so application
+  traffic is never proxied in plaintext while HTTPS remains the only upstream path.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and
