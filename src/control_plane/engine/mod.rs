@@ -59,6 +59,8 @@ mod resource_kind;
 mod resource_metrics;
 mod retention_class;
 mod run_attached_command;
+mod run_streaming_command;
+mod streaming_command_options;
 mod volume_create_options;
 mod volume_discovery;
 mod volume_manager;
@@ -123,11 +125,15 @@ pub(crate) use resource_kind::ResourceKind;
 pub(crate) use resource_metrics::ResourceMetrics;
 pub(crate) use retention_class::RetentionClass;
 pub(crate) use run_attached_command::{run_attached_command, run_attached_command_capture};
+pub(crate) use run_streaming_command::run_streaming_command;
+pub(crate) use streaming_command_options::StreamingCommandOptions;
 pub(crate) use volume_create_options::VolumeCreateOptions;
 pub(crate) use volume_discovery::VolumeDiscovery;
 pub(crate) use volume_manager::VolumeManager;
 pub(crate) use volume_mount::VolumeMount;
 
+#[cfg(test)]
+mod streaming_command_tests;
 #[cfg(test)]
 mod tests;
 pub(crate) use attached_command_options::AttachedCommandOptions;

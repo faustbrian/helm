@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
   contract used for safe Mailpit sharing.
 - Added an ownership-validated direct-Engine completion wait for bounded,
   disposable provisioning containers without Docker CLI process calls.
+- Added bounded direct-Engine attached command streaming for multi-megabyte
+  backup and restore payloads with concurrent stdin/stdout flow, drained
+  value-safe stderr, exact exit status, and redacted command diagnostics.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
