@@ -1,9 +1,9 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedVolume,
-    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager, classify_observed_resource,
-    gateway_container_request,
+    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedNetwork,
+    OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager,
+    classify_observed_resource, gateway_container_request,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use super::bollard_engine_adapter::{
     create_request, managed_container_list_request, network_create_request, observed_container,
-    validate_engine_api_version, verify_owned_volume_labels, volume_create_request,
+    validate_engine_api_version, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -184,12 +185,16 @@ fn network_management_is_an_object_safe_owned_resource_strategy() {
         .build()
         .expect("test runtime");
 
-    let id = runtime
+    let network = runtime
         .block_on(create_network_through_strategy(&mut backend, &options))
         .expect("create network");
+    runtime
+        .block_on(backend.remove_network(&network))
+        .expect("remove proven-owned network");
 
-    assert_eq!(id.as_str(), "network-1");
+    assert_eq!(network.id().as_str(), "network-1");
     assert_eq!(backend.created, vec![options]);
+    assert_eq!(backend.removed, vec![network]);
 }
 
 #[test]
@@ -204,6 +209,22 @@ fn network_requests_use_bridge_driver_and_complete_ownership_labels() {
     assert_eq!(
         request.labels.expect("network ownership labels"),
         metadata.labels().into_iter().collect()
+    );
+}
+
+#[test]
+fn network_deletion_rejects_missing_or_changed_ownership_labels() {
+    let network = OwnedNetwork::new(
+        NetworkId::new("network-1"),
+        global_metadata(ResourceKind::Network),
+    );
+
+    let error = verify_owned_network_labels(&network, &std::collections::HashMap::new())
+        .expect_err("unlabelled network");
+
+    assert_eq!(
+        error.to_string(),
+        "refusing to delete network 'network-1' because its Engine ownership labels no longer match"
     );
 }
 
@@ -496,7 +517,7 @@ fn discover_through_strategy(
 fn create_network_through_strategy<'operation>(
     strategy: &'operation mut dyn NetworkManager,
     options: &'operation NetworkCreateOptions,
-) -> EngineFuture<'operation, NetworkId> {
+) -> EngineFuture<'operation, OwnedNetwork> {
     strategy.create_network(options)
 }
 
@@ -538,24 +559,31 @@ impl VolumeManager for RecordingVolumeBackend {
 #[derive(Default)]
 struct RecordingNetworkBackend {
     created: Vec<NetworkCreateOptions>,
+    removed: Vec<OwnedNetwork>,
 }
 
 impl NetworkManager for RecordingNetworkBackend {
     fn create_network<'operation>(
         &'operation mut self,
         options: &'operation NetworkCreateOptions,
-    ) -> EngineFuture<'operation, NetworkId> {
+    ) -> EngineFuture<'operation, OwnedNetwork> {
         Box::pin(async move {
             self.created.push(options.clone());
-            Ok(NetworkId::new("network-1"))
+            Ok(OwnedNetwork::new(
+                NetworkId::new("network-1"),
+                options.metadata().clone(),
+            ))
         })
     }
 
     fn remove_network<'operation>(
         &'operation mut self,
-        _network: &'operation NetworkId,
+        network: &'operation OwnedNetwork,
     ) -> EngineFuture<'operation, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.removed.push(network.clone());
+            Ok(())
+        })
     }
 }
 

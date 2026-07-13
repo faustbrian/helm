@@ -2,7 +2,7 @@ use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineError, EngineFuture, NetworkCreateOptions, NetworkId, NetworkManager, ObservedContainer,
-    ObservedResourceOwnership, OwnedVolume, VolumeCreateOptions, VolumeManager,
+    ObservedResourceOwnership, OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeManager,
     classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
@@ -182,7 +182,7 @@ impl NetworkManager for BollardEngineAdapter {
     fn create_network<'operation>(
         &'operation mut self,
         options: &'operation NetworkCreateOptions,
-    ) -> EngineFuture<'operation, NetworkId> {
+    ) -> EngineFuture<'operation, OwnedNetwork> {
         Box::pin(async move {
             let request = network_create_request(options);
             let response = bounded_engine_operation("create network", request_timeout(), async {
@@ -193,24 +193,48 @@ impl NetworkManager for BollardEngineAdapter {
             })
             .await?;
 
-            Ok(NetworkId::new(response.id))
+            Ok(OwnedNetwork::new(
+                NetworkId::new(response.id),
+                options.metadata().clone(),
+            ))
         })
     }
 
     fn remove_network<'operation>(
         &'operation mut self,
-        network: &'operation NetworkId,
+        network: &'operation OwnedNetwork,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
             bounded_engine_operation("remove network", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_network(network.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify network ownership", error))?;
+                verify_owned_network_labels(network, &observed.labels.unwrap_or_default())?;
+
                 self.docker
-                    .remove_network(network.as_str())
+                    .remove_network(network.id().as_str())
                     .await
                     .map_err(|error| backend_error("remove network", error))
             })
             .await
         })
     }
+}
+
+pub(super) fn verify_owned_network_labels(
+    network: &OwnedNetwork,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
+    if labels_match_metadata(labels, network.metadata()) {
+        return Ok(());
+    }
+
+    Err(EngineError::OwnershipMismatch {
+        resource_kind: "network",
+        resource_id: network.id().as_str().to_owned(),
+    })
 }
 
 impl VolumeManager for BollardEngineAdapter {
@@ -258,18 +282,7 @@ pub(super) fn verify_owned_volume_labels(
     volume: &OwnedVolume,
     labels: &HashMap<String, String>,
 ) -> Result<(), EngineError> {
-    let labels = labels
-        .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<BTreeMap<_, _>>();
-    let metadata = volume.metadata();
-    let ownership = classify_observed_resource(
-        &labels,
-        metadata.installation_id(),
-        metadata.schema_version(),
-    );
-
-    if ownership == ObservedResourceOwnership::Owned(metadata.clone()) {
+    if labels_match_metadata(labels, volume.metadata()) {
         return Ok(());
     }
 
@@ -277,6 +290,23 @@ pub(super) fn verify_owned_volume_labels(
         resource_kind: "volume",
         resource_id: volume.name().to_owned(),
     })
+}
+
+fn labels_match_metadata(
+    labels: &HashMap<String, String>,
+    metadata: &super::ManagedResourceMetadata,
+) -> bool {
+    let labels = labels
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let ownership = classify_observed_resource(
+        &labels,
+        metadata.installation_id(),
+        metadata.schema_version(),
+    );
+
+    ownership == ObservedResourceOwnership::Owned(metadata.clone())
 }
 
 pub(super) fn volume_create_request(options: &VolumeCreateOptions) -> VolumeCreateRequest {

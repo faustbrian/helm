@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
   name, loopback ports, private network attachment, TLS mount, and restart policy.
 - Added a narrow v8 NetworkManager capability backed by direct Engine API calls
   and complete ownership labels for the shared Stackctl bridge network.
+- Hardened v8 network deletion to require typed ownership proof and a fresh
+  Engine-label match instead of accepting an arbitrary network identifier.
 - Added direct v8 volume lifecycle management with deterministic local volumes,
   complete ownership labels, typed ownership proof, and immediate label
   revalidation required for deletion.
