@@ -1,6 +1,6 @@
 use super::{
-    CertificateTrustStore, HostCommand, HostCommandExecutor, HostCommandOutput, LocalCaIdentity,
-    TrustStoreError,
+    CertificateTrustStore, HostCommand, HostCommandExecutor, LocalCaIdentity, TrustStoreError,
+    require_host_command_success,
 };
 use std::path::Path;
 
@@ -23,7 +23,7 @@ impl<E: HostCommandExecutor> CertificateTrustStore for MacOsCertificateTrustStor
             "security",
             ["find-certificate", "-a", "-Z", SYSTEM_KEYCHAIN],
         ))?;
-        require_success("inspect macOS System Keychain", &output)?;
+        require_host_command_success("inspect macOS System Keychain", &output)?;
 
         Ok(output.stdout().lines().any(|line| {
             line.strip_prefix("SHA-256 hash:")
@@ -53,7 +53,7 @@ impl<E: HostCommandExecutor> CertificateTrustStore for MacOsCertificateTrustStor
             ],
         ))?;
 
-        require_success("install Stackctl CA in macOS System Keychain", &output)
+        require_host_command_success("install Stackctl CA in macOS System Keychain", &output)
     }
 
     fn remove(&self, identity: &LocalCaIdentity) -> Result<(), TrustStoreError> {
@@ -68,21 +68,6 @@ impl<E: HostCommandExecutor> CertificateTrustStore for MacOsCertificateTrustStor
             ],
         ))?;
 
-        require_success("remove Stackctl CA from macOS System Keychain", &output)
+        require_host_command_success("remove Stackctl CA from macOS System Keychain", &output)
     }
-}
-
-fn require_success(action: &str, output: &HostCommandOutput) -> Result<(), TrustStoreError> {
-    if output.succeeded() {
-        return Ok(());
-    }
-
-    let detail = output.stderr().trim();
-    let suffix = if detail.is_empty() {
-        String::new()
-    } else {
-        format!(": {detail}")
-    };
-
-    Err(TrustStoreError::new(format!("failed to {action}{suffix}")))
 }

@@ -15,6 +15,14 @@ impl HostCommandOutput {
         }
     }
 
+    pub(crate) fn failure(stderr: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            stdout: String::new(),
+            stderr: stderr.into(),
+        }
+    }
+
     pub(crate) fn from_process(success: bool, stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
         Self {
             success,
@@ -33,5 +41,9 @@ impl HostCommandOutput {
 
     pub(crate) fn stderr(&self) -> &str {
         &self.stderr
+    }
+
+    pub(crate) fn contains(&self, needle: &str) -> bool {
+        self.stdout.contains(needle) || self.stderr.contains(needle)
     }
 }

@@ -1,7 +1,8 @@
 use super::{
     CertificateTrustStore, FilesystemCertificateStore, HostCommand, HostCommandExecutor,
     HostCommandOutput, LocalCaIdentity, MacOsCertificateTrustStore, TrustChange, TrustStoreError,
-    ensure_ca_trusted, generate_local_certificates, remove_ca_trust, renew_local_leaf_certificate,
+    WindowsCertificateTrustStore, ensure_ca_trusted, generate_local_certificates, remove_ca_trust,
+    renew_local_leaf_certificate,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -99,6 +100,7 @@ fn local_ca_identity_uses_the_exact_certificate_der_fingerprint() {
 
     assert_eq!(identity, same_identity);
     assert_eq!(identity.sha256_hex().len(), 64);
+    assert_eq!(identity.sha1_hex().len(), 40);
     assert!(
         identity
             .sha256_hex()
@@ -220,6 +222,67 @@ fn macos_trust_store_installs_and_removes_only_the_exact_ca() {
                     identity.sha256_hex(),
                     "/Library/Keychains/System.keychain",
                 ]
+            ),
+        ]
+    );
+}
+
+#[test]
+fn windows_trust_store_queries_the_current_user_root_by_exact_thumbprint() {
+    let (identity, _) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success("")]);
+    let store = WindowsCertificateTrustStore::new(runner.clone());
+
+    assert!(store.contains(&identity).expect("query Windows root store"));
+    assert_eq!(
+        runner.commands(),
+        vec![HostCommand::new(
+            "certutil",
+            ["-user", "-store", "Root", identity.sha1_hex()]
+        )]
+    );
+}
+
+#[test]
+fn windows_trust_store_treats_only_not_found_as_missing() {
+    let (identity, _) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::failure(
+        "CertUtil: -store command FAILED: 0x80092004",
+    )]);
+    let store = WindowsCertificateTrustStore::new(runner);
+
+    assert!(!store.contains(&identity).expect("missing Windows root"));
+}
+
+#[test]
+fn windows_trust_store_installs_and_removes_the_current_user_ca() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+    ]);
+    let store = WindowsCertificateTrustStore::new(runner.clone());
+
+    store
+        .install(&identity, &certificate_path)
+        .expect("install Windows CA");
+    store.remove(&identity).expect("remove Windows CA");
+
+    assert_eq!(
+        runner.commands(),
+        vec![
+            HostCommand::new(
+                "certutil",
+                [
+                    "-user",
+                    "-addstore",
+                    "Root",
+                    certificate_path.to_str().expect("UTF-8 certificate path"),
+                ]
+            ),
+            HostCommand::new(
+                "certutil",
+                ["-user", "-delstore", "Root", identity.sha1_hex()]
             ),
         ]
     );

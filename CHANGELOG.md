@@ -69,6 +69,8 @@ All notable changes to this project are documented in this file.
   once and removes only the exact certificate identity supplied by Stackctl.
 - Added a macOS System Keychain trust adapter with exact SHA-256 inspection,
   explicit root installation, and fingerprint-scoped certificate removal.
+- Added a Windows Current User root-store adapter with exact SHA-1 thumbprint
+  lookup, non-elevated installation, and thumbprint-scoped removal.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
