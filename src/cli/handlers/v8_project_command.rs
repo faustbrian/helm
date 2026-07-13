@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine as _;
 
-use crate::cli::args::{Cli, Commands};
+use crate::cli::args::{Cli, Commands, PhpToolArgs};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
-    IpcEventKind, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload,
+    IpcEventKind, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload, IpcPhpTool,
     IpcProjectCommand, IpcRequest, IpcResponse, IpcResult, default_unix_daemon_runtime_directory,
     send_unix_request,
 };
@@ -58,6 +58,15 @@ fn resolve_v8_invocation(
             | Commands::Composer(_)
             | Commands::Node(_)
             | Commands::Bun(_)
+            | Commands::Deno(_)
+            | Commands::Phpstan(_)
+            | Commands::Ecs(_)
+            | Commands::PhpCsFixer(_)
+            | Commands::Psalm(_)
+            | Commands::Pint(_)
+            | Commands::Pest(_)
+            | Commands::Phpunit(_)
+            | Commands::Rector(_)
     ) {
         return Ok(None);
     }
@@ -152,8 +161,42 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
                 },
             ))
         }
+        Commands::Deno(args) => {
+            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
+            if args.deno_version.is_some() {
+                bail!("v8 runtime versions are declarative; remove --deno-version");
+            }
+            Ok((
+                args.service().unwrap_or("app").to_owned(),
+                IpcProjectCommand::Deno {
+                    arguments: args.command.clone(),
+                },
+            ))
+        }
+        Commands::Phpstan(args) => php_tool_invocation(args, IpcPhpTool::PhpStan),
+        Commands::Ecs(args) => php_tool_invocation(args, IpcPhpTool::Ecs),
+        Commands::PhpCsFixer(args) => php_tool_invocation(args, IpcPhpTool::PhpCsFixer),
+        Commands::Psalm(args) => php_tool_invocation(args, IpcPhpTool::Psalm),
+        Commands::Pint(args) => php_tool_invocation(args, IpcPhpTool::Pint),
+        Commands::Pest(args) => php_tool_invocation(args, IpcPhpTool::Pest),
+        Commands::Phpunit(args) => php_tool_invocation(args, IpcPhpTool::PhpUnit),
+        Commands::Rector(args) => php_tool_invocation(args, IpcPhpTool::Rector),
         _ => bail!("unsupported v8 project command"),
     }
+}
+
+fn php_tool_invocation(
+    args: &PhpToolArgs,
+    tool: IpcPhpTool,
+) -> Result<(String, IpcProjectCommand)> {
+    reject_legacy_selectors(args.kind.is_some(), args.profile())?;
+    Ok((
+        args.service().unwrap_or("app").to_owned(),
+        IpcProjectCommand::PhpTool {
+            tool,
+            arguments: args.command.clone(),
+        },
+    ))
 }
 
 fn reject_legacy_selectors(kind: bool, profile: Option<&str>) -> Result<()> {
@@ -303,7 +346,7 @@ mod tests {
 
     use crate::cli::args::Cli;
     use crate::cli::dispatch::context::CliDispatchContext;
-    use crate::control_plane::{IpcNodePackageManager, IpcProjectCommand};
+    use crate::control_plane::{IpcNodePackageManager, IpcPhpTool, IpcProjectCommand};
 
     use super::resolve_v8_invocation;
 
@@ -487,5 +530,58 @@ mod tests {
         let error = resolve_v8_invocation(&cli, &context).expect_err("browser bootstrap");
 
         assert!(error.to_string().contains("browser bootstrapping"));
+    }
+
+    #[test]
+    fn v8_php_tools_use_a_whitelisted_container_executable() {
+        let root = project(
+            ".stackctl.yaml",
+            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+        );
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root"),
+            "phpstan",
+            "analyse",
+            "--memory-limit=1G",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let invocation = resolve_v8_invocation(&cli, &context)
+            .expect("resolve invocation")
+            .expect("v8 invocation");
+
+        assert_eq!(
+            invocation.command,
+            IpcProjectCommand::PhpTool {
+                tool: IpcPhpTool::PhpStan,
+                arguments: vec!["analyse".to_owned(), "--memory-limit=1G".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn v8_deno_runtime_versions_remain_declarative() {
+        let root = project(
+            ".stackctl.yaml",
+            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+        );
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root"),
+            "deno",
+            "--deno-version",
+            "2.1.0",
+            "task",
+            "check",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let error = resolve_v8_invocation(&cli, &context).expect_err("runtime override");
+
+        assert!(error.to_string().contains("declarative"));
+        assert!(error.to_string().contains("--deno-version"));
     }
 }

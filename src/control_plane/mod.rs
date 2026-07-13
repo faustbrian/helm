@@ -28,9 +28,10 @@ pub(crate) use configuration::{parse_project_config, project_config_schema};
 #[cfg(unix)]
 pub(crate) use daemon::{
     IpcDiagnostic, IpcEvent, IpcEventKind, IpcManagedEnvironment, IpcNodePackageManager,
-    IpcOutcome, IpcOutputStream, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, UnixDaemonWatchOptions,
-    default_unix_daemon_runtime_directory, run_unix_daemon_watch, send_unix_request,
+    IpcOutcome, IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus,
+    IpcRequest, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    UnixDaemonWatchOptions, default_unix_daemon_runtime_directory, run_unix_daemon_watch,
+    send_unix_request,
 };
 pub(crate) use desired_state::{
     DesiredProject, DesiredProjectError, DesiredService, resolve_desired_project,

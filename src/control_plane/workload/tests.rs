@@ -287,6 +287,19 @@ fn project_tools_and_hooks_are_structured_container_commands() {
             },
             vec!["php", "-v"],
         ),
+        (
+            ProjectCommand::PhpTool {
+                tool: super::PhpTool::PhpStan,
+                arguments: vec!["analyse".to_owned(), "--memory-limit=1G".to_owned()],
+            },
+            vec!["phpstan", "analyse", "--memory-limit=1G"],
+        ),
+        (
+            ProjectCommand::Deno {
+                arguments: vec!["task".to_owned(), "check".to_owned()],
+            },
+            vec!["deno", "task", "check"],
+        ),
     ];
 
     for (command, expected) in cases {

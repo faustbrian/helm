@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use super::NodePackageManager;
+use super::{NodePackageManager, PhpTool};
 
 /// One user-facing tool or declarative hook executed inside an application.
 #[derive(Clone, Eq, PartialEq)]
@@ -21,6 +21,13 @@ pub(crate) enum ProjectCommand {
     Exec {
         arguments: Vec<String>,
     },
+    PhpTool {
+        tool: PhpTool,
+        arguments: Vec<String>,
+    },
+    Deno {
+        arguments: Vec<String>,
+    },
     Hook {
         name: String,
         arguments: Vec<String>,
@@ -38,6 +45,8 @@ impl Debug for ProjectCommand {
             Self::Bun { arguments } => ("bun", None, arguments.len()),
             Self::Artisan { arguments } => ("artisan", None, arguments.len()),
             Self::Exec { arguments } => ("exec", None, arguments.len()),
+            Self::PhpTool { tool: _, arguments } => ("php_tool", None, arguments.len()),
+            Self::Deno { arguments } => ("deno", None, arguments.len()),
             Self::Hook { name, arguments } => ("hook", Some(name), arguments.len()),
         };
 
@@ -75,6 +84,13 @@ impl ProjectCommand {
                 }
 
                 Ok(("Exec".to_owned(), arguments))
+            }
+            Self::PhpTool { tool, arguments } => Ok((
+                "PHP tool".to_owned(),
+                prefixed_arguments(tool.executable(), arguments),
+            )),
+            Self::Deno { arguments } => {
+                Ok(("Deno".to_owned(), prefixed_arguments("deno", arguments)))
             }
             Self::Hook { name, arguments } => {
                 if !valid_hook_name(&name) {

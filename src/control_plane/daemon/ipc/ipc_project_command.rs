@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::IpcNodePackageManager;
+use super::{IpcNodePackageManager, IpcPhpTool};
 
 /// A safe user-facing tool invocation transported without shell parsing.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -21,6 +21,13 @@ pub(crate) enum IpcProjectCommand {
         arguments: Vec<String>,
     },
     Exec {
+        arguments: Vec<String>,
+    },
+    PhpTool {
+        tool: IpcPhpTool,
+        arguments: Vec<String>,
+    },
+    Deno {
         arguments: Vec<String>,
     },
     Hook {

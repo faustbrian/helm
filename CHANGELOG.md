@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added typed strict v8 execution for Deno and the whitelisted PHPStan, ECS,
+  PHP-CS-Fixer, Psalm, Pint, Pest, PHPUnit, and Rector project tools through
+  owned application containers, with exact arguments and declarative runtime
+  version enforcement.
 - Added a strict v8 dispatch boundary that prevents unported YAML commands from
   entering v7 config, Docker CLI, or host-tooling execution paths, while
   preserving normal legacy dispatch for explicitly discovered TOML projects.

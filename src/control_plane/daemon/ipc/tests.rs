@@ -136,6 +136,37 @@ fn artisan_and_exec_requests_preserve_non_shell_arguments() {
 }
 
 #[test]
+fn language_tool_requests_preserve_whitelisted_executables_and_arguments() {
+    let commands = [
+        IpcProjectCommand::PhpTool {
+            tool: super::IpcPhpTool::Pest,
+            arguments: vec!["--parallel".to_owned()],
+        },
+        IpcProjectCommand::Deno {
+            arguments: vec!["task".to_owned(), "check".to_owned()],
+        },
+    ];
+
+    for (index, command) in commands.into_iter().enumerate() {
+        let request = IpcRequest::new(
+            format!("command-tool-{index}"),
+            IpcPayload::RunProjectCommand {
+                canonical_path: PathBuf::from("/work/bill"),
+                service: "app".to_owned(),
+                command,
+                timeout_seconds: 300,
+            },
+        );
+
+        let frame = encode_frame(&request).expect("encode tool request");
+        assert_eq!(
+            decode_request_frame(&frame).expect("decode tool request"),
+            request
+        );
+    }
+}
+
+#[test]
 fn cancellation_targets_an_existing_request_id() {
     let request = IpcRequest::new(
         "cancel-1",

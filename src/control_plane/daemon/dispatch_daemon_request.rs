@@ -549,6 +549,24 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
         IpcProjectCommand::Exec { arguments } => ProjectCommand::Exec {
             arguments: arguments.clone(),
         },
+        IpcProjectCommand::PhpTool { tool, arguments } => ProjectCommand::PhpTool {
+            tool: match tool {
+                super::ipc::IpcPhpTool::PhpStan => crate::control_plane::workload::PhpTool::PhpStan,
+                super::ipc::IpcPhpTool::Ecs => crate::control_plane::workload::PhpTool::Ecs,
+                super::ipc::IpcPhpTool::PhpCsFixer => {
+                    crate::control_plane::workload::PhpTool::PhpCsFixer
+                }
+                super::ipc::IpcPhpTool::Psalm => crate::control_plane::workload::PhpTool::Psalm,
+                super::ipc::IpcPhpTool::Pint => crate::control_plane::workload::PhpTool::Pint,
+                super::ipc::IpcPhpTool::Pest => crate::control_plane::workload::PhpTool::Pest,
+                super::ipc::IpcPhpTool::PhpUnit => crate::control_plane::workload::PhpTool::PhpUnit,
+                super::ipc::IpcPhpTool::Rector => crate::control_plane::workload::PhpTool::Rector,
+            },
+            arguments: arguments.clone(),
+        },
+        IpcProjectCommand::Deno { arguments } => ProjectCommand::Deno {
+            arguments: arguments.clone(),
+        },
         IpcProjectCommand::Hook { name, arguments } => ProjectCommand::Hook {
             name: name.clone(),
             arguments: arguments.clone(),

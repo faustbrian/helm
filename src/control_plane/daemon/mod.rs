@@ -98,7 +98,7 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 #[cfg(unix)]
 pub(crate) use ipc::{
     IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind, IpcManagedEnvironment,
-    IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload, IpcProjectCommand,
+    IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand,
     IpcProjectStatus, IpcRequest, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
     send_unix_request,
 };
