@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added retained project-volume convergence for stateful dedicated presets with
+  canonical container mount paths, exact ownership, adoption gating, durable
+  lifecycle, and explicit-migration failure on data identity drift. Log target
+  resolution now excludes same-scope volume records.
 - Added the v8 dedicated-project-service Engine substrate for conservative
   presets, with exact ownership, immutable images and versions, deterministic
   names, private networking, restart supervision, durable lifecycle, live

@@ -507,7 +507,8 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     .expect("complete Engine plan");
 
     assert_eq!(plan.dedicated_services().len(), 1);
-    let service = &plan.dedicated_services()[0];
+    let dedicated = &plan.dedicated_services()[0];
+    let service = dedicated.request();
     assert_eq!(service.name(), "stackctl-bill-cache");
     assert_eq!(service.image(), image);
     assert_eq!(
@@ -524,7 +525,58 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
         Some(&"bill".to_owned())
     );
     assert!(service.port_bindings().is_empty());
+    assert_eq!(dedicated.volume(), None);
     assert!(plan.gateway().routes().is_empty());
+}
+
+#[test]
+fn dedicated_stateful_services_plan_one_retained_project_volume() {
+    let image = concat!(
+        "localstack/localstack@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  aws:\n    preset: localstack\n    version: '4'\n    image: {image}\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    let dedicated = &plan.dedicated_services()[0];
+    let volume = dedicated.volume().expect("retained volume");
+    assert_eq!(volume.name(), "stackctl-bill-aws-data");
+    assert_eq!(
+        volume.metadata().retention(),
+        crate::control_plane::engine::RetentionClass::Persistent
+    );
+    assert_eq!(volume.metadata().project_id(), Some("bill"));
+    assert_eq!(volume.metadata().resource_id(), Some("aws"));
+    assert_eq!(dedicated.request().volume_mounts().len(), 1);
+    assert_eq!(
+        dedicated.request().volume_mounts()[0].source(),
+        volume.name()
+    );
+    assert_eq!(
+        dedicated.request().volume_mounts()[0].target(),
+        "/var/lib/localstack"
+    );
 }
 
 #[cfg(unix)]
@@ -713,6 +765,55 @@ fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
     .expect("active scope permits retained replacement history");
 
     assert_eq!(plan.applications().len(), 1);
+}
+
+#[test]
+fn orphaned_dedicated_service_volumes_require_adoption_before_engine_planning() {
+    let image = concat!(
+        "localstack/localstack@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  aws:\n    preset: localstack\n    version: '4'\n    image: {image}\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let volume = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-aws-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:localstack-4".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:data-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+    .with_scope_id("aws");
+
+    let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[volume],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect_err("orphaned project volume");
+
+    assert_eq!(
+        error.to_string(),
+        "project workload 'bill-aws' data volume is orphaned; run explicit project adoption before reconciliation"
+    );
 }
 
 #[test]
@@ -1362,6 +1463,19 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         orphaned_at_unix_seconds: None,
     })
     .with_scope_id("app");
+    let application_volume = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-app-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:application-data".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:data".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
     let shared_database = ResourceRecord::new(ResourceRecordOptions {
         resource_id: "postgres-17".to_owned(),
         installation_id: "install-1".to_owned(),
@@ -1390,7 +1504,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
     let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
     store.replace_project(&project).expect("register project");
     store
-        .upsert_resources(&[application, shared_database])
+        .upsert_resources(&[application, application_volume, shared_database])
         .expect("persist containers");
     store
         .upsert_logical_resources(std::slice::from_ref(&logical_database))

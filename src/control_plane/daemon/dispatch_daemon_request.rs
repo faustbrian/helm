@@ -486,6 +486,10 @@ where
                 resource.project_id() == Some(project.project_name())
                     && resource.scope_id() == Some(service.as_str())
                     && resource.lifecycle() == ResourceLifecycle::Active
+                    && matches!(
+                        resource.kind(),
+                        "project_application" | "project_process" | "project_service"
+                    )
             })
             .map(|resource| {
                 ProjectLogTarget::new(

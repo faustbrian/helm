@@ -53,6 +53,15 @@ gateway route. This substrate does not by itself make a stateful preset
 complete; each such preset still requires its documented retained-volume,
 authenticated-readiness, backup, restore, and upgrade contracts.
 
+The dedicated volume contract currently mounts one stable
+`stackctl-{project}-{service}-data` volume for Dragonfly, Garage, LocalStack,
+RustFS, OpenSearch, Elasticsearch, Meilisearch, and Typesense at the preset's
+canonical data directory. The volume is persistent, project-owned, and keyed by
+the same exact implementation, major version, image digest, and platform
+identity as its container. Existing identity drift fails before container
+replacement and requires explicit migration. Memcached, MailHog, and Soketi
+remain volume-free because their current dedicated contracts are stateless.
+
 This matrix is enforced by the closed v8 service deployment strategy resolver.
 Unknown presets fail, aliases resolve identically, and every "share only after"
 entry remains dedicated until its isolation acceptance tests are implemented.

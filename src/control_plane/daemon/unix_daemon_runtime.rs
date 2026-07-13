@@ -30,8 +30,9 @@ use crate::control_plane::state::{
 };
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
-    OrphanedProjectWorkloadOptions, WorkloadReconcileError, WorkloadReconcileOptions,
-    reconcile_project_application, reconcile_project_process, reconcile_project_service,
+    OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, WorkloadReconcileError,
+    WorkloadReconcileOptions, project_volume_resource_record, reconcile_project_application,
+    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
     stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
@@ -632,10 +633,52 @@ impl UnixDaemonRuntime {
         }
 
         for service in engine_plan.dedicated_services() {
+            if let Some(volume) = service.volume() {
+                let result = self.engine_runtime.block_on(reconcile_project_volume(
+                    engine,
+                    ProjectVolumeReconcileOptions {
+                        request: volume,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                    },
+                ));
+                match result {
+                    Ok(result) => {
+                        workload_resources.push(project_volume_resource_record(&result));
+                        tracing::debug!(
+                            project = volume.metadata().project_id().unwrap_or_default(),
+                            service = volume.metadata().resource_id().unwrap_or_default(),
+                            action = ?result.action(),
+                            "dedicated project service volume reconciliation completed"
+                        );
+                    }
+                    Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                        let retry = invalidate_engine_connection(
+                            &mut self.engine_connection,
+                            &mut self.resource_health,
+                            now,
+                        );
+                        tracing::debug!(
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            error = %error,
+                            "project volume reconciliation lost the selected Engine; retry scheduled"
+                        );
+
+                        return;
+                    }
+                    Err(error) => {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "project volume reconciliation blocked");
+
+                        return;
+                    }
+                }
+            }
             let result = self.engine_runtime.block_on(reconcile_project_service(
                 engine,
                 WorkloadReconcileOptions {
-                    request: service,
+                    request: service.request(),
                     installation_id: self.global_network_request.metadata().installation_id(),
                     schema_version: self.global_network_request.metadata().schema_version(),
                 },
@@ -654,8 +697,8 @@ impl UnixDaemonRuntime {
                     }
                     workload_resources.push(workload_resource_record(&result));
                     tracing::debug!(
-                        project = service.metadata().project_id().unwrap_or_default(),
-                        service = service.metadata().resource_id().unwrap_or_default(),
+                        project = service.request().metadata().project_id().unwrap_or_default(),
+                        service = service.request().metadata().resource_id().unwrap_or_default(),
                         action = ?result.action(),
                         "dedicated project service reconciliation completed"
                     );

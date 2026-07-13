@@ -1,17 +1,17 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::{DedicatedProjectServiceOptions, WorkloadPlanError};
+use super::{DedicatedProjectServiceOptions, DedicatedProjectServicePlan, WorkloadPlanError};
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerRestartPolicy, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
+    ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
 };
 
 /// Plans one isolated project service without exposing a host port or route.
 pub(crate) fn plan_dedicated_project_service(
     options: DedicatedProjectServiceOptions<'_>,
-) -> Result<ContainerCreateOptions, WorkloadPlanError> {
+) -> Result<DedicatedProjectServicePlan, WorkloadPlanError> {
     let service = options.service;
     if !matches!(
         service.strategy(),
@@ -65,13 +65,14 @@ pub(crate) fn plan_dedicated_project_service(
         installation_id: options.installation_id.to_owned(),
         kind: ResourceKind::ProjectService,
         project_id: Some(service.project().as_str().to_owned()),
-        compatibility_fingerprint,
+        compatibility_fingerprint: compatibility_fingerprint.clone(),
         schema_version: options.schema_version,
         desired_revision,
         retention: RetentionClass::Disposable,
     })
     .and_then(|metadata| metadata.with_resource_id(service.service().as_str()))
     .map_err(invalid)?;
+    let volume = retained_volume(&options, preset, &compatibility_fingerprint)?;
     let request = ContainerCreateOptions::new(
         format!(
             "stackctl-{}-{}",
@@ -88,12 +89,67 @@ pub(crate) fn plan_dedicated_project_service(
     .map_err(invalid)?
     .with_environment(service.desired().environment().clone())
     .map_err(invalid)?;
+    let request = match (&volume, persistent_data_path(preset)) {
+        (Some(volume), Some(target)) => request
+            .with_volume_mount(VolumeMount::read_write(volume.name(), target).map_err(invalid)?),
+        (None, None) => request,
+        _ => unreachable!("retained volume and preset mount contract move together"),
+    };
     let request = match service.desired().command() {
         Some(command) => request.with_command(command.to_vec()).map_err(invalid)?,
         None => request,
     };
 
-    Ok(request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
+    Ok(DedicatedProjectServicePlan::new(
+        request.with_restart_policy(ContainerRestartPolicy::UnlessStopped),
+        volume,
+    ))
+}
+
+fn retained_volume(
+    options: &DedicatedProjectServiceOptions<'_>,
+    preset: &str,
+    compatibility_fingerprint: &str,
+) -> Result<Option<VolumeCreateOptions>, WorkloadPlanError> {
+    if persistent_data_path(preset).is_none() {
+        return Ok(None);
+    }
+    let service = options.service;
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: options.installation_id.to_owned(),
+        kind: ResourceKind::Volume,
+        project_id: Some(service.project().as_str().to_owned()),
+        compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+        schema_version: options.schema_version,
+        desired_revision: fingerprint(["project-service-volume-v1", compatibility_fingerprint]),
+        retention: RetentionClass::Persistent,
+    })
+    .and_then(|metadata| metadata.with_resource_id(service.service().as_str()))
+    .map_err(invalid)?;
+
+    VolumeCreateOptions::new(
+        format!(
+            "stackctl-{}-{}-data",
+            service.project().as_str(),
+            service.service().as_str()
+        ),
+        metadata,
+    )
+    .map(Some)
+    .map_err(invalid)
+}
+
+fn persistent_data_path(preset: &str) -> Option<&'static str> {
+    match preset {
+        "dragonfly" | "rustfs" | "typesense" => Some("/data"),
+        "garage" => Some("/var/lib/garage"),
+        "localstack" => Some("/var/lib/localstack"),
+        "opensearch" => Some("/usr/share/opensearch/data"),
+        "elasticsearch" => Some("/usr/share/elasticsearch/data"),
+        "meilisearch" => Some("/meili_data"),
+        "memcached" | "mailhog" | "soketi" => None,
+        _ => None,
+    }
 }
 
 fn desired_revision(

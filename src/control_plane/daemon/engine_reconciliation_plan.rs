@@ -1,12 +1,14 @@
 use crate::control_plane::engine::ContainerCreateOptions;
 use crate::control_plane::gateway::GatewaySnapshot;
-use crate::control_plane::workload::ImmutableProjectApplicationPlan;
+use crate::control_plane::workload::{
+    DedicatedProjectServicePlan, ImmutableProjectApplicationPlan,
+};
 
 /// A complete, side-effect-free Engine pass derived before any mutation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EngineReconciliationPlan {
     applications: Vec<ImmutableProjectApplicationPlan>,
-    dedicated_services: Vec<ContainerCreateOptions>,
+    dedicated_services: Vec<DedicatedProjectServicePlan>,
     processes: Vec<ContainerCreateOptions>,
     gateway: GatewaySnapshot,
 }
@@ -14,7 +16,7 @@ pub(crate) struct EngineReconciliationPlan {
 impl EngineReconciliationPlan {
     pub(super) const fn new(
         applications: Vec<ImmutableProjectApplicationPlan>,
-        dedicated_services: Vec<ContainerCreateOptions>,
+        dedicated_services: Vec<DedicatedProjectServicePlan>,
         processes: Vec<ContainerCreateOptions>,
         gateway: GatewaySnapshot,
     ) -> Self {
@@ -34,7 +36,7 @@ impl EngineReconciliationPlan {
         &self.processes
     }
 
-    pub(crate) fn dedicated_services(&self) -> &[ContainerCreateOptions] {
+    pub(crate) fn dedicated_services(&self) -> &[DedicatedProjectServicePlan] {
         &self.dedicated_services
     }
 

@@ -3,11 +3,12 @@ use super::{
     ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, OrphanedProjectWorkloadOptions,
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
     ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions,
-    RuntimeEnvironment, RuntimeEnvironmentOptions, RuntimeImageBuildPlan,
-    RuntimeImageBuildPlanOptions, WorkloadReconcileAction, WorkloadReconcileOptions,
-    application_container_request, plan_immutable_project_application, project_process_request,
-    reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
-    reconcile_project_service, run_project_command, stop_orphaned_project_workloads,
+    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
+    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
+    plan_immutable_project_application, project_process_request, reconcile_project_application,
+    reconcile_project_process, reconcile_project_runtime, reconcile_project_service,
+    reconcile_project_volume, run_project_command, stop_orphaned_project_workloads,
     workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
@@ -16,8 +17,9 @@ use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
     ContainerLogStream, ContainerRestartPolicy, ContainerState, EngineError, EngineFuture,
     HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, LogChunk, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
-    RetentionClass, reconstruct_owned_container,
+    ManagedResourceMetadataOptions, ObservedContainer, ObservedVolume, OwnedContainer, OwnedVolume,
+    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    reconstruct_owned_container,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -862,6 +864,59 @@ fn dedicated_project_service_reconciliation_creates_exact_missing_service() {
 }
 
 #[test]
+fn retained_project_volume_adopts_only_its_exact_data_identity() {
+    let request = project_volume_request("sha256:localstack-4");
+    let mut engine = RecordingProjectVolumeEngine {
+        observed: vec![ObservedVolume::new(
+            request.name(),
+            request.metadata().labels(),
+        )],
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_volume(
+            &mut engine,
+            ProjectVolumeReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("adopt exact project volume");
+
+    assert_eq!(result.action(), ProjectVolumeReconcileAction::Unchanged);
+    assert_eq!(result.volume().name(), request.name());
+}
+
+#[test]
+fn retained_project_volume_requires_migration_for_identity_drift() {
+    let old = project_volume_request("sha256:localstack-3");
+    let request = project_volume_request("sha256:localstack-4");
+    let mut engine = RecordingProjectVolumeEngine {
+        observed: vec![ObservedVolume::new(old.name(), old.metadata().labels())],
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_project_volume(
+            &mut engine,
+            ProjectVolumeReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect_err("volume identity drift");
+
+    assert!(error.to_string().contains("explicit migration is required"));
+}
+
+#[test]
 fn orphaned_project_workloads_are_stopped_without_deleting_their_containers() {
     let request = application_request("sha256:desired-v1");
     let observed = ObservedContainer::new(
@@ -1113,6 +1168,23 @@ fn dedicated_service_request(service: &str, desired_revision: &str) -> Container
         metadata,
     )
     .expect("dedicated service request")
+}
+
+fn project_volume_request(compatibility_fingerprint: &str) -> VolumeCreateOptions {
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Volume,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+        schema_version: 8,
+        desired_revision: compatibility_fingerprint.to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("project volume metadata")
+    .with_resource_id("aws")
+    .expect("project volume resource identity");
+
+    VolumeCreateOptions::new("stackctl-bill-aws-data", metadata).expect("project volume request")
 }
 
 fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {
@@ -1498,4 +1570,34 @@ fn managed_environment(
         values,
         lifecycle,
     })
+}
+
+struct RecordingProjectVolumeEngine {
+    observed: Vec<ObservedVolume>,
+}
+
+impl VolumeDiscovery for RecordingProjectVolumeEngine {
+    fn discover_managed_volumes(&self) -> EngineFuture<'_, Vec<ObservedVolume>> {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl VolumeManager for RecordingProjectVolumeEngine {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        _options: &'operation VolumeCreateOptions,
+    ) -> EngineFuture<'operation, OwnedVolume> {
+        Box::pin(async {
+            Err(EngineError::Backend {
+                detail: "unexpected project volume creation".to_owned(),
+            })
+        })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        _volume: &'operation OwnedVolume,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
