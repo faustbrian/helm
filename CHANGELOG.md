@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added deterministic v8 shared-service compatibility fingerprints covering
+  implementation, major, digest, extensions, settings, persistence, isolation,
+  and platform architecture.
 - Added structured v8 Engine operation deadlines across negotiation, lifecycle,
   inspection, and discovery so stalled requests remain bounded and cancellable.
 - Added a narrow v8 container discovery capability with direct Engine API
