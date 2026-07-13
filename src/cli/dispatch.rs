@@ -109,6 +109,23 @@ mod tests {
     }
 
     #[test]
+    fn config_schema_runs_without_a_project_or_engine_configuration() {
+        let root =
+            std::env::temp_dir().join(format!("stackctl-schema-command-{}", std::process::id()));
+        drop(fs::remove_dir_all(&root));
+        fs::create_dir_all(&root).expect("create empty working directory");
+        let result = super::run(Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root path"),
+            "config",
+            "schema",
+        ]));
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
     fn run_dispatches_secondary_status_via_full_pipeline() {
         let project_root = minimal_config_dir();
         crate::docker::with_test_runtime_lock(|| {

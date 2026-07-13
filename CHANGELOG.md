@@ -34,6 +34,8 @@ All notable changes to this project are documented in this file.
   and debug redaction of environment values.
 - Added a bundled draft 2020-12 JSON Schema for the complete strict v8 project
   YAML shape, including DNS identities, string versions, commands, and environment values.
+- Added offline `stackctl config schema` output that requires no project configuration,
+  daemon state, or container-engine connection.
 - Added dedicated Engine-backed project process plans for workers and schedulers,
   with immutable Linux images, private networking, no published ports, restart supervision,
   and secret-safe desired-plan diagnostics.

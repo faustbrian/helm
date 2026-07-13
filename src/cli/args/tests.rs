@@ -777,6 +777,14 @@ fn command_variants_parse() {
         panic!("expected config command");
     }
 
+    let config_schema = Cli::parse_from(["stackctl", "config", "schema"]);
+    if let commands::Commands::Config(commands::ConfigArgs { command, .. }) = config_schema.command
+    {
+        assert!(matches!(command, Some(ConfigCommands::Schema)));
+    } else {
+        panic!("expected config schema command");
+    }
+
     let env = Cli::parse_from(["stackctl", "env", "generate", "--output", "/tmp/env-out"]);
     if let commands::Commands::Env(commands::EnvArgs { command, .. }) = env.command {
         assert!(

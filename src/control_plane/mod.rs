@@ -20,6 +20,7 @@ mod validate_route_claims;
 mod validated_route_registry;
 mod workload;
 
+pub(crate) use configuration::project_config_schema;
 pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
 use dns_label::DnsLabel;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;

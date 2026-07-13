@@ -8,7 +8,7 @@ use anyhow::Result;
 use clap::CommandFactory;
 use clap_complete::generate;
 
-use crate::cli::args::{Cli, Commands};
+use crate::cli::args::{Cli, Commands, ConfigCommands};
 use crate::cli::handlers;
 use crate::config::{self, Config};
 use crate::output::{self, LogLevel, Persistence};
@@ -37,6 +37,14 @@ pub(super) fn handle_setup_commands(
     if let Commands::Completions(args) = &cli.command {
         let mut cmd = Cli::command();
         generate(args.shell, &mut cmd, "stackctl", &mut std::io::stdout());
+        return Ok(true);
+    }
+
+    if matches!(
+        &cli.command,
+        Commands::Config(args) if matches!(args.command, Some(ConfigCommands::Schema))
+    ) {
+        handlers::handle_config_schema()?;
         return Ok(true);
     }
 

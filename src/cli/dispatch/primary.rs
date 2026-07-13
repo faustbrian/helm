@@ -31,6 +31,7 @@ pub(super) fn dispatch_primary(
                 context.config_path(),
                 context.project_root(),
             ),
+            Some(ConfigCommands::Schema) => handlers::handle_config_schema(),
             None => handlers::handle_config(config, &args.format),
         }),
         Commands::Preset(args) => Some(match &args.command {

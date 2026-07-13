@@ -51,7 +51,8 @@ diagnostics.
 
 The v8 editor contract is bundled at
 `schemas/stackctl-project-v8.schema.json` and identifies itself as
-`https://stackctl.dev/schemas/project/v8.json`.
+`https://stackctl.dev/schemas/project/v8.json`. It is available without a
+project, daemon, or container engine through `stackctl config schema`.
 
 ## Project identity and routes
 
