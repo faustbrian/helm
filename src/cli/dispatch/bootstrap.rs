@@ -80,6 +80,9 @@ pub(super) fn handle_setup_commands(
         return Ok(true);
     }
 
+    #[cfg(unix)]
+    handlers::reject_v8_legacy_fallback(cli, context)?;
+
     Ok(false)
 }
 

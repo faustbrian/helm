@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a strict v8 dispatch boundary that prevents unported YAML commands from
+  entering v7 config, Docker CLI, or host-tooling execution paths, while
+  preserving normal legacy dispatch for explicitly discovered TOML projects.
 - Added strict v8 `url` lookup through authoritative singleton project status,
   returning only exact published HTTPS routes and rejecting legacy kind or
   driver selectors instead of deriving host ports through the v7 config path.
