@@ -1,8 +1,9 @@
 use super::{
-    PostgresBackupOptions, PostgresMigrationOperations, PostgresMigrationOperationsOptions,
-    PostgresProvisionTargetOptions, PostgresRestoreOptions, PostgresSourceRetirement,
-    PostgresVerifyTargetOptions, backup_postgres_database, provision_postgres_target,
-    restore_postgres_database, verify_postgres_target,
+    EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
+    PostgresMigrationOperationsOptions, PostgresProvisionTargetOptions, PostgresRestoreOptions,
+    PostgresSourceRetirement, PostgresSourceRetirementOptions, PostgresVerifyTargetOptions,
+    backup_postgres_database, provision_postgres_target, restore_postgres_database,
+    verify_postgres_target,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -397,8 +398,8 @@ fn postgres_migration_adapter_returns_owned_deterministic_target_state() {
     )
     .expect("target logical plan");
     let administrator = credential();
-    let source_container = owned_container();
-    let target_container = owned_container();
+    let source_container = owned_container_with_id("postgres-source");
+    let target_container = owned_container_with_id("postgres-target");
     let executor = RecordingExecutor::new(Vec::new(), 0);
     let mut retirement = NoopPostgresSourceRetirement;
     let backup_root = backup_root("migration-adapter");
@@ -459,8 +460,8 @@ fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
     )
     .expect("target logical plan");
     let administrator = credential();
-    let source_container = owned_container();
-    let target_container = owned_container();
+    let source_container = owned_container_with_id("postgres-source");
+    let target_container = owned_container_with_id("postgres-target");
     let executor = RoutingPostgresExecutor;
     let mut retirement = RecordingPostgresSourceRetirement::default();
     let retirement_called = Arc::clone(&retirement.called);
@@ -535,6 +536,75 @@ fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
     drop(operations);
     drop(store);
     std::fs::remove_dir_all(root).expect("remove PostgreSQL migration root");
+}
+
+#[test]
+fn postgres_source_retirement_drops_only_the_confirmed_logical_source() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL retirement runtime");
+    let inventory = adapter_inventory();
+    let checkpoint = adapter_cutover_checkpoint();
+    let source = logical_resource();
+    let source_container = owned_container_with_id("postgres-source");
+    let administrator = credential();
+    let source_credential = project_credential();
+    let source_environment = rollback_environment();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresSourceRetirementOptions {
+        source_container: &source_container,
+        administrator: &administrator,
+        source_credential: &source_credential,
+        source_environment: &source_environment,
+        installation_id: "install-1",
+        timeout: Duration::from_secs(30),
+    };
+    let mut retirement =
+        EnginePostgresSourceRetirement::new(&executor, options).expect("source retirement");
+
+    runtime
+        .block_on(retirement.retire_source(&inventory, &checkpoint, &source))
+        .expect("retire PostgreSQL source");
+
+    let sql = String::from_utf8(executor.input.lock().expect("retirement SQL").clone())
+        .expect("retirement SQL UTF-8");
+    assert!(sql.contains("DROP DATABASE IF EXISTS legacy_bill"));
+    assert!(sql.contains("DROP ROLE IF EXISTS stackctl_bill_database_role"));
+}
+
+#[test]
+fn postgres_source_retirement_rejects_an_unconfirmed_checkpoint() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL retirement runtime");
+    let inventory = adapter_inventory();
+    let checkpoint = backup_checkpoint();
+    let source = logical_resource();
+    let source_container = owned_container_with_id("postgres-source");
+    let administrator = credential();
+    let source_credential = project_credential();
+    let source_environment = rollback_environment();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresSourceRetirementOptions {
+        source_container: &source_container,
+        administrator: &administrator,
+        source_credential: &source_credential,
+        source_environment: &source_environment,
+        installation_id: "install-1",
+        timeout: Duration::from_secs(30),
+    };
+    let mut retirement =
+        EnginePostgresSourceRetirement::new(&executor, options).expect("source retirement");
+
+    let error = runtime
+        .block_on(retirement.retire_source(&inventory, &checkpoint, &source))
+        .expect_err("unconfirmed retirement must fail");
+
+    assert!(error.to_string().contains("confirmed cutover source"));
+    assert_eq!(*executor.request.lock().expect("recorded request"), None);
+    assert!(executor.input.lock().expect("retirement SQL").is_empty());
 }
 
 struct NoopPostgresSourceRetirement;
@@ -847,7 +917,32 @@ fn adapter_inventory() -> MigrationRecord {
     .expect("PostgreSQL migration inventory")
 }
 
+fn adapter_cutover_checkpoint() -> MigrationRecord {
+    MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "migration-bill-database".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase: MigrationPhase::Cutover,
+        backup_reference: Some("/private/backups/bill".to_owned()),
+        backup_artifact_sha256: Some(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+        ),
+        backup_artifact_size_bytes: Some(13),
+        target_resource_id: Some("stackctl_bill_database".to_owned()),
+        rollback_reference: Some("v7:bill/database".to_owned()),
+        updated_at_unix_seconds: 50_001,
+    })
+    .expect("PostgreSQL cutover checkpoint")
+}
+
 fn owned_container() -> OwnedContainer {
+    owned_container_with_id("postgres-source")
+}
+
+fn owned_container_with_id(container_id: &str) -> OwnedContainer {
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
         kind: ResourceKind::SharedService,
@@ -859,7 +954,7 @@ fn owned_container() -> OwnedContainer {
     })
     .expect("PostgreSQL metadata");
 
-    let observed = ObservedContainer::new(ContainerId::new("postgres-source"), metadata.labels());
+    let observed = ObservedContainer::new(ContainerId::new(container_id), metadata.labels());
 
     reconstruct_owned_container(&observed, "install-1", 8).expect("owned PostgreSQL container")
 }

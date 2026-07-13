@@ -248,6 +248,7 @@ fn validate(
         || !target_retained
         || options.source_container.metadata().installation_id() != options.installation_id
         || options.target_container.metadata().installation_id() != options.installation_id
+        || options.source_container.id() == options.target_container.id()
         || options
             .source_container
             .metadata()

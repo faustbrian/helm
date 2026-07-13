@@ -69,6 +69,9 @@ All notable changes to this project are documented in this file.
 - Added a concrete PostgreSQL migration adapter that binds streamed backup,
   deterministic provisioning, restore, catalog verification, atomic cutover
   and rollback plans, and confirmation-only source retirement to exact state.
+- Added direct-Engine PostgreSQL source retirement that validates the exact
+  owned source and journaled cutover before idempotently dropping only its
+  database and role while retaining the shared service container.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
