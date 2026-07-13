@@ -1,5 +1,6 @@
 use super::{
-    FilesystemCertificateStore, generate_local_certificates, renew_local_leaf_certificate,
+    FilesystemCertificateStore, LocalCaIdentity, generate_local_certificates,
+    renew_local_leaf_certificate,
 };
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -78,6 +79,45 @@ fn routine_leaf_renewal_preserves_the_trusted_ca() {
     let (_, leaf) = parse_x509_certificate(&leaf_pem.contents).expect("leaf X.509");
 
     assert_eq!(leaf.issuer(), ca.subject());
+}
+
+#[test]
+fn local_ca_identity_uses_the_exact_certificate_der_fingerprint() {
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+
+    let identity = LocalCaIdentity::from_pem(bundle.ca_certificate_pem()).expect("CA identity");
+    let same_identity = LocalCaIdentity::from_pem(&bundle.ca_certificate_pem().replace(
+        "-----BEGIN CERTIFICATE-----\n",
+        "-----BEGIN CERTIFICATE-----\n\n",
+    ))
+    .expect("reformatted CA identity");
+
+    assert_eq!(identity, same_identity);
+    assert_eq!(identity.sha256_hex().len(), 64);
+    assert!(
+        identity
+            .sha256_hex()
+            .chars()
+            .all(|byte| byte.is_ascii_hexdigit())
+    );
+    assert!(
+        identity
+            .sha256_hex()
+            .chars()
+            .all(|byte| !byte.is_ascii_lowercase())
+    );
+}
+
+#[test]
+fn local_ca_identity_rejects_non_ca_certificates() {
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+
+    let error = LocalCaIdentity::from_pem(bundle.leaf_certificate_pem())
+        .expect_err("leaf must not become a trusted CA identity");
+
+    assert_eq!(error.to_string(), "certificate is not a CA");
 }
 
 #[cfg(unix)]

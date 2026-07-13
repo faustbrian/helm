@@ -63,6 +63,8 @@ All notable changes to this project are documented in this file.
   `*.stackctl.localhost` gateway certificate without host OpenSSL or Caddy PKI.
 - Added leaf-only v8 TLS renewal that preserves the installed Stackctl CA and
   rotates only the wildcard gateway certificate and private key.
+- Added an OpenSSL-free SHA-256 identity for validated Stackctl CA certificates
+  so trust-store reconciliation and removal can target exact certificate bytes.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project

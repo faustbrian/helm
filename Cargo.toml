@@ -33,8 +33,6 @@ tokio = { version = "1.52.3", features = ["net", "rt", "time"] }
 sha2 = "0.11.0"
 hex = "0.4.3"
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
-
-[dev-dependencies]
 x509-parser = "0.18.1"
 
 [lints.rust]
