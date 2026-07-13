@@ -10,6 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::macros::datetime;
 use x509_parser::extensions::GeneralName;
@@ -681,14 +682,17 @@ fn mode(path: &std::path::Path) -> u32 {
 }
 
 fn temporary_certificate_root() -> PathBuf {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock after epoch")
         .as_nanos();
 
     std::env::temp_dir().join(format!(
-        "stackctl-v8-certificates-{}-{unique}",
-        std::process::id()
+        "stackctl-v8-certificates-{}-{unique}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ))
 }
 

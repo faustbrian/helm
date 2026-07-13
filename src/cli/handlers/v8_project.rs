@@ -8,16 +8,22 @@ use anyhow::{Context, Result, bail};
 
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::config::{self, ProjectRootPathOptions};
+use crate::control_plane::RawProjectConfig;
 use crate::control_plane::parse_project_config;
 
 pub(super) struct V8Project {
     root: PathBuf,
+    config: RawProjectConfig,
     services: BTreeSet<String>,
 }
 
 impl V8Project {
     pub(super) fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(super) const fn config(&self) -> &RawProjectConfig {
+        &self.config
     }
 
     pub(super) fn has_service(&self, service: &str) -> bool {
@@ -55,7 +61,11 @@ pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Opt
     let root = canonical_directory(&project_root)?;
     let services = config.services().keys().cloned().collect();
 
-    Ok(Some(V8Project { root, services }))
+    Ok(Some(V8Project {
+        root,
+        config,
+        services,
+    }))
 }
 
 fn canonical_directory(path: &Path) -> Result<PathBuf> {

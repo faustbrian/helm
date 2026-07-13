@@ -24,7 +24,10 @@ mod validate_route_claims;
 mod validated_route_registry;
 mod workload;
 
-pub(crate) use configuration::{parse_project_config, project_config_schema};
+pub(crate) use configuration::{
+    ArtifactLock, ArtifactLockImage, RawProjectConfig, apply_artifact_lock, artifact_source,
+    parse_artifact_lock, parse_project_config, project_config_schema,
+};
 #[cfg(unix)]
 pub(crate) use daemon::{
     IpcDiagnostic, IpcEvent, IpcEventKind, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,

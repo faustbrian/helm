@@ -1,5 +1,6 @@
 use super::IpcProjectCommand;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// A typed operation sent to the v8 daemon.
@@ -11,6 +12,10 @@ pub(crate) enum IpcPayload {
     Ping,
     /// Requests one complete reconciliation of every authoritative watched root.
     Reconcile,
+    /// Resolves exact mutable registry sources through the selected Engine.
+    ResolveImageReferences {
+        references: BTreeMap<String, String>,
+    },
     /// Explicitly adopts retained state for one exact registered project path.
     AdoptProject { canonical_path: PathBuf },
     /// Reads secret-free durable status for one exact registered project path.

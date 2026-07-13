@@ -37,6 +37,7 @@ where
         project_commands,
         project_logs,
         resource_health,
+        image_reference_resolution,
         now_unix_seconds,
     } = options;
     match request.payload() {
@@ -108,6 +109,43 @@ where
                         vec![IpcDiagnostic::new("reconciliation_failed", message, true)],
                     )
                 }
+            }
+        }
+        IpcPayload::ResolveImageReferences { references } => {
+            let Some(resolver) = image_reference_resolution else {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "engine_unavailable",
+                        "the selected container Engine is unavailable; retry after it reconnects",
+                        true,
+                    )],
+                );
+            };
+            if references.is_empty() {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "image_resolution_failed",
+                        "at least one mutable image reference is required",
+                        false,
+                    )],
+                );
+            }
+
+            match resolver.resolve(references) {
+                Ok(references) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::ImageReferencesResolved { references },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "image_resolution_failed",
+                        message,
+                        false,
+                    )],
+                ),
             }
         }
         IpcPayload::ProjectStatus { canonical_path } => {

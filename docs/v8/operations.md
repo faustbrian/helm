@@ -28,6 +28,17 @@ preset sources to immutable sha256 digests. Registry planning validates and
 applies those bindings before producing Engine requests; stale or malformed
 locks fail closed rather than silently advancing an artifact.
 
+Mutable registry lookup uses the typed `ImageReferenceResolver` Engine
+capability and the registry distribution endpoint. It returns a validated
+repository manifest digest without parsing Docker or Podman CLI output. Making
+that already-pinned image locally available remains the separate
+`ImageResolver` capability.
+
+The CLI submits bounded source mappings over typed local IPC. The singleton
+daemon resolves them using the persisted Engine selection and returns the exact
+same key set. The CLI rejects missing, additional, or mutable results before an
+atomic YAML lock publication.
+
 Built-in generation never executes mutable remote installer pipelines such as
 `curl | sh` or `curl | php`. Downloaded tools require a pinned source and
 checksum or signature. Releases include SBOM and provenance.

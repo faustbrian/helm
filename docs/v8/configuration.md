@@ -88,6 +88,15 @@ UTF-8 requirement, and symbolic-link prohibition as the project file. Projects
 without mutable artifacts may omit it. Mutable or preset artifacts must be
 resolved to immutable identities before their Engine resources can be planned.
 
+`stackctl lock images` publishes `.stackctl.lock.yaml` atomically. Mutable
+explicit images are resolved by the singleton daemon through its selected
+Engine and the result is validated again before publication. Already immutable
+explicit images do not require an Engine lookup. `stackctl lock verify` and
+`stackctl lock diff` operate on strict YAML and never load the v7 TOML runtime.
+Preset-only generation requires an exact built-in image-catalog entry; until
+that catalog is populated, Stackctl fails explicitly instead of guessing an
+image from a preset name.
+
 ## Project identity and routes
 
 The project name is explicit `project` when present; otherwise it is the exact

@@ -1,4 +1,4 @@
-use super::{ArtifactLock, ArtifactLockError, RawProjectConfig, RawServiceConfig};
+use super::{ArtifactLock, ArtifactLockError, RawProjectConfig, artifact_source};
 use crate::control_plane::engine::{ImmutableImageReference, is_immutable_image_identity};
 use std::path::Path;
 
@@ -58,15 +58,4 @@ pub(crate) fn apply_artifact_lock(
     }
 
     Ok(())
-}
-
-fn artifact_source(service: &RawServiceConfig) -> Option<String> {
-    if let Some(image) = service.image() {
-        return Some(image.to_owned());
-    }
-
-    service.preset().map(|preset| match service.version() {
-        Some(version) => format!("preset:{preset}:{version}"),
-        None => format!("preset:{preset}"),
-    })
 }

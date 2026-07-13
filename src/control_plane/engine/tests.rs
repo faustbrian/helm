@@ -4,14 +4,15 @@ use super::{
     ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerHealthCheck, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
     ContainerResourceMetrics, ContainerState, EngineFuture, GatewayContainerRequestOptions,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageResolver,
-    ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
+    ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
     NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
     OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
-    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
-    VolumeManager, VolumeMount, classify_observed_resource, gateway_container_request,
-    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
+    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
+    reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -216,6 +217,60 @@ fn image_resolution_accepts_only_immutable_digest_references() {
         local_id_error.to_string(),
         format!("managed image '{local_id}' must use an immutable sha256 digest")
     );
+}
+
+#[test]
+fn registry_image_resolution_preserves_the_source_and_pins_its_repository() {
+    let reference = RegistryImageReference::new("ghcr.io/stackctl/php:8.4")
+        .expect("mutable registry reference");
+    let localhost = RegistryImageReference::new("localhost:5000/team/php")
+        .expect("registry reference without a tag");
+    let mut resolver = RecordingImageReferenceResolver::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+    let strategy: &mut dyn ImageReferenceResolver = &mut resolver;
+
+    let resolved = runtime
+        .block_on(strategy.resolve_image_reference(&reference))
+        .expect("resolve manifest reference");
+
+    assert_eq!(reference.as_str(), "ghcr.io/stackctl/php:8.4");
+    assert_eq!(reference.repository(), "ghcr.io/stackctl/php");
+    assert_eq!(localhost.repository(), "localhost:5000/team/php");
+    assert_eq!(
+        resolved.as_str(),
+        concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        )
+    );
+    assert_eq!(resolver.resolved, vec![reference]);
+}
+
+#[test]
+fn mutable_registry_image_boundary_rejects_ambiguous_or_immutable_input() {
+    for source in [
+        "",
+        " ghcr.io/stackctl/php:8.4",
+        "ghcr.io/stackctl/php:",
+        concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+    ] {
+        let error = RegistryImageReference::new(source).expect_err("invalid mutable reference");
+
+        assert!(error.to_string().contains("registry image reference"));
+    }
+
+    let reference = RegistryImageReference::new("ghcr.io/stackctl/php:8.4")
+        .expect("mutable registry reference");
+    let error = reference
+        .with_digest("sha256:short")
+        .expect_err("malformed manifest digest");
+
+    assert!(error.to_string().contains("immutable sha256 digest"));
 }
 
 #[test]
@@ -1541,6 +1596,11 @@ struct RecordingImageResolver {
     resolved: Vec<ImmutableImageReference>,
 }
 
+#[derive(Default)]
+struct RecordingImageReferenceResolver {
+    resolved: Vec<RegistryImageReference>,
+}
+
 struct RecordingContainerEventSource;
 
 impl ContainerEventSource for RecordingContainerEventSource {
@@ -1598,6 +1658,21 @@ impl ImageResolver for RecordingImageResolver {
         Box::pin(async move {
             self.resolved.push(reference.clone());
             ImageId::new(format!("sha256:{}", "a".repeat(64)))
+        })
+    }
+}
+
+impl ImageReferenceResolver for RecordingImageReferenceResolver {
+    fn resolve_image_reference<'operation>(
+        &'operation mut self,
+        reference: &'operation RegistryImageReference,
+    ) -> EngineFuture<'operation, ImmutableImageReference> {
+        Box::pin(async move {
+            self.resolved.push(reference.clone());
+            reference.with_digest(concat!(
+                "sha256:",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ))
         })
     }
 }

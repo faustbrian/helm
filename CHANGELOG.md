@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a narrow direct-Engine registry image resolver that converts exact
+  mutable references to validated immutable manifest references without Docker
+  or Podman CLI parsing, while keeping immutable image acquisition separate.
+  Strict v8 `lock images`, `lock verify`, and `lock diff` now use YAML and typed
+  singleton IPC with atomic publication and exact response-key validation.
 - Added strict project-local v8 YAML artifact-lock consumption with exact
   source freshness checks, immutable sha256 resolutions, bounded non-symlink
   discovery, and fail-before-Engine planning for malformed or stale locks.

@@ -1,13 +1,14 @@
 use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
-    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
-    ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_project_command,
-    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
+    EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
+    ImageReferenceResolution, IpcEventJournal, ProjectCommandQueue, ProjectDiscoveryOptions,
+    ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget,
+    QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
+    execute_queued_project_command, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -1311,6 +1312,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
 
@@ -1340,6 +1342,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 10_001,
     });
     let crate::control_plane::daemon::ipc::IpcOutcome::Success {
@@ -1372,6 +1375,57 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     );
     drop(store);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
+    let root = temporary_directory("ipc-image-resolution");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let mut control_plane = ControlPlane::new(store);
+    let references = BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.4".to_owned())]);
+    let request = IpcRequest::new(
+        "lock-42",
+        IpcPayload::ResolveImageReferences {
+            references: references.clone(),
+        },
+    );
+    let mut resolver = RecordingImageReferenceResolution::default();
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: Some(&mut resolver),
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(resolver.requests, vec![references]);
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "lock-42",
+            IpcResult::ImageReferencesResolved {
+                references: BTreeMap::from([(
+                    "app".to_owned(),
+                    concat!(
+                        "ghcr.io/stackctl/php@sha256:",
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    )
+                    .to_owned(),
+                )]),
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(&root).expect("remove IPC fixture");
 }
 
 #[test]
@@ -1444,6 +1498,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &resource_health,
+        image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
 
@@ -1569,6 +1624,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
 
@@ -1606,6 +1662,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 10_001,
     });
     assert_eq!(
@@ -1664,6 +1721,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 10_000,
     });
 
@@ -1736,6 +1794,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 20_000,
     });
 
@@ -1799,6 +1858,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
         now_unix_seconds: 30_000,
     });
 
@@ -2152,6 +2212,34 @@ fn temporary_directory(name: &str) -> PathBuf {
     let path = temporary_lock_path(name).with_extension("directory");
     std::fs::create_dir(&path).expect("temporary directory");
     path
+}
+
+#[derive(Default)]
+struct RecordingImageReferenceResolution {
+    requests: Vec<BTreeMap<String, String>>,
+}
+
+impl ImageReferenceResolution for RecordingImageReferenceResolution {
+    fn resolve(
+        &mut self,
+        references: &BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, String>, String> {
+        self.requests.push(references.clone());
+
+        Ok(references
+            .keys()
+            .map(|id| {
+                (
+                    id.clone(),
+                    concat!(
+                        "ghcr.io/stackctl/php@sha256:",
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    )
+                    .to_owned(),
+                )
+            })
+            .collect())
+    }
 }
 
 fn remove_lock(lock_path: &Path) {

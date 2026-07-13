@@ -1,10 +1,11 @@
 use super::{
     ActiveProjectCommand, ActiveProjectLogSession, BollardUnixEngineConnector,
     DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineReconciliationPlanOptions,
-    EngineReconciliationSchedule, FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue,
-    ProjectLogSessionRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
+    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
+    ImageReferenceResolution, IpcEventJournal, ProjectCommandQueue, ProjectLogSessionRegistry,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
     reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
     validate_project_workload_adoption,
@@ -148,6 +149,11 @@ impl UnixDaemonRuntime {
                 )
             })
             .transpose()?;
+        let mut image_reference_resolution = self
+            .engine_connection
+            .engine()
+            .cloned()
+            .map(|engine| EngineImageReferenceResolution::new(&self.engine_runtime, engine));
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
                 control_plane: &mut self.control_plane,
@@ -157,6 +163,10 @@ impl UnixDaemonRuntime {
                 project_commands: &mut self.project_commands,
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
+                image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
+                    let resolver: &mut dyn ImageReferenceResolution = resolver;
+                    resolver
+                }),
                 now_unix_seconds,
             })
         })?;

@@ -93,7 +93,8 @@ or host package-manager concepts.
 
 ## Capability boundaries
 
-The Engine integration is composed from `ContainerLifecycle`, `ImageResolver`,
+The Engine integration is composed from `ContainerLifecycle`,
+`ImageReferenceResolver`, `ImageResolver`,
 `ImageBuilder`, `NetworkManager`, `VolumeManager`, `CommandExecutor`,
 `LogSource`, `HealthObserver`, `EventSource`, and `ResourceMetrics`.
 

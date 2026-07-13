@@ -6,10 +6,11 @@ use super::{
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
     ContainerResourceMetrics, ContainerState, EngineError, EngineFuture, HealthObserver,
-    ImageBuildRequest, ImageBuilder, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
-    LogSource, LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
-    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
-    OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ResourceMetrics,
+    ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver, ImageResolver,
+    ImmutableImageReference, LogChunk, LogSource, LogStreamKind, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceMetrics,
     VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
@@ -855,6 +856,39 @@ impl ImageResolver for BollardEngineAdapter {
                 }
             })
             .await
+        })
+    }
+}
+
+impl ImageReferenceResolver for BollardEngineAdapter {
+    fn resolve_image_reference<'operation>(
+        &'operation mut self,
+        reference: &'operation RegistryImageReference,
+    ) -> EngineFuture<'operation, ImmutableImageReference> {
+        Box::pin(async move {
+            let distribution = bounded_engine_operation(
+                "resolve registry image manifest",
+                request_timeout(),
+                async {
+                    self.docker
+                        .inspect_registry_image(reference.as_str(), None)
+                        .await
+                        .map_err(|error| backend_error("resolve registry image manifest", error))
+                },
+            )
+            .await?;
+
+            let digest = distribution
+                .descriptor
+                .digest
+                .ok_or_else(|| EngineError::Backend {
+                    detail: format!(
+                        "Engine returned registry image '{}' without a manifest digest",
+                        reference.as_str()
+                    ),
+                })?;
+
+            reference.with_digest(digest)
         })
     }
 }

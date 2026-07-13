@@ -186,6 +186,49 @@ mod tests {
         assert_eq!(fs::read_to_string(path).expect("reread config"), source);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn strict_v8_lock_images_publishes_yaml_without_loading_the_v7_runtime() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v8-lock-command-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).expect("create project directory");
+        fs::write(
+            root.join(".stackctl.yaml"),
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+                "    image: ghcr.io/stackctl/php@sha256:",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            ),
+        )
+        .expect("write v8 config");
+
+        for command in ["images", "verify"] {
+            super::run(Cli::parse_from([
+                "stackctl",
+                "--project-root",
+                root.to_str().expect("root path"),
+                "lock",
+                command,
+            ]))
+            .expect("strict v8 lock command");
+        }
+
+        let lock_path = root.join(".stackctl.lock.yaml");
+        let lock_source = fs::read_to_string(&lock_path).expect("read YAML artifact lock");
+        let lock = crate::control_plane::parse_artifact_lock(&lock_source, &lock_path)
+            .expect("strict artifact lock");
+        assert_eq!(lock.images().len(), 1);
+        assert!(!root.join(".stackctl.lock.toml").exists());
+
+        fs::remove_dir_all(root).expect("remove lock fixture");
+    }
+
     #[test]
     fn run_dispatches_secondary_status_via_full_pipeline() {
         let project_root = minimal_config_dir();

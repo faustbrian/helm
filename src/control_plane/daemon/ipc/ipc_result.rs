@@ -1,5 +1,6 @@
 use super::{IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcProjectStatus};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// A typed successful daemon operation result.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -15,6 +16,10 @@ pub(crate) enum IpcResult {
         project_count: usize,
         issue_count: usize,
         applied: bool,
+    },
+    /// Returns immutable manifest references keyed by the caller's exact IDs.
+    ImageReferencesResolved {
+        references: BTreeMap<String, String>,
     },
     /// Confirms exact retained state was atomically reactivated.
     ProjectAdopted { project_id: String },

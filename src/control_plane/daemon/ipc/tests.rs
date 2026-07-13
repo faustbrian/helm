@@ -5,6 +5,7 @@ use super::{
     decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[test]
@@ -33,6 +34,41 @@ fn project_adoption_requests_round_trip_with_the_exact_target_path() {
     let decoded = decode_request_frame(&frame).expect("decode adoption request");
 
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn image_reference_resolution_round_trips_exact_source_mappings() {
+    let references = BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.4".to_owned())]);
+    let request = IpcRequest::new(
+        "lock-42",
+        IpcPayload::ResolveImageReferences {
+            references: references.clone(),
+        },
+    );
+    let response = IpcResponse::success(
+        "lock-42",
+        IpcResult::ImageReferencesResolved {
+            references: BTreeMap::from([(
+                "app".to_owned(),
+                concat!(
+                    "ghcr.io/stackctl/php@sha256:",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+                .to_owned(),
+            )]),
+        },
+    );
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
 }
 
 #[test]
