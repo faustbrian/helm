@@ -106,6 +106,8 @@ All notable changes to this project are documented in this file.
   request before building or reusing its derived image and starting the workload.
 - Added bounded non-shell Composer, Node, Bun, and repository-hook execution
   inside the matching owned application container through the direct Engine API.
+- Added ownership-safe shared-volume reconciliation that creates or adopts an
+  exact compatibility volume and never deletes persistent data during convergence.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application
