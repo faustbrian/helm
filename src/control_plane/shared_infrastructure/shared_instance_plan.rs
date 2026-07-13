@@ -1,26 +1,27 @@
-use super::CompatibilityFingerprint;
 use super::logical_service_consumer::LogicalServiceConsumer;
+use super::{CompatibilityFingerprint, CompatibilityProfile};
 
 /// One physical instance and all logical project consumers it must provision.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SharedInstancePlan {
-    fingerprint: CompatibilityFingerprint,
+    profile: CompatibilityProfile,
     consumers: Vec<LogicalServiceConsumer>,
 }
 
 impl SharedInstancePlan {
     pub(super) fn new(
-        fingerprint: CompatibilityFingerprint,
+        profile: CompatibilityProfile,
         consumers: Vec<LogicalServiceConsumer>,
     ) -> Self {
-        Self {
-            fingerprint,
-            consumers,
-        }
+        Self { profile, consumers }
     }
 
     pub(crate) const fn fingerprint(&self) -> &CompatibilityFingerprint {
-        &self.fingerprint
+        self.profile.fingerprint()
+    }
+
+    pub(crate) const fn profile(&self) -> &CompatibilityProfile {
+        &self.profile
     }
 
     pub(crate) fn consumers(&self) -> &[LogicalServiceConsumer] {

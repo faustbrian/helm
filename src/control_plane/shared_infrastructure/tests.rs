@@ -1,7 +1,7 @@
 use super::{
-    CompatibilityFingerprint, CompatibilityFingerprintOptions, CredentialEntropy,
-    CredentialGenerationError, CredentialSecret, IsolationCapability, PersistenceMode,
-    PostgresLogicalResourcePlan, SharedServiceRequest, generate_credential_secret,
+    CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
+    CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
+    PersistenceMode, PostgresLogicalResourcePlan, SharedServiceRequest, generate_credential_secret,
     plan_shared_instances,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,7 +75,7 @@ fn forty_projects_across_two_postgres_majors_plan_two_instances() {
             SharedServiceRequest::new(
                 format!("project-{index:02}"),
                 "database",
-                fingerprint(vec!["postgis"], major),
+                profile(vec!["postgis"], major),
             )
         })
         .collect();
@@ -98,11 +98,13 @@ fn forty_projects_across_two_postgres_majors_plan_two_instances() {
             .len(),
         2
     );
+    assert_eq!(plans[0].profile().implementation(), "postgresql");
+    assert!(plans[0].profile().image_digest().contains("@sha256:"));
 }
 
 #[test]
 fn repeated_identical_consumers_do_not_duplicate_logical_ownership() {
-    let request = SharedServiceRequest::new("bill", "database", fingerprint(Vec::new(), "17"));
+    let request = SharedServiceRequest::new("bill", "database", profile(Vec::new(), "17"));
 
     let plans = plan_shared_instances(vec![request.clone(), request]);
     let consumers = plans
@@ -194,6 +196,11 @@ impl CredentialEntropy for SequentialEntropy {
 fn fingerprint(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprint {
     CompatibilityFingerprint::from_options(postgres_options(extensions, major_version))
         .expect("valid compatibility fingerprint")
+}
+
+fn profile(extensions: Vec<&str>, major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(postgres_options(extensions, major_version))
+        .expect("valid compatibility profile")
 }
 
 fn postgres_options(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprintOptions {

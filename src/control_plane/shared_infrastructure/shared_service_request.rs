@@ -1,26 +1,26 @@
-use super::CompatibilityFingerprint;
+use super::CompatibilityProfile;
 use super::logical_service_consumer::LogicalServiceConsumer;
 
 /// One validated project request for compatibility-keyed infrastructure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SharedServiceRequest {
     consumer: LogicalServiceConsumer,
-    fingerprint: CompatibilityFingerprint,
+    profile: CompatibilityProfile,
 }
 
 impl SharedServiceRequest {
     pub(crate) fn new(
         project_id: impl Into<String>,
         service_id: impl Into<String>,
-        fingerprint: CompatibilityFingerprint,
+        profile: CompatibilityProfile,
     ) -> Self {
         Self {
             consumer: LogicalServiceConsumer::new(project_id.into(), service_id.into()),
-            fingerprint,
+            profile,
         }
     }
 
-    pub(super) fn into_parts(self) -> (CompatibilityFingerprint, LogicalServiceConsumer) {
-        (self.fingerprint, self.consumer)
+    pub(super) fn into_parts(self) -> (CompatibilityProfile, LogicalServiceConsumer) {
+        (self.profile, self.consumer)
     }
 }

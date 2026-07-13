@@ -81,6 +81,8 @@ All notable changes to this project are documented in this file.
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
   demand by compatibility fingerprint and deduplicates logical consumers.
+- Changed shared-instance plans to retain their canonical compatibility profile
+  so reconciliation can instantiate the exact image, platform, and policy.
 - Added Rust-native 256-bit managed credential generation from OS entropy with
   injectable randomness for tests and redaction-safe secret diagnostics.
 - Added deterministic PostgreSQL database and restricted-role provisioning

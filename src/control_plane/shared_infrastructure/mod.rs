@@ -3,6 +3,7 @@ mod tests;
 
 pub(crate) use compatibility_fingerprint::CompatibilityFingerprint;
 pub(crate) use compatibility_fingerprint_options::CompatibilityFingerprintOptions;
+pub(crate) use compatibility_profile::CompatibilityProfile;
 pub(crate) use credential_entropy::CredentialEntropy;
 pub(crate) use credential_generation_error::CredentialGenerationError;
 pub(crate) use credential_secret::CredentialSecret;
@@ -18,6 +19,7 @@ pub(crate) use shared_service_request::SharedServiceRequest;
 mod compatibility_fingerprint;
 mod compatibility_fingerprint_error;
 mod compatibility_fingerprint_options;
+mod compatibility_profile;
 mod credential_entropy;
 mod credential_generation_error;
 mod credential_secret;
