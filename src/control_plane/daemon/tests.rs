@@ -2,13 +2,13 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    ImageReferenceResolution, IpcEventJournal, ProjectCommandQueue, ProjectDiscoveryOptions,
-    ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget,
-    QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
-    execute_queued_project_command, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_project_command_operations,
+    ImageReferenceResolution, IpcEventJournal, ProjectCommandExecutionOptions, ProjectCommandQueue,
+    ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistry,
+    ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_project_command, invalidate_engine_connection,
+    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -159,9 +159,7 @@ fn queued_project_commands_execute_only_in_the_exact_owned_application() {
 
     let result = runtime.block_on(execute_queued_project_command(
         engine.clone(),
-        operation,
-        "install-1".to_owned(),
-        8,
+        command_execution_options(operation),
     ));
 
     let output = result.outcome().as_ref().expect("command output");
@@ -170,6 +168,139 @@ fn queued_project_commands_execute_only_in_the_exact_owned_application() {
     assert_eq!(output.stderr(), b"notice\n");
     assert_eq!(engine.started(), 1);
     assert_eq!(engine.containers(), ["container-app"]);
+}
+
+#[test]
+fn browser_project_commands_create_wait_inject_and_remove_one_ephemeral_sidecar() {
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )]);
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        concat!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+            "    image: ghcr.io/acme/bill@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            "  browser:\n    preset: dusk\n    version: \"4\"\n",
+            "    image: selenium/standalone-chromium@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+        )
+        .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let browser = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "browser")
+        .expect("browser service");
+    let browser = crate::control_plane::workload::plan_ephemeral_browser(
+        crate::control_plane::workload::EphemeralBrowserOptions {
+            service: browser,
+            operation_id: "operation-42",
+            installation_id: "install-1",
+            schema_version: 8,
+            platform: "linux/arm64",
+            network_name: "stackctl",
+        },
+    )
+    .expect("browser plan");
+    let browser_name = browser.request().name().to_owned();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+
+    let result = runtime.block_on(execute_queued_project_command(
+        engine.clone(),
+        ProjectCommandExecutionOptions {
+            operation: queued_browser_command("operation-42", "bill", "app"),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            ephemeral_browser: Some(Ok(browser)),
+        },
+    ));
+
+    result.outcome().as_ref().expect("browser command output");
+    assert_eq!(engine.created(), [browser_name.clone()]);
+    assert_eq!(engine.lifecycle_started(), [browser_name.clone()]);
+    assert_eq!(engine.stopped(), [browser_name.clone()]);
+    assert_eq!(engine.removed(), [browser_name.clone()]);
+    assert_eq!(engine.containers(), ["container-app"]);
+    assert_eq!(
+        engine.command_environments()[0].get("DUSK_DRIVER_URL"),
+        Some(&format!("http://{browser_name}:4444/wd/hub"))
+    );
+}
+
+#[test]
+fn browser_session_intent_survives_durable_queue_round_trips() {
+    let queued = queued_browser_command("operation-42", "bill", "app");
+    let payload = queued.payload_json().expect("durable browser command");
+
+    let restored = QueuedProjectCommand::from_payload_json("operation-42".to_owned(), &payload)
+        .expect("restored browser command");
+
+    assert!(restored.plan().browser_session());
+    assert_eq!(restored.plan().arguments(), queued.plan().arguments());
+}
+
+#[test]
+fn failed_browser_commands_still_remove_the_ephemeral_sidecar() {
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )])
+    .with_command_exit_code(1);
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        concat!(
+            "schema_version: 8\nproject: bill\nservices:\n  browser:\n",
+            "    preset: selenium\n    version: \"4\"\n",
+            "    image: selenium/standalone-chromium@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+        )
+        .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let browser = crate::control_plane::workload::plan_ephemeral_browser(
+        crate::control_plane::workload::EphemeralBrowserOptions {
+            service: &execution.services()[0],
+            operation_id: "operation-42",
+            installation_id: "install-1",
+            schema_version: 8,
+            platform: "linux/arm64",
+            network_name: "stackctl",
+        },
+    )
+    .expect("browser plan");
+    let browser_name = browser.request().name().to_owned();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+
+    let result = runtime.block_on(execute_queued_project_command(
+        engine.clone(),
+        ProjectCommandExecutionOptions {
+            operation: queued_browser_command("operation-42", "bill", "app"),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            ephemeral_browser: Some(Ok(browser)),
+        },
+    ));
+
+    assert!(result.outcome().is_err());
+    assert_eq!(engine.stopped(), [browser_name.clone()]);
+    assert_eq!(engine.removed(), [browser_name]);
 }
 
 #[test]
@@ -199,9 +330,7 @@ fn queued_project_commands_reject_ambiguous_or_unowned_applications_before_exec(
         let engine = RecordingProjectCommandEngine::new(observed);
         let result = runtime.block_on(execute_queued_project_command(
             engine.clone(),
-            queued_composer_command("operation-42", "bill", "app"),
-            "install-1".to_owned(),
-            8,
+            command_execution_options(queued_composer_command("operation-42", "bill", "app")),
         ));
 
         let error = result.outcome().as_ref().expect_err("rejected command");
@@ -262,9 +391,7 @@ fn project_command_results_publish_binary_safe_output_before_completion() {
     );
     let result = runtime.block_on(execute_queued_project_command(
         engine,
-        queued,
-        "install-1".to_owned(),
-        8,
+        command_execution_options(queued),
     ));
 
     publish_project_command_result(&mut control_plane, &mut journal, result, 102)
@@ -2301,7 +2428,13 @@ struct RecordingProjectCommandEngine {
 #[derive(Default)]
 struct RecordingProjectCommandExecution {
     started: std::sync::atomic::AtomicUsize,
+    command_exit_code: std::sync::atomic::AtomicI64,
     containers: std::sync::Mutex<Vec<String>>,
+    command_environments: std::sync::Mutex<Vec<BTreeMap<String, String>>>,
+    created: std::sync::Mutex<Vec<String>>,
+    lifecycle_started: std::sync::Mutex<Vec<String>>,
+    stopped: std::sync::Mutex<Vec<String>>,
+    removed: std::sync::Mutex<Vec<String>>,
 }
 
 impl RecordingProjectCommandEngine {
@@ -2310,6 +2443,13 @@ impl RecordingProjectCommandEngine {
             observed,
             execution: std::sync::Arc::new(RecordingProjectCommandExecution::default()),
         }
+    }
+
+    fn with_command_exit_code(self, exit_code: i64) -> Self {
+        self.execution
+            .command_exit_code
+            .store(exit_code, std::sync::atomic::Ordering::Relaxed);
+        self
     }
 
     fn started(&self) -> usize {
@@ -2324,6 +2464,34 @@ impl RecordingProjectCommandEngine {
             .lock()
             .expect("executed containers")
             .clone()
+    }
+
+    fn command_environments(&self) -> Vec<BTreeMap<String, String>> {
+        self.execution
+            .command_environments
+            .lock()
+            .expect("command environments")
+            .clone()
+    }
+
+    fn created(&self) -> Vec<String> {
+        self.execution.created.lock().expect("created").clone()
+    }
+
+    fn lifecycle_started(&self) -> Vec<String> {
+        self.execution
+            .lifecycle_started
+            .lock()
+            .expect("lifecycle started")
+            .clone()
+    }
+
+    fn stopped(&self) -> Vec<String> {
+        self.execution.stopped.lock().expect("stopped").clone()
+    }
+
+    fn removed(&self) -> Vec<String> {
+        self.execution.removed.lock().expect("removed").clone()
     }
 }
 
@@ -2364,7 +2532,7 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
     fn start_command<'operation>(
         &'operation self,
         container: &'operation crate::control_plane::engine::OwnedContainer,
-        _request: &'operation crate::control_plane::engine::CommandRequest,
+        request: &'operation crate::control_plane::engine::CommandRequest,
     ) -> crate::control_plane::engine::EngineFuture<
         'operation,
         crate::control_plane::engine::CommandSession,
@@ -2377,6 +2545,11 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .lock()
             .expect("executed containers")
             .push(container.id().as_str().to_owned());
+        self.execution
+            .command_environments
+            .lock()
+            .expect("command environments")
+            .push(request.environment().clone());
         let container_id = container.id().clone();
         Box::pin(async move {
             let (writer, _reader) = tokio::io::duplex(1024);
@@ -2408,7 +2581,98 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
         'operation,
         crate::control_plane::engine::CommandStatus,
     > {
-        Box::pin(async { Ok(crate::control_plane::engine::CommandStatus::Exited(0)) })
+        let exit_code = self
+            .execution
+            .command_exit_code
+            .load(std::sync::atomic::Ordering::Relaxed);
+        Box::pin(async move {
+            Ok(crate::control_plane::engine::CommandStatus::Exited(
+                exit_code,
+            ))
+        })
+    }
+}
+
+impl crate::control_plane::engine::ContainerLifecycle for RecordingProjectCommandEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation crate::control_plane::engine::ContainerCreateOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::OwnedContainer,
+    > {
+        self.execution
+            .created
+            .lock()
+            .expect("created")
+            .push(options.name().to_owned());
+        let observed = crate::control_plane::engine::ObservedContainer::new(
+            crate::control_plane::engine::ContainerId::new(options.name()),
+            options.metadata().labels(),
+        );
+        let owned = crate::control_plane::engine::reconstruct_owned_container(
+            &observed,
+            options.metadata().installation_id(),
+            options.metadata().schema_version(),
+        )
+        .expect("created ownership");
+
+        Box::pin(async move { Ok(owned) })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .lifecycle_started
+            .lock()
+            .expect("lifecycle started")
+            .push(container.id().as_str().to_owned());
+        Box::pin(async { Ok(()) })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .stopped
+            .lock()
+            .expect("stopped")
+            .push(container.id().as_str().to_owned());
+        Box::pin(async { Ok(()) })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .removed
+            .lock()
+            .expect("removed")
+            .push(container.id().as_str().to_owned());
+        Box::pin(async { Ok(()) })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::ContainerState,
+    > {
+        Box::pin(async { Ok(crate::control_plane::engine::ContainerState::Running) })
+    }
+}
+
+impl crate::control_plane::engine::HealthObserver for RecordingProjectCommandEngine {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async { Ok(ContainerHealth::Healthy) })
     }
 }
 
@@ -2416,6 +2680,23 @@ fn queued_composer_command(
     operation_id: &str,
     project_id: &str,
     service_id: &str,
+) -> QueuedProjectCommand {
+    queued_composer_command_with_browser(operation_id, project_id, service_id, false)
+}
+
+fn queued_browser_command(
+    operation_id: &str,
+    project_id: &str,
+    service_id: &str,
+) -> QueuedProjectCommand {
+    queued_composer_command_with_browser(operation_id, project_id, service_id, true)
+}
+
+fn queued_composer_command_with_browser(
+    operation_id: &str,
+    project_id: &str,
+    service_id: &str,
+    browser_session: bool,
 ) -> QueuedProjectCommand {
     let project = crate::control_plane::ProjectIdentity::resolve(
         Some(project_id),
@@ -2431,11 +2712,21 @@ fn queued_composer_command(
             environment: BTreeMap::new(),
             input: Vec::new(),
             timeout: Duration::from_secs(30),
+            browser_session,
         },
     )
     .expect("project command plan");
 
     QueuedProjectCommand::new(operation_id.to_owned(), service_id.to_owned(), plan)
+}
+
+fn command_execution_options(operation: QueuedProjectCommand) -> ProjectCommandExecutionOptions {
+    ProjectCommandExecutionOptions {
+        operation,
+        installation_id: "install-1".to_owned(),
+        schema_version: 8,
+        ephemeral_browser: None,
+    }
 }
 
 fn project_log_request(session_id: &str) -> ProjectLogRequest {

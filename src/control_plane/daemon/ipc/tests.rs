@@ -228,6 +228,7 @@ fn artisan_and_exec_requests_preserve_non_shell_arguments() {
     let commands = [
         IpcProjectCommand::Artisan {
             arguments: vec!["migrate".to_owned(), "--force".to_owned()],
+            browser: false,
         },
         IpcProjectCommand::Exec {
             arguments: vec!["php".to_owned(), "-v".to_owned()],

@@ -797,6 +797,7 @@ where
         environment: environment.values().clone(),
         input: Vec::new(),
         timeout: Duration::from_secs(timeout_seconds),
+        browser_session: matches!(command, IpcProjectCommand::Artisan { browser: true, .. }),
     })
     .map_err(|error| error.to_string())?;
 
@@ -832,7 +833,7 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
         IpcProjectCommand::Bun { arguments } => ProjectCommand::Bun {
             arguments: arguments.clone(),
         },
-        IpcProjectCommand::Artisan { arguments } => ProjectCommand::Artisan {
+        IpcProjectCommand::Artisan { arguments, .. } => ProjectCommand::Artisan {
             arguments: arguments.clone(),
         },
         IpcProjectCommand::Exec { arguments } => ProjectCommand::Exec {

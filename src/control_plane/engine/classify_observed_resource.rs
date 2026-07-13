@@ -64,7 +64,11 @@ pub(crate) fn classify_observed_resource(
                 detail: format!("managed resource label '{RESOURCE_LABEL}' is missing"),
             };
         }
-        None if kind == ResourceKind::ProjectProcess => {
+        None if matches!(
+            kind,
+            ResourceKind::ProjectProcess | ResourceKind::EphemeralService
+        ) =>
+        {
             return ObservedResourceOwnership::Malformed {
                 detail: format!("managed resource label '{RESOURCE_LABEL}' is missing"),
             };

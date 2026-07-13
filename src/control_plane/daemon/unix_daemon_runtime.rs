@@ -34,7 +34,7 @@ use crate::control_plane::workload::{
     OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, WorkloadReconcileError,
     WorkloadReconcileOptions, project_volume_resource_record, reconcile_project_application,
     reconcile_project_process, reconcile_project_service, reconcile_project_volume,
-    stop_orphaned_project_workloads, workload_resource_record,
+    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -51,7 +51,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
     runtime_directory: PathBuf,
     pub(super) global_network_request: NetworkCreateOptions,
-    engine_reconciliation: EngineReconciliationSchedule,
+    pub(super) engine_reconciliation: EngineReconciliationSchedule,
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
@@ -385,6 +385,41 @@ impl UnixDaemonRuntime {
                 network_id = network.network().id().as_str(),
                 "created the global Stackctl Engine network"
             );
+        }
+
+        let removed_ephemeral = self
+            .engine_runtime
+            .block_on(remove_stale_ephemeral_services(
+                engine,
+                self.global_network_request.metadata().installation_id(),
+                self.global_network_request.metadata().schema_version(),
+            ));
+        match removed_ephemeral {
+            Ok(removed) if removed > 0 => {
+                tracing::info!(removed, "removed interrupted ephemeral services");
+            }
+            Ok(_) => {}
+            Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %error,
+                    "ephemeral service recovery lost the selected Engine; retry scheduled"
+                );
+
+                return;
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "ephemeral service recovery blocked");
+
+                return;
+            }
         }
 
         let observed_at_unix_seconds = unix_time_seconds();
@@ -919,7 +954,7 @@ fn remove_stale_socket(path: &Path) -> Result<(), UnixDaemonRuntimeError> {
     }
 }
 
-fn runtime_linux_platform() -> Result<&'static str, String> {
+pub(super) fn runtime_linux_platform() -> Result<&'static str, String> {
     match std::env::consts::ARCH {
         "aarch64" => Ok("linux/arm64"),
         "x86_64" => Ok("linux/amd64"),

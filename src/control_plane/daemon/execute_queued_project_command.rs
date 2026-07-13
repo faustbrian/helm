@@ -1,32 +1,38 @@
-use super::{ProjectCommandExecutionResult, QueuedProjectCommand};
+use super::{ProjectCommandExecutionOptions, ProjectCommandExecutionResult};
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ObservedResourceOwnership, OwnedContainer, ResourceKind,
-    reconstruct_owned_container,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver,
+    ObservedResourceOwnership, OwnedContainer, ResourceKind, reconstruct_owned_container,
 };
-use crate::control_plane::workload::run_project_command;
+use crate::control_plane::workload::{run_ephemeral_browser_command, run_project_command};
 
 /// Resolves exact live ownership, then executes only in the requested app.
 pub(crate) async fn execute_queued_project_command<E>(
-    engine: E,
-    operation: QueuedProjectCommand,
-    installation_id: String,
-    schema_version: u32,
+    mut engine: E,
+    options: ProjectCommandExecutionOptions,
 ) -> ProjectCommandExecutionResult
 where
-    E: ContainerDiscovery + CommandExecutor,
+    E: ContainerDiscovery + CommandExecutor + ContainerLifecycle + HealthObserver,
 {
+    let operation = options.operation;
     let operation_id = operation.operation_id().to_owned();
     let outcome = async {
+        let browser = options.ephemeral_browser.transpose()?;
         let application = find_application(
             &engine,
             operation.plan().project_id(),
             operation.service_id(),
-            &installation_id,
-            schema_version,
+            &options.installation_id,
+            options.schema_version,
         )
         .await?;
 
-        run_project_command(&engine, &application, operation.plan()).await
+        match browser {
+            Some(browser) => {
+                run_ephemeral_browser_command(&mut engine, &application, operation.plan(), &browser)
+                    .await
+            }
+            None => run_project_command(&engine, &application, operation.plan()).await,
+        }
     }
     .await;
 

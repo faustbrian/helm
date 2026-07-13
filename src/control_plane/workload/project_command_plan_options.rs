@@ -10,4 +10,5 @@ pub(crate) struct ProjectCommandPlanOptions {
     pub(crate) environment: BTreeMap<String, String>,
     pub(crate) input: Vec<u8>,
     pub(crate) timeout: Duration,
+    pub(crate) browser_session: bool,
 }

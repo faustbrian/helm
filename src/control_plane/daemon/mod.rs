@@ -34,6 +34,7 @@ mod invalidate_engine_connection;
 mod ipc;
 mod persisted_project_command;
 mod plan_engine_reconciliation;
+mod project_command_execution_options;
 mod project_command_execution_result;
 mod project_command_queue;
 mod project_command_queue_error;
@@ -124,6 +125,7 @@ pub(crate) use ipc::{
 };
 pub(crate) use persisted_project_command::PersistedProjectCommand;
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
+pub(crate) use project_command_execution_options::ProjectCommandExecutionOptions;
 pub(crate) use project_command_execution_result::ProjectCommandExecutionResult;
 pub(crate) use project_command_queue::ProjectCommandQueue;
 pub(crate) use project_command_queue_error::ProjectCommandQueueError;

@@ -33,7 +33,7 @@ logical resources reconcile independently and idempotently.
 | Reverb | Project | Project process and credentials | No persistent service data by default | Always project-scoped |
 | Horizon/workers | Project | Project process using project credentials | Queue data belongs to cache service | Always project-scoped |
 | Scheduler | Project execution | Timed container exec or supervised process | No independent persistent data | Always project-scoped; avoid idle container when exec works |
-| Dusk/Selenium | Ephemeral/dedicated | Whole browser container | Disposable | Always per test/project run |
+| Dusk/Selenium | Ephemeral | Whole browser container | Disposable | Always per test/project run |
 | Gotenberg | Shared by exact image/config | Stateless HTTP | No service data | Fonts, policy, or config differs |
 | Mailpit | Shared | Authenticated SMTP username tag and deterministic route | Optional message export | Attribution or access isolation differs |
 | MailHog | Dedicated until attribution is proven | Whole project instance | Optional message export | Default; no equivalent authenticated attribution contract is proven |
@@ -61,6 +61,14 @@ the same exact implementation, major version, image digest, and platform
 identity as its container. Existing identity drift fails before container
 replacement and requires explicit migration. Memcached, MailHog, and Soketi
 remain volume-free because their current dedicated contracts are stateless.
+
+Dusk and Selenium are never steady project services. Each browser-test command
+gets a deterministic operation-scoped container using the locked immutable
+image, Linux platform, private Stackctl network, official Grid readiness probe,
+and 2 GiB shared-memory allocation. It publishes no host port, has no restart
+policy, and is stopped and removed after command success or failure. If daemon
+shutdown interrupts cleanup, the next serialized reconciliation removes the
+owned disposable session before new work begins.
 
 This matrix is enforced by the closed v8 service deployment strategy resolver.
 Unknown presets fail, aliases resolve identically, and every "share only after"

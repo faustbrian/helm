@@ -1,14 +1,15 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, OrphanedProjectWorkloadOptions,
-    ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
-    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions,
-    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
-    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
-    plan_immutable_project_application, project_process_request, reconcile_project_application,
-    reconcile_project_process, reconcile_project_runtime, reconcile_project_service,
-    reconcile_project_volume, run_project_command, stop_orphaned_project_workloads,
+    EphemeralBrowserOptions, ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec,
+    OrphanedProjectWorkloadOptions, ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
+    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
+    ProjectRuntimeReconcileOptions, ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions,
+    RuntimeEnvironment, RuntimeEnvironmentOptions, RuntimeImageBuildPlan,
+    RuntimeImageBuildPlanOptions, WorkloadReconcileAction, WorkloadReconcileOptions,
+    application_container_request, plan_ephemeral_browser, plan_immutable_project_application,
+    project_process_request, reconcile_project_application, reconcile_project_process,
+    reconcile_project_runtime, reconcile_project_service, reconcile_project_volume,
+    remove_stale_ephemeral_services, run_project_command, stop_orphaned_project_workloads,
     workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
@@ -313,6 +314,7 @@ fn project_tools_and_hooks_are_structured_container_commands() {
             environment: BTreeMap::from([("APP_ENV".to_owned(), "local".to_owned())]),
             input: Vec::new(),
             timeout: Duration::from_secs(300),
+            browser_session: false,
         })
         .expect("project command plan");
 
@@ -341,6 +343,7 @@ fn project_hook_validation_and_debug_output_do_not_leak_arguments() {
         environment: BTreeMap::new(),
         input: Vec::new(),
         timeout: Duration::from_secs(300),
+        browser_session: false,
     })
     .expect_err("invalid hook name");
 
@@ -356,6 +359,7 @@ fn project_hook_validation_and_debug_output_do_not_leak_arguments() {
         environment: BTreeMap::new(),
         input: Vec::new(),
         timeout: Duration::from_secs(300),
+        browser_session: false,
     })
     .expect("sensitive hook plan");
     assert!(!format!("{sensitive_plan:?}").contains("project-secret"));
@@ -372,6 +376,7 @@ fn project_commands_reject_foreign_application_targets_before_engine_exec() {
         environment: BTreeMap::new(),
         input: Vec::new(),
         timeout: Duration::from_secs(300),
+        browser_session: false,
     })
     .expect("project command plan");
     let container = reconstruct_owned_container(
@@ -413,6 +418,7 @@ fn project_commands_execute_through_attached_engine_sessions() {
         environment: BTreeMap::new(),
         input: Vec::new(),
         timeout: Duration::from_secs(300),
+        browser_session: false,
     })
     .expect("project command plan");
     let container = reconstruct_owned_container(
@@ -628,6 +634,74 @@ fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
     assert!(plan.request().command().is_empty());
     assert_eq!(plan.route().domain(), "bill-app.stackctl.localhost");
     assert_eq!(plan.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn ephemeral_browser_plans_are_private_disposable_and_operation_scoped() {
+    let browser = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  browser:\n",
+        "    preset: dusk\n    version: \"4\"\n",
+        "    image: selenium/standalone-chromium@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    ));
+    let options = EphemeralBrowserOptions {
+        service: &browser,
+        operation_id: "operation-42",
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+    };
+
+    let plan = plan_ephemeral_browser(options).expect("ephemeral browser plan");
+    let repeated = plan_ephemeral_browser(EphemeralBrowserOptions {
+        service: &browser,
+        operation_id: "operation-42",
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+    })
+    .expect("repeat browser plan");
+
+    assert_eq!(plan, repeated);
+    assert!(plan.request().name().starts_with("stackctl-ephemeral-"));
+    assert_eq!(
+        plan.request().image(),
+        concat!(
+            "selenium/standalone-chromium@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+    );
+    assert_eq!(
+        plan.request().metadata().kind(),
+        ResourceKind::EphemeralService
+    );
+    assert_eq!(plan.request().metadata().project_id(), Some("bill"));
+    assert_eq!(plan.request().metadata().resource_id(), Some("browser"));
+    assert_eq!(plan.request().network(), Some("stackctl"));
+    assert_eq!(plan.request().platform(), Some("linux/arm64"));
+    assert_eq!(plan.request().shared_memory_bytes(), Some(2_147_483_648));
+    assert!(plan.request().port_bindings().is_empty());
+    assert_eq!(plan.request().restart_policy(), None);
+    assert_eq!(
+        plan.request()
+            .health_check()
+            .expect("Selenium readiness")
+            .engine_test(),
+        [
+            "CMD",
+            "/opt/bin/check-grid.sh",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "4444"
+        ]
+    );
+    assert_eq!(
+        plan.command_environment().get("DUSK_DRIVER_URL"),
+        Some(&format!("http://{}:4444/wd/hub", plan.request().name()))
+    );
 }
 
 #[test]
@@ -960,6 +1034,41 @@ fn orphaned_project_workloads_are_stopped_without_deleting_their_containers() {
     assert_eq!(engine.stopped.len(), 1);
     assert_eq!(engine.stopped[0].id().as_str(), "bill-app-container");
     assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn interrupted_ephemeral_services_are_stopped_and_removed_on_reconciliation() {
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::EphemeralService,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:browser".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:operation-42".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("browser metadata")
+    .with_resource_id("browser")
+    .expect("browser identity");
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![ObservedContainer::new(
+            ContainerId::new("interrupted-browser"),
+            metadata.labels(),
+        )],
+        state: ContainerState::Running,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let removed = runtime
+        .block_on(remove_stale_ephemeral_services(&mut engine, "install-1", 8))
+        .expect("remove interrupted browser");
+
+    assert_eq!(removed, 1);
+    assert_eq!(engine.stopped[0].id().as_str(), "interrupted-browser");
+    assert_eq!(engine.removed[0].id().as_str(), "interrupted-browser");
 }
 
 #[test]

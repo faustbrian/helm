@@ -19,6 +19,8 @@ pub(crate) enum IpcProjectCommand {
     },
     Artisan {
         arguments: Vec<String>,
+        #[serde(default)]
+        browser: bool,
     },
     Exec {
         arguments: Vec<String>,

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added typed operation-scoped browser execution for Dusk and Selenium with
+  durable `--browser` intent, immutable artifacts, official Grid readiness,
+  private-network endpoint injection, no host ports, Engine-native 2 GiB shared
+  memory, unconditional command cleanup, and interrupted-session recovery.
 - Excluded ephemeral Dusk and Selenium declarations from steady Engine
   reconciliation so browser containers remain command-scoped and disposable
   instead of becoming always-on project workloads.

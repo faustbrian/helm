@@ -532,6 +532,27 @@ fn managed_named_volumes_remain_distinct_from_host_bind_mounts() {
 }
 
 #[test]
+fn managed_shared_memory_is_forwarded_without_host_port_exposure() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-ephemeral-browser",
+        concat!(
+            "selenium/standalone-chromium@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::EphemeralService),
+    )
+    .expect("container options")
+    .with_shared_memory_bytes(2_147_483_648)
+    .expect("browser shared memory");
+
+    let (_, request) = create_request(&options);
+    let host = request.host_config.expect("host configuration");
+
+    assert_eq!(host.shm_size, Some(2_147_483_648));
+    assert_eq!(host.port_bindings, None);
+}
+
+#[test]
 fn managed_container_platform_is_explicitly_forwarded_to_the_engine() {
     let options = ContainerCreateOptions::new(
         "stackctl-shared-postgres",

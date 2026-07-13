@@ -18,6 +18,7 @@ pub(crate) struct ContainerCreateOptions {
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
     volume_mounts: Vec<VolumeMount>,
+    shared_memory_bytes: Option<i64>,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
     health_check: Option<ContainerHealthCheck>,
@@ -56,6 +57,7 @@ impl ContainerCreateOptions {
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
             volume_mounts: Vec::new(),
+            shared_memory_bytes: None,
             command: Vec::new(),
             environment: BTreeMap::new(),
             health_check: None,
@@ -152,6 +154,19 @@ impl ContainerCreateOptions {
         self
     }
 
+    /// Sets a bounded Linux `/dev/shm` size for memory-intensive workloads.
+    pub(crate) fn with_shared_memory_bytes(mut self, bytes: u64) -> Result<Self, EngineError> {
+        if bytes == 0 || bytes > i64::MAX as u64 {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed container shared memory must fit a positive Engine byte range"
+                    .to_owned(),
+            });
+        }
+        self.shared_memory_bytes = Some(bytes as i64);
+
+        Ok(self)
+    }
+
     pub(crate) fn with_command(mut self, command: Vec<String>) -> Result<Self, EngineError> {
         if command.first().is_none_or(String::is_empty)
             || command.iter().any(|argument| argument.contains('\0'))
@@ -241,6 +256,10 @@ impl ContainerCreateOptions {
         &self.volume_mounts
     }
 
+    pub(crate) const fn shared_memory_bytes(&self) -> Option<i64> {
+        self.shared_memory_bytes
+    }
+
     pub(crate) fn command(&self) -> &[String] {
         &self.command
     }
@@ -271,6 +290,7 @@ impl Debug for ContainerCreateOptions {
             .field("port_bindings", &self.port_bindings)
             .field("bind_mounts", &self.bind_mounts)
             .field("volume_mounts", &self.volume_mounts)
+            .field("shared_memory_bytes", &self.shared_memory_bytes)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
             .field("health_check", &self.health_check)

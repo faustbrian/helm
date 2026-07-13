@@ -20,6 +20,8 @@ pub(crate) struct PersistedProjectCommand {
     environment: BTreeMap<String, String>,
     input: Vec<u8>,
     timeout_milliseconds: u64,
+    #[serde(default)]
+    browser_session: bool,
 }
 
 impl PersistedProjectCommand {
@@ -34,6 +36,7 @@ impl PersistedProjectCommand {
             environment: operation.plan().environment().clone(),
             input: operation.plan().input().to_vec(),
             timeout_milliseconds,
+            browser_session: operation.plan().browser_session(),
         })
     }
 
@@ -54,6 +57,7 @@ impl PersistedProjectCommand {
             environment: self.environment,
             input: self.input,
             timeout: Duration::from_millis(self.timeout_milliseconds),
+            browser_session: self.browser_session,
         })
         .map_err(|error| error.to_string())?;
 

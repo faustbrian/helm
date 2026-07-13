@@ -90,16 +90,22 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
     match &cli.command {
         Commands::Artisan(args) => {
             reject_legacy_selectors(args.kind.is_some(), args.profile())?;
-            if args.browser || args.command.iter().any(|argument| argument == "--browser") {
-                bail!(
-                    "v8 artisan browser bootstrapping is not supported; run browser tests without --browser or use the v7 runtime"
-                );
-            }
+            let browser = args.browser
+                || args
+                    .command
+                    .iter()
+                    .any(|argument| argument == "--browser" || argument.starts_with("--browser="));
+            let arguments = args
+                .command
+                .iter()
+                .filter(|argument| {
+                    argument.as_str() != "--browser" && !argument.starts_with("--browser=")
+                })
+                .cloned()
+                .collect();
             Ok((
                 args.service().unwrap_or("app").to_owned(),
-                IpcProjectCommand::Artisan {
-                    arguments: args.command.clone(),
-                },
+                IpcProjectCommand::Artisan { arguments, browser },
             ))
         }
         Commands::Exec(args) => {
@@ -487,6 +493,7 @@ mod tests {
             invocation.command,
             IpcProjectCommand::Artisan {
                 arguments: vec!["migrate".to_owned(), "--force".to_owned()],
+                browser: false,
             }
         );
     }
@@ -512,10 +519,13 @@ mod tests {
     }
 
     #[test]
-    fn v8_artisan_rejects_unimplemented_browser_bootstrapping() {
+    fn v8_artisan_transports_browser_bootstrapping_without_shell_flags() {
         let root = project(
             ".stackctl.yaml",
-            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+            concat!(
+                "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+                "  browser:\n    preset: dusk\n"
+            ),
         );
         let cli = Cli::parse_from([
             "stackctl",
@@ -527,9 +537,17 @@ mod tests {
         ]);
         let context = CliDispatchContext::from_cli(&cli);
 
-        let error = resolve_v8_invocation(&cli, &context).expect_err("browser bootstrap");
+        let invocation = resolve_v8_invocation(&cli, &context)
+            .expect("browser bootstrap")
+            .expect("v8 invocation");
 
-        assert!(error.to_string().contains("browser bootstrapping"));
+        assert_eq!(
+            invocation.command,
+            IpcProjectCommand::Artisan {
+                arguments: vec!["test".to_owned()],
+                browser: true,
+            }
+        );
     }
 
     #[test]

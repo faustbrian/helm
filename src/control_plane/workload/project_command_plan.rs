@@ -10,6 +10,7 @@ pub(crate) struct ProjectCommandPlan {
     arguments: Vec<String>,
     action: String,
     attached: AttachedCommandOptions,
+    browser_session: bool,
 }
 
 impl Debug for ProjectCommandPlan {
@@ -19,6 +20,7 @@ impl Debug for ProjectCommandPlan {
             .field("project_id", &self.project_id)
             .field("argument_count", &self.arguments.len())
             .field("action", &self.action)
+            .field("browser_session", &self.browser_session)
             .finish()
     }
 }
@@ -44,6 +46,7 @@ impl ProjectCommandPlan {
             arguments,
             action,
             attached,
+            browser_session: options.browser_session,
         })
     }
 
@@ -77,5 +80,37 @@ impl ProjectCommandPlan {
 
     pub(crate) const fn timeout(&self) -> std::time::Duration {
         self.attached.timeout()
+    }
+
+    pub(crate) const fn browser_session(&self) -> bool {
+        self.browser_session
+    }
+
+    /// Returns the same exact command with command-scoped managed values.
+    pub(crate) fn with_additional_environment(
+        &self,
+        additions: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Self, EngineError> {
+        let mut environment = self.environment().clone();
+        environment.extend(additions.clone());
+        let request = CommandRequest::new(
+            self.arguments.clone(),
+            environment,
+            Some(PROJECT_WORKING_DIRECTORY.to_owned()),
+        )?;
+        let attached = AttachedCommandOptions::new(
+            request,
+            self.input().to_vec(),
+            self.action.clone(),
+            self.timeout(),
+        )?;
+
+        Ok(Self {
+            project_id: self.project_id.clone(),
+            arguments: self.arguments.clone(),
+            action: self.action.clone(),
+            attached,
+            browser_session: self.browser_session,
+        })
     }
 }

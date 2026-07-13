@@ -1,9 +1,14 @@
 use super::ipc::IpcEventKind;
 use super::{
-    ActiveProjectCommand, EngineConnectionOutcome, UnixDaemonRuntime,
-    execute_queued_project_command, publish_project_command_result,
+    ActiveProjectCommand, EngineConnectionOutcome, ProjectCommandExecutionOptions,
+    UnixDaemonRuntime, execute_queued_project_command, publish_project_command_result,
 };
+use crate::control_plane::ServiceDeploymentStrategy;
+use crate::control_plane::engine::EngineError;
 use crate::control_plane::state::{DaemonOperationStatus, DaemonOperationTransitionOptions};
+use crate::control_plane::workload::{
+    EphemeralBrowserOptions, EphemeralBrowserPlan, plan_ephemeral_browser,
+};
 use std::time::Instant;
 
 impl UnixDaemonRuntime {
@@ -72,6 +77,7 @@ impl UnixDaemonRuntime {
             .project_commands
             .pop_front()
             .expect("durably claimed project command remains queued");
+        let ephemeral_browser = self.ephemeral_browser_plan(&operation);
         let installation_id = self
             .global_network_request
             .metadata()
@@ -80,12 +86,65 @@ impl UnixDaemonRuntime {
         let schema_version = self.global_network_request.metadata().schema_version();
         let task = self.engine_runtime.spawn(execute_queued_project_command(
             engine,
-            operation,
-            installation_id,
-            schema_version,
+            ProjectCommandExecutionOptions {
+                operation,
+                installation_id,
+                schema_version,
+                ephemeral_browser,
+            },
         ));
         self.active_project_command = Some(ActiveProjectCommand::new(operation_id, task));
         self.engine_runtime.block_on(tokio::task::yield_now());
+    }
+
+    fn ephemeral_browser_plan(
+        &self,
+        operation: &super::QueuedProjectCommand,
+    ) -> Option<Result<EphemeralBrowserPlan, EngineError>> {
+        if !operation.plan().browser_session() {
+            return None;
+        }
+
+        Some((|| {
+            let execution = self
+                .engine_reconciliation
+                .execution_plan()
+                .ok_or_else(|| invalid("no complete desired registry is available"))?;
+            let matches = execution
+                .services()
+                .iter()
+                .filter(|service| {
+                    service.project().as_str() == operation.plan().project_id()
+                        && service.strategy() == ServiceDeploymentStrategy::Ephemeral
+                })
+                .collect::<Vec<_>>();
+            let browser = match matches.as_slice() {
+                [browser] => *browser,
+                [] => {
+                    return Err(invalid(format!(
+                        "project '{}' has no declared Dusk or Selenium service",
+                        operation.plan().project_id()
+                    )));
+                }
+                _ => {
+                    return Err(invalid(format!(
+                        "project '{}' declares multiple browser services; select exactly one in configuration",
+                        operation.plan().project_id()
+                    )));
+                }
+            };
+            let platform = super::unix_daemon_runtime::runtime_linux_platform().map_err(invalid)?;
+
+            plan_ephemeral_browser(EphemeralBrowserOptions {
+                service: browser,
+                operation_id: operation.operation_id(),
+                installation_id: self.global_network_request.metadata().installation_id(),
+                schema_version: self.global_network_request.metadata().schema_version(),
+                platform,
+                network_name: self.global_network_request.name(),
+            })
+            .map_err(invalid)
+        })())
     }
 
     fn publish_finished_project_command(&mut self, now_unix_seconds: i64) {
@@ -153,5 +212,11 @@ impl UnixDaemonRuntime {
                 }
             }
         }
+    }
+}
+
+fn invalid(detail: impl std::fmt::Display) -> EngineError {
+    EngineError::InvalidRequest {
+        detail: detail.to_string(),
     }
 }
