@@ -8,7 +8,8 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const MANIFEST_PATH: &str = "runtime-manifest.json";
-const INSTALLER_PATH: &str = "/usr/local/bin/stackctl-runtime-install";
+const INSTALLER_CONTEXT_PATH: &str = "runtime-installer.sh";
+const INSTALLER_PATH: &str = "/opt/stackctl/runtime-installer.sh";
 
 /// A deterministic, offline Engine build for one reusable Linux runtime.
 #[derive(Debug, Eq, PartialEq)]
@@ -26,6 +27,7 @@ impl RuntimeImageBuildPlan {
             validate_exact_version("JavaScript runtime", javascript.version())?;
         }
         validate_installer_revision(&options.installer_revision)?;
+        verify_installer(&options.installer, &options.installer_sha256)?;
         normalize_unique(
             &mut options.php_extensions,
             "PHP extension",
@@ -45,6 +47,7 @@ impl RuntimeImageBuildPlan {
             composer_version: &options.composer_version,
             javascript: options.javascript.as_ref(),
             installer_revision: &options.installer_revision,
+            installer_sha256: &options.installer_sha256,
         })
         .map_err(|error| invalid_request(format!("failed to encode runtime manifest: {error}")))?;
         let compatibility_fingerprint = fingerprint(
@@ -62,16 +65,21 @@ impl RuntimeImageBuildPlan {
             retention: RetentionClass::Disposable,
         })?;
         let dockerfile = format!(
-            "FROM {}\nCOPY {} /opt/stackctl/{}\nRUN [\"{}\",\"--offline\",\"--expected-revision\",\"{}\",\"/opt/stackctl/{}\"]\n",
+            "FROM {}\nCOPY {} /opt/stackctl/{}\nCOPY {} {}\nRUN [\"sh\",\"{}\",\"--offline\",\"--expected-revision\",\"{}\",\"/opt/stackctl/{}\"]\n",
             options.base_image_digest,
             MANIFEST_PATH,
             MANIFEST_PATH,
+            INSTALLER_CONTEXT_PATH,
+            INSTALLER_PATH,
             INSTALLER_PATH,
             options.installer_revision,
             MANIFEST_PATH,
         );
         let request = ImageBuildRequest::new(
-            BTreeMap::from([(MANIFEST_PATH.to_owned(), manifest_json.as_bytes().to_vec())]),
+            BTreeMap::from([
+                (MANIFEST_PATH.to_owned(), manifest_json.as_bytes().to_vec()),
+                (INSTALLER_CONTEXT_PATH.to_owned(), options.installer),
+            ]),
             "Dockerfile".to_owned(),
             dockerfile,
             options.platform,
@@ -111,6 +119,7 @@ struct RuntimeImageManifest<'value> {
     composer_version: &'value str,
     javascript: Option<&'value JavaScriptRuntimeSpec>,
     installer_revision: &'value str,
+    installer_sha256: &'value str,
 }
 
 fn validate_exact_version(name: &str, version: &str) -> Result<(), EngineError> {
@@ -137,6 +146,17 @@ fn validate_installer_revision(revision: &str) -> Result<(), EngineError> {
         return Err(invalid_request(format!(
             "runtime installer revision '{revision}' is invalid"
         )));
+    }
+
+    Ok(())
+}
+
+fn verify_installer(installer: &[u8], expected_sha256: &str) -> Result<(), EngineError> {
+    let actual_sha256 = format!("sha256:{}", hex::encode(Sha256::digest(installer)));
+    if installer.is_empty() || actual_sha256 != expected_sha256 {
+        return Err(invalid_request(
+            "runtime installer artifact checksum does not match its expected sha256 digest",
+        ));
     }
 
     Ok(())

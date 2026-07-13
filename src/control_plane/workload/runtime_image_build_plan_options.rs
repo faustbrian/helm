@@ -13,4 +13,6 @@ pub(crate) struct RuntimeImageBuildPlanOptions {
     pub(crate) composer_version: String,
     pub(crate) javascript: Option<JavaScriptRuntimeSpec>,
     pub(crate) installer_revision: String,
+    pub(crate) installer_sha256: String,
+    pub(crate) installer: Vec<u8>,
 }

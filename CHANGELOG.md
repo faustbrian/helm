@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added checksum verification for the runtime installer artifact and included
+  its exact bytes in content-addressed derived-image build contexts, removing
+  the undocumented requirement that base images provide an implicit installer.
 - Made login-service definitions publish atomically without following an
   existing destination symlink, preventing partial writes or writes through
   redirected service paths.

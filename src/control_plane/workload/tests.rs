@@ -20,6 +20,7 @@ use crate::control_plane::engine::{
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -57,8 +58,15 @@ fn equivalent_runtime_inputs_reuse_one_content_addressed_image() {
         first
             .request()
             .dockerfile_contents()
-            .contains("/usr/local/bin/stackctl-runtime-install")
+            .contains("COPY runtime-installer.sh /opt/stackctl/runtime-installer.sh")
     );
+    assert!(
+        first
+            .request()
+            .dockerfile_contents()
+            .contains("/opt/stackctl/runtime-installer.sh")
+    );
+    assert!(first.manifest_json().contains("installer_sha256"));
     assert!(!first.request().dockerfile_contents().contains("curl"));
     assert!(!first.request().dockerfile_contents().contains("http"));
 }
@@ -132,6 +140,23 @@ fn runtime_image_planning_rejects_ranges_duplicates_and_unsafe_packages() {
     assert_eq!(
         unsafe_package.to_string(),
         "runtime image system package 'git;curl example.test' is invalid"
+    );
+}
+
+#[test]
+fn runtime_image_planning_rejects_an_unverified_installer_artifact() {
+    let mut options = runtime_image_options();
+    options.installer_sha256 = concat!(
+        "sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    )
+    .to_owned();
+
+    let error = RuntimeImageBuildPlan::new(options).expect_err("installer checksum mismatch");
+
+    assert_eq!(
+        error.to_string(),
+        "runtime installer artifact checksum does not match its expected sha256 digest"
     );
 }
 
@@ -1089,6 +1114,8 @@ fn application_options(project: &str, path: &str) -> ApplicationContainerPlanOpt
 }
 
 fn runtime_image_options() -> RuntimeImageBuildPlanOptions {
+    let installer = b"#!/bin/sh\nset -eu\n".to_vec();
+
     RuntimeImageBuildPlanOptions {
         installation_id: "install-1".to_owned(),
         schema_version: 8,
@@ -1106,6 +1133,8 @@ fn runtime_image_options() -> RuntimeImageBuildPlanOptions {
             version: "22.17.0".to_owned(),
         }),
         installer_revision: "runtime-installer-v1".to_owned(),
+        installer_sha256: format!("sha256:{}", hex::encode(Sha256::digest(&installer))),
+        installer,
     }
 }
 
