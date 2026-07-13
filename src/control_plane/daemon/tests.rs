@@ -829,6 +829,16 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     assert_eq!(events[1].kind(), &IpcEventKind::Completed);
 
     drop(control_plane);
+    let store = SqliteStateStore::open(&database_path).expect("reopen daemon state");
+    let persisted_events = store.daemon_events().expect("load persisted daemon events");
+    assert_eq!(
+        persisted_events
+            .iter()
+            .map(crate::control_plane::state::DaemonEventRecord::sequence)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    drop(store);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
 }
 

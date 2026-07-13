@@ -2,6 +2,7 @@ use super::{
     IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcPayload, IpcRequest, IpcResponse,
     IpcResult, decode_request_frame, decode_response_frame, encode_frame,
 };
+use crate::control_plane::state::DaemonEventRecord;
 use std::path::PathBuf;
 
 #[test]
@@ -121,6 +122,31 @@ fn event_journal_retention_fails_loudly_for_expired_cursors() {
         decode_response_frame(&frame).expect("decode event response"),
         response
     );
+}
+
+#[test]
+fn event_journal_restores_the_durable_cursor_window() {
+    let journal = IpcEventJournal::restore(vec![
+        DaemonEventRecord::new(
+            41,
+            "operation-1".to_owned(),
+            r#"{"type":"accepted"}"#.to_owned(),
+        ),
+        DaemonEventRecord::new(
+            42,
+            "operation-1".to_owned(),
+            r#"{"type":"completed"}"#.to_owned(),
+        ),
+    ])
+    .expect("restore retained events");
+
+    assert_eq!(journal.latest_sequence(), 42);
+    let resumed = journal
+        .events_after(Some(41))
+        .expect("resume after restart");
+    assert_eq!(resumed.len(), 1);
+    assert_eq!(resumed[0].sequence(), 42);
+    assert_eq!(resumed[0].kind(), &IpcEventKind::Completed);
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use super::{IpcEvent, IpcEventJournalError, IpcEventKind};
+use crate::control_plane::state::DaemonEventRecord;
 use std::collections::VecDeque;
 
 const DEFAULT_EVENT_CAPACITY: usize = 256;
@@ -21,6 +22,67 @@ impl IpcEventJournal {
             next_sequence: 1,
             events: VecDeque::with_capacity(capacity),
         })
+    }
+
+    /// Restores a bounded in-memory cursor view from authoritative state.
+    pub(crate) fn restore(records: Vec<DaemonEventRecord>) -> Result<Self, IpcEventJournalError> {
+        let mut journal = Self::default();
+        if records.len() > journal.capacity {
+            return Err(IpcEventJournalError::CorruptPersistedEvent {
+                sequence: records.first().map_or(0, DaemonEventRecord::sequence),
+                detail: format!(
+                    "{} retained events exceed capacity {}",
+                    records.len(),
+                    journal.capacity
+                ),
+            });
+        }
+        for record in records {
+            journal.append_record(record)?;
+        }
+
+        Ok(journal)
+    }
+
+    pub(crate) const fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Adds one event whose sequence was assigned transactionally by SQLite.
+    pub(crate) fn append_record(
+        &mut self,
+        record: DaemonEventRecord,
+    ) -> Result<IpcEvent, IpcEventJournalError> {
+        let sequence = record.sequence();
+        let previous = self.latest_sequence();
+        if sequence == 0 || (!self.events.is_empty() && sequence <= previous) {
+            return Err(IpcEventJournalError::NonMonotonicPersistedEvent {
+                previous,
+                next: sequence,
+            });
+        }
+        let following = sequence
+            .checked_add(1)
+            .ok_or(IpcEventJournalError::SequenceExhausted)?;
+        let event = IpcEvent::from_record(record).map_err(|error| {
+            IpcEventJournalError::CorruptPersistedEvent {
+                sequence,
+                detail: error.to_string(),
+            }
+        })?;
+        if event.operation_id().is_empty() {
+            return Err(IpcEventJournalError::CorruptPersistedEvent {
+                sequence,
+                detail: "operation ID must not be empty".to_owned(),
+            });
+        }
+        self.next_sequence = following;
+        self.events.push_back(event.clone());
+        if self.events.len() > self.capacity {
+            drop(self.events.pop_front());
+        }
+
+        Ok(event)
     }
 
     pub(crate) fn append(

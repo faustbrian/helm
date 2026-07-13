@@ -31,6 +31,7 @@ mod project_discovery_issue;
 mod project_discovery_options;
 mod project_discovery_report;
 mod reconcile_watched_roots;
+mod record_ipc_event;
 mod requires_followup_reconciliation;
 mod retry_backoff;
 mod retry_backoff_error;

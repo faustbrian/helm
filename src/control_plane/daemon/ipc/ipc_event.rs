@@ -1,4 +1,5 @@
 use super::IpcEventKind;
+use crate::control_plane::state::DaemonEventRecord;
 use serde::{Deserialize, Serialize};
 
 /// One ordered resumable event emitted by the singleton daemon.
@@ -29,5 +30,15 @@ impl IpcEvent {
 
     pub(crate) const fn kind(&self) -> &IpcEventKind {
         &self.kind
+    }
+
+    pub(super) fn from_record(record: DaemonEventRecord) -> Result<Self, serde_json::Error> {
+        let kind = serde_json::from_str(record.kind_json())?;
+
+        Ok(Self::new(
+            record.sequence(),
+            record.operation_id().to_owned(),
+            kind,
+        ))
     }
 }

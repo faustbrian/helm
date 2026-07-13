@@ -1,10 +1,10 @@
 use super::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
-    MigrationRecordOptions, ProjectAdoptionPlan, ProjectAdoptionPlanOptions, ProjectRecord,
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, DaemonEventRecord,
+    EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
+    ProjectAdoptionPlanOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,8 +16,63 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 10);
+    assert_eq!(store.schema_version().expect("schema version"), 11);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn daemon_event_journal_is_bounded_and_monotonic_across_restarts() {
+    let database_path = temporary_database_path("daemon-events");
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        for (operation_id, kind_json) in [
+            ("operation-1", r#"{"type":"accepted"}"#),
+            ("operation-1", r#"{"type":"completed"}"#),
+            (
+                "operation-2",
+                r#"{"type":"failed","code":"blocked","message":"bounded"}"#,
+            ),
+        ] {
+            store
+                .append_daemon_event(operation_id, kind_json, 2)
+                .expect("append daemon event");
+        }
+
+        assert_eq!(
+            store.daemon_events().expect("load retained daemon events"),
+            vec![
+                DaemonEventRecord::new(
+                    2,
+                    "operation-1".to_owned(),
+                    r#"{"type":"completed"}"#.to_owned(),
+                ),
+                DaemonEventRecord::new(
+                    3,
+                    "operation-2".to_owned(),
+                    r#"{"type":"failed","code":"blocked","message":"bounded"}"#.to_owned(),
+                ),
+            ]
+        );
+    }
+
+    let mut store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let appended = store
+        .append_daemon_event("operation-3", r#"{"type":"accepted"}"#, 2)
+        .expect("append after restart");
+    assert_eq!(appended.sequence(), 4);
+    assert_eq!(
+        store
+            .daemon_events()
+            .expect("load events after restart")
+            .iter()
+            .map(DaemonEventRecord::sequence)
+            .collect::<Vec<_>>(),
+        vec![3, 4]
+    );
 
     drop(store);
     remove_database(&database_path);
@@ -1574,7 +1629,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 10);
+    assert_eq!(store.schema_version().expect("schema version"), 11);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -1630,7 +1685,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 10);
+    assert_eq!(store.schema_version().expect("schema version"), 11);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -1674,7 +1729,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 10);
+    assert_eq!(store.schema_version().expect("schema version"), 11);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);

@@ -61,6 +61,8 @@ pub(crate) enum StateStoreError {
     ProjectAdoptionStateMismatch { project_id: String, detail: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
+    /// A daemon event cannot be persisted without violating journal invariants.
+    InvalidDaemonEvent { detail: String },
     /// A private state snapshot could not be created or retained safely.
     StateBackupIo {
         action: &'static str,
@@ -171,6 +173,9 @@ impl Display for StateStoreError {
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
             }
+            Self::InvalidDaemonEvent { detail } => {
+                write!(formatter, "invalid daemon event: {detail}")
+            }
             Self::StateBackupIo {
                 action,
                 path,
@@ -210,7 +215,8 @@ impl Error for StateStoreError {
             | Self::InvalidMigrationRollback { .. }
             | Self::ProjectAdoptionTargetMissing { .. }
             | Self::ProjectAdoptionStateMismatch { .. }
-            | Self::CorruptState { .. } => None,
+            | Self::CorruptState { .. }
+            | Self::InvalidDaemonEvent { .. } => None,
         }
     }
 }

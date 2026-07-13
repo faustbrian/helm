@@ -8,6 +8,8 @@ pub(crate) enum IpcEventJournalError {
     InvalidCapacity,
     InvalidOperationId,
     SequenceExhausted,
+    CorruptPersistedEvent { sequence: u64, detail: String },
+    NonMonotonicPersistedEvent { previous: u64, next: u64 },
     CursorExpired { requested: u64, oldest: u64 },
     CursorAhead { requested: u64, latest: u64 },
 }
@@ -18,6 +20,14 @@ impl Display for IpcEventJournalError {
             Self::InvalidCapacity => formatter.write_str("event journal capacity must be positive"),
             Self::InvalidOperationId => formatter.write_str("event operation ID must not be empty"),
             Self::SequenceExhausted => formatter.write_str("event sequence space is exhausted"),
+            Self::CorruptPersistedEvent { sequence, detail } => write!(
+                formatter,
+                "persisted daemon event {sequence} is invalid: {detail}"
+            ),
+            Self::NonMonotonicPersistedEvent { previous, next } => write!(
+                formatter,
+                "persisted daemon event sequence {next} does not follow {previous} monotonically"
+            ),
             Self::CursorExpired { requested, oldest } => write!(
                 formatter,
                 "event cursor {requested} is no longer retained; oldest available sequence is {oldest}"

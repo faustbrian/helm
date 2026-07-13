@@ -6,9 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added a bounded monotonic singleton event journal with resumable cursor
-  polling, explicit stale-cursor diagnostics, and accepted, completed, or
-  failed lifecycle events for reconciliation and project adoption.
+- Added a bounded monotonic SQLite-backed singleton event journal with
+  restart-safe resumable cursor polling, explicit stale-cursor diagnostics,
+  and accepted, completed, or failed lifecycle events for reconciliation and
+  project adoption.
 - Added daemon startup integrity checks and private, bounded, consistent SQLite
   recovery snapshots before state migration or mutation, with fail-closed
   handling that preserves the original database when verification fails.

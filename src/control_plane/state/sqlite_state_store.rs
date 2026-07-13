@@ -6,7 +6,7 @@ use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
-    CredentialLifecycle, CredentialRecord, EngineProvider, EnvironmentLifecycle,
+    CredentialLifecycle, CredentialRecord, DaemonEventRecord, EngineProvider, EnvironmentLifecycle,
     InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
     ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
     ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
@@ -16,7 +16,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 10;
+const CURRENT_SCHEMA_VERSION: u32 = 11;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -228,6 +228,16 @@ impl SqliteStateStore {
                      CHECK(scope_id IS NULL OR length(scope_id) > 0);
                  CREATE INDEX resources_scope_idx
                      ON resources(installation_id, kind, project_id, scope_id);",
+            )?;
+        }
+
+        if found < 11 {
+            transaction.execute_batch(
+                "CREATE TABLE daemon_events (
+                     sequence INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                     operation_id TEXT NOT NULL CHECK(length(operation_id) > 0),
+                     kind_json TEXT NOT NULL CHECK(length(kind_json) > 0)
+                 ) STRICT;",
             )?;
         }
 
@@ -1242,6 +1252,78 @@ impl StateStore for SqliteStateStore {
         persisted
             .into_iter()
             .map(PersistedMigration::into_record)
+            .collect()
+    }
+
+    fn append_daemon_event(
+        &mut self,
+        operation_id: &str,
+        kind_json: &str,
+        retention_limit: usize,
+    ) -> Result<DaemonEventRecord, StateStoreError> {
+        if operation_id.is_empty() || kind_json.is_empty() || retention_limit == 0 {
+            return Err(StateStoreError::InvalidDaemonEvent {
+                detail: "operation ID, event payload, and retention limit must be non-empty"
+                    .to_owned(),
+            });
+        }
+        let retention_limit =
+            i64::try_from(retention_limit).map_err(|_| StateStoreError::InvalidDaemonEvent {
+                detail: "retention limit exceeds SQLite integer range".to_owned(),
+            })?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO daemon_events (operation_id, kind_json) VALUES (?1, ?2)",
+            params![operation_id, kind_json],
+        )?;
+        let sequence = u64::try_from(transaction.last_insert_rowid()).map_err(|_| {
+            StateStoreError::CorruptState {
+                detail: "daemon event sequence is outside the supported range".to_owned(),
+            }
+        })?;
+        transaction.execute(
+            "DELETE FROM daemon_events
+             WHERE sequence NOT IN (
+                 SELECT sequence FROM daemon_events
+                 ORDER BY sequence DESC LIMIT ?1
+             )",
+            [retention_limit],
+        )?;
+        transaction.commit()?;
+
+        Ok(DaemonEventRecord::new(
+            sequence,
+            operation_id.to_owned(),
+            kind_json.to_owned(),
+        ))
+    }
+
+    fn daemon_events(&self) -> Result<Vec<DaemonEventRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, operation_id, kind_json
+             FROM daemon_events ORDER BY sequence",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(|(sequence, operation_id, kind_json)| {
+                let sequence =
+                    u64::try_from(sequence).map_err(|_| StateStoreError::CorruptState {
+                        detail: "daemon event sequence is outside the supported range".to_owned(),
+                    })?;
+                Ok(DaemonEventRecord::new(sequence, operation_id, kind_json))
+            })
             .collect()
     }
 }

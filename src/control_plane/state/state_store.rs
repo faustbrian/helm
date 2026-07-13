@@ -1,6 +1,7 @@
 use super::{
-    CredentialRecord, InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord,
-    MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceRecord, StateStoreError,
+    CredentialRecord, DaemonEventRecord, InstallationRecord, LogicalResourceRecord,
+    ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceRecord,
+    StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -140,4 +141,15 @@ pub(crate) trait StateStore {
 
     /// Loads migration checkpoints in stable identity order.
     fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
+
+    /// Atomically appends one event and retains only the newest bounded set.
+    fn append_daemon_event(
+        &mut self,
+        operation_id: &str,
+        kind_json: &str,
+        retention_limit: usize,
+    ) -> Result<DaemonEventRecord, StateStoreError>;
+
+    /// Loads retained daemon events in monotonic sequence order.
+    fn daemon_events(&self) -> Result<Vec<DaemonEventRecord>, StateStoreError>;
 }

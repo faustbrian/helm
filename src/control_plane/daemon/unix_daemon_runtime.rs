@@ -76,6 +76,7 @@ impl UnixDaemonRuntime {
             &runtime_directory.join("state-backups"),
             unix_time_seconds(),
         )?;
+        let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
         let engine_runtime = tokio::runtime::Builder::new_current_thread()
@@ -103,7 +104,7 @@ impl UnixDaemonRuntime {
             runtime_directory,
             global_network_request,
             engine_reconciliation: EngineReconciliationSchedule::default(),
-            event_journal: IpcEventJournal::default(),
+            event_journal,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,

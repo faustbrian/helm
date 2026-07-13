@@ -4,6 +4,7 @@ use super::{
     SingletonLeaseError,
 };
 use crate::control_plane::daemon::ipc::IpcError;
+use crate::control_plane::daemon::ipc::IpcEventJournalError;
 use crate::control_plane::engine::EngineError;
 use crate::control_plane::state::StateStoreError;
 use std::error::Error;
@@ -24,6 +25,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     Lease(SingletonLeaseError),
     State(StateStoreError),
     Ipc(IpcError),
+    EventJournal(IpcEventJournalError),
     Watcher(FilesystemEventWatcherError),
     Installation(InstallationInitializationError),
     EngineConfiguration(EngineError),
@@ -50,6 +52,7 @@ impl Display for UnixDaemonRuntimeError {
             Self::Lease(error) => Display::fmt(error, formatter),
             Self::State(error) => Display::fmt(error, formatter),
             Self::Ipc(error) => Display::fmt(error, formatter),
+            Self::EventJournal(error) => Display::fmt(error, formatter),
             Self::Watcher(error) => Display::fmt(error, formatter),
             Self::Installation(error) => Display::fmt(error, formatter),
             Self::EngineConfiguration(error) => {
@@ -74,6 +77,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::Lease(error) => Some(error),
             Self::State(error) => Some(error),
             Self::Ipc(error) => Some(error),
+            Self::EventJournal(error) => Some(error),
             Self::Watcher(error) => Some(error),
             Self::Installation(error) => Some(error),
             Self::EngineConfiguration(error) => Some(error),
@@ -101,6 +105,12 @@ impl From<StateStoreError> for UnixDaemonRuntimeError {
 impl From<IpcError> for UnixDaemonRuntimeError {
     fn from(error: IpcError) -> Self {
         Self::Ipc(error)
+    }
+}
+
+impl From<IpcEventJournalError> for UnixDaemonRuntimeError {
+    fn from(error: IpcEventJournalError) -> Self {
+        Self::EventJournal(error)
     }
 }
 
