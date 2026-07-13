@@ -3,12 +3,14 @@ use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
-    ContainerLifecycle, ContainerState, EngineError, EngineFuture, ImageId, ImageResolver,
-    ImmutableImageReference, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerState, EngineError,
+    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
+    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
     ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
     OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource,
 };
+use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
 use bollard::models::{
     ContainerCreateBody, ContainerSummary, EventMessage, EventMessageTypeEnum, HostConfig, Mount,
@@ -18,7 +20,7 @@ use bollard::models::{
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder,
     ListContainersOptionsBuilder, ListNetworksOptionsBuilder, ListVolumesOptionsBuilder,
-    RemoveVolumeOptions,
+    LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use futures_util::{StreamExt, TryStreamExt};
@@ -258,6 +260,64 @@ impl ContainerEventSource for BollardEngineAdapter {
     }
 }
 
+impl LogSource for BollardEngineAdapter {
+    fn logs<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        options: &'operation ContainerLogOptions,
+    ) -> EngineFuture<'operation, ContainerLogStream<'operation>> {
+        Box::pin(async move {
+            bounded_engine_operation("open container logs", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify container log ownership", error))?;
+                verify_owned_container_labels_for(
+                    "read logs from",
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )
+            })
+            .await?;
+
+            let stream = self
+                .docker
+                .logs(container.id().as_str(), Some(log_request(options)))
+                .map(|result| {
+                    result
+                        .map(log_chunk)
+                        .map_err(|error| backend_error("stream container logs", error))
+                });
+
+            let stream: ContainerLogStream<'operation> = Box::pin(stream);
+
+            Ok(stream)
+        })
+    }
+}
+
+pub(super) fn log_request(options: &ContainerLogOptions) -> LogsOptions {
+    LogsOptionsBuilder::default()
+        .follow(options.follow())
+        .stdout(true)
+        .stderr(true)
+        .tail(&options.tail().engine_value())
+        .build()
+}
+
+pub(super) fn log_chunk(output: LogOutput) -> LogChunk {
+    match output {
+        LogOutput::StdOut { message } => LogChunk::new(LogStreamKind::Stdout, message.to_vec()),
+        LogOutput::StdErr { message } => LogChunk::new(LogStreamKind::Stderr, message.to_vec()),
+        LogOutput::StdIn { message } => LogChunk::new(LogStreamKind::Stdin, message.to_vec()),
+        LogOutput::Console { message } => LogChunk::new(LogStreamKind::Console, message.to_vec()),
+    }
+}
+
 pub(super) fn managed_container_events_request(
     installation_id: &str,
     cursor: &ContainerEventCursor,
@@ -430,12 +490,20 @@ pub(super) fn verify_owned_container_labels(
     container: &OwnedContainer,
     labels: &HashMap<String, String>,
 ) -> Result<(), EngineError> {
+    verify_owned_container_labels_for("mutate", container, labels)
+}
+
+fn verify_owned_container_labels_for(
+    action: &'static str,
+    container: &OwnedContainer,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
     if labels_match_metadata(labels, container.metadata()) {
         return Ok(());
     }
 
     Err(EngineError::OwnershipMismatch {
-        action: "mutate",
+        action,
         resource_kind: "container",
         resource_id: container.id().as_str().to_owned(),
     })

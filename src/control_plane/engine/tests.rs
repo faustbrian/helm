@@ -1,15 +1,17 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerId,
-    ContainerLifecycle, ContainerState, EngineFuture, ImageId, ImageResolver,
-    ImmutableImageReference, ManagedResourceMetadata, ManagedResourceMetadataOptions,
-    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
-    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail, ContainerState,
+    EngineFuture, ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource, gateway_container_request, reconstruct_owned_container,
     reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
+use bollard::container::LogOutput;
 use bollard::models::{
     ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Network, Volume,
 };
@@ -19,11 +21,11 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    container_event, create_request, image_pull_request, managed_container_events_request,
-    managed_container_list_request, managed_network_list_request, managed_volume_list_request,
-    network_create_request, observed_container, observed_network, observed_volume,
-    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_create_request,
+    container_event, create_request, image_pull_request, log_chunk, log_request,
+    managed_container_events_request, managed_container_list_request, managed_network_list_request,
+    managed_volume_list_request, network_create_request, observed_container, observed_network,
+    observed_volume, validate_engine_api_version, verify_owned_container_labels,
+    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -253,6 +255,53 @@ fn container_event_source_is_streaming_and_object_safe() {
         .expect("valid event");
 
     assert_eq!(event.action(), &ContainerEventAction::Started);
+}
+
+#[test]
+fn log_stream_options_are_typed_and_preserve_non_utf8_bytes() {
+    let options =
+        ContainerLogOptions::new(true, ContainerLogTail::last(25).expect("positive log tail"));
+    let request = log_request(&options);
+    let chunk = log_chunk(LogOutput::StdErr {
+        message: vec![0xff, b'\n'].into(),
+    });
+
+    assert!(request.follow);
+    assert!(request.stdout);
+    assert!(request.stderr);
+    assert!(!request.timestamps);
+    assert_eq!(request.tail, "25");
+    assert!(chunk.is_stderr());
+    assert_eq!(chunk.bytes(), &[0xff, b'\n']);
+    assert_eq!(
+        ContainerLogTail::last(0)
+            .expect_err("zero log tail")
+            .to_string(),
+        "container log tail must be greater than zero"
+    );
+}
+
+#[test]
+fn log_source_requires_an_owned_container_and_is_object_safe() {
+    let source = RecordingLogSource;
+    let strategy: &dyn LogSource = &source;
+    let container = OwnedContainer::new(
+        ContainerId::new("container-1"),
+        global_metadata(ResourceKind::ProjectApplication),
+    );
+    let options = ContainerLogOptions::new(false, ContainerLogTail::all());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let chunk = runtime
+        .block_on(async {
+            let mut stream = strategy.logs(&container, &options).await?;
+            stream.next().await.expect("log item")
+        })
+        .expect("valid log chunk");
+
+    assert_eq!(chunk.bytes(), b"ready\n");
 }
 
 #[test]
@@ -816,6 +865,25 @@ impl ContainerEventSource for RecordingContainerEventSource {
                 1,
             ))
         }))
+    }
+}
+
+struct RecordingLogSource;
+
+impl LogSource for RecordingLogSource {
+    fn logs<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _options: &'operation ContainerLogOptions,
+    ) -> EngineFuture<'operation, ContainerLogStream<'operation>> {
+        Box::pin(async {
+            let stream: ContainerLogStream<'operation> =
+                Box::pin(futures_util::stream::once(async {
+                    Ok(LogChunk::stdout(b"ready\n".to_vec()))
+                }));
+
+            Ok(stream)
+        })
     }
 }
 
