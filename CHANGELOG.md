@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict v8 `ps` over singleton IPC with table and JSON output for exact
+  registered routes, project-owned runtime resources, shared logical tenants,
+  and their durable lifecycle without exposing credentials or invoking the
+  container engine from the CLI.
 - Added strict v8 YAML dispatch for Composer, Bun, and Node package-manager
   commands through the singleton IPC boundary, with exact service selection,
   resumable binary-safe output, declarative runtime-version enforcement, and

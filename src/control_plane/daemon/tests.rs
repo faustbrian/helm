@@ -9,7 +9,8 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcPayload, IpcProjectCommand, IpcRequest, IpcResponse, IpcResult,
+    IpcEventKind, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
@@ -1052,6 +1053,100 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     );
     drop(store);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
+    let root = temporary_directory("ipc-project-status");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(
+        project_path.clone(),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    );
+    let application = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-app".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:application".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let logical = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "bill/database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "db".to_owned(),
+            kind: "postgresql".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(std::slice::from_ref(&application))
+        .expect("persist application");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "status-42",
+        IpcPayload::ProjectStatus {
+            canonical_path: project_path,
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "status-42",
+            IpcResult::ProjectStatus {
+                project: IpcProjectStatus::new(
+                    "bill".to_owned(),
+                    vec!["bill-app.stackctl.localhost".to_owned()],
+                    vec![
+                        IpcResourceStatus::new(
+                            "app".to_owned(),
+                            "project_application".to_owned(),
+                            IpcResourceLifecycle::Active,
+                            false,
+                        ),
+                        IpcResourceStatus::new(
+                            "db".to_owned(),
+                            "postgresql".to_owned(),
+                            IpcResourceLifecycle::Active,
+                            true,
+                        ),
+                    ],
+                ),
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove status fixture");
 }
 
 #[test]

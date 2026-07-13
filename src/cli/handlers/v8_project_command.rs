@@ -1,6 +1,5 @@
 //! Strict v8 project command dispatch through singleton-daemon IPC.
 
-use std::fs;
 use std::io::{Write, stderr, stdout};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,13 +10,14 @@ use base64::Engine as _;
 
 use crate::cli::args::{Cli, Commands};
 use crate::cli::dispatch::context::CliDispatchContext;
-use crate::config::{self, ProjectRootPathOptions};
 use crate::control_plane::{
     IpcEventKind, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload,
     IpcProjectCommand, IpcRequest, IpcResponse, IpcResult, default_unix_daemon_runtime_directory,
-    parse_project_config, send_unix_request,
+    send_unix_request,
 };
 use crate::javascript::{PackageManager, detect_node_package_manager};
+
+use super::v8_project::resolve_v8_project;
 
 const COMMAND_TIMEOUT_SECONDS: u64 = 3_600;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,38 +58,16 @@ fn resolve_v8_invocation(
         return Ok(None);
     }
 
-    let project_root = config::project_root_with(ProjectRootPathOptions::new(
-        context.config_path(),
-        context.project_root(),
-    ))?;
-    let config_path = match context.config_path() {
-        Some(path) => path.to_path_buf(),
-        None => config::config_path_in_dir(&project_root)?
-            .context("Stackctl config disappeared while resolving the project")?,
-    };
-    if config_path.extension().and_then(|value| value.to_str()) != Some("yaml") {
+    let Some(project) = resolve_v8_project(context)? else {
         return Ok(None);
-    }
-    if config_path.file_name().and_then(|value| value.to_str()) != Some(".stackctl.yaml") {
-        bail!("strict v8 configuration must be named .stackctl.yaml");
-    }
-    if context.runtime_env().is_some() {
-        bail!("--env is not supported by strict v8 YAML configuration");
-    }
-
-    let source = fs::read_to_string(&config_path)
-        .with_context(|| format!("failed to read {}", config_path.display()))?;
-    let config = parse_project_config(&source, &config_path)?;
-    let (service, command) = command_from_cli(cli, &project_root)?;
-    if !config.services().contains_key(&service) {
-        bail!(
-            "v8 service '{service}' is not declared in {}",
-            config_path.display()
-        );
+    };
+    let (service, command) = command_from_cli(cli, project.root())?;
+    if !project.has_service(&service) {
+        bail!("v8 service '{service}' is not declared in .stackctl.yaml");
     }
 
     Ok(Some(V8ProjectInvocation {
-        project_root: canonical_directory(&project_root)?,
+        project_root: project.root().to_path_buf(),
         service,
         command,
     }))
@@ -159,16 +137,6 @@ const fn ipc_package_manager(package_manager: PackageManager) -> IpcNodePackageM
         PackageManager::Pnpm => IpcNodePackageManager::Pnpm,
         PackageManager::Yarn => IpcNodePackageManager::Yarn,
     }
-}
-
-fn canonical_directory(path: &Path) -> Result<PathBuf> {
-    let canonical = path
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize project path {}", path.display()))?;
-    if !canonical.is_dir() {
-        bail!("project path '{}' is not a directory", canonical.display());
-    }
-    Ok(canonical)
 }
 
 fn execute_v8_invocation(invocation: V8ProjectInvocation) -> Result<()> {

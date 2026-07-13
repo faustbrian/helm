@@ -2,11 +2,12 @@ use super::record_ipc_event::record_ipc_event;
 use super::{DaemonRequestDispatchOptions, QueuedProjectCommand, reconcile_watched_roots};
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDiagnostic, IpcEventKind, IpcPayload, IpcProjectCommand, IpcResponse, IpcResult,
+    IpcDiagnostic, IpcEventKind, IpcPayload, IpcProjectCommand, IpcProjectStatus,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
-    DaemonOperationTransitionOptions, EnvironmentLifecycle, StateStore,
+    DaemonOperationTransitionOptions, EnvironmentLifecycle, ResourceLifecycle, StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -100,6 +101,17 @@ where
                         vec![IpcDiagnostic::new("reconciliation_failed", message, true)],
                     )
                 }
+            }
+        }
+        IpcPayload::ProjectStatus { canonical_path } => {
+            match project_status(control_plane, canonical_path) {
+                Ok(project) => {
+                    IpcResponse::success(request.request_id(), IpcResult::ProjectStatus { project })
+                }
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new("project_status_failed", message, false)],
+                ),
             }
         }
         IpcPayload::AdoptProject { canonical_path } => {
@@ -314,6 +326,78 @@ where
                 false,
             )],
         ),
+    }
+}
+
+fn project_status<Store>(
+    control_plane: &ControlPlane<Store>,
+    canonical_path: &std::path::Path,
+) -> Result<IpcProjectStatus, String>
+where
+    Store: StateStore,
+{
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let mut resources = control_plane
+        .resources()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|resource| resource.project_id() == Some(project.project_name()))
+        .map(|resource| {
+            IpcResourceStatus::new(
+                resource
+                    .scope_id()
+                    .unwrap_or_else(|| resource.resource_id())
+                    .to_owned(),
+                resource.kind().to_owned(),
+                ipc_resource_lifecycle(resource.lifecycle()),
+                false,
+            )
+        })
+        .collect::<Vec<_>>();
+    resources.extend(
+        control_plane
+            .logical_resources()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|resource| resource.project_id() == project.project_name())
+            .map(|resource| {
+                IpcResourceStatus::new(
+                    resource.service_id().to_owned(),
+                    resource.kind().to_owned(),
+                    ipc_resource_lifecycle(resource.lifecycle()),
+                    true,
+                )
+            }),
+    );
+    resources.sort_by(|left, right| {
+        left.service()
+            .cmp(right.service())
+            .then_with(|| left.kind().cmp(right.kind()))
+            .then_with(|| left.shared().cmp(&right.shared()))
+    });
+
+    Ok(IpcProjectStatus::new(
+        project.project_name().to_owned(),
+        project.route_domains().to_vec(),
+        resources,
+    ))
+}
+
+const fn ipc_resource_lifecycle(lifecycle: ResourceLifecycle) -> IpcResourceLifecycle {
+    match lifecycle {
+        ResourceLifecycle::Active => IpcResourceLifecycle::Active,
+        ResourceLifecycle::Orphaned => IpcResourceLifecycle::Orphaned,
+        ResourceLifecycle::Retained => IpcResourceLifecycle::Retained,
     }
 }
 

@@ -8,7 +8,10 @@ mod ipc_node_package_manager;
 mod ipc_output_stream;
 mod ipc_payload;
 mod ipc_project_command;
+mod ipc_project_status;
 mod ipc_request;
+mod ipc_resource_lifecycle;
+mod ipc_resource_status;
 mod ipc_response;
 mod ipc_result;
 #[cfg(unix)]
@@ -26,7 +29,10 @@ pub(crate) use ipc_node_package_manager::IpcNodePackageManager;
 pub(crate) use ipc_output_stream::IpcOutputStream;
 pub(crate) use ipc_payload::IpcPayload;
 pub(crate) use ipc_project_command::IpcProjectCommand;
+pub(crate) use ipc_project_status::IpcProjectStatus;
 pub(crate) use ipc_request::{IPC_PROTOCOL_VERSION, IpcRequest};
+pub(crate) use ipc_resource_lifecycle::IpcResourceLifecycle;
+pub(crate) use ipc_resource_status::IpcResourceStatus;
 pub(crate) use ipc_response::{IpcDiagnostic, IpcOutcome, IpcResponse};
 pub(crate) use ipc_result::IpcResult;
 #[cfg(unix)]

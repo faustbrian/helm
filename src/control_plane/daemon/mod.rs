@@ -98,8 +98,8 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 #[cfg(unix)]
 pub(crate) use ipc::{
     IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind, IpcNodePackageManager, IpcOutcome,
-    IpcOutputStream, IpcPayload, IpcProjectCommand, IpcRequest, IpcResponse, IpcResult,
-    send_unix_request,
+    IpcOutputStream, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, send_unix_request,
 };
 pub(crate) use persisted_project_command::PersistedProjectCommand;
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;

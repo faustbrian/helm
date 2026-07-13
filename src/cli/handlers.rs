@@ -44,7 +44,11 @@ mod up_cmd;
 mod update_cmd;
 mod url_cmd;
 #[cfg(unix)]
+mod v8_project;
+#[cfg(unix)]
 mod v8_project_command;
+#[cfg(unix)]
+mod v8_status_cmd;
 
 pub(crate) use about_cmd::handle_about;
 pub(crate) use app_create_cmd::{HandleAppCreateOptions, handle_app_create};
@@ -100,3 +104,5 @@ pub(crate) use update_cmd::{HandleUpdateOptions, handle_update};
 pub(crate) use url_cmd::handle_url;
 #[cfg(unix)]
 pub(crate) use v8_project_command::handle_v8_project_command;
+#[cfg(unix)]
+pub(crate) use v8_status_cmd::handle_v8_status;
