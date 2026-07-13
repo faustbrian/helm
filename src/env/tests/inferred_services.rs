@@ -1,7 +1,11 @@
-use super::super::inferred_app_env;
+use super::super::inferred_app_env as infer_app_env;
 use super::helpers::svc;
-use crate::config::{Config, Driver, Kind};
+use crate::config::{Config, ContainerEngine, Driver, Kind};
 use std::collections::HashMap;
+
+fn inferred_app_env(config: &Config) -> HashMap<String, String> {
+    crate::docker::with_container_engine(ContainerEngine::Docker, || infer_app_env(config))
+}
 
 #[test]
 fn inferred_app_env_includes_core_laravel_service_vars() {

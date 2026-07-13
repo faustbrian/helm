@@ -36,18 +36,23 @@ mod tests {
     use std::env;
     use std::fs;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn with_fake_runtime<F, T>(script_template: &str, test: F) -> T
     where
         F: FnOnce(std::path::PathBuf) -> T,
     {
         let root = env::temp_dir().join(format!(
-            "stackctl-doctor-runtime-{}",
+            "stackctl-doctor-runtime-{}-{}-{}",
+            std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("clock")
-                .as_nanos()
+                .as_nanos(),
+            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir_all(&root).expect("create temp root");
         let log_path = root.join("runtime.log");

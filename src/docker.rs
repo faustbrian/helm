@@ -14,7 +14,11 @@ use crate::output::{self, LogLevel, Persistence};
 static DRY_RUN: AtomicBool = AtomicBool::new(false);
 static CONTAINER_ENGINE: OnceLock<Mutex<ContainerEngine>> = OnceLock::new();
 #[cfg(test)]
-static TEST_DOCKER_COMMAND: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+std::thread_local! {
+    static TEST_DOCKER_COMMAND: std::cell::RefCell<Option<String>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
 #[cfg(test)]
 static TEST_RUNTIME_SCOPE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -158,28 +162,17 @@ where
     F: FnOnce() -> T,
 {
     with_test_runtime_state(|| {
-        let previous = {
-            let mut command_state = TEST_DOCKER_COMMAND
-                .get_or_init(Default::default)
-                .lock()
-                .unwrap_or_else(|err| err.into_inner());
-            let previous = command_state.clone();
-            *command_state = Some(command.to_owned());
-            previous
-        };
+        let previous = TEST_DOCKER_COMMAND
+            .with(|command_state| command_state.replace(Some(command.to_owned())));
 
         let result = {
             let test = std::panic::AssertUnwindSafe(test);
             std::panic::catch_unwind(test)
         };
 
-        {
-            let mut command_state = TEST_DOCKER_COMMAND
-                .get_or_init(Default::default)
-                .lock()
-                .unwrap_or_else(|err| err.into_inner());
-            *command_state = previous;
-        }
+        TEST_DOCKER_COMMAND.with(|command_state| {
+            drop(command_state.replace(previous));
+        });
         match result {
             Ok(result) => result,
             Err(err) => std::panic::resume_unwind(err),
@@ -224,11 +217,9 @@ fn with_test_runtime_state<R>(test: impl FnOnce() -> R) -> R {
 pub(crate) fn docker_command() -> String {
     #[cfg(test)]
     {
-        let command_state = TEST_DOCKER_COMMAND
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        if let Some(command) = command_state.clone() {
+        if let Some(command) =
+            TEST_DOCKER_COMMAND.with(|command_state| command_state.borrow().clone())
+        {
             return command;
         }
     }
@@ -341,6 +332,20 @@ mod tests {
             );
             assert_eq!(super::runtime_event_source_label(), "Podman runtime");
             assert_eq!(super::runtime_log_source_key(), "podman");
+        });
+    }
+
+    #[test]
+    fn fake_runtime_command_is_isolated_to_the_current_test_thread() {
+        super::with_container_engine(ContainerEngine::Docker, || {
+            super::with_docker_command("/tmp/fake-stackctl-docker", || {
+                assert_eq!(super::docker_command(), "/tmp/fake-stackctl-docker");
+                let unrelated = std::thread::spawn(super::docker_command)
+                    .join()
+                    .expect("unrelated test thread");
+
+                assert_eq!(unrelated, "docker");
+            });
         });
     }
 }

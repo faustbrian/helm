@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Isolated legacy inferred-environment tests from process-global Docker and
+  Podman selection so parallel test execution cannot leak Podman's host alias
+  into assertions scoped to Docker behavior, and made doctor runtime fixture
+  paths collision-free under concurrent creation. Fake runtime commands are
+  now thread-local so unrelated tests cannot execute deleted fixture binaries.
 - Added immediate cancellation cleanup and monotonic idle expiry for bounded v8
   project-log sessions so disconnected clients release daemon capacity and
   abort their Engine streams without waiting for a restart.
