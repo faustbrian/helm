@@ -464,6 +464,59 @@ fn unregistering_a_project_atomically_orphans_only_its_resources() {
 }
 
 #[test]
+fn complete_registry_reconciliation_orphans_projects_missing_from_the_scan() {
+    let database_path = temporary_database_path("complete-registry-reconcile");
+    let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let shop = project_record("/work/shop", "shop", &["shop-app.stackctl.localhost"]);
+    let bill_resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let bill_logical = logical_resource_record("bill/database", "bill", "database");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_projects(&[bill, shop.clone()])
+        .expect("persist initial registry");
+    store
+        .upsert_resources(std::slice::from_ref(&bill_resource))
+        .expect("persist resource");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&bill_logical))
+        .expect("persist logical resource");
+    store
+        .insert_credential_if_absent(&credential_record("secret-first"))
+        .expect("persist credential");
+    store
+        .replace_managed_environment(&managed_environment(BTreeMap::new()))
+        .expect("persist environment");
+
+    store
+        .reconcile_project_registry(std::slice::from_ref(&shop), 12_345)
+        .expect("reconcile complete registry");
+
+    assert_eq!(store.projects().expect("remaining projects"), vec![shop]);
+    assert_eq!(
+        store.resources().expect("orphaned resources")[0].lifecycle(),
+        ResourceLifecycle::Orphaned
+    );
+    assert_eq!(
+        store
+            .logical_resources()
+            .expect("orphaned logical resources")[0]
+            .lifecycle(),
+        ResourceLifecycle::Orphaned
+    );
+    assert_eq!(
+        store.credentials().expect("disabled credentials")[0].lifecycle(),
+        CredentialLifecycle::Disabled
+    );
+    assert_eq!(
+        store.managed_environments().expect("disabled environment")[0].lifecycle(),
+        EnvironmentLifecycle::Disabled
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn credentials_remain_stable_redacted_and_durable() {
     let database_path = temporary_database_path("credentials");
     let credential = credential_record("secret-first");

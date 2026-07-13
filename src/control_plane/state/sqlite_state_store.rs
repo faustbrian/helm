@@ -5,7 +5,7 @@ use super::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
     StateStoreError,
 };
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -265,7 +265,25 @@ impl StateStore for SqliteStateStore {
             .iter()
             .map(|project| exact_path(project.canonical_path()).map(|path| (project, path)))
             .collect::<Result<Vec<_>, _>>()?;
-        let batch_paths = exact_projects
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        replace_project_batch(&transaction, &exact_projects)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn reconcile_project_registry(
+        &mut self,
+        projects: &[ProjectRecord],
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError> {
+        let exact_projects = projects
+            .iter()
+            .map(|project| exact_path(project.canonical_path()).map(|path| (project, path)))
+            .collect::<Result<Vec<_>, _>>()?;
+        let desired_paths = exact_projects
             .iter()
             .map(|(_, path)| *path)
             .collect::<BTreeSet<_>>();
@@ -273,51 +291,27 @@ impl StateStore for SqliteStateStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        for (project, canonical_path) in &exact_projects {
-            for domain in project.route_domains() {
-                let existing_path = transaction
-                    .query_row(
-                        "SELECT canonical_path FROM route_claims WHERE domain = ?1",
-                        [domain],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?;
-
-                if let Some(existing_path) = existing_path {
-                    if existing_path != *canonical_path
-                        && !batch_paths.contains(existing_path.as_str())
-                    {
-                        return Err(StateStoreError::RouteOwnershipConflict {
-                            domain: domain.clone(),
-                            existing_path: PathBuf::from(existing_path),
-                            requested_path: project.canonical_path().to_path_buf(),
-                        });
-                    }
-                }
-            }
-        }
-
-        for (project, canonical_path) in &exact_projects {
-            transaction.execute(
-                "INSERT INTO projects (canonical_path, project_name) VALUES (?1, ?2)\n\
-                 ON CONFLICT(canonical_path) DO UPDATE SET project_name = excluded.project_name",
-                params![canonical_path, project.project_name()],
+        replace_project_batch(&transaction, &exact_projects)?;
+        let existing_projects = {
+            let mut statement = transaction.prepare(
+                "SELECT canonical_path, project_name FROM projects ORDER BY canonical_path",
             )?;
+            statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (canonical_path, project_id) in existing_projects {
+            if desired_paths.contains(canonical_path.as_str()) {
+                continue;
+            }
+            orphan_project_state(&transaction, &project_id, orphaned_at_unix_seconds)?;
             transaction.execute(
-                "DELETE FROM route_claims WHERE canonical_path = ?1",
+                "DELETE FROM projects WHERE canonical_path = ?1",
                 [canonical_path],
             )?;
         }
-
-        for (project, canonical_path) in exact_projects {
-            for domain in project.route_domains() {
-                transaction.execute(
-                    "INSERT INTO route_claims (domain, canonical_path) VALUES (?1, ?2)",
-                    params![domain, canonical_path],
-                )?;
-            }
-        }
-
         transaction.commit()?;
 
         Ok(())
@@ -370,28 +364,7 @@ impl StateStore for SqliteStateStore {
             .optional()?;
 
         if let Some(project_id) = project_id {
-            transaction.execute(
-                "UPDATE resources
-                 SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
-                 WHERE project_id = ?2 AND lifecycle = 'active'",
-                params![orphaned_at_unix_seconds, project_id],
-            )?;
-            transaction.execute(
-                "UPDATE logical_resources
-                 SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
-                 WHERE project_id = ?2 AND lifecycle = 'active'",
-                params![orphaned_at_unix_seconds, project_id],
-            )?;
-            transaction.execute(
-                "UPDATE credentials SET lifecycle = 'disabled'\n\
-                 WHERE project_id = ?1 AND lifecycle = 'active'",
-                [&project_id],
-            )?;
-            transaction.execute(
-                "UPDATE managed_environments SET lifecycle = 'disabled'\n\
-                 WHERE project_id = ?1 AND lifecycle = 'active'",
-                [&project_id],
-            )?;
+            orphan_project_state(&transaction, &project_id, orphaned_at_unix_seconds)?;
             transaction.execute(
                 "DELETE FROM projects WHERE canonical_path = ?1",
                 [canonical_path],
@@ -931,6 +904,89 @@ impl StateStore for SqliteStateStore {
             )
             .collect()
     }
+}
+
+fn replace_project_batch(
+    transaction: &Transaction<'_>,
+    projects: &[(&ProjectRecord, &str)],
+) -> Result<(), StateStoreError> {
+    let batch_paths = projects
+        .iter()
+        .map(|(_, path)| *path)
+        .collect::<BTreeSet<_>>();
+    for (project, canonical_path) in projects {
+        for domain in project.route_domains() {
+            let existing_path = transaction
+                .query_row(
+                    "SELECT canonical_path FROM route_claims WHERE domain = ?1",
+                    [domain],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_path) = existing_path {
+                if existing_path != *canonical_path && !batch_paths.contains(existing_path.as_str())
+                {
+                    return Err(StateStoreError::RouteOwnershipConflict {
+                        domain: domain.clone(),
+                        existing_path: PathBuf::from(existing_path),
+                        requested_path: project.canonical_path().to_path_buf(),
+                    });
+                }
+            }
+        }
+    }
+    for (project, canonical_path) in projects {
+        transaction.execute(
+            "INSERT INTO projects (canonical_path, project_name) VALUES (?1, ?2)
+             ON CONFLICT(canonical_path) DO UPDATE SET project_name = excluded.project_name",
+            params![canonical_path, project.project_name()],
+        )?;
+        transaction.execute(
+            "DELETE FROM route_claims WHERE canonical_path = ?1",
+            [canonical_path],
+        )?;
+    }
+    for (project, canonical_path) in projects {
+        for domain in project.route_domains() {
+            transaction.execute(
+                "INSERT INTO route_claims (domain, canonical_path) VALUES (?1, ?2)",
+                params![domain, canonical_path],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn orphan_project_state(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    orphaned_at_unix_seconds: i64,
+) -> Result<(), StateStoreError> {
+    transaction.execute(
+        "UPDATE resources
+         SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
+         WHERE project_id = ?2 AND lifecycle = 'active'",
+        params![orphaned_at_unix_seconds, project_id],
+    )?;
+    transaction.execute(
+        "UPDATE logical_resources
+         SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
+         WHERE project_id = ?2 AND lifecycle = 'active'",
+        params![orphaned_at_unix_seconds, project_id],
+    )?;
+    transaction.execute(
+        "UPDATE credentials SET lifecycle = 'disabled'
+         WHERE project_id = ?1 AND lifecycle = 'active'",
+        [project_id],
+    )?;
+    transaction.execute(
+        "UPDATE managed_environments SET lifecycle = 'disabled'
+         WHERE project_id = ?1 AND lifecycle = 'active'",
+        [project_id],
+    )?;
+
+    Ok(())
 }
 
 struct PersistedResourceOwnership {

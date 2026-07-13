@@ -53,6 +53,35 @@ fn persisted_owner_collision_rolls_back_every_project_in_the_new_batch() {
     remove_database(&database_path);
 }
 
+#[test]
+fn complete_discovery_reconciliation_unregisters_missing_projects() {
+    let database_path = temporary_database_path();
+    let store = SqliteStateStore::open(&database_path).expect("open state store");
+    let mut control_plane = ControlPlane::new(store);
+    control_plane
+        .reconcile_discovered_projects(
+            &[
+                project_source("/work/bill", "bill", "app"),
+                project_source("/work/shop", "shop", "app"),
+            ],
+            10_000,
+        )
+        .expect("initial complete registry");
+
+    control_plane
+        .reconcile_discovered_projects(&[project_source("/work/shop", "shop", "app")], 12_345)
+        .expect("updated complete registry");
+    drop(control_plane);
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let projects = store.projects().expect("load projects");
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].canonical_path(), Path::new("/work/shop"));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
 fn project_source(path: &str, project: &str, service: &str) -> ProjectSource {
     ProjectSource::new(
         PathBuf::from(path),

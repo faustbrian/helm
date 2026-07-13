@@ -29,6 +29,13 @@ pub(crate) trait StateStore {
     /// Atomically replaces a complete validated batch of discovered projects.
     fn replace_projects(&mut self, projects: &[ProjectRecord]) -> Result<(), StateStoreError>;
 
+    /// Replaces the complete valid scan and atomically orphans missing projects.
+    fn reconcile_project_registry(
+        &mut self,
+        projects: &[ProjectRecord],
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError>;
+
     /// Loads all registered projects in canonical-path order.
     fn projects(&self) -> Result<Vec<ProjectRecord>, StateStoreError>;
 
