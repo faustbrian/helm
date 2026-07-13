@@ -1,23 +1,26 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     JavaScriptRuntimeSpec, ProjectProcessPlan, ProjectProcessPlanOptions,
-    ProjectProcessRequestOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
-    RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions, WorkloadReconcileAction,
-    WorkloadReconcileOptions, application_container_request, project_process_request,
-    reconcile_project_application, reconcile_project_process,
+    ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
+    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
+    project_process_request, reconcile_project_application, reconcile_project_process,
+    reconcile_project_runtime,
 };
 use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
     ContainerRestartPolicy, ContainerState, EngineError, EngineFuture, HealthObserver,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer,
-    ResourceKind, RetentionClass, reconstruct_owned_container,
+    ImageBuildRequest, ImageBuilder, ImageId, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
+    RetentionClass, reconstruct_owned_container,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 #[test]
 fn equivalent_runtime_inputs_reuse_one_content_addressed_image() {
@@ -127,6 +130,89 @@ fn runtime_image_planning_rejects_ranges_duplicates_and_unsafe_packages() {
         unsafe_package.to_string(),
         "runtime image system package 'git;curl example.test' is invalid"
     );
+}
+
+#[test]
+fn project_runtime_reconciliation_builds_then_starts_the_derived_application() {
+    let runtime_image =
+        RuntimeImageBuildPlan::new(runtime_image_options()).expect("runtime image plan");
+    let metadata = runtime_application_metadata(&runtime_image);
+    let mut engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_runtime(
+            &mut engine,
+            project_runtime_options(&runtime_image, metadata, PathBuf::from("/work/bill")),
+        ))
+        .expect("project runtime reconciliation");
+
+    assert_eq!(
+        engine.built.lock().expect("built requests").as_slice(),
+        &[runtime_image.request().clone()]
+    );
+    assert_eq!(engine.created.len(), 1);
+    assert_eq!(
+        engine.created[0].image(),
+        result.runtime_image_id().as_str()
+    );
+    assert_eq!(result.workload().action(), WorkloadReconcileAction::Created);
+    assert_eq!(result.route().domain(), "bill-app.stackctl.localhost");
+    assert_eq!(result.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn project_runtime_reconciliation_validates_before_building() {
+    let runtime_image =
+        RuntimeImageBuildPlan::new(runtime_image_options()).expect("runtime image plan");
+    let metadata = runtime_application_metadata(&runtime_image);
+    let mut engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_project_runtime(
+            &mut engine,
+            project_runtime_options(&runtime_image, metadata, PathBuf::from("relative/bill")),
+        ))
+        .expect_err("relative project source");
+
+    assert_eq!(
+        error.to_string(),
+        "application source path 'relative/bill' must be absolute"
+    );
+    assert!(engine.built.lock().expect("built requests").is_empty());
+    assert!(engine.created.is_empty());
+}
+
+#[test]
+fn project_runtime_build_failures_do_not_create_application_containers() {
+    let runtime_image =
+        RuntimeImageBuildPlan::new(runtime_image_options()).expect("runtime image plan");
+    let metadata = runtime_application_metadata(&runtime_image);
+    let mut engine = RecordingWorkloadEngine {
+        build_failure: Some("offline runtime build failed".to_owned()),
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_project_runtime(
+            &mut engine,
+            project_runtime_options(&runtime_image, metadata, PathBuf::from("/work/bill")),
+        ))
+        .expect_err("runtime image build failure");
+
+    assert_eq!(
+        error.to_string(),
+        "workload build runtime image failed: offline runtime build failed"
+    );
+    assert!(engine.created.is_empty());
 }
 
 #[test]
@@ -646,6 +732,8 @@ fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOpti
 }
 
 struct RecordingWorkloadEngine {
+    built: Mutex<Vec<ImageBuildRequest>>,
+    build_failure: Option<String>,
     observed: Vec<ObservedContainer>,
     state: ContainerState,
     health: ContainerHealth,
@@ -658,6 +746,8 @@ struct RecordingWorkloadEngine {
 impl Default for RecordingWorkloadEngine {
     fn default() -> Self {
         Self {
+            built: Mutex::new(Vec::new()),
+            build_failure: None,
             observed: Vec::new(),
             state: ContainerState::Missing,
             health: ContainerHealth::Starting,
@@ -666,6 +756,26 @@ impl Default for RecordingWorkloadEngine {
             stopped: Vec::new(),
             removed: Vec::new(),
         }
+    }
+}
+
+impl ImageBuilder for RecordingWorkloadEngine {
+    fn build_image<'operation>(
+        &'operation self,
+        request: &'operation ImageBuildRequest,
+    ) -> EngineFuture<'operation, ImageId> {
+        self.built
+            .lock()
+            .expect("built requests")
+            .push(request.clone());
+        let failure = self.build_failure.clone();
+        Box::pin(async move {
+            if let Some(detail) = failure {
+                return Err(EngineError::Backend { detail });
+            }
+
+            ImageId::new(format!("sha256:{}", "b".repeat(64)))
+        })
     }
 }
 
@@ -776,6 +886,47 @@ fn runtime_image_options() -> RuntimeImageBuildPlanOptions {
             version: "22.17.0".to_owned(),
         }),
         installer_revision: "runtime-installer-v1".to_owned(),
+    }
+}
+
+fn runtime_application_metadata(runtime_image: &RuntimeImageBuildPlan) -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: runtime_image.compatibility_fingerprint().to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("application metadata")
+}
+
+fn project_runtime_options<'plan>(
+    runtime_image: &'plan RuntimeImageBuildPlan,
+    metadata: ManagedResourceMetadata,
+    source_path: PathBuf,
+) -> ProjectRuntimeReconcileOptions<'plan> {
+    ProjectRuntimeReconcileOptions {
+        runtime_image,
+        project: ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill"))
+            .expect("project identity"),
+        source_path,
+        network_name: "stackctl-private".to_owned(),
+        internal_http_port: 8080,
+        application_metadata: metadata,
+        platform: "linux/arm64".to_owned(),
+        command: vec!["stackctl-runtime".to_owned(), "serve".to_owned()],
+        environment: runtime_environment(
+            "bill",
+            BTreeMap::new(),
+            BTreeMap::from([(
+                "APP_URL".to_owned(),
+                "https://bill-app.stackctl.localhost".to_owned(),
+            )]),
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
     }
 }
 

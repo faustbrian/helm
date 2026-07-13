@@ -75,6 +75,19 @@ impl ContainerCreateOptions {
         Ok(self)
     }
 
+    /// Replaces a preflight image with a validated derived Engine identity.
+    pub(crate) fn with_image(mut self, image: impl Into<String>) -> Result<Self, EngineError> {
+        let image = image.into();
+        if !is_immutable_image_identity(&image) {
+            return Err(EngineError::InvalidRequest {
+                detail: format!("managed image '{image}' must use an immutable sha256 digest"),
+            });
+        }
+        self.image = image;
+
+        Ok(self)
+    }
+
     pub(crate) fn with_platform(
         mut self,
         platform: impl Into<String>,

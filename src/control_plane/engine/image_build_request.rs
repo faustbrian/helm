@@ -100,6 +100,10 @@ impl ImageBuildRequest {
         &self.output_tag
     }
 
+    pub(crate) const fn metadata(&self) -> &ManagedResourceMetadata {
+        &self.metadata
+    }
+
     pub(super) fn labels(&self) -> BTreeMap<String, String> {
         let mut labels = self.metadata.labels();
         labels.insert(BUILD_INPUT_LABEL.to_owned(), self.input_digest.clone());

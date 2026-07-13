@@ -102,6 +102,8 @@ All notable changes to this project are documented in this file.
   registry pulls restricted to digest-pinned repository references.
 - Made Engine image identities validated sha256 values so malformed backend
   responses cannot enter runtime planning or container reconciliation.
+- Added project-runtime reconciliation that validates the complete application
+  request before building or reusing its derived image and starting the workload.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

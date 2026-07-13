@@ -136,6 +136,10 @@ impl ManagedResourceMetadata {
         self.resource_id.as_deref()
     }
 
+    pub(crate) fn compatibility_fingerprint(&self) -> &str {
+        &self.compatibility_fingerprint
+    }
+
     pub(crate) const fn retention(&self) -> RetentionClass {
         self.retention
     }
