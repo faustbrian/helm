@@ -16,12 +16,23 @@ pub(crate) async fn reconcile_project_application<E>(
 where
     E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
 {
-    let project_id = validate_request(&options)?;
+    reconcile_project_workload(engine, options, ResourceKind::ProjectApplication).await
+}
+
+pub(super) async fn reconcile_project_workload<E>(
+    engine: &mut E,
+    options: WorkloadReconcileOptions<'_>,
+    expected_kind: ResourceKind,
+) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
+where
+    E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
+{
+    let (project_id, resource_id) = validate_request(&options, expected_kind)?;
     let observed = engine
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover managed containers", error))?;
-    let mut applications = Vec::new();
+    let mut workloads = Vec::new();
 
     for container in &observed {
         match reconstruct_owned_container(
@@ -30,10 +41,11 @@ where
             options.schema_version,
         ) {
             Ok(owned)
-                if owned.metadata().kind() == ResourceKind::ProjectApplication
-                    && owned.metadata().project_id() == Some(project_id) =>
+                if owned.metadata().kind() == expected_kind
+                    && owned.metadata().project_id() == Some(project_id.as_str())
+                    && owned.metadata().resource_id() == resource_id.as_deref() =>
             {
-                applications.push(owned);
+                workloads.push(owned);
             }
             Ok(_) | Err(ObservedResourceOwnership::Unmanaged) => {}
             Err(ObservedResourceOwnership::ForeignInstallation { .. }) => {}
@@ -48,13 +60,23 @@ where
         }
     }
 
-    match applications.as_slice() {
-        [] => create_application(engine, &options, WorkloadReconcileAction::Created).await,
-        [application] => reconcile_existing(engine, &options, application).await,
-        applications => Err(WorkloadReconcileError::Conflict {
-            detail: format!(
-                "project '{project_id}' owns {} application containers; refusing to guess",
-                applications.len()
+    match workloads.as_slice() {
+        [] => {
+            create_workload(
+                engine,
+                &options,
+                expected_kind,
+                WorkloadReconcileAction::Created,
+            )
+            .await
+        }
+        [workload] => reconcile_existing(engine, &options, expected_kind, workload).await,
+        workloads => Err(WorkloadReconcileError::Conflict {
+            detail: duplicate_detail(
+                &project_id,
+                resource_id.as_deref(),
+                expected_kind,
+                workloads.len(),
             ),
         }),
     }
@@ -63,151 +85,199 @@ where
 async fn reconcile_existing<E>(
     engine: &mut E,
     options: &WorkloadReconcileOptions<'_>,
-    application: &OwnedContainer,
+    kind: ResourceKind,
+    workload: &OwnedContainer,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
     E: ContainerLifecycle + HealthObserver,
 {
-    if application.metadata() != options.request.metadata() {
-        return replace_application(engine, options, application).await;
+    if workload.metadata() != options.request.metadata() {
+        return replace_workload(engine, options, kind, workload).await;
     }
 
     match engine
-        .inspect(application)
+        .inspect(workload)
         .await
-        .map_err(|error| engine_error("inspect project application", error))?
+        .map_err(|error| engine_error(format!("inspect {}", kind_name(kind)), error))?
     {
-        ContainerState::Running => match engine
-            .observe_health(application)
-            .await
-            .map_err(|error| engine_error("observe project application health", error))?
-        {
-            ContainerHealth::Unhealthy { .. } => {
-                engine
-                    .stop(application)
-                    .await
-                    .map_err(|error| engine_error("stop unhealthy project application", error))?;
-                engine.start(application).await.map_err(|error| {
-                    engine_error("restart unhealthy project application", error)
-                })?;
-                observe(engine, application, WorkloadReconcileAction::Restarted).await
+        ContainerState::Running => {
+            match engine.observe_health(workload).await.map_err(|error| {
+                engine_error(format!("observe {} health", kind_name(kind)), error)
+            })? {
+                ContainerHealth::Unhealthy { .. } => {
+                    engine.stop(workload).await.map_err(|error| {
+                        engine_error(format!("stop unhealthy {}", kind_name(kind)), error)
+                    })?;
+                    engine.start(workload).await.map_err(|error| {
+                        engine_error(format!("restart unhealthy {}", kind_name(kind)), error)
+                    })?;
+                    observe(engine, workload, kind, WorkloadReconcileAction::Restarted).await
+                }
+                health => Ok(WorkloadReconcileResult::new(
+                    workload.clone(),
+                    WorkloadReconcileAction::Unchanged,
+                    health,
+                )),
             }
-            health => Ok(WorkloadReconcileResult::new(
-                application.clone(),
-                WorkloadReconcileAction::Unchanged,
-                health,
-            )),
-        },
+        }
         ContainerState::Stopped => {
             engine
-                .start(application)
+                .start(workload)
                 .await
-                .map_err(|error| engine_error("start project application", error))?;
-            observe(engine, application, WorkloadReconcileAction::Started).await
+                .map_err(|error| engine_error(format!("start {}", kind_name(kind)), error))?;
+            observe(engine, workload, kind, WorkloadReconcileAction::Started).await
         }
         ContainerState::Missing => {
-            create_application(engine, options, WorkloadReconcileAction::Created).await
+            create_workload(engine, options, kind, WorkloadReconcileAction::Created).await
         }
     }
 }
 
-async fn replace_application<E>(
+async fn replace_workload<E>(
     engine: &mut E,
     options: &WorkloadReconcileOptions<'_>,
-    application: &OwnedContainer,
+    kind: ResourceKind,
+    workload: &OwnedContainer,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
     E: ContainerLifecycle + HealthObserver,
 {
     match engine
-        .inspect(application)
+        .inspect(workload)
         .await
-        .map_err(|error| engine_error("inspect drifted project application", error))?
+        .map_err(|error| engine_error(format!("inspect drifted {}", kind_name(kind)), error))?
     {
         ContainerState::Running => engine
-            .stop(application)
+            .stop(workload)
             .await
-            .map_err(|error| engine_error("stop drifted project application", error))?,
+            .map_err(|error| engine_error(format!("stop drifted {}", kind_name(kind)), error))?,
         ContainerState::Stopped => {}
         ContainerState::Missing => {
-            return create_application(engine, options, WorkloadReconcileAction::Created).await;
+            return create_workload(engine, options, kind, WorkloadReconcileAction::Created).await;
         }
     }
 
     engine
-        .remove(application)
+        .remove(workload)
         .await
-        .map_err(|error| engine_error("remove drifted project application", error))?;
-    create_application(engine, options, WorkloadReconcileAction::Replaced).await
+        .map_err(|error| engine_error(format!("remove drifted {}", kind_name(kind)), error))?;
+    create_workload(engine, options, kind, WorkloadReconcileAction::Replaced).await
 }
 
-async fn create_application<E>(
+async fn create_workload<E>(
     engine: &mut E,
     options: &WorkloadReconcileOptions<'_>,
+    kind: ResourceKind,
     action: WorkloadReconcileAction,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
     E: ContainerLifecycle + HealthObserver,
 {
-    let application = engine
+    let workload = engine
         .create(options.request)
         .await
-        .map_err(|error| engine_error("create project application", error))?;
+        .map_err(|error| engine_error(format!("create {}", kind_name(kind)), error))?;
     engine
-        .start(&application)
+        .start(&workload)
         .await
-        .map_err(|error| engine_error("start created project application", error))?;
+        .map_err(|error| engine_error(format!("start created {}", kind_name(kind)), error))?;
 
-    observe(engine, &application, action).await
+    observe(engine, &workload, kind, action).await
 }
 
 async fn observe<E>(
     engine: &E,
-    application: &OwnedContainer,
+    workload: &OwnedContainer,
+    kind: ResourceKind,
     action: WorkloadReconcileAction,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
     E: HealthObserver,
 {
     let health = engine
-        .observe_health(application)
+        .observe_health(workload)
         .await
-        .map_err(|error| engine_error("observe project application health", error))?;
+        .map_err(|error| engine_error(format!("observe {} health", kind_name(kind)), error))?;
 
     Ok(WorkloadReconcileResult::new(
-        application.clone(),
+        workload.clone(),
         action,
         health,
     ))
 }
 
-fn validate_request<'request>(
-    options: &'request WorkloadReconcileOptions<'_>,
-) -> Result<&'request str, WorkloadReconcileError> {
+fn validate_request(
+    options: &WorkloadReconcileOptions<'_>,
+    expected_kind: ResourceKind,
+) -> Result<(String, Option<String>), WorkloadReconcileError> {
     let metadata = options.request.metadata();
     let project_id =
         metadata
             .project_id()
             .ok_or_else(|| WorkloadReconcileError::InvalidRequest {
-                detail: "project application reconciliation requires a project owner".to_owned(),
+                detail: "project workload reconciliation requires a project owner".to_owned(),
             })?;
-    if metadata.kind() != ResourceKind::ProjectApplication
+    let resource_id = match expected_kind {
+        ResourceKind::ProjectApplication if metadata.resource_id().is_none() => None,
+        ResourceKind::ProjectProcess => Some(
+            metadata
+                .resource_id()
+                .ok_or_else(|| WorkloadReconcileError::InvalidRequest {
+                    detail: "project process reconciliation requires a resource identity"
+                        .to_owned(),
+                })?
+                .to_owned(),
+        ),
+        _ => {
+            return Err(WorkloadReconcileError::InvalidRequest {
+                detail: "project workload has an unsupported resource identity".to_owned(),
+            });
+        }
+    };
+    if metadata.kind() != expected_kind
         || metadata.installation_id() != options.installation_id
         || metadata.schema_version() != options.schema_version
         || metadata.retention() != RetentionClass::Disposable
     {
         return Err(WorkloadReconcileError::InvalidRequest {
-            detail: "project application ownership does not match the active installation"
-                .to_owned(),
+            detail: format!(
+                "{} ownership does not match the active installation",
+                kind_name(expected_kind)
+            ),
         });
     }
 
-    Ok(project_id)
+    Ok((project_id.to_owned(), resource_id))
 }
 
-fn engine_error(action: &str, error: EngineError) -> WorkloadReconcileError {
+fn duplicate_detail(
+    project_id: &str,
+    resource_id: Option<&str>,
+    kind: ResourceKind,
+    count: usize,
+) -> String {
+    match (kind, resource_id) {
+        (ResourceKind::ProjectApplication, None) => {
+            format!("project '{project_id}' owns {count} application containers; refusing to guess")
+        }
+        (ResourceKind::ProjectProcess, Some(resource_id)) => format!(
+            "project '{project_id}' process '{resource_id}' owns {count} containers; refusing to guess"
+        ),
+        _ => format!("project '{project_id}' owns {count} ambiguous workload containers"),
+    }
+}
+
+const fn kind_name(kind: ResourceKind) -> &'static str {
+    match kind {
+        ResourceKind::ProjectApplication => "project application",
+        ResourceKind::ProjectProcess => "project process",
+        _ => "project workload",
+    }
+}
+
+fn engine_error(action: impl Into<String>, error: EngineError) -> WorkloadReconcileError {
     WorkloadReconcileError::Engine {
-        action: action.to_owned(),
+        action: action.into(),
         detail: error.to_string(),
     }
 }

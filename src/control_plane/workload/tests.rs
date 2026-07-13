@@ -3,7 +3,7 @@ use super::{
     ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
     RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction,
     WorkloadReconcileOptions, application_container_request, project_process_request,
-    reconcile_project_application,
+    reconcile_project_application, reconcile_project_process,
 };
 use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
@@ -276,6 +276,69 @@ fn project_application_reconciliation_rejects_duplicate_owned_runtimes() {
 }
 
 #[test]
+fn project_process_reconciliation_creates_and_starts_a_missing_worker() {
+    let request = process_request("queue-worker", "sha256:desired-v1");
+    let mut engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_process(
+            &mut engine,
+            WorkloadReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile missing worker");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Created);
+    assert_eq!(engine.created, vec![request]);
+    assert_eq!(engine.started.len(), 1);
+}
+
+#[test]
+fn project_process_reconciliation_selects_only_its_exact_resource_identity() {
+    let worker = process_request("queue-worker", "sha256:worker-v1");
+    let scheduler = process_request("scheduler", "sha256:scheduler-v1");
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![
+            ObservedContainer::new(
+                crate::control_plane::engine::ContainerId::new("bill-worker"),
+                worker.metadata().labels(),
+            ),
+            ObservedContainer::new(
+                crate::control_plane::engine::ContainerId::new("bill-scheduler"),
+                scheduler.metadata().labels(),
+            ),
+        ],
+        state: ContainerState::Running,
+        health: ContainerHealth::Healthy,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_process(
+            &mut engine,
+            WorkloadReconcileOptions {
+                request: &worker,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile exact worker");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
+    assert_eq!(result.container().id().as_str(), "bill-worker");
+    assert!(engine.created.is_empty());
+}
+
+#[test]
 fn project_workers_materialize_as_supervised_private_linux_containers() {
     let project =
         ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
@@ -419,6 +482,46 @@ fn application_request(desired_revision: &str) -> ContainerCreateOptions {
         environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
     })
     .expect("application request")
+}
+
+fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {
+    let project =
+        ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
+    let service_identity =
+        crate::control_plane::ServiceIdentity::new(service).expect("service identity");
+    let plan = ProjectProcessPlan::new(ProjectProcessPlanOptions {
+        project,
+        service: service_identity,
+        image_digest: concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .to_owned(),
+        source_path: PathBuf::from("/work/bill"),
+        network_name: "stackctl-private".to_owned(),
+        command: vec!["php".to_owned(), "artisan".to_owned(), service.to_owned()],
+        environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
+    })
+    .expect("process plan");
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectProcess,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:runtime-php-84".to_owned(),
+        schema_version: 8,
+        desired_revision: desired_revision.to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("process metadata")
+    .with_resource_id(service)
+    .expect("process resource identity");
+
+    project_process_request(ProjectProcessRequestOptions {
+        plan,
+        metadata,
+        platform: "linux/arm64".to_owned(),
+    })
+    .expect("process request")
 }
 
 struct RecordingWorkloadEngine {
