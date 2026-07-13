@@ -2,13 +2,17 @@ use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineError, EngineFuture, NetworkCreateOptions, NetworkId, NetworkManager, ObservedContainer,
+    ObservedResourceOwnership, OwnedVolume, VolumeCreateOptions, VolumeManager,
+    classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
     ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, NetworkCreateRequest,
-    PortBinding, RestartPolicy, RestartPolicyNameEnum,
+    PortBinding, RestartPolicy, RestartPolicyNameEnum, VolumeCreateRequest,
 };
-use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
+use bollard::query_parameters::{
+    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveVolumeOptions,
+};
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -206,6 +210,81 @@ impl NetworkManager for BollardEngineAdapter {
             })
             .await
         })
+    }
+}
+
+impl VolumeManager for BollardEngineAdapter {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        options: &'operation VolumeCreateOptions,
+    ) -> EngineFuture<'operation, OwnedVolume> {
+        Box::pin(async move {
+            let volume = bounded_engine_operation("create volume", request_timeout(), async {
+                self.docker
+                    .create_volume(volume_create_request(options))
+                    .await
+                    .map_err(|error| backend_error("create volume", error))
+            })
+            .await?;
+
+            Ok(OwnedVolume::new(volume.name, options.metadata().clone()))
+        })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        volume: &'operation OwnedVolume,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            bounded_engine_operation("remove owned volume", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_volume(volume.name())
+                    .await
+                    .map_err(|error| backend_error("verify volume ownership", error))?;
+                verify_owned_volume_labels(volume, &observed.labels)?;
+
+                self.docker
+                    .remove_volume(volume.name(), None::<RemoveVolumeOptions>)
+                    .await
+                    .map_err(|error| backend_error("remove owned volume", error))
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn verify_owned_volume_labels(
+    volume: &OwnedVolume,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
+    let labels = labels
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let metadata = volume.metadata();
+    let ownership = classify_observed_resource(
+        &labels,
+        metadata.installation_id(),
+        metadata.schema_version(),
+    );
+
+    if ownership == ObservedResourceOwnership::Owned(metadata.clone()) {
+        return Ok(());
+    }
+
+    Err(EngineError::OwnershipMismatch {
+        resource_kind: "volume",
+        resource_id: volume.name().to_owned(),
+    })
+}
+
+pub(super) fn volume_create_request(options: &VolumeCreateOptions) -> VolumeCreateRequest {
+    VolumeCreateRequest {
+        name: Some(options.name().to_owned()),
+        driver: Some("local".to_owned()),
+        labels: Some(options.metadata().labels().into_iter().collect()),
+        ..VolumeCreateRequest::default()
     }
 }
 

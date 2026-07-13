@@ -17,9 +17,12 @@ mod network_id;
 mod network_manager;
 mod observed_container;
 mod observed_resource_ownership;
+mod owned_volume;
 mod port_binding;
 mod resource_kind;
 mod retention_class;
+mod volume_create_options;
+mod volume_manager;
 
 pub(crate) use bind_mount::BindMount;
 pub(crate) use bollard_engine_adapter::BollardEngineAdapter;
@@ -39,9 +42,12 @@ pub(crate) use network_id::NetworkId;
 pub(crate) use network_manager::NetworkManager;
 pub(crate) use observed_container::ObservedContainer;
 pub(crate) use observed_resource_ownership::ObservedResourceOwnership;
+pub(crate) use owned_volume::OwnedVolume;
 pub(crate) use port_binding::PortBinding;
 pub(crate) use resource_kind::ResourceKind;
 pub(crate) use retention_class::RetentionClass;
+pub(crate) use volume_create_options::VolumeCreateOptions;
+pub(crate) use volume_manager::VolumeManager;
 
 #[cfg(test)]
 mod tests;

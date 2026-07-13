@@ -90,4 +90,12 @@ impl ManagedResourceMetadata {
 
         labels
     }
+
+    pub(crate) fn installation_id(&self) -> &str {
+        &self.installation_id
+    }
+
+    pub(crate) const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
 }

@@ -1,8 +1,9 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, ResourceKind,
-    RetentionClass, classify_observed_resource, gateway_container_request,
+    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedVolume,
+    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager, classify_observed_resource,
+    gateway_container_request,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 use super::bollard_engine_adapter::{
     create_request, managed_container_list_request, network_create_request, observed_container,
-    validate_engine_api_version,
+    validate_engine_api_version, verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -203,6 +204,60 @@ fn network_requests_use_bridge_driver_and_complete_ownership_labels() {
     assert_eq!(
         request.labels.expect("network ownership labels"),
         metadata.labels().into_iter().collect()
+    );
+}
+
+#[test]
+fn volume_management_requires_owned_volume_proof_for_deletion() {
+    let options = VolumeCreateOptions::new(
+        "stackctl-postgres-17-data",
+        project_metadata(ResourceKind::Volume),
+    )
+    .expect("managed volume");
+    let mut backend = RecordingVolumeBackend::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let volume = runtime
+        .block_on(create_volume_through_strategy(&mut backend, &options))
+        .expect("create volume");
+    runtime
+        .block_on(backend.remove_volume(&volume))
+        .expect("remove proven-owned volume");
+
+    assert_eq!(volume.name(), "stackctl-postgres-17-data");
+    assert_eq!(backend.created, vec![options]);
+    assert_eq!(backend.removed, vec![volume]);
+}
+
+#[test]
+fn volume_requests_are_deterministic_local_volumes_with_complete_labels() {
+    let metadata = project_metadata(ResourceKind::Volume);
+    let options = VolumeCreateOptions::new("stackctl-postgres-17-data", metadata.clone())
+        .expect("managed volume");
+
+    let request = volume_create_request(&options);
+
+    assert_eq!(request.name.as_deref(), Some("stackctl-postgres-17-data"));
+    assert_eq!(request.driver.as_deref(), Some("local"));
+    assert_eq!(
+        request.labels.expect("volume ownership labels"),
+        metadata.labels().into_iter().collect()
+    );
+}
+
+#[test]
+fn volume_deletion_rejects_missing_or_changed_ownership_labels() {
+    let metadata = project_metadata(ResourceKind::Volume);
+    let volume = OwnedVolume::new("stackctl-postgres-17-data", metadata);
+
+    let error = verify_owned_volume_labels(&volume, &std::collections::HashMap::new())
+        .expect_err("unlabelled volume");
+
+    assert_eq!(
+        error.to_string(),
+        "refusing to delete volume 'stackctl-postgres-17-data' because its Engine ownership labels no longer match"
     );
 }
 
@@ -443,6 +498,41 @@ fn create_network_through_strategy<'operation>(
     options: &'operation NetworkCreateOptions,
 ) -> EngineFuture<'operation, NetworkId> {
     strategy.create_network(options)
+}
+
+fn create_volume_through_strategy<'operation>(
+    strategy: &'operation mut dyn VolumeManager,
+    options: &'operation VolumeCreateOptions,
+) -> EngineFuture<'operation, OwnedVolume> {
+    strategy.create_volume(options)
+}
+
+#[derive(Default)]
+struct RecordingVolumeBackend {
+    created: Vec<VolumeCreateOptions>,
+    removed: Vec<OwnedVolume>,
+}
+
+impl VolumeManager for RecordingVolumeBackend {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        options: &'operation VolumeCreateOptions,
+    ) -> EngineFuture<'operation, OwnedVolume> {
+        Box::pin(async move {
+            self.created.push(options.clone());
+            Ok(OwnedVolume::new(options.name(), options.metadata().clone()))
+        })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        volume: &'operation OwnedVolume,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removed.push(volume.clone());
+            Ok(())
+        })
+    }
 }
 
 #[derive(Default)]

@@ -20,6 +20,9 @@ All notable changes to this project are documented in this file.
   name, loopback ports, private network attachment, TLS mount, and restart policy.
 - Added a narrow v8 NetworkManager capability backed by direct Engine API calls
   and complete ownership labels for the shared Stackctl bridge network.
+- Added direct v8 volume lifecycle management with deterministic local volumes,
+  complete ownership labels, typed ownership proof, and immediate label
+  revalidation required for deletion.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added v8 dedicated application-container planning with immutable reusable

@@ -11,6 +11,10 @@ pub(crate) enum EngineError {
     Backend {
         detail: String,
     },
+    OwnershipMismatch {
+        resource_kind: &'static str,
+        resource_id: String,
+    },
     Timeout {
         action: String,
         timeout_milliseconds: u64,
@@ -23,6 +27,13 @@ impl Display for EngineError {
             Self::InvalidRequest { detail } | Self::Backend { detail } => {
                 formatter.write_str(detail)
             }
+            Self::OwnershipMismatch {
+                resource_kind,
+                resource_id,
+            } => write!(
+                formatter,
+                "refusing to delete {resource_kind} '{resource_id}' because its Engine ownership labels no longer match"
+            ),
             Self::Timeout {
                 action,
                 timeout_milliseconds,
