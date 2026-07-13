@@ -1,9 +1,12 @@
-use super::{ProjectRecord, StateStore, StateStoreError};
+use super::{
+    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
+    StateStore, StateStoreError,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 1;
+const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -57,8 +60,10 @@ impl SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute_batch(
-            "CREATE TABLE projects (\n\
+
+        if found < 1 {
+            transaction.execute_batch(
+                "CREATE TABLE projects (\n\
                  canonical_path TEXT PRIMARY KEY NOT NULL,\n\
                  project_name TEXT NOT NULL\n\
              ) STRICT;\n\
@@ -68,9 +73,31 @@ impl SqliteStateStore {
                      REFERENCES projects(canonical_path) ON DELETE CASCADE\n\
              ) STRICT;\n\
              CREATE INDEX route_claims_project_idx\n\
-                 ON route_claims(canonical_path);\n\
-             PRAGMA user_version = 1;",
-        )?;
+                 ON route_claims(canonical_path);",
+            )?;
+        }
+
+        if found < 2 {
+            transaction.execute_batch(
+                "CREATE TABLE resources (\n\
+                     resource_id TEXT PRIMARY KEY NOT NULL,\n\
+                     installation_id TEXT NOT NULL,\n\
+                     kind TEXT NOT NULL,\n\
+                     compatibility_fingerprint TEXT NOT NULL,\n\
+                     project_id TEXT,\n\
+                     resource_schema_version INTEGER NOT NULL CHECK(resource_schema_version > 0),\n\
+                     desired_revision TEXT NOT NULL,\n\
+                     retention TEXT NOT NULL CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
+                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
+                     orphaned_at_unix_seconds INTEGER\n\
+                 ) STRICT;\n\
+                 CREATE INDEX resources_project_idx ON resources(project_id);\n\
+                 CREATE INDEX resources_fingerprint_idx\n\
+                     ON resources(compatibility_fingerprint);",
+            )?;
+        }
+
+        transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
         Ok(())
@@ -168,6 +195,125 @@ impl StateStore for SqliteStateStore {
         }
 
         Ok(records)
+    }
+
+    fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        for resource in resources {
+            transaction.execute(
+                "INSERT INTO resources (\n\
+                     resource_id, installation_id, kind, compatibility_fingerprint,\n\
+                     project_id, resource_schema_version, desired_revision, retention,\n\
+                     lifecycle, orphaned_at_unix_seconds\n\
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)\n\
+                 ON CONFLICT(resource_id) DO UPDATE SET\n\
+                     installation_id = excluded.installation_id,\n\
+                     kind = excluded.kind,\n\
+                     compatibility_fingerprint = excluded.compatibility_fingerprint,\n\
+                     project_id = excluded.project_id,\n\
+                     resource_schema_version = excluded.resource_schema_version,\n\
+                     desired_revision = excluded.desired_revision,\n\
+                     retention = excluded.retention,\n\
+                     lifecycle = excluded.lifecycle,\n\
+                     orphaned_at_unix_seconds = excluded.orphaned_at_unix_seconds",
+                params![
+                    resource.resource_id(),
+                    resource.installation_id(),
+                    resource.kind(),
+                    resource.compatibility_fingerprint(),
+                    resource.project_id(),
+                    resource.schema_version(),
+                    resource.desired_revision(),
+                    resource.retention().label(),
+                    resource.lifecycle().label(),
+                    resource.orphaned_at_unix_seconds(),
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT resource_id, installation_id, kind, compatibility_fingerprint,\n\
+                    project_id, resource_schema_version, desired_revision, retention,\n\
+                    lifecycle, orphaned_at_unix_seconds\n\
+             FROM resources ORDER BY resource_id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+            ))
+        })?;
+        let persisted = rows.collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(
+                |(
+                    resource_id,
+                    installation_id,
+                    kind,
+                    compatibility_fingerprint,
+                    project_id,
+                    schema_version,
+                    desired_revision,
+                    retention,
+                    lifecycle,
+                    orphaned_at_unix_seconds,
+                )| {
+                    let schema_version = u32::try_from(schema_version).map_err(|_| {
+                        StateStoreError::CorruptState {
+                            detail: format!(
+                                "resource '{resource_id}' has invalid schema version {schema_version}"
+                            ),
+                        }
+                    })?;
+                    let retention = ResourceRetention::from_label(&retention).ok_or_else(|| {
+                        StateStoreError::CorruptState {
+                            detail: format!(
+                                "resource '{resource_id}' has unknown retention '{retention}'"
+                            ),
+                        }
+                    })?;
+                    let lifecycle = ResourceLifecycle::from_label(&lifecycle).ok_or_else(|| {
+                        StateStoreError::CorruptState {
+                            detail: format!(
+                                "resource '{resource_id}' has unknown lifecycle '{lifecycle}'"
+                            ),
+                        }
+                    })?;
+
+                    Ok(ResourceRecord::new(ResourceRecordOptions {
+                        resource_id,
+                        installation_id,
+                        kind,
+                        compatibility_fingerprint,
+                        project_id,
+                        schema_version,
+                        desired_revision,
+                        retention,
+                        lifecycle,
+                        orphaned_at_unix_seconds,
+                    }))
+                },
+            )
+            .collect()
     }
 }
 

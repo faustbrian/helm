@@ -1,4 +1,4 @@
-use super::{ProjectRecord, StateStoreError};
+use super::{ProjectRecord, ResourceRecord, StateStoreError};
 
 /// Durable control-plane state needed independently of any runtime backend.
 pub(crate) trait StateStore {
@@ -12,4 +12,10 @@ pub(crate) trait StateStore {
 
     /// Loads all registered projects in canonical-path order.
     fn projects(&self) -> Result<Vec<ProjectRecord>, StateStoreError>;
+
+    /// Upserts observed ownership without implicitly deleting missing resources.
+    fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
+
+    /// Loads all durable resources in stable backend-identity order.
+    fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError>;
 }

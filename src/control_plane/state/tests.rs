@@ -1,4 +1,7 @@
-use super::{ProjectRecord, SqliteStateStore, StateStore};
+use super::{
+    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
+    SqliteStateStore, StateStore,
+};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -8,7 +11,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 1);
+    assert_eq!(store.schema_version().expect("schema version"), 2);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -92,6 +95,77 @@ fn dropping_an_uncommitted_transaction_leaves_no_partial_project() {
     let store = SqliteStateStore::open(&database_path).expect("reopen state store");
 
     assert!(store.projects().expect("load projects").is_empty());
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn complete_resource_ownership_survives_store_restart() {
+    let database_path = temporary_database_path("resources");
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-1".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        store
+            .upsert_resources(std::slice::from_ref(&resource))
+            .expect("persist resource ownership");
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+
+    assert_eq!(store.resources().expect("load resources"), vec![resource]);
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn version_one_state_migrates_without_losing_project_ownership() {
+    let database_path = temporary_database_path("v1-migration");
+    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
+    connection
+        .execute_batch(
+            "CREATE TABLE projects (\n\
+                 canonical_path TEXT PRIMARY KEY NOT NULL,\n\
+                 project_name TEXT NOT NULL\n\
+             ) STRICT;\n\
+             CREATE TABLE route_claims (\n\
+                 domain TEXT PRIMARY KEY NOT NULL,\n\
+                 canonical_path TEXT NOT NULL\n\
+                     REFERENCES projects(canonical_path) ON DELETE CASCADE\n\
+             ) STRICT;\n\
+             INSERT INTO projects VALUES ('/work/bill', 'bill');\n\
+             INSERT INTO route_claims VALUES\n\
+                 ('bill-app.stackctl.localhost', '/work/bill');\n\
+             PRAGMA user_version = 1;",
+        )
+        .expect("seed legacy schema");
+    drop(connection);
+
+    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
+
+    assert_eq!(store.schema_version().expect("schema version"), 2);
+    assert_eq!(
+        store.projects().expect("preserved projects"),
+        vec![project_record(
+            "/work/bill",
+            "bill",
+            &["bill-app.stackctl.localhost"]
+        )]
+    );
+    assert!(store.resources().expect("new resource table").is_empty());
 
     drop(store);
     remove_database(&database_path);

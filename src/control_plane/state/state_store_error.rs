@@ -18,6 +18,8 @@ pub(crate) enum StateStoreError {
         existing_path: PathBuf,
         requested_path: PathBuf,
     },
+    /// Persisted state contains a value outside the supported typed model.
+    CorruptState { detail: String },
 }
 
 impl Display for StateStoreError {
@@ -43,6 +45,9 @@ impl Display for StateStoreError {
                 existing_path.display(),
                 requested_path.display()
             ),
+            Self::CorruptState { detail } => {
+                write!(formatter, "state database contains invalid data: {detail}")
+            }
         }
     }
 }
@@ -53,7 +58,8 @@ impl Error for StateStoreError {
             Self::Database(error) => Some(error),
             Self::UnsupportedSchema { .. }
             | Self::NonUtf8Path { .. }
-            | Self::RouteOwnershipConflict { .. } => None,
+            | Self::RouteOwnershipConflict { .. }
+            | Self::CorruptState { .. } => None,
         }
     }
 }
