@@ -540,6 +540,23 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
 }
 
 #[test]
+fn application_requests_preserve_an_immutable_images_default_command() {
+    let plan = application_plan("bill", "/work/bill");
+    let metadata = project_application_metadata("bill", "sha256:runtime-php-84");
+
+    let request = application_container_request(ApplicationContainerRequestOptions {
+        plan,
+        metadata,
+        platform: "linux/arm64".to_owned(),
+        command: Vec::new(),
+        environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
+    })
+    .expect("application Engine request using image defaults");
+
+    assert!(request.command().is_empty());
+}
+
+#[test]
 fn application_rejects_environment_owned_by_another_project() {
     let plan = application_plan("bill", "/work/bill");
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {

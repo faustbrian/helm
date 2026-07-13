@@ -42,7 +42,7 @@ pub(crate) fn application_container_request(
                 ),
             })?;
 
-    ContainerCreateOptions::new(
+    let request = ContainerCreateOptions::new(
         options.plan.container_name(),
         options.plan.image_digest(),
         options.metadata,
@@ -50,7 +50,12 @@ pub(crate) fn application_container_request(
     .with_platform(options.platform)?
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
-    .with_command(options.command)?
-    .with_environment(options.environment.values().clone())
-    .map(|request| request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
+    .with_environment(options.environment.values().clone())?;
+    let request = if options.command.is_empty() {
+        request
+    } else {
+        request.with_command(options.command)?
+    };
+
+    Ok(request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }

@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Allowed immutable application images to retain their default command when a
+  v8 service does not declare an explicit command override.
 - Added a distinct dependency-ordered execution plan that resolves validated
   desired services to explicit deployment strategies and is retained by the
   daemon as the sole input for later Engine-side service dispatch.
