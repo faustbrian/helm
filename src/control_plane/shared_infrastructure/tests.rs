@@ -7,16 +7,16 @@ use super::{
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
     ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
     ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
-    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
-    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
-    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
-    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
-    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources,
+    PostgresMigrationInstancePlanOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
+    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
+    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_postgres_shared_instances, prepare_shared_instances,
@@ -3806,6 +3806,71 @@ fn postgres_shared_instances_materialize_one_private_persistent_container() {
     assert_eq!(plan.bootstrap_credential().secret(), "root-secret");
     assert!(!format!("{:?}", plan.bootstrap_credential()).contains("root-secret"));
     assert!(!format!("{:?}", plan.container()).contains("root-secret"));
+}
+
+#[test]
+fn postgres_migration_target_is_separate_owned_and_retained() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let plan = PostgresSharedInstancePlan::new_migration_target(
+        &shared,
+        PostgresMigrationInstancePlanOptions {
+            migration_id: "restore-bill-database-100".to_owned(),
+            project_id: "bill".to_owned(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:restore-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("restore-root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL migration target");
+
+    assert_eq!(
+        plan.container().name(),
+        "stackctl-migration-restore-bill-database-100"
+    );
+    assert_eq!(plan.container().image(), shared.profile().image_digest());
+    assert_eq!(plan.container().network(), Some("stackctl"));
+    assert!(plan.container().port_bindings().is_empty());
+    assert_eq!(
+        plan.container().metadata().labels(),
+        BTreeMap::from([
+            (
+                "dev.stackctl.desired".to_owned(),
+                "sha256:restore-v1".to_owned()
+            ),
+            (
+                "dev.stackctl.fingerprint".to_owned(),
+                shared.profile().fingerprint().as_str().to_owned(),
+            ),
+            (
+                "dev.stackctl.installation".to_owned(),
+                "install-1".to_owned()
+            ),
+            ("dev.stackctl.kind".to_owned(), "project_service".to_owned()),
+            ("dev.stackctl.managed".to_owned(), "true".to_owned()),
+            ("dev.stackctl.project".to_owned(), "bill".to_owned()),
+            (
+                "dev.stackctl.resource".to_owned(),
+                "restore-bill-database-100".to_owned(),
+            ),
+            ("dev.stackctl.retention".to_owned(), "persistent".to_owned()),
+            ("dev.stackctl.schema".to_owned(), "8".to_owned()),
+        ])
+    );
+    assert_eq!(
+        plan.volume().expect("retained target volume").name(),
+        "stackctl-migration-restore-bill-database-100-data"
+    );
+    assert_eq!(plan.bootstrap_credential().project_id(), Some("bill"));
+    assert_eq!(plan.bootstrap_credential().secret(), "restore-root-secret");
+    assert!(!format!("{:?}", plan.container()).contains("restore-root-secret"));
 }
 
 #[test]

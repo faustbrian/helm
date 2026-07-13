@@ -1,5 +1,6 @@
 mod plan_postgres_project_resources;
 mod postgres_logical_resource_plan;
+mod postgres_migration_instance_plan_options;
 mod postgres_plan_error;
 mod postgres_preparation_error;
 mod postgres_preparation_options;
@@ -16,6 +17,7 @@ pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 
 pub(crate) use plan_postgres_project_resources::plan_postgres_project_resources;
 pub(crate) use postgres_logical_resource_plan::PostgresLogicalResourcePlan;
+pub(crate) use postgres_migration_instance_plan_options::PostgresMigrationInstancePlanOptions;
 pub(crate) use postgres_plan_error::PostgresPlanError;
 pub(crate) use postgres_preparation_error::PostgresPreparationError;
 pub(crate) use postgres_preparation_options::PostgresPreparationOptions;
