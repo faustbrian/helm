@@ -1,6 +1,7 @@
 use super::{
-    DaemonIterationResult, DiscoveryScheduler, FilesystemEventWatcher, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    BollardUnixEngineConnector, DaemonIterationResult, DiscoveryScheduler, EngineConnectionOutcome,
+    EngineConnectionSupervisor, FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
@@ -8,13 +9,15 @@ use crate::control_plane::daemon::ipc::UnixIpcListener;
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
 pub(crate) struct UnixDaemonRuntime {
     _lease: SingletonLease,
     listener: UnixIpcListener,
     filesystem_watcher: FilesystemEventWatcher,
+    engine_runtime: tokio::runtime::Runtime,
+    engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
     control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
@@ -37,14 +40,29 @@ impl UnixDaemonRuntime {
         let listener = UnixIpcListener::bind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
         let mut store = SqliteStateStore::open(&options.state_database_path)?;
-        initialize_default_installation(&mut store)?;
+        let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
+        let engine_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(UnixDaemonRuntimeError::AsyncRuntime)?;
+        let engine_retry = RetryBackoff::new(
+            format!("engine:{}", installation.engine_endpoint()),
+            RetryBackoffOptions::new(Duration::from_millis(500), Duration::from_secs(30))?,
+        )?;
+        let engine_connection = EngineConnectionSupervisor::new(
+            BollardUnixEngineConnector::new(Duration::from_secs(1)),
+            installation.engine_endpoint().into(),
+            engine_retry,
+        )?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
 
         Ok(Self {
             _lease: lease,
             listener,
             filesystem_watcher,
+            engine_runtime,
+            engine_connection,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -103,6 +121,7 @@ impl UnixDaemonRuntime {
     pub(crate) fn run_forever(&mut self) {
         loop {
             let now = Instant::now();
+            self.poll_engine_connection(now);
             if let Err(error) = self.run_iteration(now, unix_time_seconds()) {
                 tracing::error!(error = %error, "singleton daemon iteration failed");
                 self.scheduler.record_filesystem_event(Instant::now());
@@ -112,6 +131,23 @@ impl UnixDaemonRuntime {
                 .next_deadline()
                 .saturating_duration_since(now);
             std::thread::sleep(self.options.idle_poll_interval.min(until_scan));
+        }
+    }
+
+    fn poll_engine_connection(&mut self, now: Instant) {
+        match self
+            .engine_runtime
+            .block_on(self.engine_connection.poll(now))
+        {
+            EngineConnectionOutcome::Unavailable { retry, detail } => {
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %detail,
+                    "selected Docker Engine is unavailable; retry scheduled"
+                );
+            }
+            EngineConnectionOutcome::Connected | EngineConnectionOutcome::BackingOff { .. } => {}
         }
     }
 }

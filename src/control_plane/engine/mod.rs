@@ -68,6 +68,7 @@ mod volume_mount;
 
 pub(crate) use bind_mount::BindMount;
 pub(crate) use bollard_engine_adapter::BollardEngineAdapter;
+pub(crate) use bounded_engine_operation::bounded_engine_operation;
 pub(crate) use classify_observed_resource::classify_observed_resource;
 pub(crate) use command_execution_id::CommandExecutionId;
 pub(crate) use command_executor::CommandExecutor;

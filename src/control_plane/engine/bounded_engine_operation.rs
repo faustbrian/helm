@@ -3,7 +3,7 @@ use std::future::Future;
 use std::time::Duration;
 
 /// Applies a cancellable deadline to one direct Engine operation.
-pub(super) async fn bounded_engine_operation<Output>(
+pub(crate) async fn bounded_engine_operation<Output>(
     action: &'static str,
     deadline: Duration,
     operation: impl Future<Output = Result<Output, EngineError>>,

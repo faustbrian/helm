@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod bollard_unix_engine_connector;
 mod daemon_iteration_result;
 #[cfg(unix)]
 mod default_unix_daemon_runtime_directory;
@@ -9,6 +11,10 @@ mod discovery_scheduler;
 mod discovery_scheduler_error;
 mod discovery_scheduler_options;
 mod dispatch_daemon_request;
+mod engine_connection_outcome;
+mod engine_connection_supervisor;
+mod engine_connection_supervisor_error;
+mod engine_connector;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
 mod initialize_default_installation;
@@ -41,6 +47,8 @@ pub(crate) use singleton_lease_error::SingletonLeaseError;
 
 #[cfg(test)]
 mod tests;
+#[cfg(unix)]
+pub(crate) use bollard_unix_engine_connector::BollardUnixEngineConnector;
 pub(crate) use daemon_iteration_result::DaemonIterationResult;
 #[cfg(unix)]
 pub(crate) use default_unix_daemon_runtime_directory::default_unix_daemon_runtime_directory;
@@ -52,6 +60,10 @@ pub(crate) use discovery_scheduler::DiscoveryScheduler;
 pub(crate) use discovery_scheduler_error::DiscoverySchedulerError;
 pub(crate) use discovery_scheduler_options::DiscoverySchedulerOptions;
 pub(crate) use dispatch_daemon_request::dispatch_daemon_request;
+pub(crate) use engine_connection_outcome::EngineConnectionOutcome;
+pub(crate) use engine_connection_supervisor::EngineConnectionSupervisor;
+pub(crate) use engine_connection_supervisor_error::EngineConnectionSupervisorError;
+pub(crate) use engine_connector::{EngineConnectionFuture, EngineConnector};
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
 pub(crate) use initialize_default_installation::initialize_default_installation;

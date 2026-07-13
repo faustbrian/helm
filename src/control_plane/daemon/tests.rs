@@ -1,5 +1,6 @@
 use super::{
-    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, ProjectDiscoveryOptions,
+    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector, ProjectDiscoveryOptions,
     RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
     dispatch_daemon_request, reconcile_watched_roots,
 };
@@ -8,6 +9,81 @@ use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, Ipc
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn engine_connection_retries_only_after_backoff_and_recovers() {
+    use crate::control_plane::engine::EngineError;
+    use std::collections::VecDeque;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RecordingConnector {
+        attempts: Arc<AtomicUsize>,
+        outcomes: VecDeque<Result<(), EngineError>>,
+    }
+
+    impl EngineConnector for RecordingConnector {
+        type Engine = ();
+
+        fn connect<'operation>(
+            &'operation mut self,
+            _endpoint: &'operation Path,
+        ) -> EngineConnectionFuture<'operation, Self::Engine> {
+            self.attempts.fetch_add(1, Ordering::Relaxed);
+            let outcome = self.outcomes.pop_front().unwrap_or(Ok(()));
+            Box::pin(async move { outcome })
+        }
+    }
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let connector = RecordingConnector {
+        attempts: Arc::clone(&attempts),
+        outcomes: VecDeque::from([
+            Err(EngineError::Backend {
+                detail: "Docker Desktop is starting".to_owned(),
+            }),
+            Ok(()),
+        ]),
+    };
+    let retry = RetryBackoff::new(
+        "engine:docker",
+        RetryBackoffOptions::new(Duration::from_millis(100), Duration::from_secs(1))
+            .expect("retry options"),
+    )
+    .expect("retry backoff");
+    let mut supervisor =
+        EngineConnectionSupervisor::new(connector, PathBuf::from("/var/run/docker.sock"), retry)
+            .expect("Engine supervisor");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+    let started_at = Instant::now();
+
+    let failed = runtime.block_on(supervisor.poll(started_at));
+    let EngineConnectionOutcome::Unavailable { retry, detail } = failed else {
+        panic!("first Engine connection must be unavailable");
+    };
+    assert_eq!(retry.attempt(), 1);
+    assert!(
+        detail.contains("Docker Desktop is starting"),
+        "unexpected connection failure: {detail}",
+    );
+    assert_eq!(attempts.load(Ordering::Relaxed), 1);
+
+    assert!(matches!(
+        runtime.block_on(supervisor.poll(started_at + retry.duration() / 2)),
+        EngineConnectionOutcome::BackingOff { .. }
+    ));
+    assert_eq!(attempts.load(Ordering::Relaxed), 1);
+
+    assert_eq!(
+        runtime.block_on(supervisor.poll(started_at + retry.duration())),
+        EngineConnectionOutcome::Connected
+    );
+    assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    assert!(supervisor.engine_mut().is_some());
+}
 
 #[test]
 fn discovery_scheduler_coalesces_editor_events_and_bounds_continuous_writes() {

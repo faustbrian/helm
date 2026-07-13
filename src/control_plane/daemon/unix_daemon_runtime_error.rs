@@ -1,6 +1,7 @@
 use super::{
-    DiscoveryReconciliationError, DiscoverySchedulerError, FilesystemEventWatcherError,
-    InstallationInitializationError, SingletonLeaseError,
+    DiscoveryReconciliationError, DiscoverySchedulerError, EngineConnectionSupervisorError,
+    FilesystemEventWatcherError, InstallationInitializationError, RetryBackoffError,
+    SingletonLeaseError,
 };
 use crate::control_plane::daemon::ipc::IpcError;
 use crate::control_plane::state::StateStoreError;
@@ -24,8 +25,11 @@ pub(crate) enum UnixDaemonRuntimeError {
     Ipc(IpcError),
     Watcher(FilesystemEventWatcherError),
     Installation(InstallationInitializationError),
+    AsyncRuntime(std::io::Error),
+    EngineSupervisor(EngineConnectionSupervisorError),
     Reconciliation(DiscoveryReconciliationError),
     Scheduler(DiscoverySchedulerError),
+    Retry(RetryBackoffError),
 }
 
 impl Display for UnixDaemonRuntimeError {
@@ -46,8 +50,13 @@ impl Display for UnixDaemonRuntimeError {
             Self::Ipc(error) => Display::fmt(error, formatter),
             Self::Watcher(error) => Display::fmt(error, formatter),
             Self::Installation(error) => Display::fmt(error, formatter),
+            Self::AsyncRuntime(error) => {
+                write!(formatter, "failed to create Engine async runtime: {error}")
+            }
+            Self::EngineSupervisor(error) => Display::fmt(error, formatter),
             Self::Reconciliation(error) => Display::fmt(error, formatter),
             Self::Scheduler(error) => Display::fmt(error, formatter),
+            Self::Retry(error) => Display::fmt(error, formatter),
         }
     }
 }
@@ -62,8 +71,11 @@ impl Error for UnixDaemonRuntimeError {
             Self::Ipc(error) => Some(error),
             Self::Watcher(error) => Some(error),
             Self::Installation(error) => Some(error),
+            Self::AsyncRuntime(error) => Some(error),
+            Self::EngineSupervisor(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
             Self::Scheduler(error) => Some(error),
+            Self::Retry(error) => Some(error),
         }
     }
 }
@@ -98,6 +110,12 @@ impl From<InstallationInitializationError> for UnixDaemonRuntimeError {
     }
 }
 
+impl From<EngineConnectionSupervisorError> for UnixDaemonRuntimeError {
+    fn from(error: EngineConnectionSupervisorError) -> Self {
+        Self::EngineSupervisor(error)
+    }
+}
+
 impl From<DiscoveryReconciliationError> for UnixDaemonRuntimeError {
     fn from(error: DiscoveryReconciliationError) -> Self {
         Self::Reconciliation(error)
@@ -107,5 +125,11 @@ impl From<DiscoveryReconciliationError> for UnixDaemonRuntimeError {
 impl From<DiscoverySchedulerError> for UnixDaemonRuntimeError {
     fn from(error: DiscoverySchedulerError) -> Self {
         Self::Scheduler(error)
+    }
+}
+
+impl From<RetryBackoffError> for UnixDaemonRuntimeError {
+    fn from(error: RetryBackoffError) -> Self {
+        Self::Retry(error)
     }
 }

@@ -96,6 +96,9 @@ All notable changes to this project are documented in this file.
 - Added first-run singleton installation initialization with one cryptographic
   installation identity and one persisted platform-default Docker endpoint,
   reusing both exactly across daemon restarts without engine auto-switching.
+- Added quiet direct-Engine connection supervision to the long-running Unix
+  singleton, with cancellable connection deadlines and bounded jittered retry
+  while offline discovery and IPC remain available when Docker is starting.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
