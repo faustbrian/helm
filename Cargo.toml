@@ -31,6 +31,10 @@ time = { version = "0.3.53", features = ["formatting", "local-offset"] }
 tokio = { version = "1.52.3", features = ["net", "rt", "time"] }
 sha2 = "0.11.0"
 hex = "0.4.3"
+rcgen = "0.14.8"
+
+[dev-dependencies]
+x509-parser = "0.18.1"
 
 [lints.rust]
 # Absolute safety - forbid unsafe code entirely

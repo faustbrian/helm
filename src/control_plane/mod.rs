@@ -13,6 +13,7 @@ mod route_identity;
 mod service_identity;
 mod shared_infrastructure;
 mod state;
+mod tls;
 mod validate_route_claims;
 mod validated_route_registry;
 

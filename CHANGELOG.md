@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added Rust-native v8 generation for a Stackctl-owned local CA and renewable
+  `*.stackctl.localhost` gateway certificate without host OpenSSL or Caddy PKI.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
