@@ -1,20 +1,22 @@
 use super::{
     ContainerCreateOptions, ContainerId, ContainerLifecycle, ContainerState, EngineFuture,
-    ManagedResourceMetadata, ResourceKind,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
 };
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use super::bollard_engine_adapter::create_request;
 
 #[test]
 fn managed_metadata_generates_complete_reserved_ownership_labels() {
-    let metadata = ManagedResourceMetadata::new(
-        "install-1",
-        ResourceKind::SharedService,
-        Some(PathBuf::from("/work/bill")),
-        Some("sha256:abc123".to_owned()),
-    )
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:abc123".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:def456".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
     .expect("valid managed metadata");
 
     assert_eq!(
@@ -30,20 +32,20 @@ fn managed_metadata_generates_complete_reserved_ownership_labels() {
             ),
             ("dev.stackctl.kind".to_owned(), "shared_service".to_owned()),
             ("dev.stackctl.managed".to_owned(), "true".to_owned()),
-            ("dev.stackctl.project".to_owned(), "/work/bill".to_owned()),
+            ("dev.stackctl.project".to_owned(), "bill".to_owned()),
+            ("dev.stackctl.schema".to_owned(), "8".to_owned()),
+            (
+                "dev.stackctl.desired".to_owned(),
+                "sha256:def456".to_owned()
+            ),
+            ("dev.stackctl.retention".to_owned(), "persistent".to_owned()),
         ])
     );
 }
 
 #[test]
 fn container_lifecycle_is_an_object_safe_replaceable_strategy() {
-    let metadata = ManagedResourceMetadata::new(
-        "install-1",
-        ResourceKind::ProjectApplication,
-        Some(PathBuf::from("/work/bill")),
-        None,
-    )
-    .expect("valid managed metadata");
+    let metadata = project_metadata(ResourceKind::ProjectApplication);
     let options = ContainerCreateOptions::new(
         "stackctl-bill-app",
         concat!(
@@ -68,13 +70,7 @@ fn container_lifecycle_is_an_object_safe_replaceable_strategy() {
 
 #[test]
 fn mutable_image_tags_are_rejected_before_an_engine_request() {
-    let metadata = ManagedResourceMetadata::new(
-        "install-1",
-        ResourceKind::Gateway,
-        None,
-        Some("gateway-v1".to_owned()),
-    )
-    .expect("valid managed metadata");
+    let metadata = global_metadata(ResourceKind::Gateway);
 
     let error = ContainerCreateOptions::new("stackctl-gateway", "caddy:latest", metadata)
         .expect_err("mutable image reference");
@@ -87,13 +83,7 @@ fn mutable_image_tags_are_rejected_before_an_engine_request() {
 
 #[test]
 fn bollard_request_maps_only_typed_values_and_reserved_labels() {
-    let metadata = ManagedResourceMetadata::new(
-        "install-1",
-        ResourceKind::Gateway,
-        None,
-        Some("gateway-v1".to_owned()),
-    )
-    .expect("valid managed metadata");
+    let metadata = global_metadata(ResourceKind::Gateway);
     let options = ContainerCreateOptions::new(
         "stackctl-gateway",
         concat!(
@@ -112,6 +102,51 @@ fn bollard_request_maps_only_typed_values_and_reserved_labels() {
         body.labels.expect("ownership labels"),
         options.metadata().labels().into_iter().collect()
     );
+}
+
+#[test]
+fn empty_desired_revision_is_rejected_before_resource_creation() {
+    let error = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Gateway,
+        project_id: None,
+        compatibility_fingerprint: "gateway-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: String::new(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect_err("empty desired revision");
+
+    assert_eq!(
+        error.to_string(),
+        "managed resource desired revision must not be empty"
+    );
+}
+
+fn project_metadata(kind: ResourceKind) -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "runtime-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "desired-v1".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("valid project metadata")
+}
+
+fn global_metadata(kind: ResourceKind) -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind,
+        project_id: None,
+        compatibility_fingerprint: "gateway-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("valid global metadata")
 }
 
 fn create_through_strategy<'operation>(

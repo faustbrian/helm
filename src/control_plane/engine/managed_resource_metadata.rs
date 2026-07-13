@@ -1,56 +1,68 @@
-use super::{EngineError, ResourceKind};
+use super::{EngineError, ManagedResourceMetadataOptions, ResourceKind, RetentionClass};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 const MANAGED_LABEL: &str = "dev.stackctl.managed";
 const INSTALLATION_LABEL: &str = "dev.stackctl.installation";
 const KIND_LABEL: &str = "dev.stackctl.kind";
 const PROJECT_LABEL: &str = "dev.stackctl.project";
 const FINGERPRINT_LABEL: &str = "dev.stackctl.fingerprint";
+const SCHEMA_LABEL: &str = "dev.stackctl.schema";
+const DESIRED_LABEL: &str = "dev.stackctl.desired";
+const RETENTION_LABEL: &str = "dev.stackctl.retention";
 
 /// Mandatory ownership metadata attached to every v8 Engine resource.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ManagedResourceMetadata {
     installation_id: String,
     kind: ResourceKind,
-    project_path: Option<String>,
-    compatibility_fingerprint: Option<String>,
+    project_id: Option<String>,
+    compatibility_fingerprint: String,
+    schema_version: u32,
+    desired_revision: String,
+    retention: RetentionClass,
 }
 
 impl ManagedResourceMetadata {
-    /// Validates ownership metadata without lossy path conversion.
-    pub(crate) fn new(
-        installation_id: impl Into<String>,
-        kind: ResourceKind,
-        project_path: Option<PathBuf>,
-        compatibility_fingerprint: Option<String>,
-    ) -> Result<Self, EngineError> {
-        let installation_id = installation_id.into();
-
-        if installation_id.is_empty() {
+    /// Validates complete ownership metadata before any Engine request.
+    pub(crate) fn new(options: ManagedResourceMetadataOptions) -> Result<Self, EngineError> {
+        if options.installation_id.is_empty() {
             return Err(EngineError::InvalidRequest {
                 detail: "managed resource installation ID must not be empty".to_owned(),
             });
         }
 
-        let project_path = project_path
-            .map(|path| {
-                path.into_os_string()
-                    .into_string()
-                    .map_err(|path| EngineError::InvalidRequest {
-                        detail: format!(
-                            "managed resource project path '{}' is not valid UTF-8",
-                            PathBuf::from(path).display()
-                        ),
-                    })
-            })
-            .transpose()?;
+        if options.project_id.as_ref().is_some_and(String::is_empty) {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed resource project ID must not be empty".to_owned(),
+            });
+        }
+
+        if options.compatibility_fingerprint.is_empty() {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed resource compatibility fingerprint must not be empty".to_owned(),
+            });
+        }
+
+        if options.schema_version == 0 {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed resource schema version must be greater than zero".to_owned(),
+            });
+        }
+
+        if options.desired_revision.is_empty() {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed resource desired revision must not be empty".to_owned(),
+            });
+        }
 
         Ok(Self {
-            installation_id,
-            kind,
-            project_path,
-            compatibility_fingerprint,
+            installation_id: options.installation_id,
+            kind: options.kind,
+            project_id: options.project_id,
+            compatibility_fingerprint: options.compatibility_fingerprint,
+            schema_version: options.schema_version,
+            desired_revision: options.desired_revision,
+            retention: options.retention,
         })
     }
 
@@ -60,14 +72,20 @@ impl ManagedResourceMetadata {
             (MANAGED_LABEL.to_owned(), "true".to_owned()),
             (INSTALLATION_LABEL.to_owned(), self.installation_id.clone()),
             (KIND_LABEL.to_owned(), self.kind.label().to_owned()),
+            (
+                FINGERPRINT_LABEL.to_owned(),
+                self.compatibility_fingerprint.clone(),
+            ),
+            (SCHEMA_LABEL.to_owned(), self.schema_version.to_string()),
+            (DESIRED_LABEL.to_owned(), self.desired_revision.clone()),
+            (
+                RETENTION_LABEL.to_owned(),
+                self.retention.label().to_owned(),
+            ),
         ]);
 
-        if let Some(project_path) = &self.project_path {
-            labels.insert(PROJECT_LABEL.to_owned(), project_path.clone());
-        }
-
-        if let Some(fingerprint) = &self.compatibility_fingerprint {
-            labels.insert(FINGERPRINT_LABEL.to_owned(), fingerprint.clone());
+        if let Some(project_id) = &self.project_id {
+            labels.insert(PROJECT_LABEL.to_owned(), project_id.clone());
         }
 
         labels

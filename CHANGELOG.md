@@ -63,6 +63,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Completed v8 Engine ownership labels with stable project IDs, compatibility
+  fingerprints, schema versions, desired revisions, and retention classes.
 - Renamed the project, CLI, config files, env vars, Docker labels, and
   user-facing documentation to `stackctl`.
 - Updated direct Rust dependencies in `Cargo.toml` to the latest available
