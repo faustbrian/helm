@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
   route ownership, atomic migrations, restart recovery, and interrupted writes.
 - Added an OS-backed per-user v8 daemon lease contract with exclusive ownership,
   stale-PID-independent recovery, and user-only Unix permissions.
+- Added a versioned v8 local IPC frame contract with typed requests, request
+  IDs, cancellation, strict decoding, and a user-only Unix socket listener.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.

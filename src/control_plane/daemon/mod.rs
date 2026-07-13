@@ -1,3 +1,4 @@
+mod ipc;
 mod singleton_lease;
 mod singleton_lease_error;
 
