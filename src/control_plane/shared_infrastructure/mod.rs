@@ -34,6 +34,7 @@ pub(crate) use postgres::{
     PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, plan_postgres_project_resources,
     provision_postgres_logical_resource, reconcile_postgres_project_resources,
 };
+pub(crate) use provisioning_job_options::ProvisioningJobOptions;
 pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
     RabbitMqProjectResources, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
@@ -48,6 +49,7 @@ pub(crate) use redis::{
     plan_redis_project_resources, reconcile_redis_acl_snapshot, reload_redis_acl,
     store_redis_acl_snapshot,
 };
+pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_reconcile_action::SharedServiceReconcileAction;
@@ -77,10 +79,12 @@ mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
 mod postgres;
+mod provisioning_job_options;
 mod rabbitmq;
 mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
+mod run_provisioning_job;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;
 mod shared_service_reconcile_action;

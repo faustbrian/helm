@@ -9,6 +9,7 @@ pub(crate) enum ResourceKind {
     Network,
     Volume,
     Build,
+    ProvisioningJob,
 }
 
 impl ResourceKind {
@@ -21,6 +22,7 @@ impl ResourceKind {
             Self::Network => "network",
             Self::Volume => "volume",
             Self::Build => "build",
+            Self::ProvisioningJob => "provisioning_job",
         }
     }
 
@@ -33,6 +35,7 @@ impl ResourceKind {
             "network" => Some(Self::Network),
             "volume" => Some(Self::Volume),
             "build" => Some(Self::Build),
+            "provisioning_job" => Some(Self::ProvisioningJob),
             _ => None,
         }
     }

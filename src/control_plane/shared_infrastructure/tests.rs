@@ -5,22 +5,22 @@ use super::{
     MailpitSharedInstancePlanOptions, MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan,
     MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlSharedInstancePlan,
     MySqlSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, RabbitMqDefinitions,
-    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
-    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
-    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedServiceReconcileAction,
-    SharedServiceReconcileOptions, SharedServiceRequest, SharedVolumeReconcileAction,
-    SharedVolumeReconcileOptions, generate_credential_secret, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
-    plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    provision_mongodb_logical_resource, provision_mysql_logical_resource,
+    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, ProvisioningJobOptions,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
+    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, generate_credential_secret,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
+    plan_shared_instances, provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_postgres_logical_resource, reconcile_mailpit_authentication,
     reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
     reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -68,6 +68,167 @@ fn missing_shared_persistent_volumes_are_created_once() {
     assert_eq!(result.volume().name(), request.name());
     assert_eq!(engine.created, vec![request]);
     assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn provisioning_jobs_are_bounded_owned_and_removed_after_success() {
+    let request = provisioning_job_request("install-1");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let completions = Arc::clone(&engine.completions);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(run_provisioning_job(
+            &mut engine,
+            ProvisioningJobOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(30),
+            },
+        ))
+        .expect("run provisioning job");
+
+    assert_eq!(engine.created_containers, vec![request]);
+    assert_eq!(engine.started_containers.len(), 1);
+    assert_eq!(engine.removed_containers.len(), 1);
+    assert_eq!(*completions.lock().expect("completion count"), 1);
+    assert_eq!(
+        engine.operations,
+        vec!["create-container", "start-container", "remove-container"]
+    );
+}
+
+#[test]
+fn failed_provisioning_jobs_are_removed_and_reported() {
+    let request = provisioning_job_request("install-1");
+    let mut engine = RecordingSharedVolumeEngine {
+        completion_fails: true,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(run_provisioning_job(
+            &mut engine,
+            ProvisioningJobOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(30),
+            },
+        ))
+        .expect_err("failed provisioning job");
+
+    assert!(error.to_string().contains("provisioning job failed"));
+    assert_eq!(engine.removed_containers.len(), 1);
+}
+
+#[test]
+fn timed_out_provisioning_jobs_are_retained_for_recovery() {
+    let request = provisioning_job_request("install-1");
+    let mut engine = RecordingSharedVolumeEngine {
+        completion_times_out: true,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(run_provisioning_job(
+            &mut engine,
+            ProvisioningJobOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(30),
+            },
+        ))
+        .expect_err("timed out provisioning job");
+
+    assert!(error.to_string().contains("timed out"));
+    assert!(engine.removed_containers.is_empty());
+}
+
+#[test]
+fn foreign_provisioning_jobs_fail_before_engine_mutation() {
+    let request = provisioning_job_request("install-1");
+    let foreign = provisioning_job_request("install-2");
+    let mut engine = RecordingSharedVolumeEngine {
+        observed_containers: vec![ObservedContainer::new(
+            ContainerId::new("foreign-job"),
+            foreign.metadata().labels(),
+        )],
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(run_provisioning_job(
+            &mut engine,
+            ProvisioningJobOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(30),
+            },
+        ))
+        .expect_err("foreign provisioning job");
+
+    assert!(error.to_string().contains("owned by another installation"));
+    assert!(engine.operations.is_empty());
+}
+
+#[test]
+fn stale_owned_provisioning_jobs_finish_before_the_desired_job_runs() {
+    let request = provisioning_job_request("install-1");
+    let stale_metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::ProvisioningJob,
+            project_id: Some("bill".to_owned()),
+            compatibility_fingerprint: "sha256:minio-client".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:stale-bucket".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Disposable,
+        },
+    )
+    .and_then(|metadata| metadata.with_resource_id("object-store-bucket"))
+    .expect("stale provisioning metadata");
+    let mut engine = RecordingSharedVolumeEngine {
+        observed_containers: vec![ObservedContainer::new(
+            ContainerId::new("stale-job"),
+            stale_metadata.labels(),
+        )],
+        state: crate::control_plane::engine::ContainerState::Stopped,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(run_provisioning_job(
+            &mut engine,
+            ProvisioningJobOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(30),
+            },
+        ))
+        .expect("replace stale provisioning job");
+
+    assert_eq!(engine.created_containers, vec![request]);
+    assert_eq!(engine.removed_containers.len(), 2);
+    assert_eq!(*engine.completions.lock().expect("completion count"), 2);
 }
 
 #[test]
@@ -2828,6 +2989,9 @@ struct RecordingSharedVolumeEngine {
     command_input: Arc<Mutex<Vec<u8>>>,
     command_arguments: Arc<Mutex<Vec<Vec<String>>>>,
     command_exit: i64,
+    completions: Arc<Mutex<usize>>,
+    completion_fails: bool,
+    completion_times_out: bool,
 }
 
 impl Default for RecordingSharedVolumeEngine {
@@ -2847,6 +3011,9 @@ impl Default for RecordingSharedVolumeEngine {
             command_input: Arc::new(Mutex::new(Vec::new())),
             command_arguments: Arc::new(Mutex::new(Vec::new())),
             command_exit: 0,
+            completions: Arc::new(Mutex::new(0)),
+            completion_fails: false,
+            completion_times_out: false,
         }
     }
 }
@@ -2974,6 +3141,33 @@ impl crate::control_plane::engine::HealthObserver for RecordingSharedVolumeEngin
     }
 }
 
+impl crate::control_plane::engine::ContainerCompletion for RecordingSharedVolumeEngine {
+    fn wait_for_success<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _timeout: std::time::Duration,
+    ) -> EngineFuture<'operation, ()> {
+        let completions = Arc::clone(&self.completions);
+        let completion_fails = self.completion_fails;
+        let completion_times_out = self.completion_times_out;
+        Box::pin(async move {
+            *completions.lock().expect("completion count") += 1;
+            if completion_times_out {
+                Err(crate::control_plane::engine::EngineError::Timeout {
+                    action: "wait for provisioning container".to_owned(),
+                    timeout_milliseconds: 30_000,
+                })
+            } else if completion_fails {
+                Err(crate::control_plane::engine::EngineError::Backend {
+                    detail: "provisioning job failed".to_owned(),
+                })
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
 impl CommandExecutor for RecordingSharedVolumeEngine {
     fn start_command<'operation>(
         &'operation self,
@@ -3018,6 +3212,45 @@ impl CommandExecutor for RecordingSharedVolumeEngine {
 
 fn shared_volume_request() -> crate::control_plane::engine::VolumeCreateOptions {
     shared_volume_request_with_revision("sha256:desired-v1")
+}
+
+fn provisioning_job_request(
+    installation_id: &str,
+) -> crate::control_plane::engine::ContainerCreateOptions {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::ProvisioningJob,
+            project_id: Some("bill".to_owned()),
+            compatibility_fingerprint: "sha256:minio-client".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:bucket-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Disposable,
+        },
+    )
+    .and_then(|metadata| metadata.with_resource_id("object-store-bucket"))
+    .expect("provisioning job metadata");
+    crate::control_plane::engine::ContainerCreateOptions::new(
+        "stackctl-job-bill-object-store-bucket",
+        format!("minio/mc@sha256:{}", "f".repeat(64)),
+        metadata,
+    )
+    .and_then(|request| request.with_network("stackctl"))
+    .and_then(|request| request.with_platform("linux/amd64"))
+    .and_then(|request| {
+        request.with_command(vec![
+            "mb".to_owned(),
+            "--ignore-existing".to_owned(),
+            "stackctl/stackctl-bill-object-store".to_owned(),
+        ])
+    })
+    .and_then(|request| {
+        request.with_environment(BTreeMap::from([(
+            "MC_HOST_stackctl".to_owned(),
+            "http://root:secret@stackctl-shared-minio:9000".to_owned(),
+        )]))
+    })
+    .expect("provisioning job request")
 }
 
 fn shared_volume_request_with_revision(
