@@ -1,6 +1,7 @@
 use super::{
-    CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability,
-    PersistenceMode, SharedServiceRequest, plan_shared_instances,
+    CompatibilityFingerprint, CompatibilityFingerprintOptions, CredentialEntropy,
+    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
+    generate_credential_secret, plan_shared_instances,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -118,6 +119,29 @@ fn repeated_identical_consumers_do_not_duplicate_logical_ownership() {
         consumers.first().map(|owner| owner.service_id()),
         Some("database")
     );
+}
+
+#[test]
+fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
+    let secret = generate_credential_secret(&SequentialEntropy).expect("managed secret");
+
+    assert_eq!(
+        secret.expose(),
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    );
+    assert_eq!(format!("{secret:?}"), "CredentialSecret([REDACTED])");
+}
+
+struct SequentialEntropy;
+
+impl CredentialEntropy for SequentialEntropy {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CredentialGenerationError> {
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::try_from(index).expect("test entropy index");
+        }
+
+        Ok(())
+    }
 }
 
 fn fingerprint(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprint {
