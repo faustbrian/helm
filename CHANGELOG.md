@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added immutable custom-application planning from resolved services to exact
+  per-service Engine ownership, content-derived revisions, and gateway routes,
+  rejecting mutable or unresolved image artifacts before mutation.
 - Allowed immutable application images to retain their default command when a
   v8 service does not declare an explicit command override.
 - Added a distinct dependency-ordered execution plan that resolves validated

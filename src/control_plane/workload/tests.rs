@@ -1,13 +1,14 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    JavaScriptRuntimeSpec, ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
-    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
-    ProjectRuntimeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
-    RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions, WorkloadReconcileAction,
-    WorkloadReconcileOptions, application_container_request, project_process_request,
-    reconcile_project_application, reconcile_project_process, reconcile_project_runtime,
-    run_project_command,
+    ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, ProjectCommand, ProjectCommandPlan,
+    ProjectCommandPlanOptions, ProjectProcessPlan, ProjectProcessPlanOptions,
+    ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
+    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
+    plan_immutable_project_application, project_process_request, reconcile_project_application,
+    reconcile_project_process, reconcile_project_runtime, run_project_command,
 };
+use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
@@ -19,7 +20,7 @@ use crate::control_plane::engine::{
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
-use crate::control_plane::{ProjectIdentity, ServiceIdentity};
+use crate::control_plane::{ProjectIdentity, ServiceIdentity, resolve_execution_plan};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -554,6 +555,69 @@ fn application_requests_preserve_an_immutable_images_default_command() {
     .expect("application Engine request using image defaults");
 
     assert!(request.command().is_empty());
+}
+
+#[test]
+fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    image: ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    ));
+
+    let plan = plan_immutable_project_application(ImmutableProjectApplicationOptions {
+        service: &application,
+        managed_environment: managed_environment(
+            "bill",
+            BTreeMap::from([("DATABASE_URL".to_owned(), "postgres://bill".to_owned())]),
+            EnvironmentLifecycle::Active,
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("immutable application plan");
+
+    assert_eq!(plan.request().name(), "stackctl-bill-app");
+    assert_eq!(
+        plan.request().image(),
+        concat!(
+            "ghcr.io/acme/bill@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+    );
+    assert_eq!(plan.request().network(), Some("stackctl"));
+    assert_eq!(plan.request().metadata().resource_id(), Some("app"));
+    assert!(plan.request().command().is_empty());
+    assert_eq!(plan.route().domain(), "bill-app.stackctl.localhost");
+    assert_eq!(plan.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn unresolved_or_mutable_application_artifacts_fail_before_engine_mutation() {
+    let built_in = resolved_application(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    );
+    let mutable = resolved_application(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/acme/bill:latest\n",
+    );
+
+    let built_in_error =
+        plan_immutable_project_application(immutable_application_options(&built_in))
+            .expect_err("unresolved built-in artifact");
+    let mutable_error = plan_immutable_project_application(immutable_application_options(&mutable))
+        .expect_err("mutable custom artifact");
+
+    assert_eq!(
+        built_in_error.to_string(),
+        "project application 'bill-app' requires a resolved immutable image artifact"
+    );
+    assert_eq!(
+        mutable_error.to_string(),
+        "application image 'ghcr.io/acme/bill:latest' must use an immutable sha256 digest"
+    );
 }
 
 #[test]
@@ -1169,6 +1233,36 @@ fn runtime_image_options() -> RuntimeImageBuildPlanOptions {
         installer_revision: "runtime-installer-v1".to_owned(),
         installer_sha256: format!("sha256:{}", hex::encode(Sha256::digest(&installer))),
         installer,
+    }
+}
+
+fn resolved_application(yaml: &str) -> crate::control_plane::ServiceExecutionPlan {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        yaml.to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    execution.services()[0].clone()
+}
+
+fn immutable_application_options(
+    service: &crate::control_plane::ServiceExecutionPlan,
+) -> ImmutableProjectApplicationOptions<'_> {
+    ImmutableProjectApplicationOptions {
+        service,
+        managed_environment: managed_environment(
+            "bill",
+            BTreeMap::new(),
+            EnvironmentLifecycle::Active,
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
     }
 }
 
