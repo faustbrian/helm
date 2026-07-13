@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a requirement-level v8 completion audit that separates implemented
+  repository behavior from missing live, platform, migration, and benchmark
+  evidence.
 - Added daemon-owned garbage collection for expired seven-day disposable
   orphans with exact Engine ownership and atomic durable-state retirement.
 - Added ownership-scoped Engine benchmark snapshots and a non-overwriting raw

@@ -16,6 +16,8 @@ is not complete until its milestone evidence and acceptance tests pass.
 - [Benchmarks](benchmarks.md): resource and recovery measurement protocol.
 - [Platform support](platform-support.md): claimed, preview, blocked, and
   unsupported operating-system and architecture combinations.
+- [Completion audit](completion-audit.md): requirement-level evidence and
+  explicit release blockers.
 
 ## Product invariant
 
