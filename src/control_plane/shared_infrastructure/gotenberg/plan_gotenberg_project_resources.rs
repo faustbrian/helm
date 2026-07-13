@@ -9,9 +9,12 @@ use std::collections::BTreeMap;
 /// Composes the stable internal endpoint for one Gotenberg consumer.
 pub(crate) fn plan_gotenberg_project_resources(
     project_id: &str,
+    service_id: &str,
     instance: &GotenbergSharedInstancePlan,
 ) -> Result<GotenbergProjectResources, GotenbergPlanError> {
     let project_id = DnsLabel::new("project", project_id)
+        .map_err(|error| GotenbergPlanError::new(error.to_string()))?;
+    let service_id = DnsLabel::new("service", service_id)
         .map_err(|error| GotenbergPlanError::new(error.to_string()))?;
     let values = BTreeMap::from([(
         "GOTENBERG_URL".to_owned(),
@@ -30,5 +33,9 @@ pub(crate) fn plan_gotenberg_project_resources(
         lifecycle: EnvironmentLifecycle::Active,
     });
 
-    Ok(GotenbergProjectResources::new(environment))
+    Ok(GotenbergProjectResources::new(
+        project_id.as_str().to_owned(),
+        service_id.as_str().to_owned(),
+        environment,
+    ))
 }

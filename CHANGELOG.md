@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added exact-compatible stateless Gotenberg sharing with one disposable
+  process, project-specific endpoint environments, durable consumer claims, and
+  no unnecessary credentials or volumes.
 - Added SQL Server shared-instance convergence with explicit YAML EULA
   acceptance, edition-aware compatibility grouping, policy-compliant stable
   credentials, isolated databases/logins, persistent physical/logical

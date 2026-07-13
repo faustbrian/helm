@@ -1,13 +1,13 @@
 use super::{
-    CredentialEntropy, MailpitPreparationOptions, MongoDbPreparationOptions,
-    MySqlPreparationOptions, ObjectStorePreparationOptions, PostgresPreparationOptions,
-    PreparedSharedInstance, RabbitMqPreparationOptions, RedisPreparationOptions,
-    SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
-    SqlServerPreparationOptions, prepare_mailpit_shared_instances,
-    prepare_mongodb_shared_instances, prepare_mysql_shared_instances,
-    prepare_object_store_shared_instances, prepare_postgres_shared_instances,
-    prepare_rabbitmq_shared_instances, prepare_redis_shared_instances,
-    prepare_sql_server_shared_instances,
+    CredentialEntropy, GotenbergPreparationOptions, MailpitPreparationOptions,
+    MongoDbPreparationOptions, MySqlPreparationOptions, ObjectStorePreparationOptions,
+    PostgresPreparationOptions, PreparedSharedInstance, RabbitMqPreparationOptions,
+    RedisPreparationOptions, SharedInstancePlan, SharedPreparationError, SharedPreparationOptions,
+    SqlServerPreparationOptions, prepare_gotenberg_shared_instances,
+    prepare_mailpit_shared_instances, prepare_mongodb_shared_instances,
+    prepare_mysql_shared_instances, prepare_object_store_shared_instances,
+    prepare_postgres_shared_instances, prepare_rabbitmq_shared_instances,
+    prepare_redis_shared_instances, prepare_sql_server_shared_instances,
 };
 use crate::control_plane::state::StateStore;
 
@@ -142,6 +142,18 @@ where
             .pop()
             .map(PreparedSharedInstance::SqlServer)
             .ok_or_else(|| invalid("SQL Server strategy returned no prepared instance")),
+            "gotenberg" => prepare_gotenberg_shared_instances(
+                std::slice::from_ref(instance),
+                GotenbergPreparationOptions {
+                    installation_id: options.installation_id,
+                    network_name: options.network_name,
+                    schema_version: options.schema_version,
+                },
+            )
+            .map_err(invalid)?
+            .pop()
+            .map(PreparedSharedInstance::Gotenberg)
+            .ok_or_else(|| invalid("Gotenberg strategy returned no prepared instance")),
             implementation => Err(invalid(format!(
                 "shared implementation '{implementation}' has no registered preparation strategy"
             ))),

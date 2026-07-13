@@ -1,6 +1,6 @@
 use super::{
-    PreparedMailpitSharedInstance, PreparedMongoDbSharedInstance, PreparedMySqlSharedInstance,
-    PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
+    PreparedGotenbergSharedInstance, PreparedMailpitSharedInstance, PreparedMongoDbSharedInstance,
+    PreparedMySqlSharedInstance, PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
     PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance, PreparedSqlServerSharedInstance,
 };
 use crate::control_plane::gateway::GatewayRoute;
@@ -16,6 +16,7 @@ pub(crate) enum PreparedSharedInstance {
     Mailpit(PreparedMailpitSharedInstance),
     MongoDb(PreparedMongoDbSharedInstance),
     SqlServer(PreparedSqlServerSharedInstance),
+    Gotenberg(PreparedGotenbergSharedInstance),
 }
 
 impl PreparedSharedInstance {
@@ -129,6 +130,16 @@ impl PreparedSharedInstance {
                     )
                 })
                 .collect(),
+            Self::Gotenberg(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| {
+                    (
+                        project.project_id().to_owned(),
+                        project.service_id().to_owned(),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -170,6 +181,11 @@ impl PreparedSharedInstance {
                 .map(|project| project.environment())
                 .collect(),
             Self::SqlServer(prepared) => prepared
+                .projects()
+                .iter()
+                .map(|project| project.environment())
+                .collect(),
+            Self::Gotenberg(prepared) => prepared
                 .projects()
                 .iter()
                 .map(|project| project.environment())

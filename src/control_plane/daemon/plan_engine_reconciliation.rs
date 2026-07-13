@@ -24,6 +24,7 @@ pub(crate) fn plan_engine_reconciliation(
             service.strategy(),
             ServiceDeploymentStrategy::SharedByCompatibility
                 | ServiceDeploymentStrategy::SharedWithAttribution
+                | ServiceDeploymentStrategy::SharedStateless
         );
         if is_shared
             && options

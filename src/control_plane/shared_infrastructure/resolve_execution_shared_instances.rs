@@ -17,6 +17,7 @@ pub(crate) fn resolve_execution_shared_instances(
             service.strategy(),
             ServiceDeploymentStrategy::SharedByCompatibility
                 | ServiceDeploymentStrategy::SharedWithAttribution
+                | ServiceDeploymentStrategy::SharedStateless
         )
     }) {
         let preset = service.desired().preset().ok_or_else(|| {
@@ -37,6 +38,7 @@ pub(crate) fn resolve_execution_shared_instances(
             "minio" => "minio",
             "rabbitmq" => "rabbitmq",
             "mailpit" => "mailpit",
+            "gotenberg" => "gotenberg",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",
@@ -73,12 +75,16 @@ pub(crate) fn resolve_execution_shared_instances(
             image_digest: image.to_owned(),
             extensions: Vec::new(),
             immutable_settings,
-            persistence: PersistenceMode::Persistent,
+            persistence: if implementation == "gotenberg" {
+                PersistenceMode::Ephemeral
+            } else {
+                PersistenceMode::Persistent
+            },
             isolation: match implementation {
                 "redis" | "valkey" => IsolationCapability::AclAndPrefix,
                 "minio" => IsolationCapability::BucketAndPolicy,
                 "rabbitmq" => IsolationCapability::VirtualHostAndUser,
-                "mailpit" => IsolationCapability::None,
+                "mailpit" | "gotenberg" => IsolationCapability::None,
                 _ => IsolationCapability::DatabaseAndRole,
             },
             platform_architecture: Some(platform.to_owned()),

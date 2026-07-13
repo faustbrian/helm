@@ -522,6 +522,88 @@ fn sql_server_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
     std::fs::remove_file(database_path).expect("remove state store");
 }
 
+#[test]
+fn gotenberg_strategy_shares_one_stateless_endpoint_for_two_projects() {
+    let image = concat!(
+        "gotenberg/gotenberg@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_preset_source("/work/bill", "bill", "gotenberg", "gotenberg", "8", image),
+        shared_preset_source("/work/shop", "shop", "gotenberg", "gotenberg", "8", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-gotenberg-strategy-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: database_path.parent().expect("state directory"),
+        },
+    )
+    .expect("shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared.len(), 1);
+    assert_eq!(shared[0].profile().implementation(), "gotenberg");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0].values().get("GOTENBERG_URL"),
+        Some(&format!(
+            "http://{}:3000",
+            engine
+                .created_containers
+                .first()
+                .map(|options| options.name())
+                .unwrap_or("not-created-yet")
+        ))
+    );
+    assert!(store.credentials().expect("durable credentials").is_empty());
+    assert_eq!(result.physical_resources().len(), 1);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("commands")
+            .is_empty()
+    );
+
+    drop(store);
+    std::fs::remove_file(database_path).expect("remove state store");
+}
+
 #[cfg(unix)]
 #[test]
 fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
@@ -1326,8 +1408,8 @@ fn gotenberg_projects_receive_the_shared_internal_endpoint() {
     )
     .expect("Gotenberg instance");
 
-    let project =
-        plan_gotenberg_project_resources("bill", &instance).expect("Gotenberg project resources");
+    let project = plan_gotenberg_project_resources("bill", "gotenberg", &instance)
+        .expect("Gotenberg project resources");
 
     assert_eq!(
         project.environment().values(),

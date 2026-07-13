@@ -1,9 +1,10 @@
 use super::{
     PreparedSharedInstance, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
-    reconcile_prepared_mailpit_instance, reconcile_prepared_mongodb_instance,
-    reconcile_prepared_mysql_instance, reconcile_prepared_object_store_instance,
-    reconcile_prepared_postgres_instance, reconcile_prepared_rabbitmq_instance,
-    reconcile_prepared_redis_instance, reconcile_prepared_sql_server_instance,
+    reconcile_prepared_gotenberg_instance, reconcile_prepared_mailpit_instance,
+    reconcile_prepared_mongodb_instance, reconcile_prepared_mysql_instance,
+    reconcile_prepared_object_store_instance, reconcile_prepared_postgres_instance,
+    reconcile_prepared_rabbitmq_instance, reconcile_prepared_redis_instance,
+    reconcile_prepared_sql_server_instance,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -67,6 +68,10 @@ where
                 schema_version,
             )
             .await
+        }
+        PreparedSharedInstance::Gotenberg(prepared) => {
+            reconcile_prepared_gotenberg_instance(engine, prepared, installation_id, schema_version)
+                .await
         }
     }
 }

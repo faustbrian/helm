@@ -9,8 +9,10 @@ pub(crate) use credential_generation_error::CredentialGenerationError;
 pub(crate) use credential_secret::CredentialSecret;
 pub(crate) use generate_credential_secret::generate_credential_secret;
 pub(crate) use gotenberg::{
-    GotenbergPlanError, GotenbergProjectResources, GotenbergSharedInstancePlan,
-    GotenbergSharedInstancePlanOptions, plan_gotenberg_project_resources,
+    GotenbergPlanError, GotenbergPreparationError, GotenbergPreparationOptions,
+    GotenbergProjectResources, GotenbergSharedInstancePlan, GotenbergSharedInstancePlanOptions,
+    PreparedGotenbergSharedInstance, plan_gotenberg_project_resources,
+    prepare_gotenberg_shared_instances, reconcile_prepared_gotenberg_instance,
 };
 pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use mailpit::{
