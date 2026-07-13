@@ -4,15 +4,21 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct StoredRedisAclPaths {
     directory: PathBuf,
+    mount_directory: PathBuf,
     acl_file: PathBuf,
 }
 
 impl StoredRedisAclPaths {
-    pub(super) fn new(directory: PathBuf, acl_file: PathBuf) -> Self {
+    pub(super) fn new(directory: PathBuf, mount_directory: PathBuf, acl_file: PathBuf) -> Self {
         Self {
             directory,
+            mount_directory,
             acl_file,
         }
+    }
+
+    pub(crate) fn mount_directory(&self) -> &Path {
+        &self.mount_directory
     }
 
     pub(crate) fn directory(&self) -> &Path {

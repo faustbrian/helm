@@ -1,4 +1,4 @@
-use super::redis_acl_project::validate_secret;
+use super::redis_acl_project::{password_hash, validate_secret};
 use super::{RedisAclProject, RedisPlanError};
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use std::collections::BTreeMap;
@@ -28,8 +28,8 @@ impl RedisAclSnapshot {
 
         let mut contents = format!(
             "user default off resetpass resetkeys resetchannels -@all\n\
-             user stackctl_admin on resetpass >{} resetkeys ~* resetchannels &* +@all\n",
-            admin_secret.expose()
+             user stackctl_admin on resetpass #{} resetkeys ~* resetchannels &* +@all\n",
+            password_hash(admin_secret.expose())
         );
         for project in users.values() {
             contents.push_str(&project.acl_line());

@@ -3,7 +3,8 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    RedisAclProject, RedisAclSnapshot, SharedServiceRequest, generate_credential_secret,
+    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan,
+    RedisSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
     plan_mysql_project_resources, plan_postgres_project_resources, plan_shared_instances,
     provision_mysql_logical_resource, provision_postgres_logical_resource,
     store_redis_acl_snapshot,
@@ -174,10 +175,11 @@ fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
     assert_eq!(
         snapshot.contents(),
         "user default off resetpass resetkeys resetchannels -@all\n\
-         user stackctl_admin on resetpass >admin-secret resetkeys ~* resetchannels &* +@all\n\
-         user st_bill_cache on resetpass >bill-secret resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n\
-         user st_shop_cache on resetpass >shop-secret resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n"
+         user stackctl_admin on resetpass #16175223c8ddce5ace0493c948569c211b03c4c6bb3d3e484434999448cffe01 resetkeys ~* resetchannels &* +@all\n\
+         user st_bill_cache on resetpass #fdb34f0710b2f482f4eb9dded04a6777f64c7388e42b0553ad43b26e126b029c resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n\
+         user st_shop_cache on resetpass #3c655a3878fd8e4145a5facca30188ce74792ddff5d57aaf2203bbe74a940cb5 resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting\n"
     );
+    assert!(!snapshot.contents().contains("secret"));
     assert_eq!(
         format!("{snapshot:?}"),
         "RedisAclSnapshot { user_count: 3 }"
@@ -230,7 +232,8 @@ fn redis_acl_store_atomically_replaces_a_private_directory_mounted_file() {
     store_redis_acl_snapshot(&replacement, &root).expect("replace ACL");
 
     assert_eq!(stored.directory(), root);
-    assert_eq!(stored.acl_file(), root.join("users.acl"));
+    assert_eq!(stored.mount_directory(), root.join("mounted"));
+    assert_eq!(stored.acl_file(), root.join("mounted/users.acl"));
     assert_eq!(
         std::fs::read_to_string(stored.acl_file()).expect("stored ACL"),
         replacement.contents()
@@ -244,21 +247,105 @@ fn redis_acl_store_atomically_replaces_a_private_directory_mounted_file() {
         0o700
     );
     assert_eq!(
+        std::fs::metadata(stored.mount_directory())
+            .expect("ACL mount directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    assert_eq!(
         std::fs::metadata(stored.acl_file())
             .expect("ACL file")
             .permissions()
             .mode()
             & 0o777,
-        0o600
+        0o644
     );
     assert_eq!(
-        std::fs::read_dir(stored.directory())
-            .expect("ACL directory entries")
+        std::fs::read_dir(stored.mount_directory())
+            .expect("ACL mount directory entries")
             .count(),
         1
     );
 
     std::fs::remove_dir_all(&root).expect("remove ACL fixture");
+}
+
+#[test]
+fn redis_and_valkey_materialize_as_separate_private_acl_backed_instances() {
+    let redis_shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let valkey_shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "shop",
+        "cache",
+        cache_profile("valkey", "9", PersistenceMode::Ephemeral),
+    )])
+    .pop()
+    .expect("shared Valkey plan");
+    let redis = RedisSharedInstancePlan::new(
+        &redis_shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: "/private/redis-acl".into(),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+    let valkey = RedisSharedInstancePlan::new(
+        &valkey_shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:valkey-v1".to_owned(),
+            acl_directory: "/private/valkey-acl".into(),
+            bootstrap_secret: CredentialSecret::new("valkey-admin".to_owned()),
+        },
+    )
+    .expect("Valkey instance");
+
+    assert_eq!(redis.flavor(), RedisFlavor::Redis);
+    assert_eq!(valkey.flavor(), RedisFlavor::Valkey);
+    assert_ne!(redis.container().name(), valkey.container().name());
+    assert_eq!(redis.acl_mount_target(), "/etc/stackctl/acl");
+    assert_eq!(redis.acl_file(), "/etc/stackctl/acl/users.acl");
+    assert_eq!(redis.data_mount_target(), "/data");
+    assert!(redis.volume().is_some());
+    assert!(valkey.volume().is_none());
+    assert_eq!(
+        redis.command_arguments(),
+        [
+            "redis-server",
+            "--aclfile",
+            "/etc/stackctl/acl/users.acl",
+            "--appendonly",
+            "yes",
+        ]
+    );
+    assert_eq!(
+        valkey.command_arguments(),
+        [
+            "valkey-server",
+            "--aclfile",
+            "/etc/stackctl/acl/users.acl",
+            "--appendonly",
+            "no",
+        ]
+    );
+    assert!(format!("{:?}", redis.container()).contains("/private/redis-acl"));
+    assert!(format!("{:?}", redis.container()).contains("read_only: true"));
+    assert!(!format!("{:?}", redis.container()).contains("redis-admin"));
+    assert_eq!(redis.bootstrap_credential().username(), "stackctl_admin");
+    assert_eq!(redis.bootstrap_credential().project_id(), None);
 }
 
 #[test]
@@ -712,6 +799,24 @@ fn sql_profile(implementation: &str, major_version: &str) -> CompatibilityProfil
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid SQL compatibility profile")
+}
+
+fn cache_profile(
+    implementation: &str,
+    major_version: &str,
+    persistence: PersistenceMode,
+) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: implementation.to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("{implementation}@sha256:{}", "c".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence,
+        isolation: IsolationCapability::AclAndPrefix,
+        platform_architecture: Some("linux/arm64".to_owned()),
+    })
+    .expect("valid cache compatibility profile")
 }
 
 fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {

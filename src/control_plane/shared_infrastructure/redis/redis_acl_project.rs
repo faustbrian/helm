@@ -1,6 +1,7 @@
 use super::RedisPlanError;
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
+use sha2::{Digest, Sha256};
 use std::fmt::{Debug, Formatter};
 
 /// One project-scoped user in a complete Redis-compatible ACL snapshot.
@@ -43,14 +44,18 @@ impl RedisAclProject {
 
     pub(super) fn acl_line(&self) -> String {
         format!(
-            "user {} on resetpass >{} resetkeys ~{} resetchannels &{} -@all \
+            "user {} on resetpass #{} resetkeys ~{} resetchannels &{} -@all \
              +@read +@write +@connection +@transaction +@pubsub +@scripting",
             self.username,
-            self.secret.expose(),
+            password_hash(self.secret.expose()),
             self.key_pattern,
             self.channel_pattern,
         )
     }
+}
+
+pub(super) fn password_hash(secret: &str) -> String {
+    hex::encode(Sha256::digest(secret.as_bytes()))
 }
 
 impl Debug for RedisAclProject {

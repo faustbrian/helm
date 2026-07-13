@@ -16,8 +16,14 @@ pub(crate) fn store_redis_acl_snapshot(
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict ACL directory", directory, error))?;
 
-    let acl_file = directory.join("users.acl");
-    let temporary = directory.join(format!(".users-{}.tmp", std::process::id()));
+    let mount_directory = directory.join("mounted");
+    fs::create_dir_all(&mount_directory)
+        .map_err(|error| io_error("create ACL mount directory", &mount_directory, error))?;
+    fs::set_permissions(&mount_directory, fs::Permissions::from_mode(0o755))
+        .map_err(|error| io_error("prepare ACL mount directory", &mount_directory, error))?;
+
+    let acl_file = mount_directory.join("users.acl");
+    let temporary = mount_directory.join(format!(".users-{}.tmp", std::process::id()));
     if temporary.exists() {
         return Err(RedisPlanError::new(format!(
             "temporary Redis ACL file '{}' already exists",
@@ -27,7 +33,7 @@ pub(crate) fn store_redis_acl_snapshot(
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(0o644)
         .open(&temporary)
         .map_err(|error| io_error("create temporary ACL file", &temporary, error))?;
     file.write_all(snapshot.contents().as_bytes())
@@ -36,13 +42,17 @@ pub(crate) fn store_redis_acl_snapshot(
         .map_err(|error| io_error("sync temporary ACL file", &temporary, error))?;
     fs::rename(&temporary, &acl_file)
         .map_err(|error| io_error("publish ACL file", &acl_file, error))?;
-    fs::set_permissions(&acl_file, fs::Permissions::from_mode(0o600))
-        .map_err(|error| io_error("restrict ACL file", &acl_file, error))?;
-    File::open(directory)
+    fs::set_permissions(&acl_file, fs::Permissions::from_mode(0o644))
+        .map_err(|error| io_error("prepare ACL file", &acl_file, error))?;
+    File::open(&mount_directory)
         .and_then(|directory| directory.sync_all())
-        .map_err(|error| io_error("sync ACL directory", directory, error))?;
+        .map_err(|error| io_error("sync ACL mount directory", &mount_directory, error))?;
 
-    Ok(StoredRedisAclPaths::new(directory.to_path_buf(), acl_file))
+    Ok(StoredRedisAclPaths::new(
+        directory.to_path_buf(),
+        mount_directory,
+        acl_file,
+    ))
 }
 
 #[cfg(not(unix))]

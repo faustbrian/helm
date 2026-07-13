@@ -116,6 +116,9 @@ All notable changes to this project are documented in this file.
 - Added deterministic Redis-compatible ACL snapshots with anonymous access
   disabled, project-scoped keys and channels, restricted command categories,
   collision rejection, redacted diagnostics, and atomic private persistence.
+- Added separate Redis and Valkey shared-instance plans with hash-only readable
+  ACL mounts, private networking, pinned Linux images, explicit persistence,
+  retained data volumes, and no credentials in container arguments.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
