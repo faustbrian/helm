@@ -23,7 +23,7 @@ pub(crate) async fn execute_migration(
         checkpoint = match checkpoint.phase() {
             MigrationPhase::Inventoried => {
                 let backup = operations
-                    .backup(inventory)
+                    .backup(&checkpoint)
                     .await
                     .map_err(|source| operation_error("backup", source))?;
                 let mut options = next_options(
@@ -39,7 +39,7 @@ pub(crate) async fn execute_migration(
             }
             MigrationPhase::BackupVerified => {
                 let target_resource_id = operations
-                    .provision_target(inventory)
+                    .provision_target(&checkpoint)
                     .await
                     .map_err(|source| operation_error("target provisioning", source))?;
                 if target_resource_id.is_empty() {
@@ -67,7 +67,7 @@ pub(crate) async fn execute_migration(
                     "target checkpoint has no resource identity",
                 )?;
                 operations
-                    .restore(inventory, &backup_reference, &target_resource_id)
+                    .restore(&checkpoint, &backup_reference, &target_resource_id)
                     .await
                     .map_err(|source| operation_error("restore", source))?;
                 persist(
@@ -86,7 +86,7 @@ pub(crate) async fn execute_migration(
                     "restored checkpoint has no resource identity",
                 )?;
                 operations
-                    .verify_target(inventory, &target_resource_id)
+                    .verify_target(&checkpoint, &target_resource_id)
                     .await
                     .map_err(|source| operation_error("target verification", source))?;
                 persist(
@@ -109,7 +109,7 @@ pub(crate) async fn execute_migration(
                     "verified checkpoint has no rollback reference",
                 )?;
                 operations
-                    .cutover(inventory, &target_resource_id, &rollback_reference)
+                    .cutover(&checkpoint, &target_resource_id, &rollback_reference)
                     .await
                     .map_err(|source| operation_error("cutover", source))?;
                 persist(

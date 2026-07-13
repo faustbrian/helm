@@ -25,6 +25,21 @@ fn migration_executes_to_reversible_cutover_without_retiring_v7() {
             operations.calls,
             ["backup", "provision", "restore", "verify", "cutover"]
         );
+        assert_eq!(
+            operations.received_phases,
+            [
+                MigrationPhase::Inventoried,
+                MigrationPhase::BackupVerified,
+                MigrationPhase::TargetProvisioned,
+                MigrationPhase::DataRestored,
+                MigrationPhase::TargetVerified,
+            ]
+        );
+        assert_eq!(
+            operations.restored_artifact_sha256.as_deref(),
+            Some("sha256:backup")
+        );
+        assert_eq!(operations.restored_artifact_size_bytes, Some(1_024));
         let records = store.migrations().expect("load migration");
         assert_eq!(records[0].phase(), MigrationPhase::Cutover);
         assert_eq!(records[0].backup_reference(), Some("backup:bill/database"));
@@ -213,38 +228,46 @@ fn inventory() -> MigrationRecord {
 #[derive(Default)]
 struct RecordingMigrationOperations {
     calls: Vec<&'static str>,
+    received_phases: Vec<MigrationPhase>,
     fail_restore: bool,
     fail_cutover: bool,
     restored_backup_reference: Option<String>,
     restored_target_resource_id: Option<String>,
+    restored_artifact_sha256: Option<String>,
+    restored_artifact_size_bytes: Option<u64>,
 }
 
 impl MigrationOperations for RecordingMigrationOperations {
     fn backup<'operation>(
         &'operation mut self,
-        _inventory: &'operation MigrationRecord,
+        migration: &'operation MigrationRecord,
     ) -> MigrationFuture<'operation, MigrationBackup> {
         self.calls.push("backup");
+        self.received_phases.push(migration.phase());
         Box::pin(async { MigrationBackup::new("backup:bill/database", "sha256:backup", 1_024) })
     }
 
     fn provision_target<'operation>(
         &'operation mut self,
-        _inventory: &'operation MigrationRecord,
+        migration: &'operation MigrationRecord,
     ) -> MigrationFuture<'operation, String> {
         self.calls.push("provision");
+        self.received_phases.push(migration.phase());
         Box::pin(async { Ok("postgres-v8-bill".to_owned()) })
     }
 
     fn restore<'operation>(
         &'operation mut self,
-        _inventory: &'operation MigrationRecord,
+        migration: &'operation MigrationRecord,
         backup_reference: &'operation str,
         target_resource_id: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
         self.calls.push("restore");
+        self.received_phases.push(migration.phase());
         self.restored_backup_reference = Some(backup_reference.to_owned());
         self.restored_target_resource_id = Some(target_resource_id.to_owned());
+        self.restored_artifact_sha256 = migration.backup_artifact_sha256().map(str::to_owned);
+        self.restored_artifact_size_bytes = migration.backup_artifact_size_bytes();
         let fail = self.fail_restore;
         Box::pin(async move {
             if fail {
@@ -259,20 +282,22 @@ impl MigrationOperations for RecordingMigrationOperations {
 
     fn verify_target<'operation>(
         &'operation mut self,
-        _inventory: &'operation MigrationRecord,
+        migration: &'operation MigrationRecord,
         _target_resource_id: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
         self.calls.push("verify");
+        self.received_phases.push(migration.phase());
         Box::pin(async { Ok(()) })
     }
 
     fn cutover<'operation>(
         &'operation mut self,
-        _inventory: &'operation MigrationRecord,
+        migration: &'operation MigrationRecord,
         _target_resource_id: &'operation str,
         _rollback_reference: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
         self.calls.push("cutover");
+        self.received_phases.push(migration.phase());
         let fail = self.fail_cutover;
         Box::pin(async move {
             if fail {

@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
 - Added direct-Engine PostgreSQL custom dumps that stream through bounded
   memory into logical-resource recovery points, publish only after exit zero,
   validate ownership and credentials, and remove cancelled pending artifacts.
+- Changed resumable migration operations to receive their durable phase
+  checkpoint so restore and cutover adapters can enforce journaled checksum,
+  size, target, and rollback evidence after daemon restarts.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

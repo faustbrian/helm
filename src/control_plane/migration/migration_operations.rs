@@ -10,31 +10,31 @@ pub(crate) type MigrationFuture<'operation, T> =
 pub(crate) trait MigrationOperations {
     fn backup<'operation>(
         &'operation mut self,
-        inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
     ) -> MigrationFuture<'operation, MigrationBackup>;
 
     fn provision_target<'operation>(
         &'operation mut self,
-        inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
     ) -> MigrationFuture<'operation, String>;
 
     fn restore<'operation>(
         &'operation mut self,
-        inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
         backup_reference: &'operation str,
         target_resource_id: &'operation str,
     ) -> MigrationFuture<'operation, ()>;
 
     fn verify_target<'operation>(
         &'operation mut self,
-        inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
         target_resource_id: &'operation str,
     ) -> MigrationFuture<'operation, ()>;
 
     /// Atomically switches environment and routes and must be replay-safe.
     fn cutover<'operation>(
         &'operation mut self,
-        inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
         target_resource_id: &'operation str,
         rollback_reference: &'operation str,
     ) -> MigrationFuture<'operation, ()>;
