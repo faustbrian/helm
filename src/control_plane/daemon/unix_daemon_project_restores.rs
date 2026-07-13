@@ -22,6 +22,7 @@ impl UnixDaemonRuntime {
         self.engine_runtime.block_on(tokio::task::yield_now());
         self.publish_finished_project_restore(now_unix_seconds);
         if self.active_project_restore.is_some()
+            || self.active_postgres_prune.is_some()
             || self.active_project_command.is_some()
             || self.active_project_backup.is_some()
             || self.active_migration_decision.is_some()

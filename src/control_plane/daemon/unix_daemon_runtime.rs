@@ -1,15 +1,15 @@
 use super::{
-    ActiveMigrationDecision, ActiveProjectBackup, ActiveProjectCommand, ActiveProjectLogSession,
-    ActiveProjectRestore, BollardUnixEngineConnector, DaemonIterationResult,
-    DaemonRequestDispatchOptions, DiscoveryScheduler, EngineBenchmarkSnapshotProvider,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
-    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
-    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, ProjectBackupQueue,
-    ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
-    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
-    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
+    ActiveMigrationDecision, ActivePostgresPrune, ActiveProjectBackup, ActiveProjectCommand,
+    ActiveProjectLogSession, ActiveProjectRestore, BollardUnixEngineConnector,
+    DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
+    EngineBenchmarkSnapshotProvider, EngineConnectionOutcome, EngineConnectionSupervisor,
+    EngineImageReferenceResolution, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
+    FilesystemEventWatcher, ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue,
+    PostgresPruneQueue, ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry,
+    ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -60,6 +60,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
     pub(super) project_backups: ProjectBackupQueue,
+    pub(super) postgres_prunes: PostgresPruneQueue,
     pub(super) project_restores: ProjectRestoreQueue,
     pub(super) migration_decisions: MigrationDecisionQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
@@ -68,6 +69,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) active_project_backup: Option<ActiveProjectBackup>,
     pub(super) active_project_restore: Option<ActiveProjectRestore>,
+    pub(super) active_postgres_prune: Option<ActivePostgresPrune>,
     pub(super) active_migration_decision: Option<ActiveMigrationDecision>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
@@ -96,8 +98,13 @@ impl UnixDaemonRuntime {
             &runtime_directory.join("state-backups"),
             unix_time_seconds(),
         )?;
-        let (project_commands, project_backups, project_restores, migration_decisions) =
-            restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
+        let (
+            project_commands,
+            project_backups,
+            postgres_prunes,
+            project_restores,
+            migration_decisions,
+        ) = restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
@@ -129,6 +136,7 @@ impl UnixDaemonRuntime {
             event_journal,
             project_commands,
             project_backups,
+            postgres_prunes,
             project_restores,
             migration_decisions,
             project_logs: ProjectLogSessionRegistry::default(),
@@ -137,6 +145,7 @@ impl UnixDaemonRuntime {
             active_project_command: None,
             active_project_backup: None,
             active_project_restore: None,
+            active_postgres_prune: None,
             active_migration_decision: None,
             control_plane: ControlPlane::new(store),
             scheduler,
@@ -191,6 +200,7 @@ impl UnixDaemonRuntime {
                 event_journal: &mut self.event_journal,
                 project_commands: &mut self.project_commands,
                 project_backups: &mut self.project_backups,
+                postgres_prunes: &mut self.postgres_prunes,
                 project_restores: &mut self.project_restores,
                 migration_decisions: &mut self.migration_decisions,
                 project_logs: &mut self.project_logs,
@@ -247,6 +257,7 @@ impl UnixDaemonRuntime {
                     if !self.has_active_project_command()
                         && !self.has_active_project_backup()
                         && !self.has_active_project_restore()
+                        && !self.has_active_postgres_prune()
                         && !self.has_active_migration_decision()
                         && self.engine_reconciliation.may_reconcile()
                     {
@@ -254,6 +265,7 @@ impl UnixDaemonRuntime {
                     }
                     self.drive_project_commands(now, now_unix_seconds);
                     self.drive_project_backups(now, now_unix_seconds);
+                    self.drive_postgres_prunes(now, now_unix_seconds);
                     self.drive_project_restores(now, now_unix_seconds);
                     self.drive_migration_decisions(now, now_unix_seconds);
                     self.drive_project_logs(now);

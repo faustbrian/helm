@@ -92,6 +92,15 @@ fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
     })
     .expect("IPC prune plan");
     let response = IpcResponse::success("prune-plan-42", IpcResult::PostgresPrunePlan { plan });
+    let execute = IpcRequest::new(
+        "prune-execute-42",
+        IpcPayload::ExecutePostgresPrune {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+            confirmation_token: "a".repeat(64),
+        },
+    );
 
     assert_eq!(
         decode_request_frame(&encode_frame(&request).expect("encode request"))
@@ -102,6 +111,11 @@ fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
         decode_response_frame(&encode_frame(&response).expect("encode response"))
             .expect("decode response"),
         response
+    );
+    assert_eq!(
+        decode_request_frame(&encode_frame(&execute).expect("encode execute request"))
+            .expect("decode execute request"),
+        execute
     );
     let json = serde_json::to_string(&response).expect("response JSON");
     assert!(!json.contains("secret"));

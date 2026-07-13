@@ -122,8 +122,30 @@ immutable recovery point must match the logical identity and compatibility
 fingerprint. The daemon returns a secret-free plan and a stable confirmation
 token bound to the installation, retained state, orphan timestamp, and verified
 artifact evidence. It never chooses a recovery point, repairs ambiguous state,
-or mutates the Engine while planning. Destructive execution is unavailable
-until its separately queued adapter revalidates the same token and invariants.
+or mutates the Engine while planning. Execution requires the returned token:
+
+```text
+stackctl daemon prune execute <project-id> <service-id> <recovery-point-id> \
+  --confirmation-token <token>
+```
+
+The singleton persists a secret-free bounded operation, then regenerates the
+plan immediately before any Engine mutation. A stale token, changed state,
+registered project, missing backup, ambiguous container, or ownership mismatch
+fails before PostgreSQL is touched. The exact shared container runs idempotent
+database and role deletion using its runtime-only bootstrap secret; arguments,
+IPC, events, and durable operation state contain no credential value. Only
+after PostgreSQL succeeds does one SQLite transaction forget the unchanged
+orphaned logical resource and disabled credential. The verified recovery point
+is retained. The disabled managed environment is removed only when no project
+logical resources or credentials remain.
+
+An interrupted operation is replayed when both exact state records remain,
+because the PostgreSQL statements are idempotent. If the atomic SQLite
+retirement already committed, restart recovery completes the durable operation
+without touching the Engine again. Partial durable retirement fails loudly for
+manual inspection.
+
 Other logical service kinds fail closed until they have service-specific backup
 and deletion adapters; Stackctl does not reinterpret container removal as data
 deletion.

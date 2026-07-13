@@ -1,8 +1,9 @@
 use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
-    ProjectLogTarget, QueuedMigrationDecision, QueuedProjectBackup, QueuedProjectCommand,
-    QueuedProjectRestore, QueuedProjectRestoreOptions, ResourceHealthRegistry, plan_postgres_prune,
+    ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
+    QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
+    ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
     reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
@@ -39,6 +40,7 @@ where
         event_journal,
         project_commands,
         project_backups,
+        postgres_prunes,
         project_restores,
         migration_decisions,
         project_logs,
@@ -386,6 +388,117 @@ where
                 )],
             ),
         },
+        IpcPayload::ExecutePostgresPrune {
+            project_id,
+            service_id,
+            recovery_point_id,
+            confirmation_token,
+        } => {
+            let plan = match build_postgres_prune_plan(
+                control_plane,
+                project_id,
+                service_id,
+                recovery_point_id,
+            ) {
+                Ok(plan) => plan,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "postgres_prune_confirmation_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let queued = match QueuedPostgresPrune::new(
+                request.request_id().to_owned(),
+                &plan,
+                confirmation_token.clone(),
+            ) {
+                Ok(queued) => queued,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "postgres_prune_confirmation_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let payload_json = match queued.payload_json() {
+                Ok(payload) => payload,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "postgres_prune_confirmation_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = postgres_prunes.enqueue(queued) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "postgres_prune_queue_unavailable",
+                        error.to_string(),
+                        true,
+                    )],
+                );
+            }
+            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
+                .expect("accepted event serialization is infallible");
+            let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: request.request_id().to_owned(),
+                kind: "postgres_prune".to_owned(),
+                payload_json,
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: now_unix_seconds,
+                updated_at_unix_seconds: now_unix_seconds,
+            });
+            let accepted = match control_plane.enqueue_daemon_operation(
+                &operation,
+                &accepted_kind_json,
+                event_journal.capacity(),
+            ) {
+                Ok(event) => event,
+                Err(error) => {
+                    drop(postgres_prunes.remove(request.request_id()));
+
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "postgres_prune_queue_unavailable",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = event_journal.append_record(accepted) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "event_journal_failed",
+                        error.to_string(),
+                        false,
+                    )],
+                );
+            }
+
+            IpcResponse::success(
+                request.request_id(),
+                IpcResult::Accepted {
+                    operation_id: request.request_id().to_owned(),
+                },
+            )
+        }
         IpcPayload::ProjectEnvironment { canonical_path } => {
             match project_environment(control_plane, canonical_path) {
                 Ok(environment) => IpcResponse::success(

@@ -1,11 +1,112 @@
-use crate::cli::args::{DaemonPruneArgs, DaemonPruneCommands, DaemonPrunePlanArgs};
+use crate::cli::args::{
+    DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,
+};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Result, bail};
+use std::time::{Duration, Instant};
+
+const PRUNE_TIMEOUT: Duration = Duration::from_secs(3 * 60);
+const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 pub(super) fn handle_daemon_prune(args: &DaemonPruneArgs) -> Result<()> {
     match &args.command {
         DaemonPruneCommands::Plan(args) => handle_daemon_prune_plan(args),
+        DaemonPruneCommands::Execute(args) => handle_daemon_prune_execute(args),
     }
+}
+
+#[cfg(unix)]
+fn handle_daemon_prune_execute(args: &DaemonPruneExecuteArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let response = super::send_singleton_request(IpcPayload::ExecutePostgresPrune {
+        project_id: args.project_id.clone(),
+        service_id: args.service_id.clone(),
+        recovery_point_id: args.recovery_point_id.clone(),
+        confirmation_token: args.confirmation_token.clone(),
+    })?;
+    let operation_id = match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::Accepted { operation_id },
+        } => operation_id.clone(),
+        IpcOutcome::Success { .. } => bail!("daemon returned an unexpected prune response"),
+        IpcOutcome::Failure { diagnostics } => bail!(
+            "PostgreSQL prune was rejected: {}",
+            diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
+    };
+
+    follow_prune(&operation_id)
+}
+
+#[cfg(unix)]
+fn follow_prune(operation_id: &str) -> Result<()> {
+    use crate::control_plane::{IpcEventKind, IpcOutcome, IpcPayload, IpcResult};
+
+    let deadline = Instant::now() + PRUNE_TIMEOUT;
+    let mut cursor = None;
+    loop {
+        if Instant::now() >= deadline {
+            bail!("timed out waiting for PostgreSQL prune '{operation_id}'");
+        }
+        let response = super::send_singleton_request(IpcPayload::SubscribeEvents {
+            after_sequence: cursor,
+        })?;
+        let (events, latest_sequence) = match response.outcome() {
+            IpcOutcome::Success {
+                result:
+                    IpcResult::Events {
+                        events,
+                        latest_sequence,
+                    },
+            } => (events, *latest_sequence),
+            IpcOutcome::Success { .. } => bail!("daemon returned an unexpected event response"),
+            IpcOutcome::Failure { diagnostics } => bail!(
+                "PostgreSQL prune event stream failed: {}",
+                diagnostics
+                    .iter()
+                    .map(|item| format!("{}: {}", item.code(), item.message()))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        };
+        cursor = Some(latest_sequence);
+        for event in events {
+            if event.operation_id() != operation_id {
+                continue;
+            }
+            match event.kind() {
+                IpcEventKind::Accepted => {}
+                IpcEventKind::Completed => {
+                    output::event(
+                        "daemon",
+                        LogLevel::Success,
+                        "PostgreSQL logical resource pruned; verified recovery evidence retained",
+                        Persistence::Persistent,
+                    );
+
+                    return Ok(());
+                }
+                IpcEventKind::Failed { code, message } => {
+                    bail!("PostgreSQL prune failed ({code}): {message}")
+                }
+                IpcEventKind::Cancelled => bail!("PostgreSQL prune was cancelled"),
+                IpcEventKind::Output { .. } => {
+                    bail!("PostgreSQL prune returned unexpected output")
+                }
+            }
+        }
+        std::thread::sleep(EVENT_POLL_INTERVAL);
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_prune_execute(_args: &DaemonPruneExecuteArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 #[cfg(unix)]

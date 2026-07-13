@@ -81,6 +81,13 @@ pub(crate) trait StateStore: Send {
         shared_resource_id: &str,
     ) -> Result<u64, StateStoreError>;
 
+    /// Atomically forgets one exact orphaned tenant and its disabled secret.
+    fn retire_logical_resource(
+        &mut self,
+        resource: &LogicalResourceRecord,
+        credential: &CredentialRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Inserts a credential once, returning the stable existing value on replay.
     fn insert_credential_if_absent(
         &mut self,

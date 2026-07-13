@@ -7,7 +7,9 @@ pub(super) struct PersistedLogicalResourceOwnership {
     service_id: String,
     kind: String,
     compatibility_fingerprint: String,
+    desired_revision: String,
     lifecycle: String,
+    orphaned_at_unix_seconds: Option<i64>,
 }
 
 impl PersistedLogicalResourceOwnership {
@@ -22,6 +24,13 @@ impl PersistedLogicalResourceOwnership {
     pub(super) fn is_active(&self) -> bool {
         self.lifecycle == ResourceLifecycle::Active.label()
     }
+
+    pub(super) fn matches_snapshot(&self, resource: &LogicalResourceRecord) -> bool {
+        self.matches(resource)
+            && self.desired_revision == resource.desired_revision()
+            && self.lifecycle == resource.lifecycle().label()
+            && self.orphaned_at_unix_seconds == resource.orphaned_at_unix_seconds()
+    }
 }
 
 pub(super) fn load_logical_resource_ownership(
@@ -31,7 +40,8 @@ pub(super) fn load_logical_resource_ownership(
     connection
         .query_row(
             "SELECT shared_resource_id, project_id, service_id, kind,
-                    compatibility_fingerprint, lifecycle
+                    compatibility_fingerprint, desired_revision, lifecycle,
+                    orphaned_at_unix_seconds
              FROM logical_resources WHERE logical_resource_id = ?1",
             [logical_resource_id],
             |row| {
@@ -41,7 +51,9 @@ pub(super) fn load_logical_resource_ownership(
                     service_id: row.get(2)?,
                     kind: row.get(3)?,
                     compatibility_fingerprint: row.get(4)?,
-                    lifecycle: row.get(5)?,
+                    desired_revision: row.get(5)?,
+                    lifecycle: row.get(6)?,
+                    orphaned_at_unix_seconds: row.get(7)?,
                 })
             },
         )

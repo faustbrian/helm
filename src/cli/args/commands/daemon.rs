@@ -21,7 +21,9 @@ pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
     DaemonMigrationStatusArgs,
 };
-pub(crate) use prune::{DaemonPruneArgs, DaemonPruneCommands, DaemonPrunePlanArgs};
+pub(crate) use prune::{
+    DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,
+};
 pub(crate) use restore::DaemonRestoreArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,

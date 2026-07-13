@@ -823,6 +823,106 @@ fn retiring_resources_requires_an_exact_orphaned_snapshot_and_is_atomic() {
 }
 
 #[test]
+fn retiring_logical_resource_is_exact_idempotent_and_cleans_last_environment() {
+    let database_path = temporary_database_path("retire-logical-resource");
+    let project = project_record("/work/bill", "bill", &[]);
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: "runtime-only-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::from([("DB_PASSWORD".to_owned(), "runtime-only-secret".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .record_logical_environment(std::slice::from_ref(&logical), &environment)
+        .expect("persist logical environment");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .orphan_project(project.canonical_path(), 10_000)
+        .expect("orphan project");
+    let orphaned = store.logical_resources().expect("orphaned logical")[0].clone();
+    let disabled = store.credentials().expect("disabled credential")[0].clone();
+    let drifted = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: orphaned.logical_resource_id().to_owned(),
+        shared_resource_id: orphaned.shared_resource_id().to_owned(),
+        project_id: orphaned.project_id().to_owned(),
+        service_id: orphaned.service_id().to_owned(),
+        kind: orphaned.kind().to_owned(),
+        compatibility_fingerprint: orphaned.compatibility_fingerprint().to_owned(),
+        desired_revision: "sha256:drifted".to_owned(),
+        lifecycle: orphaned.lifecycle(),
+        orphaned_at_unix_seconds: orphaned.orphaned_at_unix_seconds(),
+    });
+
+    let error = store
+        .retire_logical_resource(&drifted, &disabled)
+        .expect_err("drifted snapshot must fail");
+
+    assert!(error.to_string().contains("differs from durable ownership"));
+    assert_eq!(
+        store.logical_resources().expect("logical retained"),
+        vec![orphaned.clone()]
+    );
+    assert_eq!(
+        store.credentials().expect("credential retained"),
+        vec![disabled.clone()]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("environment retained")
+            .len(),
+        1
+    );
+
+    store
+        .retire_logical_resource(&orphaned, &disabled)
+        .expect("retire exact logical state");
+    store
+        .retire_logical_resource(&orphaned, &disabled)
+        .expect("idempotent retirement replay");
+
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert!(store.credentials().expect("credential retired").is_empty());
+    assert!(
+        store
+            .managed_environments()
+            .expect("environment retired")
+            .is_empty()
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn logical_resources_persist_and_reference_count_only_active_consumers() {
     let database_path = temporary_database_path("logical-resources");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);

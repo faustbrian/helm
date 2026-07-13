@@ -1,4 +1,6 @@
-use super::credential_persistence::{credential_from_persisted, persist_credential_if_absent};
+use super::credential_persistence::{
+    credential_from_persisted, load_credential, persist_credential_if_absent,
+};
 use super::logical_resource_persistence::{
     load_logical_resource_ownership, persist_logical_resources,
 };
@@ -950,6 +952,82 @@ impl StateStore for SqliteStateStore {
         })
     }
 
+    fn retire_logical_resource(
+        &mut self,
+        resource: &LogicalResourceRecord,
+        credential: &CredentialRecord,
+    ) -> Result<(), StateStoreError> {
+        let invalid_input = resource.lifecycle() == ResourceLifecycle::Active
+            || resource.orphaned_at_unix_seconds().is_none()
+            || credential.lifecycle() != CredentialLifecycle::Disabled
+            || credential.project_id() != Some(resource.project_id())
+            || credential.service_id() != resource.service_id();
+        if invalid_input {
+            return Err(invalid_logical_retirement(
+                resource,
+                "only an exact orphaned tenant and disabled credential can be retired",
+            ));
+        }
+
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let project_registered = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE project_name = ?1)",
+            [resource.project_id()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if project_registered {
+            return Err(invalid_logical_retirement(
+                resource,
+                "the owning project is registered",
+            ));
+        }
+        let existing_resource =
+            load_logical_resource_ownership(&transaction, resource.logical_resource_id())?;
+        let existing_credential = load_credential(&transaction, credential.credential_id())?;
+        if existing_resource.is_none() && existing_credential.is_none() {
+            transaction.commit()?;
+
+            return Ok(());
+        }
+        let exact = existing_resource
+            .as_ref()
+            .is_some_and(|existing| existing.matches_snapshot(resource))
+            && existing_credential.as_ref() == Some(credential);
+        if !exact {
+            return Err(invalid_logical_retirement(
+                resource,
+                "the requested snapshot differs from durable ownership",
+            ));
+        }
+
+        transaction.execute(
+            "DELETE FROM logical_resources WHERE logical_resource_id = ?1",
+            [resource.logical_resource_id()],
+        )?;
+        transaction.execute(
+            "DELETE FROM credentials WHERE credential_id = ?1",
+            [credential.credential_id()],
+        )?;
+        let remaining_project_state = transaction.query_row(
+            "SELECT
+                 (SELECT COUNT(*) FROM logical_resources WHERE project_id = ?1) +
+                 (SELECT COUNT(*) FROM credentials WHERE project_id = ?1)",
+            [resource.project_id()],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if remaining_project_state == 0 {
+            transaction.execute(
+                "DELETE FROM managed_environments WHERE project_id = ?1",
+                [resource.project_id()],
+            )?;
+        }
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn insert_credential_if_absent(
         &mut self,
         credential: &CredentialRecord,
@@ -1795,6 +1873,10 @@ fn validate_daemon_operation_transition(
             )
             | (
                 DaemonOperationStatus::Running,
+                DaemonOperationStatus::Queued
+            )
+            | (
+                DaemonOperationStatus::Running,
                 DaemonOperationStatus::Completed
             )
             | (
@@ -1918,6 +2000,16 @@ struct PersistedResourceOwnership {
     lifecycle: String,
     desired_revision: String,
     orphaned_at_unix_seconds: Option<i64>,
+}
+
+fn invalid_logical_retirement(
+    resource: &LogicalResourceRecord,
+    detail: impl Into<String>,
+) -> StateStoreError {
+    StateStoreError::InvalidLogicalResourceRetirement {
+        logical_resource_id: resource.logical_resource_id().to_owned(),
+        detail: detail.into(),
+    }
 }
 
 impl PersistedResourceOwnership {

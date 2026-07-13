@@ -13,6 +13,19 @@ pub(crate) fn plan_postgres_prune<Store>(
 where
     Store: StateStore,
 {
+    build_postgres_prune_plan(control_plane, project_id, service_id, recovery_point_id)
+        .map(|plan| IpcPostgresPrunePlan::from(&plan))
+}
+
+pub(crate) fn build_postgres_prune_plan<Store>(
+    control_plane: &ControlPlane<Store>,
+    project_id: &str,
+    service_id: &str,
+    recovery_point_id: &str,
+) -> Result<PostgresLogicalPrunePlan, String>
+where
+    Store: StateStore,
+{
     let installation = control_plane
         .installation()
         .map_err(|error| error.to_string())?
@@ -29,7 +42,7 @@ where
     let recovery_points = control_plane
         .recovery_points(project_id)
         .map_err(|error| error.to_string())?;
-    let plan = PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+    PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
         installation_id: installation.installation_id(),
         project_id,
         service_id,
@@ -40,7 +53,5 @@ where
         logical_resources: &logical_resources,
         credentials: &credentials,
         recovery_points: &recovery_points,
-    })?;
-
-    Ok(IpcPostgresPrunePlan::from(&plan))
+    })
 }

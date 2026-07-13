@@ -3,16 +3,18 @@ use super::{
     DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionExecutionOptions,
-    MigrationDecisionQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
-    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
-    ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedProjectBackup, QueuedProjectCommand,
-    QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_migration_decision, execute_queued_project_backup,
-    execute_queued_project_command, execute_queued_project_restore, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
+    MigrationDecisionQueue, PostgresPruneExecutionOptions, PostgresPruneQueue,
+    ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
+    ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedPostgresPrune, QueuedProjectBackup,
+    QueuedProjectCommand, QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, collect_benchmark_snapshot, discover_project_sources,
+    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
+    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
+    execute_queued_project_restore, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -471,11 +473,12 @@ fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands(
             .expect("claim running command"),
     );
 
-    let (mut restored, backups, restores, decisions) =
+    let (mut restored, backups, prunes, restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(restored.len(), 1);
     assert_eq!(backups.len(), 0);
+    assert_eq!(prunes.len(), 0);
     assert_eq!(restores.len(), 0);
     assert_eq!(decisions.len(), 0);
     let queued = restored.pop_front().expect("restored queued command");
@@ -539,11 +542,12 @@ fn daemon_restart_restores_queued_backups_without_replaying_running_backups() {
             .expect("claim running backup"),
     );
 
-    let (commands, mut backups, restores, decisions) =
+    let (commands, mut backups, prunes, restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 1);
+    assert_eq!(prunes.len(), 0);
     assert_eq!(restores.len(), 0);
     assert_eq!(decisions.len(), 0);
     assert_eq!(
@@ -604,11 +608,12 @@ fn daemon_restart_restores_only_queued_project_restores() {
             .expect("claim running restore"),
     );
 
-    let (commands, backups, mut restores, decisions) =
+    let (commands, backups, prunes, mut restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 0);
+    assert_eq!(prunes.len(), 0);
     assert_eq!(restores.len(), 1);
     assert_eq!(decisions.len(), 0);
     assert_eq!(
@@ -744,11 +749,12 @@ fn daemon_restart_restores_only_queued_migration_decisions() {
             .expect("claim running decision"),
     );
 
-    let (commands, backups, restores, mut decisions) =
+    let (commands, backups, prunes, restores, mut decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 0);
+    assert_eq!(prunes.len(), 0);
     assert_eq!(restores.len(), 0);
     assert_eq!(decisions.len(), 1);
     assert_eq!(
@@ -789,6 +795,118 @@ fn project_backup_intent_is_secret_free_and_survives_a_durable_round_trip() {
         .expect("restore backup intent");
 
     assert_eq!(restored, queued);
+}
+
+#[test]
+fn running_postgres_prune_replays_or_completes_from_atomic_state() {
+    let root = temporary_directory("postgres-prune-restart");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+
+    let replay_path = root.join("replay.sqlite3");
+    let (queued, logical, credential) = postgres_prune_restart_fixture("prune-replay");
+    let mut replay_store = SqliteStateStore::open(&replay_path).expect("replay store");
+    replay_store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical state");
+    replay_store
+        .insert_credential_if_absent(&credential)
+        .expect("credential state");
+    replay_store
+        .enqueue_daemon_operation(
+            &DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: queued.operation_id().to_owned(),
+                kind: "postgres_prune".to_owned(),
+                payload_json: queued.payload_json().expect("prune payload"),
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: 100,
+                updated_at_unix_seconds: 100,
+            }),
+            &accepted_json,
+            256,
+        )
+        .expect("persist replayable prune");
+    drop(
+        replay_store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: queued.operation_id(),
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 101,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim replayable prune"),
+    );
+
+    let (_, _, mut prunes, _, _) =
+        restore_daemon_operation_queues(&mut replay_store, 200).expect("restore replayable prune");
+
+    assert_eq!(prunes.len(), 1);
+    assert_eq!(
+        prunes.pop_front().expect("replayed prune").operation_id(),
+        "prune-replay"
+    );
+    assert_eq!(
+        replay_store
+            .active_daemon_operations()
+            .expect("requeued operation")[0]
+            .status(),
+        DaemonOperationStatus::Queued
+    );
+
+    let complete_path = root.join("complete.sqlite3");
+    let (completed, _, _) = postgres_prune_restart_fixture("prune-complete");
+    let mut complete_store = SqliteStateStore::open(&complete_path).expect("complete store");
+    complete_store
+        .enqueue_daemon_operation(
+            &DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: completed.operation_id().to_owned(),
+                kind: "postgres_prune".to_owned(),
+                payload_json: completed.payload_json().expect("completed payload"),
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: 100,
+                updated_at_unix_seconds: 100,
+            }),
+            &accepted_json,
+            256,
+        )
+        .expect("persist completed prune");
+    drop(
+        complete_store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: completed.operation_id(),
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 101,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim completed prune"),
+    );
+
+    let (_, _, prunes, _, _) =
+        restore_daemon_operation_queues(&mut complete_store, 200).expect("restore completed prune");
+
+    assert_eq!(prunes.len(), 0);
+    assert!(
+        complete_store
+            .active_daemon_operations()
+            .expect("no active completed prune")
+            .is_empty()
+    );
+    assert!(
+        complete_store
+            .daemon_events()
+            .expect("completion event")
+            .last()
+            .expect("terminal event")
+            .kind_json()
+            .contains("completed")
+    );
+
+    drop(replay_store);
+    drop(complete_store);
+    std::fs::remove_dir_all(root).expect("remove restart fixture");
 }
 
 #[test]
@@ -863,6 +981,216 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
     assert!(recovery_point.join("manifest.json").is_file());
 
     std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
+fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
+    use crate::control_plane::retention::{
+        PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-postgres-prune");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/postgres-17/postgresql-bootstrap".to_owned(),
+        project_id: None,
+        service_id: "postgresql".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: root.join("backups/backup-42.dump").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("installation");
+    store.replace_project(&project).expect("project");
+    store
+        .record_logical_environment(std::slice::from_ref(&logical), &environment)
+        .expect("logical environment");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("project credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    store
+        .orphan_project(&project_path, 40_000)
+        .expect("orphan project");
+    let logical_resources = store.logical_resources().expect("logical resources");
+    let credentials = store.credentials().expect("credentials");
+    let recovery_points = store.recovery_points("bill").expect("recovery points");
+    let plan = PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-42",
+        project_registered: false,
+        logical_resources: &logical_resources,
+        credentials: &credentials,
+        recovery_points: &recovery_points,
+    })
+    .expect("prune plan");
+    let operation = QueuedPostgresPrune::new(
+        "prune-42".to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued prune");
+    drop(store);
+    let mut drift_store = SqliteStateStore::open(&database_path).expect("drift state");
+    let orphaned = drift_store.logical_resources().expect("orphaned state")[0].clone();
+    let drifted = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: orphaned.logical_resource_id().to_owned(),
+        shared_resource_id: orphaned.shared_resource_id().to_owned(),
+        project_id: orphaned.project_id().to_owned(),
+        service_id: orphaned.service_id().to_owned(),
+        kind: orphaned.kind().to_owned(),
+        compatibility_fingerprint: orphaned.compatibility_fingerprint().to_owned(),
+        desired_revision: "sha256:drifted".to_owned(),
+        lifecycle: orphaned.lifecycle(),
+        orphaned_at_unix_seconds: orphaned.orphaned_at_unix_seconds(),
+    });
+    drift_store
+        .upsert_logical_resources(std::slice::from_ref(&drifted))
+        .expect("drift retained state");
+    drop(drift_store);
+    let stale_engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "postgres-container",
+        "install-1",
+        "postgres-17",
+        "sha256:postgres-17",
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let stale = runtime.block_on(execute_queued_postgres_prune(
+        stale_engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation: operation.clone(),
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+    assert!(
+        stale
+            .outcome()
+            .as_ref()
+            .expect_err("drift must invalidate prune")
+            .contains("stale")
+    );
+    assert_eq!(stale_engine.started(), 0);
+    let mut repair_store = SqliteStateStore::open(&database_path).expect("repair state");
+    repair_store
+        .upsert_logical_resources(std::slice::from_ref(&orphaned))
+        .expect("restore planned state");
+    drop(repair_store);
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "postgres-container",
+        "install-1",
+        "postgres-17",
+        "sha256:postgres-17",
+    )]);
+    let result = runtime.block_on(execute_queued_postgres_prune(
+        engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation,
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(()));
+    assert_eq!(engine.containers(), ["postgres-container"]);
+    assert_eq!(
+        engine.command_environments()[0].get("PGPASSWORD"),
+        Some(&"administrator-secret".to_owned())
+    );
+    let sql = String::from_utf8(engine.command_inputs()[0].clone()).expect("prune SQL");
+    assert!(sql.contains("DROP DATABASE IF EXISTS stackctl_bill_database"));
+    assert!(sql.contains("DROP ROLE IF EXISTS stackctl_bill_database"));
+    assert!(!sql.contains("project-secret"));
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert_eq!(
+        store.credentials().expect("only administrator remains"),
+        vec![administrator]
+    );
+    assert!(
+        store
+            .managed_environments()
+            .expect("environment retired")
+            .is_empty()
+    );
+    assert_eq!(
+        store.recovery_points("bill").expect("recovery retained"),
+        vec![recovery_point]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove prune fixture");
 }
 
 #[test]
@@ -2200,6 +2528,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2234,6 +2563,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2314,6 +2644,7 @@ fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
         event_journal: &mut IpcEventJournal::default(),
         project_commands: &mut ProjectCommandQueue::default(),
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
@@ -2401,6 +2732,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2501,6 +2833,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2632,6 +2965,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2674,6 +3008,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2737,6 +3072,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2814,6 +3150,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2906,6 +3243,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -2985,6 +3323,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -3089,6 +3428,7 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut project_backups,
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -3218,6 +3558,7 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -3239,6 +3580,7 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
     assert_eq!(plan.shared_resource_id(), "postgres-17");
     assert_eq!(plan.recovery_point_id(), "backup-42");
     assert_eq!(plan.confirmation_token().len(), 64);
+    let confirmation_token = plan.confirmation_token().to_owned();
     assert_eq!(
         control_plane
             .logical_resources()
@@ -3258,7 +3600,80 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         recovery_before
     );
 
+    let mut postgres_prunes = PostgresPruneQueue::default();
+    let stale_request = IpcRequest::new(
+        "prune-stale-42",
+        IpcPayload::ExecutePostgresPrune {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+            confirmation_token: "b".repeat(64),
+        },
+    );
+    let stale = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &stale_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut postgres_prunes,
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_101,
+    });
+    assert!(matches!(stale.outcome(), IpcOutcome::Failure { .. }));
+    assert_eq!(postgres_prunes.len(), 0);
+
+    let execute_request = IpcRequest::new(
+        "prune-execute-42",
+        IpcPayload::ExecutePostgresPrune {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+            confirmation_token,
+        },
+    );
+    let accepted = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &execute_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut postgres_prunes,
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_102,
+    });
+    assert_eq!(
+        accepted,
+        IpcResponse::success(
+            "prune-execute-42",
+            IpcResult::Accepted {
+                operation_id: "prune-execute-42".to_owned(),
+            },
+        )
+    );
+    assert_eq!(postgres_prunes.len(), 1);
+
     drop(control_plane);
+    let operations = SqliteStateStore::open(&database_path)
+        .expect("reopen prune queue")
+        .active_daemon_operations()
+        .expect("queued prune operation");
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].kind(), "postgres_prune");
+    assert!(!operations[0].payload_json().contains("runtime-only-secret"));
+    assert!(!operations[0].payload_json().contains("/backups/"));
     std::fs::remove_dir_all(root).expect("remove prune-plan fixture");
 }
 
@@ -3325,6 +3740,7 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut project_backups,
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut project_restores,
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
@@ -3431,6 +3847,7 @@ fn daemon_migration_decision_persists_one_exact_operator_choice() {
         event_journal: &mut event_journal,
         project_commands: &mut ProjectCommandQueue::default(),
         project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut decisions,
         project_logs: &mut ProjectLogSessionRegistry::default(),
@@ -3861,6 +4278,7 @@ struct RecordingProjectCommandExecution {
     command_exit_code: std::sync::atomic::AtomicI64,
     containers: std::sync::Mutex<Vec<String>>,
     command_environments: std::sync::Mutex<Vec<BTreeMap<String, String>>>,
+    command_inputs: std::sync::Mutex<Vec<Vec<u8>>>,
     created: std::sync::Mutex<Vec<String>>,
     lifecycle_started: std::sync::Mutex<Vec<String>>,
     stopped: std::sync::Mutex<Vec<String>>,
@@ -3902,6 +4320,14 @@ impl RecordingProjectCommandEngine {
             .command_environments
             .lock()
             .expect("command environments")
+            .clone()
+    }
+
+    fn command_inputs(&self) -> Vec<Vec<u8>> {
+        self.execution
+            .command_inputs
+            .lock()
+            .expect("command inputs")
             .clone()
     }
 
@@ -4044,6 +4470,7 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
                 format!("{database}\t{role}\t0\t0\n").into_bytes()
             });
         let container_id = container.id().clone();
+        let execution = self.execution.clone();
         Box::pin(async move {
             let (writer, mut reader) = tokio::io::duplex(1024);
             tokio::spawn(async move {
@@ -4051,6 +4478,11 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
                 tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut input)
                     .await
                     .expect("consume command input");
+                execution
+                    .command_inputs
+                    .lock()
+                    .expect("command inputs")
+                    .push(input);
             });
             let output: crate::control_plane::engine::ContainerLogStream<'static> =
                 Box::pin(futures_util::stream::iter([
@@ -4085,6 +4517,7 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .command_exit_code
             .load(std::sync::atomic::Ordering::Relaxed);
         Box::pin(async move {
+            tokio::task::yield_now().await;
             Ok(crate::control_plane::engine::CommandStatus::Exited(
                 exit_code,
             ))
@@ -4341,6 +4774,75 @@ fn observed_shared_service(
         crate::control_plane::engine::ContainerId::new(container_id),
         metadata.labels(),
     )
+}
+
+fn postgres_prune_restart_fixture(
+    operation_id: &str,
+) -> (
+    QueuedPostgresPrune,
+    crate::control_plane::state::LogicalResourceRecord,
+    crate::control_plane::state::CredentialRecord,
+) {
+    use crate::control_plane::retention::{
+        PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: "/backups/backup-42".to_owned(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery fixture");
+    let plan = PostgresLogicalPrunePlan::new(PostgresLogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-42",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery),
+    })
+    .expect("prune restart plan");
+    let queued = QueuedPostgresPrune::new(
+        operation_id.to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued restart prune");
+
+    (queued, logical, credential)
 }
 
 fn malformed_project_application(

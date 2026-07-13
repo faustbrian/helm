@@ -980,10 +980,38 @@ fn daemon_command_variants_parse() {
         let commands::DaemonCommands::Prune(args) = args.command else {
             panic!("expected daemon prune command");
         };
-        let commands::DaemonPruneCommands::Plan(args) = args.command;
+        let commands::DaemonPruneCommands::Plan(args) = args.command else {
+            panic!("expected daemon prune plan command");
+        };
         assert_eq!(args.project_id, "bill");
         assert_eq!(args.service_id, "database");
         assert_eq!(args.recovery_point_id, "backup-42");
+    } else {
+        panic!("expected daemon command");
+    }
+
+    let execute = Cli::parse_from([
+        "stackctl",
+        "daemon",
+        "prune",
+        "execute",
+        "bill",
+        "database",
+        "backup-42",
+        "--confirmation-token",
+        "token-42",
+    ]);
+    if let commands::Commands::Daemon(args) = execute.command {
+        let commands::DaemonCommands::Prune(args) = args.command else {
+            panic!("expected daemon prune command");
+        };
+        let commands::DaemonPruneCommands::Execute(args) = args.command else {
+            panic!("expected daemon prune execute command");
+        };
+        assert_eq!(args.project_id, "bill");
+        assert_eq!(args.service_id, "database");
+        assert_eq!(args.recovery_point_id, "backup-42");
+        assert_eq!(args.confirmation_token, "token-42");
     } else {
         panic!("expected daemon command");
     }

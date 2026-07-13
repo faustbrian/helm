@@ -10,6 +10,24 @@ pub(crate) struct DaemonPruneArgs {
 pub(crate) enum DaemonPruneCommands {
     /// Plan one exact retained PostgreSQL tenant deletion without mutation
     Plan(DaemonPrunePlanArgs),
+    /// Execute the exact previously planned deletion after token revalidation
+    Execute(DaemonPruneExecuteArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct DaemonPruneExecuteArgs {
+    /// Durable project identity retained after the project was unregistered
+    #[arg(value_name = "PROJECT_ID")]
+    pub(crate) project_id: String,
+    /// Exact retained PostgreSQL service identity
+    #[arg(value_name = "SERVICE_ID")]
+    pub(crate) service_id: String,
+    /// Exact verified recovery point used during planning
+    #[arg(value_name = "RECOVERY_POINT_ID")]
+    pub(crate) recovery_point_id: String,
+    /// Exact confirmation token returned by `daemon prune plan`
+    #[arg(long, value_name = "TOKEN")]
+    pub(crate) confirmation_token: String,
 }
 
 /// Selects exact retained state and verified recovery evidence for deletion.

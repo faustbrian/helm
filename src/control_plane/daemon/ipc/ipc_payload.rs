@@ -38,6 +38,13 @@ pub(crate) enum IpcPayload {
         service_id: String,
         recovery_point_id: String,
     },
+    /// Queues exact PostgreSQL deletion after confirmation-token revalidation.
+    ExecutePostgresPrune {
+        project_id: String,
+        service_id: String,
+        recovery_point_id: String,
+        confirmation_token: String,
+    },
     /// Explicitly exports daemon-owned values for one exact registered project.
     ProjectEnvironment { canonical_path: PathBuf },
     /// Opens one ownership-scoped, bounded in-memory container log session.

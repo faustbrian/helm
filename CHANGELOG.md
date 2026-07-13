@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicitly confirmed PostgreSQL logical deletion with immutable
+  recovery-point binding, stale-token rejection before Engine mutation,
+  runtime-only administrator credentials, idempotent database/role removal,
+  atomic tenant-state retirement, and crash-aware daemon replay. Verified
+  recovery evidence remains retained and unsupported service kinds fail closed.
 - Added effect-free PostgreSQL logical prune planning for exact orphaned state,
   requiring an explicitly selected matching recovery point and returning a
   stable secret-free confirmation token over typed singleton IPC. Ambiguous,
