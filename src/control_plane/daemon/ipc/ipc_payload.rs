@@ -1,4 +1,4 @@
-use super::IpcProjectCommand;
+use super::{IpcMigrationDecision, IpcProjectCommand};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,6 +22,12 @@ pub(crate) enum IpcPayload {
     ProjectStatus { canonical_path: PathBuf },
     /// Reads durable migration checkpoints for one exact registered project.
     ProjectMigrations { canonical_path: PathBuf },
+    /// Queues one explicit decision for an exact reversible migration.
+    DecideProjectMigration {
+        canonical_path: PathBuf,
+        migration_id: String,
+        decision: IpcMigrationDecision,
+    },
     /// Reads durable verified recovery points for one registered project.
     ProjectRecoveryPoints { canonical_path: PathBuf },
     /// Explicitly exports daemon-owned values for one exact registered project.

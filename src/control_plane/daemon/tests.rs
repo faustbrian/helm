@@ -2,9 +2,10 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    ImageReferenceResolution, IpcEventJournal, ProjectBackupExecutionOptions, ProjectBackupQueue,
-    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue,
+    ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
+    ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedProjectBackup, QueuedProjectCommand,
     QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
     SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
@@ -15,9 +16,10 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcOutputStream, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
+    IpcMigrationDecision, IpcMigrationStatus, IpcOutputStream, IpcPayload, IpcProjectCommand,
+    IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+    IpcResponse, IpcResult,
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
@@ -468,12 +470,13 @@ fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands(
             .expect("claim running command"),
     );
 
-    let (mut restored, backups, restores) =
+    let (mut restored, backups, restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(restored.len(), 1);
     assert_eq!(backups.len(), 0);
     assert_eq!(restores.len(), 0);
+    assert_eq!(decisions.len(), 0);
     let queued = restored.pop_front().expect("restored queued command");
     assert_eq!(queued.operation_id(), "queued-42");
     assert_eq!(queued.plan().arguments(), ["composer", "install"]);
@@ -535,12 +538,13 @@ fn daemon_restart_restores_queued_backups_without_replaying_running_backups() {
             .expect("claim running backup"),
     );
 
-    let (commands, mut backups, restores) =
+    let (commands, mut backups, restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 1);
     assert_eq!(restores.len(), 0);
+    assert_eq!(decisions.len(), 0);
     assert_eq!(
         backups.pop_front().expect("restored backup").operation_id(),
         "queued-backup"
@@ -599,12 +603,13 @@ fn daemon_restart_restores_only_queued_project_restores() {
             .expect("claim running restore"),
     );
 
-    let (commands, backups, mut restores) =
+    let (commands, backups, mut restores, decisions) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 0);
     assert_eq!(restores.len(), 1);
+    assert_eq!(decisions.len(), 0);
     assert_eq!(
         restores
             .pop_front()
@@ -698,6 +703,71 @@ fn project_restore_result_publishes_operator_gated_cutover_evidence() {
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove restore result fixture");
+}
+
+#[test]
+fn daemon_restart_restores_only_queued_migration_decisions() {
+    let root = temporary_directory("migration-decision-restart");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    for (operation_id, created_at) in [("queued-decision", 100), ("running-decision", 101)] {
+        let queued = super::QueuedMigrationDecision::new(
+            operation_id.to_owned(),
+            "restore-42".to_owned(),
+            "bill".to_owned(),
+            IpcMigrationDecision::Rollback,
+        )
+        .expect("migration decision");
+        let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+            operation_id: operation_id.to_owned(),
+            kind: "migration_decision".to_owned(),
+            payload_json: queued.payload_json().expect("durable decision payload"),
+            status: DaemonOperationStatus::Queued,
+            created_at_unix_seconds: created_at,
+            updated_at_unix_seconds: created_at,
+        });
+        store
+            .enqueue_daemon_operation(&operation, &accepted_json, 256)
+            .expect("persist queued decision");
+    }
+    drop(
+        store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "running-decision",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 102,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim running decision"),
+    );
+
+    let (commands, backups, restores, mut decisions) =
+        restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
+
+    assert_eq!(commands.len(), 0);
+    assert_eq!(backups.len(), 0);
+    assert_eq!(restores.len(), 0);
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(
+        decisions
+            .pop_front()
+            .expect("restored migration decision")
+            .operation_id(),
+        "queued-decision"
+    );
+    let events = store.daemon_events().expect("daemon events");
+    let interrupted = events.last().expect("interrupted terminal event");
+    assert_eq!(interrupted.operation_id(), "running-decision");
+    assert!(
+        interrupted
+            .kind_json()
+            .contains("migration_decision_interrupted")
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove decision restart fixture");
 }
 
 #[test]
@@ -2037,6 +2107,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2069,6 +2140,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2131,6 +2203,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: Some(&mut resolver),
@@ -2229,6 +2302,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
         image_reference_resolution: None,
@@ -2358,6 +2432,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2398,6 +2473,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2459,6 +2535,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2534,6 +2611,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2624,6 +2702,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2701,6 +2780,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2803,6 +2883,7 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         project_commands: &mut project_commands,
         project_backups: &mut project_backups,
         project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2900,6 +2981,7 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
         project_commands: &mut project_commands,
         project_backups: &mut project_backups,
         project_restores: &mut project_restores,
+        migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2934,6 +3016,112 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
     assert!(!persisted[0].payload_json().contains("artifact_sha256"));
 
     std::fs::remove_dir_all(root).expect("remove restore fixture");
+}
+
+#[test]
+fn daemon_migration_decision_persists_one_exact_operator_choice() {
+    let root = temporary_directory("ipc-migration-decision");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store.replace_project(&project).expect("register project");
+    for (index, phase) in [
+        MigrationPhase::Inventoried,
+        MigrationPhase::BackupVerified,
+        MigrationPhase::TargetProvisioned,
+        MigrationPhase::DataRestored,
+        MigrationPhase::TargetVerified,
+        MigrationPhase::Cutover,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let has_backup = phase != MigrationPhase::Inventoried;
+        let has_target = matches!(
+            phase,
+            MigrationPhase::TargetProvisioned
+                | MigrationPhase::DataRestored
+                | MigrationPhase::TargetVerified
+                | MigrationPhase::Cutover
+        );
+        let migration = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: "restore-42".to_owned(),
+            project_id: "bill".to_owned(),
+            source_revision: "sha256:source".to_owned(),
+            target_revision: "sha256:target".to_owned(),
+            source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            phase,
+            backup_reference: has_backup.then(|| "/state/backups/backup-42.dump".to_owned()),
+            backup_artifact_sha256: has_backup.then(|| "a".repeat(64)),
+            backup_artifact_size_bytes: has_backup.then_some(42),
+            target_resource_id: has_target.then(|| "bill/database".to_owned()),
+            rollback_reference: Some("postgres-17".to_owned()),
+            updated_at_unix_seconds: 40_000 + i64::try_from(index).expect("phase index"),
+        })
+        .expect("migration checkpoint");
+        store
+            .record_migration(&migration)
+            .expect("persist migration");
+    }
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "decision-42",
+        IpcPayload::DecideProjectMigration {
+            canonical_path: project_path,
+            migration_id: "restore-42".to_owned(),
+            decision: IpcMigrationDecision::Confirm,
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut decisions = MigrationDecisionQueue::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut decisions,
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
+        now_unix_seconds: 40_100,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "decision-42",
+            IpcResult::Accepted {
+                operation_id: "decision-42".to_owned(),
+            },
+        )
+    );
+    let queued = decisions.pop_front().expect("queued migration decision");
+    assert_eq!(queued.migration_id(), "restore-42");
+    assert_eq!(queued.project_id(), "bill");
+    assert_eq!(queued.decision(), IpcMigrationDecision::Confirm);
+    assert!(
+        !queued
+            .payload_json()
+            .expect("decision payload")
+            .contains("backup")
+    );
+
+    drop(control_plane);
+    let persisted = SqliteStateStore::open(&database_path)
+        .expect("reopen state store")
+        .active_daemon_operations()
+        .expect("load migration decision");
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].kind(), "migration_decision");
+
+    std::fs::remove_dir_all(root).expect("remove migration decision fixture");
 }
 
 #[test]

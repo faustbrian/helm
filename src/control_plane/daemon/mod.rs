@@ -36,6 +36,8 @@ mod initialize_default_installation;
 mod installation_initialization_error;
 mod invalidate_engine_connection;
 mod ipc;
+mod migration_decision_queue;
+mod migration_decision_queue_error;
 mod persisted_project_command;
 mod plan_engine_reconciliation;
 mod project_backup_execution_options;
@@ -64,6 +66,7 @@ mod project_restore_queue_error;
 mod publish_project_backup_result;
 mod publish_project_command_result;
 mod publish_project_restore_result;
+mod queued_migration_decision;
 mod queued_project_backup;
 mod queued_project_command;
 mod queued_project_restore;
@@ -143,10 +146,13 @@ pub(crate) use invalidate_engine_connection::invalidate_engine_connection;
 #[cfg(unix)]
 pub(crate) use ipc::{
     IpcDataLifecycle, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind, IpcLogChunk,
-    IpcLogSessionState, IpcManagedEnvironment, IpcNodePackageManager, IpcOutcome, IpcOutputStream,
-    IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, send_unix_request,
+    IpcLogSessionState, IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager,
+    IpcOutcome, IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus,
+    IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    send_unix_request,
 };
+pub(crate) use migration_decision_queue::MigrationDecisionQueue;
+pub(crate) use migration_decision_queue_error::MigrationDecisionQueueError;
 pub(crate) use persisted_project_command::PersistedProjectCommand;
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
 pub(crate) use project_backup_execution_options::ProjectBackupExecutionOptions;
@@ -175,6 +181,7 @@ pub(crate) use project_restore_queue_error::ProjectRestoreQueueError;
 pub(crate) use publish_project_backup_result::publish_project_backup_result;
 pub(crate) use publish_project_command_result::publish_project_command_result;
 pub(crate) use publish_project_restore_result::publish_project_restore_result;
+pub(crate) use queued_migration_decision::QueuedMigrationDecision;
 pub(crate) use queued_project_backup::QueuedProjectBackup;
 pub(crate) use queued_project_command::QueuedProjectCommand;
 pub(crate) use queued_project_restore::{QueuedProjectRestore, QueuedProjectRestoreOptions};

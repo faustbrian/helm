@@ -1,18 +1,20 @@
 use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
-    ProjectLogTarget, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    QueuedProjectRestoreOptions, ResourceHealthRegistry, reconcile_watched_roots,
+    ProjectLogTarget, QueuedMigrationDecision, QueuedProjectBackup, QueuedProjectCommand,
+    QueuedProjectRestore, QueuedProjectRestoreOptions, ResourceHealthRegistry,
+    reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRecoveryPoint, IpcResourceHealth,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationDecision,
+    IpcMigrationStatus, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRecoveryPoint,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
-    DaemonOperationTransitionOptions, EnvironmentLifecycle, ResourceLifecycle, StateStore,
+    DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
+    StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -38,6 +40,7 @@ where
         project_commands,
         project_backups,
         project_restores,
+        migration_decisions,
         project_logs,
         resource_health,
         image_reference_resolution,
@@ -182,6 +185,102 @@ where
                     )],
                 ),
             }
+        }
+        IpcPayload::DecideProjectMigration {
+            canonical_path,
+            migration_id,
+            decision,
+        } => {
+            let queued = match prepare_migration_decision(
+                control_plane,
+                request.request_id(),
+                canonical_path,
+                migration_id,
+                *decision,
+            ) {
+                Ok(queued) => queued,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "migration_decision_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let payload_json = match queued.payload_json() {
+                Ok(payload) => payload,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "migration_decision_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = migration_decisions.enqueue(queued) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "migration_decision_queue_unavailable",
+                        error.to_string(),
+                        true,
+                    )],
+                );
+            }
+            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
+                .expect("accepted event serialization is infallible");
+            let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: request.request_id().to_owned(),
+                kind: "migration_decision".to_owned(),
+                payload_json,
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: now_unix_seconds,
+                updated_at_unix_seconds: now_unix_seconds,
+            });
+            let accepted = match control_plane.enqueue_daemon_operation(
+                &operation,
+                &accepted_kind_json,
+                event_journal.capacity(),
+            ) {
+                Ok(event) => event,
+                Err(error) => {
+                    drop(migration_decisions.remove(request.request_id()));
+
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "migration_decision_queue_unavailable",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = event_journal.append_record(accepted) {
+                drop(migration_decisions.remove(request.request_id()));
+
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "event_journal_failed",
+                        error.to_string(),
+                        false,
+                    )],
+                );
+            }
+
+            IpcResponse::success(
+                request.request_id(),
+                IpcResult::Accepted {
+                    operation_id: request.request_id().to_owned(),
+                },
+            )
         }
         IpcPayload::ProjectRecoveryPoints { canonical_path } => {
             let projects = match control_plane.projects() {
@@ -908,7 +1007,7 @@ where
                 migration.backup_reference().is_some()
                     && migration.backup_artifact_sha256().is_some()
                     && migration.backup_artifact_size_bytes().is_some(),
-                migration.phase() == crate::control_plane::state::MigrationPhase::Cutover,
+                migration.phase() == MigrationPhase::Cutover,
                 migration.updated_at_unix_seconds(),
             )
         })
@@ -1162,6 +1261,76 @@ where
         logical.logical_resource_id().to_owned(),
         logical.kind().to_owned(),
         logical.compatibility_fingerprint().to_owned(),
+    )
+}
+
+fn prepare_migration_decision<Store>(
+    control_plane: &ControlPlane<Store>,
+    operation_id: &str,
+    canonical_path: &std::path::Path,
+    migration_id: &str,
+    decision: IpcMigrationDecision,
+) -> Result<QueuedMigrationDecision, String>
+where
+    Store: StateStore,
+{
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let matches = control_plane
+        .migrations()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|migration| {
+            migration.migration_id() == migration_id
+                && migration.project_id() == project.project_name()
+        })
+        .collect::<Vec<_>>();
+    let migration = match matches.as_slice() {
+        [migration] => migration,
+        [] => {
+            return Err(format!(
+                "migration '{migration_id}' does not belong to project '{}'",
+                project.project_name()
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "migration '{migration_id}' matched multiple durable checkpoints"
+            ));
+        }
+    };
+    let valid_phase = match decision {
+        IpcMigrationDecision::Confirm => matches!(
+            migration.phase(),
+            MigrationPhase::Cutover | MigrationPhase::Confirmed
+        ),
+        IpcMigrationDecision::Rollback => matches!(
+            migration.phase(),
+            MigrationPhase::Cutover | MigrationPhase::RolledBack
+        ),
+    };
+    if !valid_phase {
+        return Err(format!(
+            "migration '{migration_id}' cannot {} from phase '{}'",
+            decision.as_str(),
+            migration.phase()
+        ));
+    }
+
+    QueuedMigrationDecision::new(
+        operation_id.to_owned(),
+        migration_id.to_owned(),
+        project.project_name().to_owned(),
+        decision,
     )
 }
 
