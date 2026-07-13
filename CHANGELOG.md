@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added MinIO shared-object-store convergence with exact compatibility
+  grouping, durable root and project credentials, deterministic bucket-scoped
+  policies, one physical process and volume, and project-specific AWS
+  environments. Garage and RustFS remain fail-closed until their IAM isolation
+  contracts are proven.
 - Added Redis and Valkey shared-instance strategies with exact engine/version/
   image/platform fingerprints, durable admin and project credentials, one
   daemon-owned atomic ACL snapshot, project-scoped users and key prefixes,

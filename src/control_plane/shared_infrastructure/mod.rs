@@ -33,10 +33,12 @@ pub(crate) use mysql::{
     reconcile_mysql_project_resources, reconcile_prepared_mysql_instance,
 };
 pub(crate) use object_store::{
-    ObjectStoreFlavor, ObjectStorePlanError, ObjectStoreProjectDefinition,
-    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
-    ObjectStoreSharedInstancePlanOptions, plan_object_store_project_resources,
-    provision_object_store_project_resources, reconcile_object_store_project_resources,
+    ObjectStoreFlavor, ObjectStorePlanError, ObjectStorePreparationError,
+    ObjectStorePreparationOptions, ObjectStoreProjectDefinition, ObjectStoreProjectResources,
+    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions,
+    PreparedObjectStoreSharedInstance, plan_object_store_project_resources,
+    prepare_object_store_shared_instances, provision_object_store_project_resources,
+    reconcile_object_store_project_resources, reconcile_prepared_object_store_instance,
     store_object_store_policy,
 };
 pub(crate) use os_credential_entropy::OsCredentialEntropy;

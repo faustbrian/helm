@@ -30,6 +30,7 @@ pub(crate) fn resolve_execution_shared_instances(
             "mariadb" | "maria" => "mariadb",
             "redis" => "redis",
             "valkey" => "valkey",
+            "minio" => "minio",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",
@@ -68,6 +69,7 @@ pub(crate) fn resolve_execution_shared_instances(
             persistence: PersistenceMode::Persistent,
             isolation: match implementation {
                 "redis" | "valkey" => IsolationCapability::AclAndPrefix,
+                "minio" => IsolationCapability::BucketAndPolicy,
                 _ => IsolationCapability::DatabaseAndRole,
             },
             platform_architecture: Some(platform.to_owned()),

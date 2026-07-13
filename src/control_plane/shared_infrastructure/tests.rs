@@ -367,6 +367,116 @@ fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
     std::fs::remove_dir_all(root).expect("remove strategy state");
 }
 
+#[cfg(unix)]
+#[test]
+fn minio_strategy_publishes_isolated_policies_for_two_projects() {
+    let image = concat!(
+        "minio/minio@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_database_source("/work/bill", "bill", "minio", "1", image),
+        shared_database_source("/work/shop", "shop", "minio", "1", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-minio-strategy-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("strategy state directory");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("AWS_SECRET_ACCESS_KEY")
+        .expect("first project secret")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(shared[0].profile().implementation(), "minio");
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("AWS_SECRET_ACCESS_KEY")
+            .expect("replayed project secret"),
+        &first_password
+    );
+    assert_eq!(store.credentials().expect("durable credentials").len(), 3);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 8);
+    let identity = shared[0]
+        .fingerprint()
+        .as_str()
+        .strip_prefix("sha256:")
+        .expect("fingerprint identity");
+    let policies = root
+        .join("shared")
+        .join(identity)
+        .join("object-store-policies");
+    let bill_policy =
+        std::fs::read_to_string(policies.join("stackctl-bill-db.json")).expect("bill policy");
+    let shop_policy =
+        std::fs::read_to_string(policies.join("stackctl-shop-db.json")).expect("shop policy");
+    assert!(bill_policy.contains("arn:aws:s3:::stackctl-bill-db/*"));
+    assert!(shop_policy.contains("arn:aws:s3:::stackctl-shop-db/*"));
+    assert!(!bill_policy.contains("stackctl-shop-db"));
+    assert!(!shop_policy.contains("stackctl-bill-db"));
+    assert!(!bill_policy.contains(&first_password));
+    assert!(!shop_policy.contains(&first_password));
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove strategy state");
+}
+
 #[test]
 fn postgres_preparation_reuses_durable_bootstrap_and_project_secrets() {
     let image = concat!(

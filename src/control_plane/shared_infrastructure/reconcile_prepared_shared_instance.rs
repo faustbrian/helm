@@ -1,7 +1,7 @@
 use super::{
     PreparedSharedInstance, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
-    reconcile_prepared_mysql_instance, reconcile_prepared_postgres_instance,
-    reconcile_prepared_redis_instance,
+    reconcile_prepared_mysql_instance, reconcile_prepared_object_store_instance,
+    reconcile_prepared_postgres_instance, reconcile_prepared_redis_instance,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -35,6 +35,15 @@ where
         PreparedSharedInstance::Redis(prepared) => {
             reconcile_prepared_redis_instance(engine, prepared, installation_id, schema_version)
                 .await
+        }
+        PreparedSharedInstance::ObjectStore(prepared) => {
+            reconcile_prepared_object_store_instance(
+                engine,
+                prepared,
+                installation_id,
+                schema_version,
+            )
+            .await
         }
     }
 }
