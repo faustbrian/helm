@@ -104,6 +104,8 @@ All notable changes to this project are documented in this file.
   restarts stopped owned containers, and leaves healthy owned state untouched.
 - Added atomic route-revision reconciliation that skips matching state and
   verifies the desired revision after every gateway configuration load.
+- Added bounded gateway readiness convergence so route loads cannot race a
+  starting, stopped, missing, or unhealthy gateway container.
 - Added deterministic local certificate lifecycle reconciliation that preserves
   the trusted CA while renewing wildcard gateway leaf material when due.
 - Persisted certificate renewal deadlines inside atomic private bundle revisions

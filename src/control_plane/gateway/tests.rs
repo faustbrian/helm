@@ -1,10 +1,11 @@
 use super::{
     CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayConfigurationAction,
     GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe,
-    GatewayReconcileAction, GatewayReconcileOptions, GatewayRoute, GatewaySnapshot,
-    LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway,
-    reconcile_gateway_configuration, render_caddy_document, store_caddy_bootstrap,
-    verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    GatewayReadinessOptions, GatewayReconcileAction, GatewayReconcileOptions, GatewayRoute,
+    GatewaySnapshot, LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports,
+    reconcile_gateway, reconcile_gateway_configuration, render_caddy_document,
+    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    wait_for_gateway_ready,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
@@ -15,9 +16,12 @@ use crate::control_plane::engine::{
 };
 use serde_json::Value;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::Path;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -557,6 +561,63 @@ fn gateway_reconciliation_rejects_multiple_owned_gateway_containers() {
 }
 
 #[test]
+fn gateway_readiness_waits_until_the_owned_container_is_healthy() {
+    let gateway = owned_gateway("gateway-1", gateway_metadata("sha256:gateway-v1"));
+    let observer = SequencedHealthObserver::new([
+        ContainerHealth::Starting,
+        ContainerHealth::RunningUnverified,
+        ContainerHealth::Healthy,
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let health = runtime
+        .block_on(wait_for_gateway_ready(
+            &observer,
+            GatewayReadinessOptions::new(
+                &gateway,
+                Duration::from_millis(100),
+                Duration::from_millis(1),
+            )
+            .expect("readiness options"),
+        ))
+        .expect("healthy gateway");
+
+    assert_eq!(health, ContainerHealth::Healthy);
+    assert_eq!(observer.observations(), 3);
+}
+
+#[test]
+fn gateway_readiness_times_out_with_the_last_observed_health() {
+    let gateway = owned_gateway("gateway-1", gateway_metadata("sha256:gateway-v1"));
+    let observer = SequencedHealthObserver::new([ContainerHealth::Starting]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(wait_for_gateway_ready(
+            &observer,
+            GatewayReadinessOptions::new(
+                &gateway,
+                Duration::from_millis(5),
+                Duration::from_millis(1),
+            )
+            .expect("readiness options"),
+        ))
+        .expect_err("starting gateway must time out");
+
+    assert!(
+        error
+            .to_string()
+            .contains("did not become healthy within 5ms; last observed health: Starting")
+    );
+}
+
+#[test]
 fn gateway_configuration_is_an_object_safe_atomic_strategy() {
     let snapshot = GatewaySnapshot::new(
         "sha256:routes-v1",
@@ -1022,6 +1083,54 @@ fn gateway_request(metadata: ManagedResourceMetadata) -> ContainerCreateOptions 
         metadata,
     ))
     .expect("gateway request")
+}
+
+fn owned_gateway(id: &str, metadata: ManagedResourceMetadata) -> OwnedContainer {
+    reconstruct_owned_container(
+        &ObservedContainer::new(
+            crate::control_plane::engine::ContainerId::new(id),
+            metadata.labels(),
+        ),
+        metadata.installation_id(),
+        metadata.schema_version(),
+    )
+    .expect("owned gateway")
+}
+
+struct SequencedHealthObserver {
+    health: Mutex<VecDeque<ContainerHealth>>,
+    last: Mutex<ContainerHealth>,
+    observations: AtomicUsize,
+}
+
+impl SequencedHealthObserver {
+    fn new(health: impl IntoIterator<Item = ContainerHealth>) -> Self {
+        Self {
+            health: Mutex::new(health.into_iter().collect()),
+            last: Mutex::new(ContainerHealth::Starting),
+            observations: AtomicUsize::new(0),
+        }
+    }
+
+    fn observations(&self) -> usize {
+        self.observations.load(Ordering::SeqCst)
+    }
+}
+
+impl HealthObserver for SequencedHealthObserver {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async move {
+            self.observations.fetch_add(1, Ordering::SeqCst);
+            if let Some(health) = self.health.lock().expect("health lock").pop_front() {
+                *self.last.lock().expect("last health lock") = health;
+            }
+
+            Ok(*self.last.lock().expect("last health lock"))
+        })
+    }
 }
 
 struct RecordingGatewayEngine {
