@@ -1,15 +1,22 @@
 #[cfg(test)]
 mod tests;
 
+mod certificate_trust_store;
+mod ensure_ca_trusted;
 mod filesystem_certificate_store;
 mod generate_leaf_certificate;
 mod generate_local_certificates;
 mod local_ca_identity;
 mod local_certificate_bundle;
 mod local_certificate_error;
+mod remove_ca_trust;
 mod renew_local_leaf_certificate;
 mod stored_certificate_paths;
+mod trust_change;
+mod trust_store_error;
 
+pub(crate) use certificate_trust_store::CertificateTrustStore;
+pub(crate) use ensure_ca_trusted::ensure_ca_trusted;
 pub(crate) use filesystem_certificate_store::FilesystemCertificateStore;
 use generate_leaf_certificate::generate_leaf_certificate;
 pub(crate) use generate_local_certificates::generate_local_certificates;
@@ -17,5 +24,8 @@ use generate_local_certificates::{checked_time, generation_error};
 pub(crate) use local_ca_identity::LocalCaIdentity;
 pub(crate) use local_certificate_bundle::LocalCertificateBundle;
 pub(crate) use local_certificate_error::LocalCertificateError;
+pub(crate) use remove_ca_trust::remove_ca_trust;
 pub(crate) use renew_local_leaf_certificate::renew_local_leaf_certificate;
 pub(crate) use stored_certificate_paths::StoredCertificatePaths;
+pub(crate) use trust_change::TrustChange;
+pub(crate) use trust_store_error::TrustStoreError;

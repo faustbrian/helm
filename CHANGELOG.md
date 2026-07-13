@@ -65,6 +65,8 @@ All notable changes to this project are documented in this file.
   rotates only the wildcard gateway certificate and private key.
 - Added an OpenSSL-free SHA-256 identity for validated Stackctl CA certificates
   so trust-store reconciliation and removal can target exact certificate bytes.
+- Added an idempotent OS trust-store boundary that installs missing Stackctl CAs
+  once and removes only the exact certificate identity supplied by Stackctl.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
   complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
