@@ -17,7 +17,7 @@ pub(crate) use backup_verification_error::BackupVerificationError;
 pub(crate) use deletion_decision::DeletionDecision;
 pub(crate) use evaluate_deletion::evaluate_deletion;
 pub(crate) use prune_authorization::PruneAuthorization;
-pub(crate) use store_backup_artifact::store_backup_artifact;
+pub(crate) use store_backup_artifact::{store_backup_artifact, store_backup_artifact_from_reader};
 pub(crate) use stored_backup_artifact::StoredBackupArtifact;
 pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;
 pub(crate) use verify_backup_artifact::verify_backup_artifact;

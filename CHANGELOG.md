@@ -13,8 +13,8 @@ All notable changes to this project are documented in this file.
   the exact installation, resource, and compatibility fingerprint being deleted.
 - Added idempotent RabbitMQ project-user revocation that retains orphaned vhost
   data and uses bounded, credential-free direct Engine exec output.
-- Added atomic private backup recovery points with portable resource manifests,
-  immutable history, crash-safe pending-write recovery, and reread verification.
+- Added streaming atomic private backup recovery points with portable resource
+  manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected

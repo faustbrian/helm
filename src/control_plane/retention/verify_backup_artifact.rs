@@ -7,6 +7,24 @@ pub(crate) fn verify_backup_artifact(
     artifact: &[u8],
     verified_at_unix_seconds: i64,
 ) -> Result<VerifiedBackupEvidence, BackupVerificationError> {
+    let artifact_size_bytes =
+        u64::try_from(artifact.len()).map_err(|_| BackupVerificationError::InvalidManifest {
+            detail: "backup artifact size exceeds the supported range".to_owned(),
+        })?;
+    verify_backup_checksum(
+        manifest,
+        &hex::encode(Sha256::digest(artifact)),
+        artifact_size_bytes,
+        verified_at_unix_seconds,
+    )
+}
+
+pub(super) fn verify_backup_checksum(
+    manifest: &BackupArtifactManifest,
+    artifact_sha256: &str,
+    artifact_size_bytes: u64,
+    verified_at_unix_seconds: i64,
+) -> Result<VerifiedBackupEvidence, BackupVerificationError> {
     if verified_at_unix_seconds < 0 {
         return Err(BackupVerificationError::InvalidVerificationTime);
     }
@@ -14,9 +32,11 @@ pub(crate) fn verify_backup_artifact(
         return Err(BackupVerificationError::VerificationPredatesCreation);
     }
 
-    let artifact_sha256 = hex::encode(Sha256::digest(artifact));
     if artifact_sha256 != manifest.artifact_sha256() {
         return Err(BackupVerificationError::ChecksumMismatch);
+    }
+    if artifact_size_bytes != manifest.artifact_size_bytes() {
+        return Err(BackupVerificationError::SizeMismatch);
     }
 
     Ok(VerifiedBackupEvidence::new(
@@ -24,7 +44,7 @@ pub(crate) fn verify_backup_artifact(
         manifest.installation_id().to_owned(),
         manifest.resource_kind().to_owned(),
         manifest.compatibility_fingerprint().to_owned(),
-        artifact_sha256,
+        artifact_sha256.to_owned(),
         verified_at_unix_seconds,
     ))
 }

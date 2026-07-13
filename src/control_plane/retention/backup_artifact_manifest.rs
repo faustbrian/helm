@@ -13,6 +13,7 @@ pub(crate) struct BackupArtifactManifest {
     resource_kind: String,
     compatibility_fingerprint: String,
     artifact_sha256: String,
+    artifact_size_bytes: u64,
     created_at_unix_seconds: i64,
 }
 
@@ -29,13 +30,32 @@ impl BackupArtifactManifest {
             return Err(BackupVerificationError::InvalidCreationTime);
         }
 
+        Self::from_checksum(
+            resource,
+            hex::encode(Sha256::digest(artifact)),
+            u64::try_from(artifact.len()).map_err(|_| {
+                BackupVerificationError::InvalidManifest {
+                    detail: "backup artifact size exceeds the supported range".to_owned(),
+                }
+            })?,
+            created_at_unix_seconds,
+        )
+    }
+
+    pub(super) fn from_checksum(
+        resource: &ResourceRecord,
+        artifact_sha256: String,
+        artifact_size_bytes: u64,
+        created_at_unix_seconds: i64,
+    ) -> Result<Self, BackupVerificationError> {
         let manifest = Self {
             schema_version: 1,
             resource_id: resource.resource_id().to_owned(),
             installation_id: resource.installation_id().to_owned(),
             resource_kind: resource.kind().to_owned(),
             compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
-            artifact_sha256: hex::encode(Sha256::digest(artifact)),
+            artifact_sha256,
+            artifact_size_bytes,
             created_at_unix_seconds,
         };
         manifest.validate()?;
@@ -61,6 +81,10 @@ impl BackupArtifactManifest {
 
     pub(super) fn artifact_sha256(&self) -> &str {
         &self.artifact_sha256
+    }
+
+    pub(super) const fn artifact_size_bytes(&self) -> u64 {
+        self.artifact_size_bytes
     }
 
     pub(super) const fn created_at_unix_seconds(&self) -> i64 {
@@ -98,6 +122,9 @@ impl BackupArtifactManifest {
             return Err(BackupVerificationError::InvalidManifest {
                 detail: "backup manifest artifact checksum must be lowercase SHA-256".to_owned(),
             });
+        }
+        if self.artifact_size_bytes == 0 {
+            return Err(BackupVerificationError::EmptyArtifact);
         }
         if self.created_at_unix_seconds < 0 {
             return Err(BackupVerificationError::InvalidCreationTime);

@@ -1,6 +1,7 @@
 use super::{
     BackupArtifactManifest, DeletionDecision, PruneAuthorization, evaluate_deletion,
-    store_backup_artifact, verify_backup_artifact, verify_stored_backup_artifact,
+    store_backup_artifact, store_backup_artifact_from_reader, verify_backup_artifact,
+    verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
@@ -178,6 +179,7 @@ fn backup_manifest_serializes_portable_resource_identity_and_checksum() {
             "compatibility_fingerprint": "sha256:fingerprint",
             "artifact_sha256":
                 "7171b7ccbaa1ac3767c1e75815c6c5bca6634f141b55b4d1a398ddf2a76b75df",
+            "artifact_size_bytes": 12,
             "created_at_unix_seconds": 40_000,
         })
     );
@@ -318,13 +320,7 @@ fn backup_store_recovers_an_incomplete_owned_pending_publish() {
         .expect("destination directory")
         .to_owned();
     let resource_directory = destination.parent().expect("resource directory");
-    let pending = resource_directory.join(format!(
-        ".pending-{}",
-        destination
-            .file_name()
-            .expect("destination file name")
-            .to_string_lossy()
-    ));
+    let pending = resource_directory.join(".pending-40000");
     std::fs::remove_dir_all(&destination).expect("simulate unpublished backup");
     std::fs::create_dir(&pending).expect("stale pending directory");
     std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o700))
@@ -339,6 +335,66 @@ fn backup_store_recovers_an_incomplete_owned_pending_publish() {
     verify_stored_backup_artifact(&recovered, 41_000).expect("verified recovered backup");
 
     std::fs::remove_dir_all(&root).expect("remove backup recovery fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_store_streams_large_artifacts_without_requiring_one_byte_buffer() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-stream-{}-{}",
+        std::process::id(),
+        50_003
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+    let bytes = vec![b'x'; 256 * 1024 + 17];
+    let reader = ChunkedReader::new(&bytes, 37);
+
+    let stored = store_backup_artifact_from_reader(&resource, reader, 42_000, &root)
+        .expect("streamed backup");
+
+    assert_eq!(
+        std::fs::metadata(stored.artifact_file())
+            .expect("artifact metadata")
+            .len(),
+        u64::try_from(bytes.len()).expect("fixture length")
+    );
+    verify_stored_backup_artifact(&stored, 42_001).expect("verified streamed backup");
+
+    std::fs::remove_dir_all(&root).expect("remove streamed backup fixture");
+}
+
+#[cfg(unix)]
+struct ChunkedReader<'bytes> {
+    bytes: &'bytes [u8],
+    offset: usize,
+    maximum_chunk: usize,
+}
+
+#[cfg(unix)]
+impl<'bytes> ChunkedReader<'bytes> {
+    const fn new(bytes: &'bytes [u8], maximum_chunk: usize) -> Self {
+        Self {
+            bytes,
+            offset: 0,
+            maximum_chunk,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::io::Read for ChunkedReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = &self.bytes[self.offset..];
+        let count = remaining.len().min(buffer.len()).min(self.maximum_chunk);
+        buffer[..count].copy_from_slice(&remaining[..count]);
+        self.offset += count;
+
+        Ok(count)
+    }
 }
 
 fn resource(
