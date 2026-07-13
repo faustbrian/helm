@@ -106,6 +106,8 @@ All notable changes to this project are documented in this file.
   verifies the desired revision after every gateway configuration load.
 - Added bounded gateway readiness convergence so route loads cannot race a
   starting, stopped, missing, or unhealthy gateway container.
+- Composed gateway container recovery, bounded readiness, and atomic route
+  reconciliation into one ordered control-plane transaction.
 - Added deterministic local certificate lifecycle reconciliation that preserves
   the trusted CA while renewing wildcard gateway leaf material when due.
 - Persisted certificate renewal deadlines inside atomic private bundle revisions

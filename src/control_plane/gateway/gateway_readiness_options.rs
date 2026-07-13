@@ -15,6 +15,19 @@ impl<'operation> GatewayReadinessOptions<'operation> {
         timeout: Duration,
         poll_interval: Duration,
     ) -> Result<Self, GatewayError> {
+        Self::validate_timing(timeout, poll_interval)?;
+
+        Ok(Self {
+            gateway,
+            timeout,
+            poll_interval,
+        })
+    }
+
+    pub(super) fn validate_timing(
+        timeout: Duration,
+        poll_interval: Duration,
+    ) -> Result<(), GatewayError> {
         if timeout.is_zero() || poll_interval.is_zero() {
             return Err(GatewayError::InvalidPlan {
                 detail: "gateway readiness timeout and poll interval must be nonzero".to_owned(),
@@ -26,11 +39,7 @@ impl<'operation> GatewayReadinessOptions<'operation> {
             });
         }
 
-        Ok(Self {
-            gateway,
-            timeout,
-            poll_interval,
-        })
+        Ok(())
     }
 
     pub(crate) const fn gateway(&self) -> &OwnedContainer {

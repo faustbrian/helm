@@ -1,9 +1,10 @@
 use super::{
     CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayConfigurationAction,
-    GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe,
-    GatewayReadinessOptions, GatewayReconcileAction, GatewayReconcileOptions, GatewayRoute,
-    GatewaySnapshot, LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports,
-    reconcile_gateway, reconcile_gateway_configuration, render_caddy_document,
+    GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPlaneOptions,
+    GatewayPortAvailability, GatewayPortProbe, GatewayReadinessOptions, GatewayReconcileAction,
+    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, LocalhostResolver,
+    SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway,
+    reconcile_gateway_configuration, reconcile_gateway_plane, render_caddy_document,
     store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
     wait_for_gateway_ready,
 };
@@ -618,6 +619,92 @@ fn gateway_readiness_times_out_with_the_last_observed_health() {
 }
 
 #[test]
+fn gateway_plane_reconciles_container_readiness_then_route_revision() {
+    let request = gateway_request(gateway_metadata("sha256:gateway-v1"));
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let mut engine = RecordingGatewayEngine {
+        health_sequence: Mutex::new(VecDeque::from([
+            ContainerHealth::Starting,
+            ContainerHealth::Healthy,
+        ])),
+        ..RecordingGatewayEngine::default()
+    };
+    let mut provider = RecordingGatewayProvider::default();
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway_plane(
+            &mut engine,
+            &mut provider,
+            GatewayPlaneOptions::new(
+                GatewayReconcileOptions {
+                    request: &request,
+                    installation_id: "install-1",
+                    schema_version: 8,
+                    host_probe: &host_probe,
+                },
+                &snapshot,
+                Duration::from_millis(100),
+                Duration::from_millis(1),
+            )
+            .expect("gateway plane options"),
+        ))
+        .expect("reconcile gateway plane");
+
+    assert_eq!(result.gateway_action(), GatewayReconcileAction::Created);
+    assert_eq!(result.health(), ContainerHealth::Healthy);
+    assert_eq!(
+        result.configuration_action(),
+        GatewayConfigurationAction::Applied
+    );
+    assert_eq!(provider.applied, vec![snapshot]);
+}
+
+#[test]
+fn gateway_plane_never_applies_routes_when_readiness_fails() {
+    let request = gateway_request(gateway_metadata("sha256:gateway-v1"));
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let mut engine = RecordingGatewayEngine {
+        health_sequence: Mutex::new(VecDeque::from([
+            ContainerHealth::Starting,
+            ContainerHealth::Unhealthy { failing_streak: 1 },
+        ])),
+        ..RecordingGatewayEngine::default()
+    };
+    let mut provider = RecordingGatewayProvider::default();
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(reconcile_gateway_plane(
+            &mut engine,
+            &mut provider,
+            GatewayPlaneOptions::new(
+                GatewayReconcileOptions {
+                    request: &request,
+                    installation_id: "install-1",
+                    schema_version: 8,
+                    host_probe: &host_probe,
+                },
+                &snapshot,
+                Duration::from_millis(100),
+                Duration::from_millis(1),
+            )
+            .expect("gateway plane options"),
+        ))
+        .expect_err("unhealthy gateway");
+
+    assert!(provider.applied.is_empty());
+}
+
+#[test]
 fn gateway_configuration_is_an_object_safe_atomic_strategy() {
     let snapshot = GatewaySnapshot::new(
         "sha256:routes-v1",
@@ -1138,6 +1225,7 @@ struct RecordingGatewayEngine {
     published: Vec<PublishedPortBinding>,
     state: ContainerState,
     health: ContainerHealth,
+    health_sequence: Mutex<VecDeque<ContainerHealth>>,
     created: Vec<ContainerCreateOptions>,
     started: Vec<OwnedContainer>,
     stopped: Vec<OwnedContainer>,
@@ -1151,6 +1239,7 @@ impl Default for RecordingGatewayEngine {
             published: Vec::new(),
             state: ContainerState::Missing,
             health: ContainerHealth::Starting,
+            health_sequence: Mutex::new(VecDeque::new()),
             created: Vec::new(),
             started: Vec::new(),
             stopped: Vec::new(),
@@ -1237,6 +1326,13 @@ impl HealthObserver for RecordingGatewayEngine {
         &'operation self,
         _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerHealth> {
-        Box::pin(async { Ok(self.health) })
+        Box::pin(async {
+            Ok(self
+                .health_sequence
+                .lock()
+                .expect("health sequence lock")
+                .pop_front()
+                .unwrap_or(self.health))
+        })
     }
 }
