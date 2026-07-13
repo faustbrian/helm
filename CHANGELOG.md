@@ -140,6 +140,9 @@ All notable changes to this project are documented in this file.
 - Added shared MongoDB instance and logical-resource plans with private
   file-backed root initialization, database-scoped read-write users, idempotent
   create/update scripts over stdin, and retained owned data volumes.
+- Added atomic immutable managed-secret persistence with exact-content
+  reconciliation and user-only Unix directory and file permissions for
+  file-backed container bootstrap credentials.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

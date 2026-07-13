@@ -9,6 +9,7 @@ pub(crate) use credential_generation_error::CredentialGenerationError;
 pub(crate) use credential_secret::CredentialSecret;
 pub(crate) use generate_credential_secret::generate_credential_secret;
 pub(crate) use isolation_capability::IsolationCapability;
+pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
 pub(crate) use mongodb::{
     MongoDbLogicalResourcePlan, MongoDbPlanError, MongoDbSharedInstancePlan,
     MongoDbSharedInstancePlanOptions,
@@ -39,6 +40,7 @@ pub(crate) use redis::{
 };
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_request::SharedServiceRequest;
+pub(crate) use store_credential_secret::store_credential_secret;
 
 mod compatibility_fingerprint;
 mod compatibility_fingerprint_error;
@@ -50,6 +52,7 @@ mod credential_secret;
 mod generate_credential_secret;
 mod isolation_capability;
 mod logical_service_consumer;
+mod managed_secret_store_error;
 mod mongodb;
 mod mysql;
 mod os_credential_entropy;
@@ -60,3 +63,4 @@ mod rabbitmq;
 mod redis;
 mod shared_instance_plan;
 mod shared_service_request;
+mod store_credential_secret;

@@ -10,8 +10,8 @@ use super::{
     SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
     plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
     plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
-    reload_rabbitmq_definitions, reload_redis_acl, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    reload_rabbitmq_definitions, reload_redis_acl, store_credential_secret,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -189,6 +189,52 @@ fn mongodb_shared_instances_use_private_secret_files_and_retained_data() {
     assert!(debug.contains("read_only: true"));
     assert!(debug.contains("MONGO_INITDB_ROOT_PASSWORD_FILE"));
     assert!(!debug.contains("mongo-root"));
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_secret_store_is_private_immutable_and_exact() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-managed-secret-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    let path = root.join("mongodb-root");
+    let secret = CredentialSecret::new("root-secret".to_owned());
+
+    let stored = store_credential_secret(&secret, &path).expect("store secret");
+    store_credential_secret(&secret, &path).expect("reconcile secret");
+    let error =
+        store_credential_secret(&CredentialSecret::new("different-secret".to_owned()), &path)
+            .expect_err("reject secret replacement");
+
+    assert_eq!(stored, path);
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("secret file"),
+        "root-secret"
+    );
+    assert_eq!(
+        std::fs::metadata(&root)
+            .expect("secret directory")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("secret file")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert!(error.to_string().contains("refusing to replace"));
+    assert!(!error.to_string().contains("root-secret"));
+    assert!(!error.to_string().contains("different-secret"));
+
+    std::fs::remove_dir_all(&root).expect("remove managed-secret fixture");
 }
 
 #[test]
