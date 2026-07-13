@@ -6,6 +6,7 @@ mod adopt;
 mod backup;
 mod backups;
 mod migration;
+mod restore;
 mod service;
 mod trust;
 
@@ -18,6 +19,7 @@ pub(crate) use backups::DaemonBackupsArgs;
 pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationStatusArgs,
 };
+pub(crate) use restore::DaemonRestoreArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
 };
@@ -45,6 +47,8 @@ pub(crate) enum DaemonCommands {
     Backup(DaemonBackupArgs),
     /// List verified recovery points for one project
     Backups(DaemonBackupsArgs),
+    /// Restore one verified recovery point to a reversible retained target
+    Restore(DaemonRestoreArgs),
     /// Inspect reversible resource migrations
     Migration(DaemonMigrationArgs),
     /// Manage trust for the singleton Stackctl certificate authority

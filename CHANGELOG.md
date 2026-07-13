@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `stackctl daemon restore <recovery-point-id> [path]` to queue one exact
+  cataloged recovery point, follow its ordered daemon events, and report the
+  resulting migration only after it reaches the explicit confirmation gate.
 - Added asynchronous singleton PostgreSQL restore execution that resolves the
   exact current compatibility plan, reconciles an isolated retained target,
   restores and verifies immutable catalog evidence, atomically cuts project

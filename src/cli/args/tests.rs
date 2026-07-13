@@ -922,6 +922,17 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+
+    let restore = Cli::parse_from(["stackctl", "daemon", "restore", "backup-42", "/work/bill"]);
+    if let commands::Commands::Daemon(args) = restore.command {
+        let commands::DaemonCommands::Restore(args) = args.command else {
+            panic!("expected daemon restore command");
+        };
+        assert_eq!(args.recovery_point_id, "backup-42");
+        assert_eq!(args.path, PathBuf::from("/work/bill"));
+    } else {
+        panic!("expected daemon command");
+    }
 }
 
 #[test]
