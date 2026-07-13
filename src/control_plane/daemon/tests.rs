@@ -1,6 +1,6 @@
 use super::{
     DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, ProjectDiscoveryOptions,
-    SingletonLease, discover_project_sources,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
 };
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -68,6 +68,37 @@ fn discovery_scheduler_runs_periodic_correctness_scans_without_events() {
         Some(DiscoveryScanReason::Periodic)
     );
     assert_eq!(scheduler.next_deadline(), start + Duration::from_secs(60));
+}
+
+#[test]
+fn retry_backoff_is_bounded_jittered_and_resets_after_recovery() {
+    let options = RetryBackoffOptions::new(Duration::from_millis(500), Duration::from_secs(8))
+        .expect("retry options");
+    let mut engine =
+        RetryBackoff::new("engine:docker-desktop", options).expect("engine retry backoff");
+    let mut database =
+        RetryBackoff::new("shared:postgres:17", options).expect("database retry backoff");
+
+    let engine_delays = (0..8).map(|_| engine.next_delay()).collect::<Vec<_>>();
+    let database_delays = (0..8).map(|_| database.next_delay()).collect::<Vec<_>>();
+
+    assert_eq!(
+        engine_delays
+            .iter()
+            .map(|delay| delay.attempt())
+            .collect::<Vec<_>>(),
+        vec![1, 2, 3, 4, 5, 6, 7, 8]
+    );
+    assert!(
+        engine_delays
+            .iter()
+            .all(|delay| delay.duration() <= Duration::from_secs(8))
+    );
+    assert_ne!(engine_delays, database_delays);
+
+    let first = engine_delays[0];
+    engine.reset();
+    assert_eq!(engine.next_delay(), first);
 }
 
 #[test]

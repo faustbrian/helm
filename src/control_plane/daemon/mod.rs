@@ -8,6 +8,10 @@ mod project_discovery_error;
 mod project_discovery_issue;
 mod project_discovery_options;
 mod project_discovery_report;
+mod retry_backoff;
+mod retry_backoff_error;
+mod retry_backoff_options;
+mod retry_delay;
 mod singleton_lease;
 mod singleton_lease_error;
 
@@ -25,3 +29,7 @@ pub(crate) use project_discovery_error::ProjectDiscoveryError;
 pub(crate) use project_discovery_issue::ProjectDiscoveryIssue;
 pub(crate) use project_discovery_options::ProjectDiscoveryOptions;
 pub(crate) use project_discovery_report::ProjectDiscoveryReport;
+pub(crate) use retry_backoff::RetryBackoff;
+pub(crate) use retry_backoff_error::RetryBackoffError;
+pub(crate) use retry_backoff_options::RetryBackoffOptions;
+pub(crate) use retry_delay::RetryDelay;
