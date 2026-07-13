@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit daemon uninstall modes with keep-data behavior as the default
+  and a confirmation-gated delete-data spelling that fails before service or
+  resource mutation until complete persistent deletion coverage is proven.
 - Added explicitly confirmed PostgreSQL logical deletion with immutable
   recovery-point binding, stale-token rejection before Engine mutation,
   runtime-only administrator credentials, idempotent database/role removal,

@@ -150,9 +150,18 @@ Other logical service kinds fail closed until they have service-specific backup
 and deletion adapters; Stackctl does not reinterpret container removal as data
 deletion.
 
-Uninstall offers keep-data and delete-data modes. Delete-data enumerates owned
-resources, verifies installation labels, checks backup policy, and requires
-explicit destructive approval.
+`stackctl daemon service uninstall` defaults to keep-data behavior. The
+equivalent explicit form is `stackctl daemon service uninstall --keep-data`.
+Both stop and remove only the login service definition; SQLite state, verified
+backups, trust material, and Engine resources remain intact.
+
+The destructive spelling is deliberately separate and requires both
+`--delete-data` and `--confirm-delete-data`. It currently fails before removing
+the login service or mutating any retained resource. Stackctl will enable that
+mode only after every persistent service family has an ownership-verified,
+backup-gated deletion adapter and the complete installation inventory can be
+deleted transactionally. Until then, projects must be pruned individually
+through their verified adapters, and unsupported service kinds fail closed.
 
 ## V7 migration
 

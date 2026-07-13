@@ -22,8 +22,8 @@ pub(crate) use daemon::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
     DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs,
     DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands,
-    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonTrustArgs, DaemonTrustCommands,
-    DaemonWatchArgs,
+    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
+    DaemonTrustCommands, DaemonWatchArgs,
 };
 
 #[cfg(test)]

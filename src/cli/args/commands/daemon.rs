@@ -27,6 +27,7 @@ pub(crate) use prune::{
 pub(crate) use restore::DaemonRestoreArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+    DaemonServiceUninstallArgs,
 };
 pub(crate) use trust::{DaemonTrustArgs, DaemonTrustCommands};
 

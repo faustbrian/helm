@@ -18,7 +18,20 @@ pub(crate) enum DaemonServiceCommands {
     /// Print the rendered service definition without installing it
     Print(DaemonServicePrintArgs),
     /// Stop and remove the installed service definition
-    Uninstall,
+    Uninstall(DaemonServiceUninstallArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct DaemonServiceUninstallArgs {
+    /// Stop the daemon service while preserving all state and Engine resources
+    #[arg(long, conflicts_with = "delete_data")]
+    pub(crate) keep_data: bool,
+    /// Request deletion of all owned data (fails closed until fully supported)
+    #[arg(long, conflicts_with = "keep_data", requires = "confirm_delete_data")]
+    pub(crate) delete_data: bool,
+    /// Acknowledge that delete-data is irreversible
+    #[arg(long, requires = "delete_data")]
+    pub(crate) confirm_delete_data: bool,
 }
 
 #[derive(Args)]

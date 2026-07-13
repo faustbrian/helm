@@ -1018,6 +1018,65 @@ fn daemon_command_variants_parse() {
 }
 
 #[test]
+fn daemon_service_uninstall_modes_are_explicit_and_safe_by_default() {
+    let keep = Cli::parse_from(["stackctl", "daemon", "service", "uninstall"]);
+    let commands::Commands::Daemon(daemon) = keep.command else {
+        panic!("expected daemon command");
+    };
+    let commands::DaemonCommands::Service(service) = daemon.command else {
+        panic!("expected daemon service command");
+    };
+    let commands::DaemonServiceCommands::Uninstall(args) = service.command else {
+        panic!("expected uninstall command");
+    };
+    assert!(!args.delete_data);
+    assert!(!args.confirm_delete_data);
+
+    let delete = Cli::parse_from([
+        "stackctl",
+        "daemon",
+        "service",
+        "uninstall",
+        "--delete-data",
+        "--confirm-delete-data",
+    ]);
+    let commands::Commands::Daemon(daemon) = delete.command else {
+        panic!("expected daemon command");
+    };
+    let commands::DaemonCommands::Service(service) = daemon.command else {
+        panic!("expected daemon service command");
+    };
+    let commands::DaemonServiceCommands::Uninstall(args) = service.command else {
+        panic!("expected uninstall command");
+    };
+    assert!(args.delete_data);
+    assert!(args.confirm_delete_data);
+
+    assert!(
+        Cli::try_parse_from([
+            "stackctl",
+            "daemon",
+            "service",
+            "uninstall",
+            "--delete-data",
+        ])
+        .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "stackctl",
+            "daemon",
+            "service",
+            "uninstall",
+            "--keep-data",
+            "--delete-data",
+            "--confirm-delete-data",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
 fn singleton_daemon_rejects_partial_registry_watch_flags() {
     assert!(
         Cli::try_parse_from([
