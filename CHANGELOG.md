@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added the normative v8 two-plane architecture, strict YAML and deterministic
+  naming rules, complete service-sharing matrix, operational policies,
+  independently verifiable milestones, and 40-project benchmark protocol.
 - Added dual-format Stackctl config support so project discovery, loading, and
   saving now autodetect `.stackctl.toml` and `.stackctl.yaml` files while still
   rejecting the `.yml` extension.
