@@ -1,4 +1,6 @@
-use super::{FilesystemCertificateStore, generate_local_certificates};
+use super::{
+    FilesystemCertificateStore, generate_local_certificates, renew_local_leaf_certificate,
+};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::macros::datetime;
@@ -46,6 +48,36 @@ fn certificate_bundle_debug_output_redacts_private_material() {
 
     assert!(!debug.contains("PRIVATE KEY"));
     assert!(debug.contains("[REDACTED]"));
+}
+
+#[test]
+fn routine_leaf_renewal_preserves_the_trusted_ca() {
+    let original =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("initial TLS bundle");
+
+    let renewed = renew_local_leaf_certificate(&original, datetime!(2026-09-27 12:00 UTC))
+        .expect("renew wildcard leaf");
+
+    assert_eq!(renewed.ca_certificate_pem(), original.ca_certificate_pem());
+    assert_eq!(renewed.ca_private_key_pem(), original.ca_private_key_pem());
+    assert_ne!(
+        renewed.leaf_certificate_pem(),
+        original.leaf_certificate_pem()
+    );
+    assert_ne!(
+        renewed.leaf_private_key_pem(),
+        original.leaf_private_key_pem()
+    );
+    assert_eq!(renewed.leaf_renew_after(), datetime!(2026-12-11 12:00 UTC));
+
+    let (_, ca_pem) =
+        parse_x509_pem(renewed.ca_certificate_pem().as_bytes()).expect("CA certificate PEM");
+    let (_, ca) = parse_x509_certificate(&ca_pem.contents).expect("CA X.509");
+    let (_, leaf_pem) =
+        parse_x509_pem(renewed.leaf_certificate_pem().as_bytes()).expect("leaf certificate PEM");
+    let (_, leaf) = parse_x509_certificate(&leaf_pem.contents).expect("leaf X.509");
+
+    assert_eq!(leaf.issuer(), ca.subject());
 }
 
 #[cfg(unix)]
