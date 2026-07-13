@@ -11,6 +11,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  host-dependency-audit:
+    name: V8 Host Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Reject host runtime regressions
+        run: ./scripts/audit-v8-host-dependencies.sh
+
   fmt:
     name: Format Check
     runs-on: ubuntu-latest

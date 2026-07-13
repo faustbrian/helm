@@ -59,6 +59,33 @@ engine, optional Git bootstrap, and explicit sharing providers. The host
 dependency audit lists every remaining executable, owning feature, and failure
 behavior.
 
+`just audit-v8-host-dependencies` enforces the normal v8 source boundary in CI.
+It rejects direct host process execution and imports of the legacy Docker CLI,
+host web-server, database-tooling, and per-project daemon runtimes. The sole
+direct process executor inside the v8 control plane is
+`src/control_plane/tls/process_host_command_executor.rs`; it is confined to
+explicit operating-system trust-store setup and removal. Login-service setup is
+the separately allowlisted OS integration boundary. Neither path participates
+in normal project reconciliation.
+
+Container command names such as `php`, `psql`, or `redis-cli` may appear in
+typed Engine requests. They execute inside owned Linux containers and are not
+host executable dependencies.
+
+The complete v8 host-executable inventory is:
+
+| Executable | Owning feature | Invocation and failure boundary |
+| --- | --- | --- |
+| `security` | Explicit macOS CA trust setup/removal | Invoked only by `stackctl daemon trust`; a non-zero status leaves trust unchanged and returns the exact adapter error. |
+| `certutil` | Explicit Windows Current User CA trust setup/removal | Invoked only by the trust adapter; a non-zero status aborts the requested trust change. Windows daemon runtime remains unsupported until named-pipe acceptance exists. |
+| `sudo`, `update-ca-certificates`, `rm` | Explicit Debian-family CA trust setup/removal | Invoked only by the trust adapter; privilege denial or a non-zero update aborts setup/removal with no reconciliation fallback. |
+| `launchctl` | Explicit macOS login-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
+| `systemctl` | Explicit Linux user-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
+
+The selected Docker-compatible Engine is contacted over its API socket or
+named pipe; Stackctl does not invoke a `docker` or `podman` executable in the v8
+runtime. Caddy is an immutable workload-plane image, not a host executable.
+
 ## Retention, backup, and deletion
 
 Removing or invalidating config follows:

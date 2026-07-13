@@ -16,6 +16,9 @@ build-dev: fmt
 lint:
     rustup run nightly cargo fmt --check
 
+audit-v8-host-dependencies:
+    ./scripts/audit-v8-host-dependencies.sh
+
 fmt:
     rustup run nightly cargo fmt
 
