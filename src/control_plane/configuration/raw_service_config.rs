@@ -19,4 +19,9 @@ impl RawServiceConfig {
     pub(crate) fn version(&self) -> Option<&str> {
         self.version.as_deref()
     }
+
+    /// Returns exact declared service dependencies.
+    pub(crate) fn depends_on(&self) -> &[String] {
+        &self.depends_on
+    }
 }

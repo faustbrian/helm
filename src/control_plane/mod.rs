@@ -1,4 +1,5 @@
 mod configuration;
+mod desired_state;
 mod dns_label;
 mod identity_error;
 mod project_identity;
@@ -9,6 +10,7 @@ mod service_identity;
 mod validate_route_claims;
 mod validated_route_registry;
 
+pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
 use dns_label::DnsLabel;
 pub(crate) use identity_error::IdentityError;
 pub(crate) use project_identity::ProjectIdentity;

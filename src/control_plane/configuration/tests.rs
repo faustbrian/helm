@@ -1,4 +1,5 @@
 use super::parse_project_config;
+use crate::control_plane::resolve_desired_project;
 use std::path::Path;
 
 const CONFIG_PATH: &str = "/work/bill/.stackctl.yaml";
@@ -118,4 +119,120 @@ fn rejects_unsupported_schema_versions_before_expansion() {
             .to_string()
             .contains("schema_version 7 is unsupported; expected 8")
     );
+}
+
+#[test]
+fn resolves_raw_configuration_into_exact_desired_identities() {
+    let source = r#"
+schema_version: 8
+project: bill-1
+services:
+  app:
+    preset: laravel
+  mailpit:
+    preset: mailpit
+"#;
+    let raw = parse_project_config(source, Path::new(CONFIG_PATH)).expect("valid raw config");
+
+    let desired =
+        resolve_desired_project(raw, Path::new("/work/ignored")).expect("valid desired project");
+
+    assert_eq!(desired.project_name(), "bill-1");
+    assert_eq!(desired.service_names(), ["app", "mailpit"]);
+    assert_eq!(
+        desired.route_domains(),
+        [
+            "bill-1-app.stackctl.localhost",
+            "bill-1-mailpit.stackctl.localhost"
+        ]
+    );
+}
+
+#[test]
+fn dependency_order_is_independent_of_yaml_map_order() {
+    let first = r#"
+schema_version: 8
+services:
+  app:
+    depends_on: [db, cache]
+  db:
+    preset: postgres
+  cache:
+    preset: valkey
+"#;
+    let second = r#"
+schema_version: 8
+services:
+  cache:
+    preset: valkey
+  db:
+    preset: postgres
+  app:
+    depends_on: [cache, db]
+"#;
+
+    let first = desired_from(first).expect("first desired project");
+    let second = desired_from(second).expect("second desired project");
+
+    assert_eq!(first.startup_order(), second.startup_order());
+    assert_eq!(first.startup_order(), ["cache", "db", "app"]);
+}
+
+#[test]
+fn rejects_dependencies_that_are_not_declared_services() {
+    let source = r#"
+schema_version: 8
+services:
+  app:
+    depends_on: [database]
+"#;
+
+    let error = desired_from(source).expect_err("unknown dependency");
+
+    assert_eq!(
+        error.to_string(),
+        "service 'app' depends on unknown service 'database'"
+    );
+}
+
+#[test]
+fn rejects_dependency_cycles_with_the_complete_cycle() {
+    let source = r#"
+schema_version: 8
+services:
+  app:
+    depends_on: [worker]
+  worker:
+    depends_on: [app]
+"#;
+
+    let error = desired_from(source).expect_err("dependency cycle");
+
+    assert_eq!(
+        error.to_string(),
+        "service dependency cycle: app -> worker -> app"
+    );
+}
+
+#[test]
+fn rejects_overlong_route_labels_during_desired_state_resolution() {
+    let source = r#"
+schema_version: 8
+project: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+services:
+  bbbbbbbbbbbbbbbbbbbbbbbb:
+    preset: laravel
+"#;
+
+    let error = desired_from(source).expect_err("overlong route label");
+
+    assert!(error.to_string().contains("exceeds 63 bytes"));
+}
+
+fn desired_from(
+    source: &str,
+) -> Result<crate::control_plane::DesiredProject, crate::control_plane::DesiredProjectError> {
+    let raw = parse_project_config(source, Path::new(CONFIG_PATH)).expect("valid raw config");
+
+    resolve_desired_project(raw, Path::new("/work/bill"))
 }

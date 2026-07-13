@@ -12,6 +12,8 @@ All notable changes to this project are documented in this file.
   canonical path deduplicates while ownership collisions fail with every path.
 - Added a strict v8 `.stackctl.yaml` parser contract covering the canonical
   service map, exact scalar types, schema version, and unsafe YAML features.
+- Added pure v8 desired-project resolution with exact identities, dependency
+  validation, stable ordering, and complete cycle diagnostics.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
