@@ -1,5 +1,8 @@
 use super::record_ipc_event::record_ipc_event;
-use super::{DaemonRequestDispatchOptions, QueuedProjectCommand, reconcile_watched_roots};
+use super::{
+    DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
+    ProjectLogTarget, QueuedProjectCommand, reconcile_watched_roots,
+};
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
     IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand,
@@ -30,6 +33,7 @@ where
         request,
         event_journal,
         project_commands,
+        project_logs,
         now_unix_seconds,
     } = options;
     match request.payload() {
@@ -334,25 +338,206 @@ where
                 },
             )
         }
-        IpcPayload::OpenProjectLogs { .. } | IpcPayload::PollProjectLogs { .. } => {
-            IpcResponse::failure(
+        IpcPayload::OpenProjectLogs {
+            canonical_path,
+            services,
+            follow,
+            tail,
+        } => {
+            let log_request = match prepare_project_logs(
+                control_plane,
+                request.request_id(),
+                canonical_path,
+                services,
+                *follow,
+                *tail,
+            ) {
+                Ok(log_request) => log_request,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new("project_logs_invalid", message, false)],
+                    );
+                }
+            };
+            match project_logs.open(log_request) {
+                Ok(()) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::Accepted {
+                        operation_id: request.request_id().to_owned(),
+                    },
+                ),
+                Err(error) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_logs_unavailable",
+                        error.to_string(),
+                        true,
+                    )],
+                ),
+            }
+        }
+        IpcPayload::PollProjectLogs {
+            session_id,
+            after_sequence,
+            max_chunks,
+        } => match project_logs.poll(session_id, *after_sequence, usize::from(*max_chunks)) {
+            Ok((chunks, latest_sequence, state)) => IpcResponse::success(
+                request.request_id(),
+                IpcResult::ProjectLogs {
+                    session_id: session_id.clone(),
+                    chunks,
+                    latest_sequence,
+                    state,
+                },
+            ),
+            Err(error) => IpcResponse::failure(
                 request.request_id(),
                 vec![IpcDiagnostic::new(
-                    "project_logs_unavailable",
-                    "project log sessions are not available in this daemon build",
-                    true,
+                    "project_logs_poll_failed",
+                    error.to_string(),
+                    false,
                 )],
-            )
-        }
-        IpcPayload::Cancel { .. } => IpcResponse::failure(
-            request.request_id(),
-            vec![IpcDiagnostic::new(
-                "operation_not_available",
-                "the singleton daemon does not support this operation yet",
-                false,
-            )],
-        ),
+            ),
+        },
+        IpcPayload::Cancel { target_request_id } => match project_logs.cancel(target_request_id) {
+            Ok(()) => IpcResponse::success(
+                request.request_id(),
+                IpcResult::Accepted {
+                    operation_id: target_request_id.clone(),
+                },
+            ),
+            Err(ProjectLogSessionRegistryError::UnknownSession { .. }) => IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "operation_not_available",
+                    "the singleton daemon does not support this operation yet",
+                    false,
+                )],
+            ),
+            Err(error) => IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "project_logs_cancel_failed",
+                    error.to_string(),
+                    false,
+                )],
+            ),
+        },
     }
+}
+
+fn prepare_project_logs<Store>(
+    control_plane: &ControlPlane<Store>,
+    session_id: &str,
+    canonical_path: &std::path::Path,
+    services: &[String],
+    follow: bool,
+    tail: Option<u32>,
+) -> Result<ProjectLogRequest, String>
+where
+    Store: StateStore,
+{
+    if services.is_empty() {
+        return Err("project logs require at least one exact service".to_owned());
+    }
+    if tail == Some(0) {
+        return Err("project log tail must be greater than zero".to_owned());
+    }
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let resources = control_plane
+        .resources()
+        .map_err(|error| error.to_string())?;
+    let logical_resources = control_plane
+        .logical_resources()
+        .map_err(|error| error.to_string())?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut targets = Vec::with_capacity(services.len());
+
+    for requested in services {
+        let service = ServiceIdentity::new(requested).map_err(|error| error.to_string())?;
+        if !seen.insert(service.as_str().to_owned()) {
+            return Err(format!(
+                "project log service '{}' was requested more than once",
+                service.as_str()
+            ));
+        }
+        let mut matches = resources
+            .iter()
+            .filter(|resource| {
+                resource.project_id() == Some(project.project_name())
+                    && resource.scope_id() == Some(service.as_str())
+                    && resource.lifecycle() == ResourceLifecycle::Active
+            })
+            .map(|resource| {
+                ProjectLogTarget::new(
+                    service.as_str().to_owned(),
+                    resource.resource_id().to_owned(),
+                    Some(project.project_name().to_owned()),
+                )
+            })
+            .collect::<Vec<_>>();
+        matches.extend(
+            logical_resources
+                .iter()
+                .filter(|logical| {
+                    logical.project_id() == project.project_name()
+                        && logical.service_id() == service.as_str()
+                        && logical.lifecycle() == ResourceLifecycle::Active
+                })
+                .filter_map(|logical| {
+                    resources
+                        .iter()
+                        .find(|resource| {
+                            resource.resource_id() == logical.shared_resource_id()
+                                && resource.project_id().is_none()
+                                && resource.lifecycle() == ResourceLifecycle::Active
+                        })
+                        .map(|resource| {
+                            ProjectLogTarget::new(
+                                service.as_str().to_owned(),
+                                resource.resource_id().to_owned(),
+                                None,
+                            )
+                        })
+                }),
+        );
+        match matches.as_slice() {
+            [target] => targets.push(target.clone()),
+            [] => {
+                return Err(format!(
+                    "project '{}' service '{}' has no active owned container",
+                    project.project_name(),
+                    service.as_str()
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "project '{}' service '{}' resolves to multiple owned containers",
+                    project.project_name(),
+                    service.as_str()
+                ));
+            }
+        }
+    }
+
+    Ok(ProjectLogRequest::new(
+        session_id.to_owned(),
+        project.project_name().to_owned(),
+        targets,
+        follow,
+        tail,
+    ))
 }
 
 fn project_environment<Store>(

@@ -2,11 +2,11 @@ use super::{
     ActiveProjectCommand, BollardUnixEngineConnector, DaemonIterationResult,
     DaemonRequestDispatchOptions, DiscoveryScheduler, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
-    FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
-    dispatch_daemon_request, initialize_default_installation, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
-    validate_project_workload_adoption,
+    FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue, ProjectLogSessionRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_project_command_operations, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -51,6 +51,7 @@ pub(crate) struct UnixDaemonRuntime {
     engine_reconciliation: EngineReconciliationSchedule,
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
+    pub(super) project_logs: ProjectLogSessionRegistry,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
@@ -110,6 +111,7 @@ impl UnixDaemonRuntime {
             engine_reconciliation: EngineReconciliationSchedule::default(),
             event_journal,
             project_commands,
+            project_logs: ProjectLogSessionRegistry::default(),
             active_project_command: None,
             control_plane: ControlPlane::new(store),
             scheduler,
@@ -147,6 +149,7 @@ impl UnixDaemonRuntime {
                 request,
                 event_journal: &mut self.event_journal,
                 project_commands: &mut self.project_commands,
+                project_logs: &mut self.project_logs,
                 now_unix_seconds,
             })
         })?;

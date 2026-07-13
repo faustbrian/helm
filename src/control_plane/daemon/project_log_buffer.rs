@@ -26,11 +26,12 @@ impl ProjectLogBuffer {
             capacity,
             chunks: VecDeque::with_capacity(capacity),
             latest_sequence: 0,
-            state: IpcLogSessionState::Streaming,
+            state: IpcLogSessionState::Starting,
         })
     }
 
     pub(crate) fn append(&mut self, service: &str, stream: IpcOutputStream, bytes: &[u8]) {
+        self.start();
         for bytes in bytes.chunks(LOG_CHUNK_BYTES) {
             self.latest_sequence = self.latest_sequence.saturating_add(1);
             self.chunks.push_back(IpcLogChunk::new(
@@ -78,7 +79,19 @@ impl ProjectLogBuffer {
             .map(IpcLogChunk::sequence)
             .unwrap_or(requested);
 
-        Ok((chunks, cursor, self.state.clone()))
+        let state = if self.state.terminal() && cursor < self.latest_sequence {
+            IpcLogSessionState::Streaming
+        } else {
+            self.state.clone()
+        };
+
+        Ok((chunks, cursor, state))
+    }
+
+    pub(crate) fn start(&mut self) {
+        if self.state == IpcLogSessionState::Starting {
+            self.state = IpcLogSessionState::Streaming;
+        }
     }
 
     pub(crate) fn complete(&mut self) {

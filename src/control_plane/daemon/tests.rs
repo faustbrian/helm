@@ -2,11 +2,11 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
-    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, QueuedProjectCommand,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
-    dispatch_daemon_request, execute_queued_project_command, plan_engine_reconciliation,
-    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_project_command_operations,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogSessionRegistry,
+    QueuedProjectCommand, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    discover_project_sources, dispatch_daemon_request, execute_queued_project_command,
+    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -54,7 +54,7 @@ fn project_log_buffer_pages_without_skipping_and_exposes_terminal_state() {
     let (first, first_cursor, state) = buffer.poll(None, 1).expect("first page");
     assert_eq!(first.len(), 1);
     assert_eq!(first_cursor, 1);
-    assert_eq!(state, IpcLogSessionState::Completed);
+    assert_eq!(state, IpcLogSessionState::Streaming);
 
     let (second, second_cursor, state) = buffer.poll(Some(first_cursor), 1).expect("second page");
     assert_eq!(second.len(), 1);
@@ -1025,6 +1025,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     let request = IpcRequest::new("reconcile-42", IpcPayload::Reconcile);
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1032,6 +1033,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 10_000,
     });
 
@@ -1059,6 +1061,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         request: &subscription,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 10_001,
     });
     let crate::control_plane::daemon::ipc::IpcOutcome::Success {
@@ -1146,6 +1149,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     );
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1153,6 +1157,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 10_000,
     });
 
@@ -1188,6 +1193,134 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
 }
 
 #[test]
+fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
+    let root = temporary_directory("ipc-project-logs");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let application = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-app".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:application".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let shared_database = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "postgres-17".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let logical_database = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "bill/database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "db".to_owned(),
+            kind: "postgresql".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(&[application, shared_database])
+        .expect("persist containers");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical_database))
+        .expect("persist logical database");
+    let mut control_plane = ControlPlane::new(store);
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+    let open = IpcRequest::new(
+        "logs-42",
+        IpcPayload::OpenProjectLogs {
+            canonical_path: project_path,
+            services: vec!["app".to_owned(), "db".to_owned()],
+            follow: true,
+            tail: Some(100),
+        },
+    );
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &open,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "logs-42",
+            IpcResult::Accepted {
+                operation_id: "logs-42".to_owned(),
+            },
+        )
+    );
+    let pending = project_logs.take_pending().expect("pending log session");
+    assert_eq!(pending.project_id(), "bill");
+    assert_eq!(pending.targets()[0].service(), "app");
+    assert_eq!(pending.targets()[0].resource_id(), "container-app");
+    assert_eq!(pending.targets()[0].project_id(), Some("bill"));
+    assert_eq!(pending.targets()[1].service(), "db");
+    assert_eq!(pending.targets()[1].resource_id(), "postgres-17");
+    assert_eq!(pending.targets()[1].project_id(), None);
+
+    let poll = IpcRequest::new(
+        "logs-poll-42",
+        IpcPayload::PollProjectLogs {
+            session_id: "logs-42".to_owned(),
+            after_sequence: None,
+            max_chunks: 64,
+        },
+    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &poll,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
+        now_unix_seconds: 10_001,
+    });
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "logs-poll-42",
+            IpcResult::ProjectLogs {
+                session_id: "logs-42".to_owned(),
+                chunks: Vec::new(),
+                latest_sequence: 0,
+                state: IpcLogSessionState::Starting,
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove log fixture");
+}
+
+#[test]
 fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
     let root = temporary_directory("ipc-project-environment");
     let project_path = root.join("bill");
@@ -1216,6 +1349,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
     );
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1223,6 +1357,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 10_000,
     });
 
@@ -1285,6 +1420,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
     );
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1292,6 +1428,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 20_000,
     });
 
@@ -1345,6 +1482,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
     );
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1352,6 +1490,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         request: &request,
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
         now_unix_seconds: 30_000,
     });
 

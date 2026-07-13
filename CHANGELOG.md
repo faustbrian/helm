@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file.
 - Added the typed v8 project-log session protocol and bounded, binary-safe
   in-memory cursor buffer required to stream Engine logs without storing
   application output in SQLite or invoking the Docker CLI.
+- Added authoritative v8 log-session registration, polling, and cancellation
+  with exact resolution of project application and shared-service ownership
+  before an Engine stream can start.
 - Added strict v8 `open` using only daemon-published HTTPS routes, with exact
   service or all-route selection, machine-readable output, explicit platform
   opener failures, and no legacy curl, database-port, or health-path probing.
