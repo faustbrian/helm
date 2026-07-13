@@ -2,14 +2,14 @@ use super::bounded_engine_operation::bounded_engine_operation;
 use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
 use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
-    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
-    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerId,
-    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerResourceMetrics,
-    ContainerState, EngineError, EngineFuture, HealthObserver, ImageBuildRequest, ImageBuilder,
-    ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
-    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
-    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ResourceMetrics,
+    ContainerCompletion, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
+    ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
+    ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
+    ContainerResourceMetrics, ContainerState, EngineError, EngineFuture, HealthObserver,
+    ImageBuildRequest, ImageBuilder, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
+    LogSource, LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
+    OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ResourceMetrics,
     VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
@@ -26,7 +26,7 @@ use bollard::query_parameters::{
     BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
     CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder, ListContainersOptionsBuilder,
     ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder,
-    RemoveVolumeOptions, StatsOptionsBuilder,
+    RemoveVolumeOptions, StatsOptionsBuilder, WaitContainerOptionsBuilder,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full};
 use futures_util::{StreamExt, TryStreamExt};
@@ -213,6 +213,63 @@ impl ContainerLifecycle for BollardEngineAdapter {
                         status_code: 404, ..
                     }) => Ok(ContainerState::Missing),
                     Err(error) => Err(backend_error("inspect container", error)),
+                }
+            })
+            .await
+        })
+    }
+}
+
+impl ContainerCompletion for BollardEngineAdapter {
+    fn wait_for_success<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        timeout: Duration,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            if timeout.is_zero() {
+                return Err(EngineError::InvalidRequest {
+                    detail: "container completion timeout must be greater than zero".to_owned(),
+                });
+            }
+            bounded_engine_operation(
+                "verify container ownership for completion",
+                request_timeout(),
+                async {
+                    let observed = self
+                        .docker
+                        .inspect_container(container.id().as_str(), None)
+                        .await
+                        .map_err(|error| {
+                            backend_error("verify container ownership for completion", error)
+                        })?;
+                    verify_owned_container_labels(
+                        container,
+                        &observed
+                            .config
+                            .and_then(|config| config.labels)
+                            .unwrap_or_default(),
+                    )
+                },
+            )
+            .await?;
+
+            let options = WaitContainerOptionsBuilder::default()
+                .condition("not-running")
+                .build();
+            let mut responses = self
+                .docker
+                .wait_container(container.id().as_str(), Some(options));
+            bounded_engine_operation("wait for container completion", timeout, async move {
+                match responses.next().await {
+                    Some(Ok(_)) => Ok(()),
+                    Some(Err(error)) => Err(backend_error("wait for container completion", error)),
+                    None => Err(EngineError::Backend {
+                        detail: format!(
+                            "Engine returned no completion status for container '{}'",
+                            container.id().as_str()
+                        ),
+                    }),
                 }
             })
             .await

@@ -1,10 +1,11 @@
 use super::{
-    CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
-    ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
-    ContainerHealth, ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions,
-    ContainerLogStream, ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture,
-    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
-    ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
+    CommandExecutor, CommandRequest, ContainerCompletion, ContainerCreateOptions,
+    ContainerDiscovery, ContainerEvent, ContainerEventAction, ContainerEventCursor,
+    ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerHealthCheck, ContainerId,
+    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
+    ContainerResourceMetrics, ContainerState, EngineFuture, GatewayContainerRequestOptions,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageResolver,
+    ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
     NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
     OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
@@ -111,6 +112,23 @@ fn container_lifecycle_is_an_object_safe_replaceable_strategy() {
 
     assert_eq!(container.id().as_str(), "container-1");
     assert_eq!(backend.created, vec![options]);
+}
+
+#[test]
+fn container_completion_is_an_object_safe_bounded_strategy() {
+    let container = OwnedContainer::new(
+        ContainerId::new("container-1"),
+        project_metadata(ResourceKind::ProjectApplication),
+    );
+    let backend = RecordingContainerCompletion;
+    let strategy: &dyn ContainerCompletion = &backend;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(strategy.wait_for_success(&container, Duration::from_secs(30)))
+        .expect("successful container completion");
 }
 
 #[test]
@@ -1528,6 +1546,18 @@ impl ContainerEventSource for RecordingContainerEventSource {
 }
 
 struct RecordingLogSource;
+
+struct RecordingContainerCompletion;
+
+impl ContainerCompletion for RecordingContainerCompletion {
+    fn wait_for_success<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _timeout: Duration,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
 
 impl LogSource for RecordingLogSource {
     fn logs<'operation>(

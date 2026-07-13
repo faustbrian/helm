@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
   authenticated project tags, retained storage, readiness, and per-project UI routes.
 - Changed MailHog to remain dedicated until it proves the same project-attribution
   contract used for safe Mailpit sharing.
+- Added an ownership-validated direct-Engine completion wait for bounded,
+  disposable provisioning containers without Docker CLI process calls.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and
