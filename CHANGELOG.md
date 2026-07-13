@@ -57,6 +57,8 @@ All notable changes to this project are documented in this file.
   revalidation required for deletion.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
+- Added durable v8 project credentials with redacted diagnostics, stable
+  insert-once reconciliation, and disable-on-project-removal lifecycle state.
 - Added v8 dedicated application-container planning with immutable reusable
   images, deliberate source mounts, private networking, and zero host ports.
 - Added atomic user-private Unix persistence for immutable v8 TLS bundles with

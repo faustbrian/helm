@@ -1,6 +1,7 @@
 use super::{
-    EngineProvider, InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+    InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,7 +12,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 3);
+    assert_eq!(store.schema_version().expect("schema version"), 4);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -251,6 +252,63 @@ fn unregistering_a_project_atomically_orphans_only_its_resources() {
 }
 
 #[test]
+fn credentials_remain_stable_redacted_and_durable() {
+    let database_path = temporary_database_path("credentials");
+    let credential = credential_record("secret-first");
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        let inserted = store
+            .insert_credential_if_absent(&credential)
+            .expect("insert credential");
+        let replay = store
+            .insert_credential_if_absent(&credential_record("secret-replacement"))
+            .expect("reconcile credential");
+
+        assert_eq!(inserted, credential);
+        assert_eq!(replay, credential);
+        assert!(!format!("{replay:?}").contains("secret-first"));
+        assert!(format!("{replay:?}").contains("[REDACTED]"));
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+
+    assert_eq!(
+        store.credentials().expect("load credentials"),
+        vec![credential]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn unregistering_a_project_disables_credentials_without_deleting_them() {
+    let database_path = temporary_database_path("credential-orphan");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .insert_credential_if_absent(&credential_record("secret-first"))
+        .expect("insert credential");
+
+    store
+        .orphan_project(Path::new("/work/bill"), 12_345)
+        .expect("orphan project");
+
+    let credential = store
+        .credentials()
+        .expect("load credentials")
+        .pop()
+        .expect("retained credential");
+    assert_eq!(credential.lifecycle(), CredentialLifecycle::Disabled);
+    assert_eq!(credential.secret(), "secret-first");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn version_one_state_migrates_without_losing_project_ownership() {
     let database_path = temporary_database_path("v1-migration");
     let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
@@ -275,7 +333,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 3);
+    assert_eq!(store.schema_version().expect("schema version"), 4);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -314,6 +372,17 @@ fn resource_record(
         retention,
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
+    })
+}
+
+fn credential_record(secret: &str) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: secret.to_owned(),
+        lifecycle: CredentialLifecycle::Active,
     })
 }
 

@@ -20,6 +20,8 @@ pub(crate) enum StateStoreError {
     },
     /// Installation identity or Engine selection differs from durable state.
     InstallationAlreadyInitialized { existing_installation_id: String },
+    /// A credential identity is already owned by a different project service.
+    CredentialOwnershipConflict { credential_id: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
 }
@@ -53,6 +55,10 @@ impl Display for StateStoreError {
                 formatter,
                 "Stackctl installation is already initialized as '{existing_installation_id}'; explicit migration is required"
             ),
+            Self::CredentialOwnershipConflict { credential_id } => write!(
+                formatter,
+                "credential '{credential_id}' is already owned by a different project service"
+            ),
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
             }
@@ -68,6 +74,7 @@ impl Error for StateStoreError {
             | Self::NonUtf8Path { .. }
             | Self::RouteOwnershipConflict { .. }
             | Self::InstallationAlreadyInitialized { .. }
+            | Self::CredentialOwnershipConflict { .. }
             | Self::CorruptState { .. } => None,
         }
     }

@@ -1,3 +1,6 @@
+mod credential_lifecycle;
+mod credential_record;
+mod credential_record_options;
 mod engine_provider;
 mod installation_record;
 mod project_record;
@@ -9,6 +12,9 @@ mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
 
+pub(crate) use credential_lifecycle::CredentialLifecycle;
+pub(crate) use credential_record::CredentialRecord;
+pub(crate) use credential_record_options::CredentialRecordOptions;
 pub(crate) use engine_provider::EngineProvider;
 pub(crate) use installation_record::InstallationRecord;
 pub(crate) use project_record::ProjectRecord;

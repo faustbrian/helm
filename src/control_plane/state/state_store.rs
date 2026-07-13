@@ -1,4 +1,4 @@
-use super::{InstallationRecord, ProjectRecord, ResourceRecord, StateStoreError};
+use super::{CredentialRecord, InstallationRecord, ProjectRecord, ResourceRecord, StateStoreError};
 use std::path::{Path, PathBuf};
 
 /// Durable control-plane state needed independently of any runtime backend.
@@ -41,4 +41,13 @@ pub(crate) trait StateStore {
 
     /// Loads all durable resources in stable backend-identity order.
     fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError>;
+
+    /// Inserts a credential once, returning the stable existing value on replay.
+    fn insert_credential_if_absent(
+        &mut self,
+        credential: &CredentialRecord,
+    ) -> Result<CredentialRecord, StateStoreError>;
+
+    /// Loads all retained credentials in stable identity order.
+    fn credentials(&self) -> Result<Vec<CredentialRecord>, StateStoreError>;
 }

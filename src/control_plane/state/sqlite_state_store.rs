@@ -1,12 +1,13 @@
 use super::{
-    EngineProvider, InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+    InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 3;
+const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -108,6 +109,20 @@ impl SqliteStateStore {
                  CREATE TABLE watched_roots (\n\
                      canonical_path TEXT PRIMARY KEY NOT NULL\n\
                  ) STRICT;",
+            )?;
+        }
+
+        if found < 4 {
+            transaction.execute_batch(
+                "CREATE TABLE credentials (\n\
+                     credential_id TEXT PRIMARY KEY NOT NULL,\n\
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),\n\
+                     service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
+                     username TEXT NOT NULL CHECK(length(username) > 0),\n\
+                     secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
+                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
+                 ) STRICT;\n\
+                 CREATE INDEX credentials_project_idx ON credentials(project_id);",
             )?;
         }
 
@@ -306,6 +321,11 @@ impl StateStore for SqliteStateStore {
                 params![orphaned_at_unix_seconds, project_id],
             )?;
             transaction.execute(
+                "UPDATE credentials SET lifecycle = 'disabled'\n\
+                 WHERE project_id = ?1 AND lifecycle = 'active'",
+                [&project_id],
+            )?;
+            transaction.execute(
                 "DELETE FROM projects WHERE canonical_path = ?1",
                 [canonical_path],
             )?;
@@ -434,6 +454,116 @@ impl StateStore for SqliteStateStore {
             )
             .collect()
     }
+
+    fn insert_credential_if_absent(
+        &mut self,
+        credential: &CredentialRecord,
+    ) -> Result<CredentialRecord, StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = load_credential(&transaction, credential.credential_id())?;
+
+        if let Some(existing) = existing {
+            if existing.project_id() != credential.project_id()
+                || existing.service_id() != credential.service_id()
+                || existing.username() != credential.username()
+            {
+                return Err(StateStoreError::CredentialOwnershipConflict {
+                    credential_id: credential.credential_id().to_owned(),
+                });
+            }
+
+            transaction.commit()?;
+            return Ok(existing);
+        }
+
+        transaction.execute(
+            "INSERT INTO credentials (\n\
+                 credential_id, project_id, service_id, username, secret, lifecycle\n\
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                credential.credential_id(),
+                credential.project_id(),
+                credential.service_id(),
+                credential.username(),
+                credential.secret(),
+                credential.lifecycle().label(),
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(credential.clone())
+    }
+
+    fn credentials(&self) -> Result<Vec<CredentialRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT credential_id, project_id, service_id, username, secret, lifecycle\n\
+             FROM credentials ORDER BY credential_id",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(credential_from_persisted)
+            .collect()
+    }
+}
+
+fn load_credential(
+    connection: &Connection,
+    credential_id: &str,
+) -> Result<Option<CredentialRecord>, StateStoreError> {
+    let persisted = connection
+        .query_row(
+            "SELECT credential_id, project_id, service_id, username, secret, lifecycle\n\
+             FROM credentials WHERE credential_id = ?1",
+            [credential_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    persisted.map(credential_from_persisted).transpose()
+}
+
+fn credential_from_persisted(
+    persisted: (String, String, String, String, String, String),
+) -> Result<CredentialRecord, StateStoreError> {
+    let (credential_id, project_id, service_id, username, secret, lifecycle) = persisted;
+    let lifecycle = CredentialLifecycle::from_label(&lifecycle).ok_or_else(|| {
+        StateStoreError::CorruptState {
+            detail: format!("credential '{credential_id}' has unknown lifecycle '{lifecycle}'"),
+        }
+    })?;
+
+    Ok(CredentialRecord::new(CredentialRecordOptions {
+        credential_id,
+        project_id,
+        service_id,
+        username,
+        secret,
+        lifecycle,
+    }))
 }
 
 fn load_installation(
