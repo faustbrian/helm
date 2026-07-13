@@ -63,6 +63,9 @@ pub(crate) trait StateStore: Send {
     /// Loads all durable resources in stable backend-identity order.
     fn resources(&self) -> Result<Vec<ResourceRecord>, StateStoreError>;
 
+    /// Atomically forgets exact non-active resource snapshots after backend deletion.
+    fn retire_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
+
     /// Upserts logical tenant ownership without deleting missing retained data.
     fn upsert_logical_resources(
         &mut self,

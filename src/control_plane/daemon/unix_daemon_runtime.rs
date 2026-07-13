@@ -23,6 +23,7 @@ use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
+use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
     OsCredentialEntropy, PreparedSharedInstance, SharedInfrastructureReconcileError,
     SharedPreparationOptions, UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
@@ -33,10 +34,12 @@ use crate::control_plane::state::{
 };
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
-    OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, WorkloadReconcileError,
-    WorkloadReconcileOptions, project_volume_resource_record, reconcile_project_application,
-    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
-    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
+    DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
+    ProjectVolumeReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
+    garbage_collect_disposable_containers, project_volume_resource_record,
+    reconcile_project_application, reconcile_project_process, reconcile_project_service,
+    reconcile_project_volume, remove_stale_ephemeral_services, stop_orphaned_project_workloads,
+    workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -230,7 +233,8 @@ impl UnixDaemonRuntime {
     pub(crate) fn run_forever(&mut self) {
         loop {
             let now = Instant::now();
-            match self.run_iteration(now, unix_time_seconds()) {
+            let now_unix_seconds = unix_time_seconds();
+            match self.run_iteration(now, now_unix_seconds) {
                 Ok(iteration) => {
                     if let Some(reconciliation) = iteration.reconciliation() {
                         if let Err(error) = self.engine_reconciliation.observe(reconciliation) {
@@ -246,12 +250,12 @@ impl UnixDaemonRuntime {
                         && !self.has_active_migration_decision()
                         && self.engine_reconciliation.may_reconcile()
                     {
-                        self.reconcile_engine_plane(now);
+                        self.reconcile_engine_plane(now, now_unix_seconds);
                     }
-                    self.drive_project_commands(now, unix_time_seconds());
-                    self.drive_project_backups(now, unix_time_seconds());
-                    self.drive_project_restores(now, unix_time_seconds());
-                    self.drive_migration_decisions(now, unix_time_seconds());
+                    self.drive_project_commands(now, now_unix_seconds);
+                    self.drive_project_backups(now, now_unix_seconds);
+                    self.drive_project_restores(now, now_unix_seconds);
+                    self.drive_migration_decisions(now, now_unix_seconds);
                     self.drive_project_logs(now);
                 }
                 Err(error) => {
@@ -267,7 +271,7 @@ impl UnixDaemonRuntime {
         }
     }
 
-    fn reconcile_engine_plane(&mut self, now: Instant) {
+    fn reconcile_engine_plane(&mut self, now: Instant, observed_at_unix_seconds: i64) {
         match self
             .engine_runtime
             .block_on(self.engine_connection.poll(now))
@@ -461,7 +465,6 @@ impl UnixDaemonRuntime {
             }
         }
 
-        let observed_at_unix_seconds = unix_time_seconds();
         let mut health_snapshot = ResourceHealthRegistry::default();
         let mut physical_resources = Vec::new();
         let mut provisioned = execution
@@ -652,6 +655,55 @@ impl UnixDaemonRuntime {
 
                 return;
             }
+        }
+
+        let retired = self
+            .engine_runtime
+            .block_on(garbage_collect_disposable_containers(
+                engine,
+                DisposableContainerGarbageCollectionOptions {
+                    resources: &durable_resources,
+                    installation_id: self.global_network_request.metadata().installation_id(),
+                    schema_version: self.global_network_request.metadata().schema_version(),
+                    now_unix_seconds: observed_at_unix_seconds,
+                    orphan_retention_seconds: DEFAULT_ORPHAN_RETENTION_SECONDS,
+                },
+            ));
+        let retired = match retired {
+            Ok(retired) => retired,
+            Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %error,
+                    "disposable garbage collection lost the selected Engine; retry scheduled"
+                );
+
+                return;
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "disposable garbage collection blocked");
+
+                return;
+            }
+        };
+        if !retired.is_empty() {
+            if let Err(error) = self.control_plane.retire_resources(&retired) {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "disposable state retirement blocked");
+
+                return;
+            }
+            tracing::info!(
+                retired = retired.len(),
+                "retired expired orphaned disposable containers"
+            );
         }
 
         let mut workload_resources = Vec::new();

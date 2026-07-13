@@ -49,6 +49,16 @@ where
             .map_err(Into::into)
     }
 
+    /// Retires exact non-active records after their backend objects are absent.
+    pub(crate) fn retire_resources(
+        &mut self,
+        resources: &[ResourceRecord],
+    ) -> Result<(), ControlPlaneError> {
+        self.state_store
+            .retire_resources(resources)
+            .map_err(Into::into)
+    }
+
     /// Plans all sources, then atomically persists the validated batch.
     pub(crate) fn reconcile_projects(
         &mut self,

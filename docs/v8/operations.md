@@ -98,6 +98,12 @@ active -> orphaned -> stopped/credential-disabled -> retained
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.
 Databases, buckets, queues, volumes, and backups are never implicitly deleted.
+Orphaned disposable containers have a fixed seven-day retention window. After
+that window, the daemon removes one only when the complete Engine discovery and
+its durable snapshot prove exact current-installation ownership; it then
+atomically retires the unchanged state record. Missing objects converge state
+on retry. Persistent containers, every volume, and every logical resource still
+require an explicit destructive workflow with the documented backup policy.
 
 Backups are host-visible Stackctl artifacts with project/resource identity,
 source compatibility fingerprint, checksum, creation time, and restore

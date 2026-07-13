@@ -31,6 +31,8 @@ pub(crate) enum StateStoreError {
     InvalidLogicalEnvironment { detail: String },
     /// Generic reconciliation cannot reactivate retained project data.
     ResourceAdoptionRequired { resource_id: String },
+    /// Backend deletion cannot retire active or changed durable ownership.
+    InvalidResourceRetirement { resource_id: String, detail: String },
     /// Disabled project state cannot be reactivated by ordinary reconciliation.
     ProjectAdoptionRequired { project_id: String },
     /// A project adoption plan is structurally unsafe.
@@ -125,6 +127,13 @@ impl Display for StateStoreError {
                 formatter,
                 "resource '{resource_id}' is orphaned or retained; explicit adoption is required before reactivation"
             ),
+            Self::InvalidResourceRetirement {
+                resource_id,
+                detail,
+            } => write!(
+                formatter,
+                "resource '{resource_id}' cannot be retired: {detail}"
+            ),
             Self::ProjectAdoptionRequired { project_id } => write!(
                 formatter,
                 "project '{project_id}' has disabled managed state; explicit adoption is required before reactivation"
@@ -214,6 +223,7 @@ impl Error for StateStoreError {
             | Self::LogicalResourceOwnershipConflict { .. }
             | Self::InvalidLogicalEnvironment { .. }
             | Self::ResourceAdoptionRequired { .. }
+            | Self::InvalidResourceRetirement { .. }
             | Self::ProjectAdoptionRequired { .. }
             | Self::InvalidProjectAdoption { .. }
             | Self::MigrationIdentityConflict { .. }

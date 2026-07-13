@@ -43,5 +43,8 @@ pub(crate) use store_backup_artifact::{
 pub(crate) use store_backup_artifact_from_async_reader::store_backup_artifact_from_async_reader;
 pub(crate) use stored_backup_artifact::StoredBackupArtifact;
 pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;
+
+/// Seven days before orphaned disposable containers are automatically removed.
+pub(crate) const DEFAULT_ORPHAN_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
 pub(crate) use verify_backup_artifact::verify_backup_artifact;
 pub(crate) use verify_stored_backup_artifact::verify_stored_backup_artifact;

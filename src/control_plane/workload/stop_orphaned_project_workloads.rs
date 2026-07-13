@@ -1,9 +1,11 @@
-use super::{OrphanedProjectWorkloadOptions, WorkloadReconcileError};
-use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ManagedResourceMetadata,
-    ObservedResourceOwnership, ResourceKind, RetentionClass, reconstruct_owned_container,
+use super::{
+    OrphanedProjectWorkloadOptions, WorkloadReconcileError, matches_durable_resource_metadata,
 };
-use crate::control_plane::state::{ResourceLifecycle, ResourceRecord, ResourceRetention};
+use crate::control_plane::engine::{
+    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ObservedResourceOwnership,
+    ResourceKind, reconstruct_owned_container,
+};
+use crate::control_plane::state::ResourceLifecycle;
 
 /// Stops state-proven removed project workloads while retaining their containers.
 pub(crate) async fn stop_orphaned_project_workloads<E>(
@@ -53,7 +55,7 @@ where
         else {
             continue;
         };
-        if !matches_durable_ownership(resource, owned.metadata()) {
+        if !matches_durable_resource_metadata(resource, owned.metadata()) {
             return Err(WorkloadReconcileError::Conflict {
                 detail: format!(
                     "project workload '{}' differs from its durable ownership record",
@@ -82,28 +84,6 @@ where
     }
 
     Ok(stopped)
-}
-
-fn matches_durable_ownership(
-    resource: &ResourceRecord,
-    metadata: &ManagedResourceMetadata,
-) -> bool {
-    resource.installation_id() == metadata.installation_id()
-        && resource.kind() == metadata.kind().label()
-        && resource.scope_id() == metadata.resource_id()
-        && resource.compatibility_fingerprint() == metadata.compatibility_fingerprint()
-        && resource.project_id() == metadata.project_id()
-        && resource.schema_version() == metadata.schema_version()
-        && resource.desired_revision() == metadata.desired_revision()
-        && resource.retention() == retention(metadata.retention())
-}
-
-const fn retention(retention: RetentionClass) -> ResourceRetention {
-    match retention {
-        RetentionClass::Persistent => ResourceRetention::Persistent,
-        RetentionClass::Disposable => ResourceRetention::Disposable,
-        RetentionClass::BuildCache => ResourceRetention::BuildCache,
-    }
 }
 
 fn engine_error(action: &str, error: EngineError) -> WorkloadReconcileError {

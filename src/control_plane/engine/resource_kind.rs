@@ -30,7 +30,7 @@ impl ResourceKind {
         }
     }
 
-    pub(super) fn from_label(label: &str) -> Option<Self> {
+    pub(crate) fn from_label(label: &str) -> Option<Self> {
         match label {
             "project_application" => Some(Self::ProjectApplication),
             "project_process" => Some(Self::ProjectProcess),

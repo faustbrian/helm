@@ -817,6 +817,46 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    fn retire_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut present = Vec::with_capacity(resources.len());
+
+        for resource in resources {
+            let existing = load_resource_ownership(&transaction, resource.resource_id())?;
+            let Some(existing) = existing else {
+                present.push(false);
+                continue;
+            };
+            if existing.is_active() {
+                return Err(StateStoreError::InvalidResourceRetirement {
+                    resource_id: resource.resource_id().to_owned(),
+                    detail: "active ownership must be orphaned before deletion".to_owned(),
+                });
+            }
+            if !existing.matches_snapshot(resource) {
+                return Err(StateStoreError::InvalidResourceRetirement {
+                    resource_id: resource.resource_id().to_owned(),
+                    detail: "the requested snapshot differs from durable ownership".to_owned(),
+                });
+            }
+            present.push(true);
+        }
+
+        for (resource, present) in resources.iter().zip(present) {
+            if present {
+                transaction.execute(
+                    "DELETE FROM resources WHERE resource_id = ?1",
+                    [resource.resource_id()],
+                )?;
+            }
+        }
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn upsert_logical_resources(
         &mut self,
         resources: &[LogicalResourceRecord],
@@ -1876,6 +1916,8 @@ struct PersistedResourceOwnership {
     schema_version: i64,
     retention: String,
     lifecycle: String,
+    desired_revision: String,
+    orphaned_at_unix_seconds: Option<i64>,
 }
 
 impl PersistedResourceOwnership {
@@ -1892,6 +1934,13 @@ impl PersistedResourceOwnership {
     fn is_active(&self) -> bool {
         self.lifecycle == ResourceLifecycle::Active.label()
     }
+
+    fn matches_snapshot(&self, resource: &ResourceRecord) -> bool {
+        self.matches(resource)
+            && self.desired_revision == resource.desired_revision()
+            && self.lifecycle == resource.lifecycle().label()
+            && self.orphaned_at_unix_seconds == resource.orphaned_at_unix_seconds()
+    }
 }
 
 fn load_resource_ownership(
@@ -1901,7 +1950,8 @@ fn load_resource_ownership(
     connection
         .query_row(
             "SELECT scope_id, installation_id, kind, compatibility_fingerprint, project_id,
-                    resource_schema_version, retention, lifecycle
+                    resource_schema_version, retention, lifecycle, desired_revision,
+                    orphaned_at_unix_seconds
              FROM resources WHERE resource_id = ?1",
             [resource_id],
             |row| {
@@ -1914,6 +1964,8 @@ fn load_resource_ownership(
                     schema_version: row.get(5)?,
                     retention: row.get(6)?,
                     lifecycle: row.get(7)?,
+                    desired_revision: row.get(8)?,
+                    orphaned_at_unix_seconds: row.get(9)?,
                 })
             },
         )

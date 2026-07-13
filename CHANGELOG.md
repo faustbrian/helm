@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned garbage collection for expired seven-day disposable
+  orphans with exact Engine ownership and atomic durable-state retirement.
 - Added ownership-scoped Engine benchmark snapshots and a non-overwriting raw
   sample harness that never parses Docker or Podman CLI output.
 - Added full-suite Linux and macOS x86_64/arm64 CI coverage plus an explicit

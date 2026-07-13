@@ -1,16 +1,17 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    EphemeralBrowserOptions, ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec,
-    OrphanedProjectWorkloadOptions, ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
-    ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
-    ProjectRuntimeReconcileOptions, ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions,
-    RuntimeEnvironment, RuntimeEnvironmentOptions, RuntimeImageBuildPlan,
-    RuntimeImageBuildPlanOptions, WorkloadReconcileAction, WorkloadReconcileOptions,
-    application_container_request, plan_ephemeral_browser, plan_immutable_project_application,
-    project_process_request, reconcile_project_application, reconcile_project_process,
-    reconcile_project_runtime, reconcile_project_service, reconcile_project_volume,
-    remove_stale_ephemeral_services, run_project_command, stop_orphaned_project_workloads,
-    workload_resource_record,
+    DisposableContainerGarbageCollectionOptions, EphemeralBrowserOptions,
+    ImmutableProjectApplicationOptions, JavaScriptRuntimeSpec, OrphanedProjectWorkloadOptions,
+    ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
+    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectRuntimeReconcileOptions,
+    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
+    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
+    garbage_collect_disposable_containers, plan_ephemeral_browser,
+    plan_immutable_project_application, project_process_request, reconcile_project_application,
+    reconcile_project_process, reconcile_project_runtime, reconcile_project_service,
+    reconcile_project_volume, remove_stale_ephemeral_services, run_project_command,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -1072,6 +1073,115 @@ fn interrupted_ephemeral_services_are_stopped_and_removed_on_reconciliation() {
 }
 
 #[test]
+fn garbage_collection_removes_only_expired_exact_owned_disposable_orphans() {
+    let expired_metadata = project_application_metadata("bill", "sha256:runtime-v1");
+    let unexpired_metadata = project_application_metadata("shop", "sha256:runtime-v1");
+    let persistent_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectService,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:database-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("persistent metadata")
+    .with_resource_id("database")
+    .expect("persistent identity");
+    let expired = orphaned_container_resource("expired-app", &expired_metadata, 100);
+    let unexpired = orphaned_container_resource("unexpired-app", &unexpired_metadata, 900);
+    let persistent = orphaned_container_resource("persistent-database", &persistent_metadata, 100);
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![
+            ObservedContainer::new(ContainerId::new("expired-app"), expired_metadata.labels()),
+            ObservedContainer::new(
+                ContainerId::new("unexpired-app"),
+                unexpired_metadata.labels(),
+            ),
+            ObservedContainer::new(
+                ContainerId::new("persistent-database"),
+                persistent_metadata.labels(),
+            ),
+        ],
+        state: ContainerState::Running,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let retired = runtime
+        .block_on(garbage_collect_disposable_containers(
+            &mut engine,
+            DisposableContainerGarbageCollectionOptions {
+                resources: &[expired.clone(), unexpired, persistent],
+                installation_id: "install-1",
+                schema_version: 8,
+                now_unix_seconds: 1_000,
+                orphan_retention_seconds: 500,
+            },
+        ))
+        .expect("collect expired disposable container");
+
+    assert_eq!(retired, vec![expired]);
+    assert_eq!(engine.stopped.len(), 1);
+    assert_eq!(engine.stopped[0].id().as_str(), "expired-app");
+    assert_eq!(engine.removed.len(), 1);
+    assert_eq!(engine.removed[0].id().as_str(), "expired-app");
+}
+
+#[test]
+fn garbage_collection_refuses_durable_and_engine_ownership_drift() {
+    let metadata = project_application_metadata("bill", "sha256:runtime-v1");
+    let mut drifted = orphaned_container_resource("expired-app", &metadata, 100);
+    drifted = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: drifted.resource_id().to_owned(),
+        installation_id: drifted.installation_id().to_owned(),
+        kind: drifted.kind().to_owned(),
+        compatibility_fingerprint: "sha256:other-runtime".to_owned(),
+        project_id: drifted.project_id().map(str::to_owned),
+        schema_version: drifted.schema_version(),
+        desired_revision: drifted.desired_revision().to_owned(),
+        retention: drifted.retention(),
+        lifecycle: drifted.lifecycle(),
+        orphaned_at_unix_seconds: drifted.orphaned_at_unix_seconds(),
+    })
+    .with_scope_id("app");
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![ObservedContainer::new(
+            ContainerId::new("expired-app"),
+            metadata.labels(),
+        )],
+        state: ContainerState::Stopped,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(garbage_collect_disposable_containers(
+            &mut engine,
+            DisposableContainerGarbageCollectionOptions {
+                resources: &[drifted],
+                installation_id: "install-1",
+                schema_version: 8,
+                now_unix_seconds: 1_000,
+                orphan_retention_seconds: 500,
+            },
+        ))
+        .expect_err("ownership drift must block garbage collection");
+
+    assert!(
+        error
+            .to_string()
+            .contains("differs from its durable ownership")
+    );
+    assert!(engine.stopped.is_empty());
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
 fn project_process_reconciliation_selects_only_its_exact_resource_identity() {
     let worker = process_request("queue-worker", "sha256:worker-v1");
     let scheduler = process_request("scheduler", "sha256:scheduler-v1");
@@ -1623,6 +1733,30 @@ fn project_application_metadata(
     .expect("project application metadata")
     .with_resource_id("app")
     .expect("project application resource identity")
+}
+
+fn orphaned_container_resource(
+    container_id: &str,
+    metadata: &ManagedResourceMetadata,
+    orphaned_at_unix_seconds: i64,
+) -> ResourceRecord {
+    ResourceRecord::new(ResourceRecordOptions {
+        resource_id: container_id.to_owned(),
+        installation_id: metadata.installation_id().to_owned(),
+        kind: metadata.kind().label().to_owned(),
+        compatibility_fingerprint: metadata.compatibility_fingerprint().to_owned(),
+        project_id: metadata.project_id().map(str::to_owned),
+        schema_version: metadata.schema_version(),
+        desired_revision: metadata.desired_revision().to_owned(),
+        retention: match metadata.retention() {
+            RetentionClass::Persistent => ResourceRetention::Persistent,
+            RetentionClass::Disposable => ResourceRetention::Disposable,
+            RetentionClass::BuildCache => ResourceRetention::BuildCache,
+        },
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(orphaned_at_unix_seconds),
+    })
+    .with_scope_id(metadata.resource_id().expect("container resource identity"))
 }
 
 fn project_runtime_options<'plan>(

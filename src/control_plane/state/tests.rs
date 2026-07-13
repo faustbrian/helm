@@ -744,6 +744,85 @@ fn complete_resource_ownership_survives_store_restart() {
 }
 
 #[test]
+fn retiring_resources_requires_an_exact_orphaned_snapshot_and_is_atomic() {
+    let database_path = temporary_database_path("retire-resources");
+    let orphaned = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-orphaned".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:runtime".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(10_000),
+    })
+    .with_scope_id("app");
+    let active = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-active".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:runtime".to_owned(),
+        project_id: Some("shop".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .upsert_resources(&[orphaned.clone(), active.clone()])
+        .expect("persist resources");
+
+    let error = store
+        .retire_resources(&[orphaned.clone(), active.clone()])
+        .expect_err("active resources must block the complete retirement batch");
+
+    assert!(error.to_string().contains("container-active"));
+    assert_eq!(
+        store.resources().expect("unchanged resources"),
+        vec![active, orphaned.clone()]
+    );
+
+    let drifted = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: orphaned.resource_id().to_owned(),
+        installation_id: orphaned.installation_id().to_owned(),
+        kind: orphaned.kind().to_owned(),
+        compatibility_fingerprint: orphaned.compatibility_fingerprint().to_owned(),
+        project_id: orphaned.project_id().map(str::to_owned),
+        schema_version: orphaned.schema_version(),
+        desired_revision: "sha256:changed".to_owned(),
+        retention: orphaned.retention(),
+        lifecycle: orphaned.lifecycle(),
+        orphaned_at_unix_seconds: orphaned.orphaned_at_unix_seconds(),
+    })
+    .with_scope_id("app");
+    let error = store
+        .retire_resources(&[drifted])
+        .expect_err("changed snapshot must not retire durable ownership");
+
+    assert!(error.to_string().contains("differs from durable ownership"));
+
+    store
+        .retire_resources(std::slice::from_ref(&orphaned))
+        .expect("retire exact orphaned resource");
+
+    assert_eq!(
+        store
+            .resources()
+            .expect("only active resource remains")
+            .len(),
+        1
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn logical_resources_persist_and_reference_count_only_active_consumers() {
     let database_path = temporary_database_path("logical-resources");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
