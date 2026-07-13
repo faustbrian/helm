@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added typed singleton restore admission for exact verified recovery points,
+  with secret-free durable queue payloads, bounded serialization, queued replay
+  after daemon restart, and explicit terminalization of ambiguous interrupted
+  restores without deleting retained target state.
 - Added one idempotent PostgreSQL migration-target boundary that durably
   prepares credentials, reconciles an isolated retained volume and service
   through typed Engine capabilities, and returns success only for a healthy,

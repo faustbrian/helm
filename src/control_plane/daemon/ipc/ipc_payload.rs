@@ -55,4 +55,9 @@ pub(crate) enum IpcPayload {
         canonical_path: PathBuf,
         service: String,
     },
+    /// Queues one reversible restore from an exact verified recovery point.
+    RestoreProjectService {
+        canonical_path: PathBuf,
+        recovery_point_id: String,
+    },
 }

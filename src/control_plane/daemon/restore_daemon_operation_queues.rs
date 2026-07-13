@@ -1,5 +1,8 @@
 use super::ipc::{IpcEventJournal, IpcEventKind};
-use super::{ProjectBackupQueue, ProjectCommandQueue, QueuedProjectBackup, QueuedProjectCommand};
+use super::{
+    ProjectBackupQueue, ProjectCommandQueue, ProjectRestoreQueue, QueuedProjectBackup,
+    QueuedProjectCommand, QueuedProjectRestore,
+};
 use crate::control_plane::state::{
     DaemonOperationStatus, DaemonOperationTransitionOptions, StateStore, StateStoreError,
 };
@@ -8,13 +11,14 @@ use crate::control_plane::state::{
 pub(crate) fn restore_daemon_operation_queues<Store>(
     store: &mut Store,
     now_unix_seconds: i64,
-) -> Result<(ProjectCommandQueue, ProjectBackupQueue), StateStoreError>
+) -> Result<(ProjectCommandQueue, ProjectBackupQueue, ProjectRestoreQueue), StateStoreError>
 where
     Store: StateStore,
 {
     let operations = store.active_daemon_operations()?;
     let mut commands = ProjectCommandQueue::default();
     let mut backups = ProjectBackupQueue::default();
+    let mut restores = ProjectRestoreQueue::default();
     let event_capacity = IpcEventJournal::default().capacity();
     for operation in operations {
         if operation.status() == DaemonOperationStatus::Running {
@@ -42,6 +46,11 @@ where
                 operation.payload_json(),
             )
             .and_then(|queued| backups.enqueue(queued).map_err(|error| error.to_string())),
+            "project_restore" => QueuedProjectRestore::from_payload_json(
+                operation.operation_id().to_owned(),
+                operation.payload_json(),
+            )
+            .and_then(|queued| restores.enqueue(queued).map_err(|error| error.to_string())),
             _ => Err("the queued daemon operation kind is unsupported by this build".to_owned()),
         };
         if let Err(error) = result {
@@ -57,7 +66,7 @@ where
         }
     }
 
-    Ok((commands, backups))
+    Ok((commands, backups, restores))
 }
 
 fn interrupted_diagnostic(kind: &str) -> (&'static str, &'static str) {
@@ -69,6 +78,10 @@ fn interrupted_diagnostic(kind: &str) -> (&'static str, &'static str) {
         "project_backup" => (
             "project_backup_interrupted",
             "the daemon restarted while the project backup was running; incomplete output was discarded and the backup was not replayed",
+        ),
+        "project_restore" => (
+            "project_restore_interrupted",
+            "the daemon restarted while the project restore was running; retained target state requires explicit recovery",
         ),
         _ => (
             "operation_interrupted",

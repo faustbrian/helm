@@ -4,12 +4,13 @@ use super::{
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
     ImageReferenceResolution, IpcEventJournal, ProjectBackupExecutionOptions, ProjectBackupQueue,
     ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectBackup,
-    QueuedProjectCommand, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, discover_project_sources, dispatch_daemon_request, execute_project_logs,
-    execute_queued_project_backup, execute_queued_project_command, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
+    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreQueue,
+    QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
+    dispatch_daemon_request, execute_project_logs, execute_queued_project_backup,
+    execute_queued_project_command, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -24,8 +25,8 @@ use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
     ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
-    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
-    SqliteStateStore, StateStore,
+    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -462,11 +463,12 @@ fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands(
             .expect("claim running command"),
     );
 
-    let (mut restored, backups) =
+    let (mut restored, backups, restores) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(restored.len(), 1);
     assert_eq!(backups.len(), 0);
+    assert_eq!(restores.len(), 0);
     let queued = restored.pop_front().expect("restored queued command");
     assert_eq!(queued.operation_id(), "queued-42");
     assert_eq!(queued.plan().arguments(), ["composer", "install"]);
@@ -528,11 +530,12 @@ fn daemon_restart_restores_queued_backups_without_replaying_running_backups() {
             .expect("claim running backup"),
     );
 
-    let (commands, mut backups) =
+    let (commands, mut backups, restores) =
         restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
 
     assert_eq!(commands.len(), 0);
     assert_eq!(backups.len(), 1);
+    assert_eq!(restores.len(), 0);
     assert_eq!(
         backups.pop_front().expect("restored backup").operation_id(),
         "queued-backup"
@@ -548,6 +551,73 @@ fn daemon_restart_restores_queued_backups_without_replaying_running_backups() {
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove restart fixture");
+}
+
+#[test]
+fn daemon_restart_restores_only_queued_project_restores() {
+    let root = temporary_directory("project-restore-restart");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    for (operation_id, created_at) in [("queued-restore", 100), ("running-restore", 101)] {
+        let queued = QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+            operation_id: operation_id.to_owned(),
+            recovery_point_id: "backup-42".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            logical_resource_id: "stackctl_bill_database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        })
+        .expect("restore intent");
+        let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+            operation_id: operation_id.to_owned(),
+            kind: "project_restore".to_owned(),
+            payload_json: queued.payload_json().expect("durable restore payload"),
+            status: DaemonOperationStatus::Queued,
+            created_at_unix_seconds: created_at,
+            updated_at_unix_seconds: created_at,
+        });
+        store
+            .enqueue_daemon_operation(&operation, &accepted_json, 256)
+            .expect("persist queued restore");
+    }
+    drop(
+        store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "running-restore",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 102,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim running restore"),
+    );
+
+    let (commands, backups, mut restores) =
+        restore_daemon_operation_queues(&mut store, 200).expect("restore daemon operations");
+
+    assert_eq!(commands.len(), 0);
+    assert_eq!(backups.len(), 0);
+    assert_eq!(restores.len(), 1);
+    assert_eq!(
+        restores
+            .pop_front()
+            .expect("restored project restore")
+            .operation_id(),
+        "queued-restore"
+    );
+    let events = store.daemon_events().expect("daemon events");
+    let interrupted = events.last().expect("interrupted terminal event");
+    assert_eq!(interrupted.operation_id(), "running-restore");
+    assert!(
+        interrupted
+            .kind_json()
+            .contains("project_restore_interrupted")
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove restore restart fixture");
 }
 
 #[test]
@@ -1670,6 +1740,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1701,6 +1772,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -1762,6 +1834,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: Some(&mut resolver),
@@ -1859,6 +1932,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
         image_reference_resolution: None,
@@ -1987,6 +2061,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2026,6 +2101,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2086,6 +2162,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2160,6 +2237,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2249,6 +2327,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2325,6 +2404,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut ProjectBackupQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2426,6 +2506,7 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_backups: &mut project_backups,
+        project_restores: &mut ProjectRestoreQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
         image_reference_resolution: None,
@@ -2457,6 +2538,106 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
     assert!(!persisted[0].payload_json().contains("credential-user"));
 
     std::fs::remove_dir_all(root).expect("remove backup fixture");
+}
+
+#[test]
+fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
+    let root = temporary_directory("ipc-project-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let logical = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "stackctl_bill_database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: root.join("backups/backup-42.dump").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("persist recovery point");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "restore-42",
+        IpcPayload::RestoreProjectService {
+            canonical_path: project_path,
+            recovery_point_id: "backup-42".to_owned(),
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_backups = ProjectBackupQueue::default();
+    let mut project_restores = ProjectRestoreQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut project_backups,
+        project_restores: &mut project_restores,
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
+        now_unix_seconds: 40_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "restore-42",
+            IpcResult::Accepted {
+                operation_id: "restore-42".to_owned(),
+            },
+        )
+    );
+    let queued: QueuedProjectRestore = project_restores
+        .pop_front()
+        .expect("queued project restore");
+    assert_eq!(queued.recovery_point_id(), "backup-42");
+    assert_eq!(queued.project_id(), "bill");
+    assert_eq!(queued.service_id(), "database");
+    assert_eq!(queued.logical_resource_id(), "stackctl_bill_database");
+
+    drop(control_plane);
+    let persisted = SqliteStateStore::open(&database_path)
+        .expect("reopen state store")
+        .active_daemon_operations()
+        .expect("load restore operation");
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].kind(), "project_restore");
+    assert!(!persisted[0].payload_json().contains("backup-42.dump"));
+    assert!(!persisted[0].payload_json().contains("artifact_sha256"));
+
+    std::fs::remove_dir_all(root).expect("remove restore fixture");
 }
 
 #[test]

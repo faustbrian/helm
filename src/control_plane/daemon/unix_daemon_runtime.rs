@@ -4,11 +4,11 @@ use super::{
     EngineConnectionOutcome, EngineConnectionSupervisor, EngineImageReferenceResolution,
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
     ImageReferenceResolution, IpcEventJournal, ProjectBackupQueue, ProjectCommandQueue,
-    ProjectLogSessionRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
-    validate_project_workload_adoption,
+    ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
+    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
+    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_daemon_operation_queues, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -55,6 +55,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
     pub(super) project_backups: ProjectBackupQueue,
+    pub(super) project_restores: ProjectRestoreQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
     pub(super) resource_health: ResourceHealthRegistry,
     pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
@@ -87,7 +88,7 @@ impl UnixDaemonRuntime {
             &runtime_directory.join("state-backups"),
             unix_time_seconds(),
         )?;
-        let (project_commands, project_backups) =
+        let (project_commands, project_backups, project_restores) =
             restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
@@ -120,6 +121,7 @@ impl UnixDaemonRuntime {
             event_journal,
             project_commands,
             project_backups,
+            project_restores,
             project_logs: ProjectLogSessionRegistry::default(),
             resource_health: ResourceHealthRegistry::default(),
             active_project_logs: BTreeMap::new(),
@@ -167,6 +169,7 @@ impl UnixDaemonRuntime {
                 event_journal: &mut self.event_journal,
                 project_commands: &mut self.project_commands,
                 project_backups: &mut self.project_backups,
+                project_restores: &mut self.project_restores,
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
                 image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
