@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added durable PostgreSQL preparation that reserves one bootstrap secret per
+  compatibility group and one tenant secret per project service, reproducing
+  identical instance, logical database, and environment plans on replay.
 - Added execution-plan resolution for PostgreSQL compatibility demand so exact
   version, digest, platform, persistence, and isolation matches share one
   physical instance while any material difference produces a separate group.

@@ -1,9 +1,13 @@
 mod plan_postgres_project_resources;
 mod postgres_logical_resource_plan;
 mod postgres_plan_error;
+mod postgres_preparation_error;
+mod postgres_preparation_options;
 mod postgres_project_resources;
 mod postgres_shared_instance_plan;
 mod postgres_shared_instance_plan_options;
+mod prepare_postgres_shared_instances;
+mod prepared_postgres_shared_instance;
 mod provision_postgres_logical_resource;
 mod reconcile_postgres_project_resources;
 
@@ -12,8 +16,12 @@ pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 pub(crate) use plan_postgres_project_resources::plan_postgres_project_resources;
 pub(crate) use postgres_logical_resource_plan::PostgresLogicalResourcePlan;
 pub(crate) use postgres_plan_error::PostgresPlanError;
+pub(crate) use postgres_preparation_error::PostgresPreparationError;
+pub(crate) use postgres_preparation_options::PostgresPreparationOptions;
 pub(crate) use postgres_project_resources::PostgresProjectResources;
 pub(crate) use postgres_shared_instance_plan::PostgresSharedInstancePlan;
 pub(crate) use postgres_shared_instance_plan_options::PostgresSharedInstancePlanOptions;
+pub(crate) use prepare_postgres_shared_instances::prepare_postgres_shared_instances;
+pub(crate) use prepared_postgres_shared_instance::PreparedPostgresSharedInstance;
 pub(crate) use provision_postgres_logical_resource::provision_postgres_logical_resource;
 pub(crate) use reconcile_postgres_project_resources::reconcile_postgres_project_resources;

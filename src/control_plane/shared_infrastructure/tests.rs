@@ -7,8 +7,8 @@ use super::{
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
     ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
     ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, ProvisioningJobOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
+    ProvisioningJobOptions, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
@@ -18,17 +18,17 @@ use super::{
     plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    plan_sql_server_project_resources, provision_mongodb_logical_resource,
-    provision_mysql_logical_resource, provision_object_store_project_resources,
-    provision_postgres_logical_resource, provision_sql_server_logical_resource,
-    reconcile_mailpit_authentication, reconcile_mongodb_project_resources,
-    reconcile_mysql_project_resources, reconcile_object_store_project_resources,
-    reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
-    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
-    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    plan_sql_server_project_resources, prepare_postgres_shared_instances,
+    provision_mongodb_logical_resource, provision_mysql_logical_resource,
+    provision_object_store_project_resources, provision_postgres_logical_resource,
+    provision_sql_server_logical_resource, reconcile_mailpit_authentication,
+    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
+    reconcile_object_store_project_resources, reconcile_postgres_project_resources,
+    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
+    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
+    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
+    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -37,10 +37,12 @@ use crate::control_plane::engine::{
     reconstruct_owned_container,
 };
 use crate::control_plane::resolve_execution_plan;
+use crate::control_plane::state::{SqliteStateStore, StateStore};
 use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
 #[cfg(unix)]
@@ -59,6 +61,16 @@ fn shared_postgres_source(
             "schema_version: 8\nproject: {project}\nservices:\n  db:\n    preset: postgres\n    version: \"{version}\"\n    image: {image}\n"
         ),
     )
+}
+
+struct FixedCredentialEntropy(u8);
+
+impl CredentialEntropy for FixedCredentialEntropy {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CredentialGenerationError> {
+        bytes.fill(self.0);
+
+        Ok(())
+    }
 }
 
 #[test]
@@ -117,6 +129,69 @@ fn postgres_version_or_image_differences_never_share_an_instance() {
         .expect("shared execution instances");
 
     assert_eq!(shared.len(), 3);
+}
+
+#[test]
+fn postgres_preparation_reuses_durable_bootstrap_and_project_secrets() {
+    let image = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_postgres_source("/work/bill", "bill", "17", image),
+        shared_postgres_source("/work/shop", "shop", "17", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-postgres-preparation-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+
+    let first = prepare_postgres_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        PostgresPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("first PostgreSQL preparation");
+    let second = prepare_postgres_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        PostgresPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("replayed PostgreSQL preparation");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].projects().len(), 2);
+    assert_eq!(
+        first[0].instance().bootstrap_credential().secret(),
+        second[0].instance().bootstrap_credential().secret()
+    );
+    assert_eq!(
+        first[0].projects()[0].credential().secret(),
+        second[0].projects()[0].credential().secret()
+    );
+    assert_eq!(store.credentials().expect("durable credentials").len(), 3);
+
+    drop(store);
+    std::fs::remove_file(database_path).expect("remove state store");
 }
 
 #[test]

@@ -41,8 +41,10 @@ pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
-    PostgresLogicalResourcePlan, PostgresPlanError, PostgresProjectResources,
-    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, plan_postgres_project_resources,
+    PostgresLogicalResourcePlan, PostgresPlanError, PostgresPreparationError,
+    PostgresPreparationOptions, PostgresProjectResources, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance,
+    plan_postgres_project_resources, prepare_postgres_shared_instances,
     provision_postgres_logical_resource, reconcile_postgres_project_resources,
 };
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
