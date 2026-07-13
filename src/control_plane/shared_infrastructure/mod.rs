@@ -26,9 +26,11 @@ pub(crate) use mongodb::{
     provision_mongodb_logical_resource, reconcile_mongodb_project_resources,
 };
 pub(crate) use mysql::{
-    MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlProjectResources,
-    MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, plan_mysql_project_resources,
-    provision_mysql_logical_resource, reconcile_mysql_project_resources,
+    MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlPreparationError,
+    MySqlPreparationOptions, MySqlProjectResources, MySqlSharedInstancePlan,
+    MySqlSharedInstancePlanOptions, PreparedMySqlSharedInstance, plan_mysql_project_resources,
+    prepare_mysql_shared_instances, provision_mysql_logical_resource,
+    reconcile_mysql_project_resources, reconcile_prepared_mysql_instance,
 };
 pub(crate) use object_store::{
     ObjectStoreFlavor, ObjectStorePlanError, ObjectStoreProjectDefinition,
@@ -43,11 +45,13 @@ pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
     PostgresLogicalResourcePlan, PostgresPlanError, PostgresPreparationError,
     PostgresPreparationOptions, PostgresProjectResources, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, PreparedPostgresReconcileResult,
-    PreparedPostgresSharedInstance, plan_postgres_project_resources,
-    prepare_postgres_shared_instances, provision_postgres_logical_resource,
-    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
+    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance,
+    plan_postgres_project_resources, prepare_postgres_shared_instances,
+    provision_postgres_logical_resource, reconcile_postgres_project_resources,
+    reconcile_prepared_postgres_instance,
 };
+pub(crate) use prepare_shared_instances::prepare_shared_instances;
+pub(crate) use prepared_shared_instance::PreparedSharedInstance;
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
 pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
@@ -55,6 +59,7 @@ pub(crate) use rabbitmq::{
     StoredRabbitMqPaths, plan_rabbitmq_project_resources, reconcile_rabbitmq_definitions,
     reload_rabbitmq_definitions, revoke_rabbitmq_project_access, store_rabbitmq_definitions,
 };
+pub(crate) use reconcile_prepared_shared_instance::reconcile_prepared_shared_instance;
 pub(crate) use reconcile_shared_service::reconcile_shared_service;
 pub(crate) use reconcile_shared_volume::reconcile_shared_volume;
 pub(crate) use redis::{
@@ -68,6 +73,9 @@ pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
+pub(crate) use shared_instance_reconcile_result::SharedInstanceReconcileResult;
+pub(crate) use shared_preparation_error::SharedPreparationError;
+pub(crate) use shared_preparation_options::SharedPreparationOptions;
 pub(crate) use shared_service_reconcile_action::SharedServiceReconcileAction;
 pub(crate) use shared_service_reconcile_options::SharedServiceReconcileOptions;
 pub(crate) use shared_service_reconcile_result::SharedServiceReconcileResult;
@@ -103,8 +111,11 @@ mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
 mod postgres;
+mod prepare_shared_instances;
+mod prepared_shared_instance;
 mod provisioning_job_options;
 mod rabbitmq;
+mod reconcile_prepared_shared_instance;
 mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
@@ -113,6 +124,9 @@ mod run_provisioning_job;
 mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;
+mod shared_instance_reconcile_result;
+mod shared_preparation_error;
+mod shared_preparation_options;
 mod shared_service_reconcile_action;
 mod shared_service_reconcile_options;
 mod shared_service_reconcile_result;

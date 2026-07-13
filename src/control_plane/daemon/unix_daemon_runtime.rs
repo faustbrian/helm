@@ -17,8 +17,8 @@ use crate::control_plane::network::{
     global_network_request, reconcile_global_network,
 };
 use crate::control_plane::shared_infrastructure::{
-    OsCredentialEntropy, PostgresPreparationOptions, PreparedPostgresSharedInstance,
-    SharedInfrastructureReconcileError, reconcile_prepared_postgres_instance,
+    OsCredentialEntropy, PreparedSharedInstance, SharedInfrastructureReconcileError,
+    SharedPreparationOptions, reconcile_prepared_shared_instance,
     resolve_execution_shared_instances,
 };
 use crate::control_plane::state::{
@@ -224,10 +224,10 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let prepared_postgres = match self.control_plane.prepare_postgres(
+        let prepared_shared = match self.control_plane.prepare_shared(
             &shared,
             &OsCredentialEntropy,
-            PostgresPreparationOptions {
+            SharedPreparationOptions {
                 installation_id: self.global_network_request.metadata().installation_id(),
                 network_name: self.global_network_request.name(),
                 schema_version: self.global_network_request.metadata().schema_version(),
@@ -236,7 +236,7 @@ impl UnixDaemonRuntime {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "PostgreSQL durable preparation blocked");
+                tracing::error!(error = %error, "shared infrastructure preparation blocked");
 
                 return;
             }
@@ -245,7 +245,7 @@ impl UnixDaemonRuntime {
             .control_plane
             .managed_environments()
             .map_err(|error| error.to_string())
-            .and_then(|existing| merge_prepared_environments(existing, &prepared_postgres))
+            .and_then(|existing| merge_prepared_environments(existing, &prepared_shared))
         {
             Ok(environments) => environments,
             Err(error) => {
@@ -255,15 +255,9 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let prepared_shared_services = prepared_postgres
+        let prepared_shared_services = prepared_shared
             .iter()
-            .flat_map(|prepared| prepared.projects())
-            .map(|project| {
-                (
-                    project.logical().project_id().to_owned(),
-                    project.logical().service_id().to_owned(),
-                )
-            })
+            .flat_map(PreparedSharedInstance::service_identities)
             .collect::<Vec<_>>();
         let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
             execution,
@@ -325,10 +319,10 @@ impl UnixDaemonRuntime {
 
         let mut physical_resources = Vec::new();
         let mut provisioned = BTreeMap::<String, Vec<_>>::new();
-        for prepared in &prepared_postgres {
+        for prepared in &prepared_shared {
             let logical = self
                 .engine_runtime
-                .block_on(reconcile_prepared_postgres_instance(
+                .block_on(reconcile_prepared_shared_instance(
                     engine,
                     prepared,
                     self.global_network_request.metadata().installation_id(),
@@ -342,14 +336,14 @@ impl UnixDaemonRuntime {
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         error = %error,
-                        "PostgreSQL reconciliation lost the selected Engine; retry scheduled"
+                        "shared infrastructure reconciliation lost the selected Engine; retry scheduled"
                     );
 
                     return;
                 }
                 Err(error) => {
                     self.engine_reconciliation.complete();
-                    tracing::error!(error = %error, "PostgreSQL shared instance blocked");
+                    tracing::error!(error = %error, "shared infrastructure instance blocked");
 
                     return;
                 }
@@ -389,7 +383,7 @@ impl UnixDaemonRuntime {
                 .record_logical_environment(&logical, environment)
             {
                 self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "PostgreSQL tenant state publication blocked");
+                tracing::error!(error = %error, "shared tenant state publication blocked");
 
                 return;
             }
@@ -570,7 +564,7 @@ fn runtime_linux_platform() -> Result<&'static str, String> {
 
 fn merge_prepared_environments(
     existing: Vec<ManagedEnvironmentRecord>,
-    prepared: &[PreparedPostgresSharedInstance],
+    prepared: &[PreparedSharedInstance],
 ) -> Result<Vec<ManagedEnvironmentRecord>, String> {
     let mut environments = existing
         .into_iter()
@@ -578,10 +572,13 @@ fn merge_prepared_environments(
         .collect::<BTreeMap<_, _>>();
     let mut generated = BTreeMap::<String, BTreeMap<String, String>>::new();
 
-    for project in prepared.iter().flat_map(|prepared| prepared.projects()) {
-        let project_id = project.environment().project_id();
+    for environment in prepared
+        .iter()
+        .flat_map(PreparedSharedInstance::environments)
+    {
+        let project_id = environment.project_id();
         let values = generated.entry(project_id.to_owned()).or_default();
-        for (key, value) in project.environment().values() {
+        for (key, value) in environment.values() {
             if values.get(key).is_some_and(|existing| existing != value) {
                 return Err(format!(
                     "project '{project_id}' has conflicting generated environment key '{key}'"

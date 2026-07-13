@@ -1,7 +1,7 @@
 use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
 use crate::control_plane::shared_infrastructure::{
-    CredentialEntropy, PostgresPreparationError, PostgresPreparationOptions,
-    PreparedPostgresSharedInstance, SharedInstancePlan, prepare_postgres_shared_instances,
+    CredentialEntropy, PreparedSharedInstance, SharedInstancePlan, SharedPreparationError,
+    SharedPreparationOptions, prepare_shared_instances,
 };
 use crate::control_plane::state::{
     LogicalResourceRecord, ManagedEnvironmentRecord, ProjectRecord, ResourceRecord, StateStore,
@@ -34,13 +34,13 @@ where
         self.state_store.managed_environments().map_err(Into::into)
     }
 
-    pub(crate) fn prepare_postgres(
+    pub(crate) fn prepare_shared(
         &mut self,
         shared: &[SharedInstancePlan],
         entropy: &impl CredentialEntropy,
-        options: PostgresPreparationOptions<'_>,
-    ) -> Result<Vec<PreparedPostgresSharedInstance>, PostgresPreparationError> {
-        prepare_postgres_shared_instances(&mut self.state_store, shared, entropy, options)
+        options: SharedPreparationOptions<'_>,
+    ) -> Result<Vec<PreparedSharedInstance>, SharedPreparationError> {
+        prepare_shared_instances(&mut self.state_store, shared, entropy, options)
     }
 
     pub(crate) fn record_logical_environment(

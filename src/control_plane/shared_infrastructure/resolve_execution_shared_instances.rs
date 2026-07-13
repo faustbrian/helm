@@ -26,6 +26,8 @@ pub(crate) fn resolve_execution_shared_instances(
         })?;
         let implementation = match preset {
             "postgres" | "pg" | "pgsql" => "postgresql",
+            "mysql" => "mysql",
+            "mariadb" | "maria" => "mariadb",
             _ => {
                 return Err(invalid(format!(
                     "shared service '{}-{}' preset '{preset}' has no compatibility profile resolver",

@@ -1,30 +1,25 @@
 use crate::control_plane::engine::{ManagedResourceMetadata, RetentionClass};
-use crate::control_plane::shared_infrastructure::SharedServiceReconcileResult;
 use crate::control_plane::state::{
     LogicalResourceRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
     ResourceRetention,
 };
 
-/// Durable ownership produced by one complete PostgreSQL convergence pass.
-pub(crate) struct PreparedPostgresReconcileResult {
+/// Durable ownership produced by one complete shared-instance convergence pass.
+pub(crate) struct SharedInstanceReconcileResult {
     physical_resources: Vec<ResourceRecord>,
     logical_resources: Vec<LogicalResourceRecord>,
 }
 
-impl PreparedPostgresReconcileResult {
-    pub(super) fn new(
-        shared: SharedServiceReconcileResult,
+impl SharedInstanceReconcileResult {
+    pub(crate) fn new(
+        container_id: &str,
+        container_metadata: &ManagedResourceMetadata,
+        volume: Option<(&str, &ManagedResourceMetadata)>,
         logical_resources: Vec<LogicalResourceRecord>,
     ) -> Self {
-        let mut physical_resources = vec![resource_record(
-            shared.container().id().as_str(),
-            shared.container().metadata(),
-        )];
-        if let Some(volume) = shared.volume() {
-            physical_resources.push(resource_record(
-                volume.volume().name(),
-                volume.volume().metadata(),
-            ));
+        let mut physical_resources = vec![resource_record(container_id, container_metadata)];
+        if let Some((volume_name, volume_metadata)) = volume {
+            physical_resources.push(resource_record(volume_name, volume_metadata));
         }
 
         Self {

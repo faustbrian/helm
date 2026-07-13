@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a backend-neutral prepared shared-instance strategy boundary and routed
+  PostgreSQL, MySQL, and MariaDB through it. Exact MySQL-family compatibility
+  groups now reserve stable bootstrap/project credentials, start one physical
+  instance, provision isolated schema/users, and publish durable ownership plus
+  managed application environments.
 - Connected explicit immutable PostgreSQL demand to daemon convergence: shared
   groups and credentials resolve before mutation, each physical instance starts
   once, tenants provision before dependent apps, and merged ownership plus

@@ -11,25 +11,25 @@ use super::{
     ProvisioningJobOptions, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, generate_credential_secret,
+    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
+    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions, generate_credential_secret,
     plan_gotenberg_project_resources, plan_mailpit_project_resources,
     plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    plan_sql_server_project_resources, prepare_postgres_shared_instances,
+    plan_sql_server_project_resources, prepare_postgres_shared_instances, prepare_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_object_store_project_resources, provision_postgres_logical_resource,
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
     reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
     reconcile_object_store_project_resources, reconcile_postgres_project_resources,
-    reconcile_prepared_postgres_instance, reconcile_rabbitmq_definitions,
-    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
-    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    reconcile_prepared_postgres_instance, reconcile_prepared_shared_instance,
+    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
+    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
+    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
+    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -60,6 +60,22 @@ fn shared_postgres_source(
         PathBuf::from(format!("{directory}/.stackctl.yaml")),
         format!(
             "schema_version: 8\nproject: {project}\nservices:\n  db:\n    preset: postgres\n    version: \"{version}\"\n    image: {image}\n"
+        ),
+    )
+}
+
+fn shared_database_source(
+    directory: &str,
+    project: &str,
+    preset: &str,
+    version: &str,
+    image: &str,
+) -> ProjectSource {
+    ProjectSource::new(
+        PathBuf::from(directory),
+        PathBuf::from(format!("{directory}/.stackctl.yaml")),
+        format!(
+            "schema_version: 8\nproject: {project}\nservices:\n  db:\n    preset: {preset}\n    version: \"{version}\"\n    image: {image}\n"
         ),
     )
 }
@@ -130,6 +146,120 @@ fn postgres_version_or_image_differences_never_share_an_instance() {
         .expect("shared execution instances");
 
     assert_eq!(shared.len(), 3);
+}
+
+#[test]
+fn mysql_and_mariadb_demands_resolve_as_distinct_compatibility_strategies() {
+    let mysql = concat!(
+        "mysql@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let mariadb = concat!(
+        "mariadb@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    let registry = plan_project_registry(&[
+        shared_database_source("/work/bill", "bill", "mysql", "8", mysql),
+        shared_database_source("/work/shop", "shop", "mysql", "8", mysql),
+        shared_database_source("/work/portal", "portal", "mariadb", "11", mariadb),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+
+    assert_eq!(shared.len(), 2);
+    assert_eq!(shared[0].profile().implementation(), "mysql");
+    assert_eq!(shared[0].consumers().len(), 2);
+    assert_eq!(shared[1].profile().implementation(), "mariadb");
+    assert_eq!(shared[1].consumers().len(), 1);
+}
+
+#[test]
+fn mysql_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
+    let image = concat!(
+        "mysql@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_database_source("/work/bill", "bill", "mysql", "8", image),
+        shared_database_source("/work/shop", "shop", "mysql", "8", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-mysql-strategy-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let first = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("shared preparation");
+    let first_password = first[0].environments()[0]
+        .values()
+        .get("DB_PASSWORD")
+        .expect("first project password")
+        .clone();
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("replayed shared preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_shared_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("shared reconciliation");
+
+    assert_eq!(prepared.len(), 1);
+    assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].environments().len(), 2);
+    assert_eq!(
+        prepared[0].environments()[0]
+            .values()
+            .get("DB_PASSWORD")
+            .expect("replayed project password"),
+        &first_password
+    );
+    assert_eq!(store.credentials().expect("durable credentials").len(), 3);
+    assert_eq!(result.physical_resources().len(), 2);
+    assert_eq!(result.logical_resources().len(), 2);
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+
+    drop(store);
+    std::fs::remove_file(database_path).expect("remove state store");
 }
 
 #[test]
