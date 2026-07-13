@@ -4,6 +4,7 @@ mod daemon;
 mod desired_state;
 mod dns_label;
 mod engine;
+mod gateway;
 mod identity_error;
 mod project_identity;
 mod registry_conflict;

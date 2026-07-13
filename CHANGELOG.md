@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a replaceable v8 gateway boundary that validates and atomically applies
+  complete deterministic domain-to-internal-HTTP route snapshots.
 - Added deterministic v8 shared-instance planning that groups all project
   demand by compatibility fingerprint and deduplicates logical consumers.
 - Added deterministic v8 shared-service compatibility fingerprints covering
