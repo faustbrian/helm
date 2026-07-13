@@ -1,6 +1,6 @@
 use super::{
     BackupArtifactManifest, DeletionDecision, PruneAuthorization, evaluate_deletion,
-    verify_backup_artifact,
+    store_backup_artifact, verify_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
@@ -174,6 +174,7 @@ fn backup_manifest_serializes_portable_resource_identity_and_checksum() {
             "schema_version": 1,
             "resource_id": "resource-1",
             "installation_id": "install-1",
+            "resource_kind": "volume",
             "compatibility_fingerprint": "sha256:fingerprint",
             "artifact_sha256":
                 "7171b7ccbaa1ac3767c1e75815c6c5bca6634f141b55b4d1a398ddf2a76b75df",
@@ -198,6 +199,146 @@ fn backup_verification_rejects_impossible_timestamps() {
         error.to_string(),
         "backup verification time predates artifact creation"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_artifacts_are_private_atomic_immutable_and_reread_for_verification() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-store-{}-{}",
+        std::process::id(),
+        50_000
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+
+    let stored = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect("stored backup");
+    let repeated = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect("idempotent backup store");
+
+    assert_eq!(stored, repeated);
+    assert_eq!(
+        std::fs::read(stored.artifact_file()).expect("artifact bytes"),
+        b"recoverable bytes"
+    );
+    assert_eq!(
+        std::fs::metadata(&root)
+            .expect("backup root metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    for path in [stored.artifact_file(), stored.manifest_file()] {
+        assert_eq!(
+            std::fs::metadata(path)
+                .expect("backup file metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    let evidence = verify_stored_backup_artifact(&stored, 41_000).expect("stored evidence");
+    assert_eq!(
+        evaluate_deletion(
+            &resource,
+            50_000,
+            100,
+            PruneAuthorization::Explicit {
+                backup: Some(evidence),
+            },
+        ),
+        DeletionDecision::DeleteAuthorized
+    );
+
+    std::fs::write(stored.artifact_file(), b"tampered").expect("tamper artifact");
+    let error = verify_stored_backup_artifact(&stored, 41_000).expect_err("tampered stored backup");
+    assert_eq!(
+        error.to_string(),
+        "backup artifact checksum does not match its manifest"
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_store_retains_distinct_recovery_points_for_one_resource() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-history-{}-{}",
+        std::process::id(),
+        50_001
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+
+    let first =
+        store_backup_artifact(&resource, b"first backup", 40_000, &root).expect("first backup");
+    let second =
+        store_backup_artifact(&resource, b"second backup", 41_000, &root).expect("second backup");
+
+    assert_ne!(first, second);
+    assert!(first.artifact_file().is_file());
+    assert!(second.artifact_file().is_file());
+
+    std::fs::remove_dir_all(&root).expect("remove backup history fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn backup_store_recovers_an_incomplete_owned_pending_publish() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-recovery-{}-{}",
+        std::process::id(),
+        50_002
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+    let initially_stored = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect("initial backup");
+    let destination = initially_stored
+        .artifact_file()
+        .parent()
+        .expect("destination directory")
+        .to_owned();
+    let resource_directory = destination.parent().expect("resource directory");
+    let pending = resource_directory.join(format!(
+        ".pending-{}",
+        destination
+            .file_name()
+            .expect("destination file name")
+            .to_string_lossy()
+    ));
+    std::fs::remove_dir_all(&destination).expect("simulate unpublished backup");
+    std::fs::create_dir(&pending).expect("stale pending directory");
+    std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o700))
+        .expect("protect pending directory");
+    std::fs::write(pending.join("artifact.bin"), b"partial").expect("partial pending artifact");
+
+    let recovered = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect("recovered backup publish");
+
+    assert_eq!(recovered, initially_stored);
+    assert!(!pending.exists());
+    verify_stored_backup_artifact(&recovered, 41_000).expect("verified recovered backup");
+
+    std::fs::remove_dir_all(&root).expect("remove backup recovery fixture");
 }
 
 fn resource(

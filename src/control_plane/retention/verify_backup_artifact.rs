@@ -22,6 +22,7 @@ pub(crate) fn verify_backup_artifact(
     Ok(VerifiedBackupEvidence::new(
         manifest.resource_id().to_owned(),
         manifest.installation_id().to_owned(),
+        manifest.resource_kind().to_owned(),
         manifest.compatibility_fingerprint().to_owned(),
         artifact_sha256,
         verified_at_unix_seconds,
