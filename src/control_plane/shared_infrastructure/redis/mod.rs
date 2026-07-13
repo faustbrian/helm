@@ -1,4 +1,5 @@
 pub(crate) use plan_redis_project_resources::plan_redis_project_resources;
+pub(crate) use reconcile_redis_acl_snapshot::reconcile_redis_acl_snapshot;
 pub(crate) use redis_acl_project::RedisAclProject;
 pub(crate) use redis_acl_snapshot::RedisAclSnapshot;
 pub(crate) use redis_flavor::RedisFlavor;
@@ -11,6 +12,7 @@ pub(crate) use store_redis_acl_snapshot::store_redis_acl_snapshot;
 pub(crate) use stored_redis_acl_paths::StoredRedisAclPaths;
 
 mod plan_redis_project_resources;
+mod reconcile_redis_acl_snapshot;
 mod redis_acl_project;
 mod redis_acl_snapshot;
 mod redis_flavor;

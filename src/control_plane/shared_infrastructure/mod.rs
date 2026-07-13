@@ -39,7 +39,8 @@ pub(crate) use reconcile_shared_volume::reconcile_shared_volume;
 pub(crate) use redis::{
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,
     RedisSharedInstancePlan, RedisSharedInstancePlanOptions, StoredRedisAclPaths,
-    plan_redis_project_resources, reload_redis_acl, store_redis_acl_snapshot,
+    plan_redis_project_resources, reconcile_redis_acl_snapshot, reload_redis_acl,
+    store_redis_acl_snapshot,
 };
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;

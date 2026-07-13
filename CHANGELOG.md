@@ -114,6 +114,8 @@ All notable changes to this project are documented in this file.
   and role provisioning for stable project credentials and managed environments.
 - Composed MySQL/MariaDB and MongoDB shared-instance reconciliation with isolated
   schema/database users provisioned through bounded attached Engine commands.
+- Added atomic Redis/Valkey ACL snapshot reconciliation with exact read-only mount
+  validation, shared process convergence, and authenticated in-container reload.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

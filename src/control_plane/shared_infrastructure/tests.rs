@@ -14,9 +14,9 @@ use super::{
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_postgres_logical_resource, reconcile_mongodb_project_resources,
     reconcile_mysql_project_resources, reconcile_postgres_project_resources,
-    reconcile_shared_service, reconcile_shared_volume, reload_rabbitmq_definitions,
-    reload_redis_acl, revoke_rabbitmq_project_access, store_credential_secret,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
+    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
+    store_credential_secret, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -1311,6 +1311,142 @@ fn redis_project_resources_compose_acl_credential_and_managed_environment() {
         ])
     );
     assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[cfg(unix)]
+#[test]
+fn redis_acl_reconciliation_publishes_snapshot_before_start_and_reload() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-redis-reconcile-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale Redis fixture");
+    }
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let instance = RedisSharedInstancePlan::new(
+        &shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: root.join("mounted"),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+    let snapshot = RedisAclSnapshot::new(
+        CredentialSecret::new("redis-admin".to_owned()),
+        vec![
+            RedisAclProject::new(
+                "bill",
+                "cache",
+                CredentialSecret::new("project-secret".to_owned()),
+            )
+            .expect("Redis project ACL"),
+        ],
+    )
+    .expect("Redis ACL snapshot");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_redis_acl_snapshot(
+            &mut engine,
+            &instance,
+            &snapshot,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile Redis ACL snapshot");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert!(root.join("mounted/users.acl").is_file());
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    assert!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("Redis command arguments")
+            .iter()
+            .any(|arguments| arguments.ends_with(&["ACL".to_owned(), "LOAD".to_owned()]))
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove Redis fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn redis_acl_reconciliation_rejects_unmanaged_mounts_before_writes() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-redis-mount-reject-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale Redis fixture");
+    }
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let instance = RedisSharedInstancePlan::new(
+        &shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: root.join("wrong"),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+    let snapshot =
+        RedisAclSnapshot::new(CredentialSecret::new("redis-admin".to_owned()), Vec::new())
+            .expect("Redis ACL snapshot");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_redis_acl_snapshot(
+            &mut engine,
+            &instance,
+            &snapshot,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect_err("unmanaged ACL mount");
+
+    assert!(
+        error
+            .to_string()
+            .contains("ACL mount must use managed snapshot directory")
+    );
+    assert!(!root.exists());
+    assert!(engine.operations.is_empty());
 }
 
 #[test]
