@@ -1,4 +1,4 @@
-use super::{PostgresPlanError, PostgresSharedInstancePlanOptions};
+use super::{POSTGRES_BOOTSTRAP_USERNAME, PostgresPlanError, PostgresSharedInstancePlanOptions};
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerRestartPolicy, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
@@ -61,7 +61,7 @@ impl PostgresSharedInstancePlan {
             credential_id: format!("shared/{identity}/postgresql-bootstrap"),
             project_id: None,
             service_id: "postgresql".to_owned(),
-            username: "stackctl_admin".to_owned(),
+            username: POSTGRES_BOOTSTRAP_USERNAME.to_owned(),
             secret: options.bootstrap_secret.expose().to_owned(),
             lifecycle: CredentialLifecycle::Active,
         });
@@ -76,7 +76,10 @@ impl PostgresSharedInstancePlan {
         .and_then(|request| {
             request.with_environment(BTreeMap::from([
                 ("POSTGRES_DB".to_owned(), "postgres".to_owned()),
-                ("POSTGRES_USER".to_owned(), "stackctl_admin".to_owned()),
+                (
+                    "POSTGRES_USER".to_owned(),
+                    POSTGRES_BOOTSTRAP_USERNAME.to_owned(),
+                ),
                 (
                     "POSTGRES_PASSWORD".to_owned(),
                     bootstrap_credential.secret().to_owned(),

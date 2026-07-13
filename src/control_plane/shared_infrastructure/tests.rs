@@ -2543,7 +2543,7 @@ fn postgres_logical_resources_use_deterministic_isolated_names_and_stdin() {
             "psql",
             "--no-psqlrc",
             "--set=ON_ERROR_STOP=1",
-            "--username=postgres",
+            "--username=stackctl_admin",
             "--dbname=postgres",
         ]
     );

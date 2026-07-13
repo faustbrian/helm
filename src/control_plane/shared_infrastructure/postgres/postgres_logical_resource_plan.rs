@@ -1,4 +1,4 @@
-use super::PostgresPlanError;
+use super::{POSTGRES_BOOTSTRAP_USERNAME, PostgresPlanError};
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use std::fmt::{Debug, Formatter};
@@ -43,7 +43,7 @@ impl PostgresLogicalResourcePlan {
                 "psql".to_owned(),
                 "--no-psqlrc".to_owned(),
                 "--set=ON_ERROR_STOP=1".to_owned(),
-                "--username=postgres".to_owned(),
+                format!("--username={POSTGRES_BOOTSTRAP_USERNAME}"),
                 "--dbname=postgres".to_owned(),
             ],
             stdin_sql,

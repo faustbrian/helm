@@ -7,6 +7,8 @@ mod postgres_shared_instance_plan_options;
 mod provision_postgres_logical_resource;
 mod reconcile_postgres_project_resources;
 
+pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
+
 pub(crate) use plan_postgres_project_resources::plan_postgres_project_resources;
 pub(crate) use postgres_logical_resource_plan::PostgresLogicalResourcePlan;
 pub(crate) use postgres_plan_error::PostgresPlanError;

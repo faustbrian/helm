@@ -39,6 +39,9 @@ All notable changes to this project are documented in this file.
 - Added direct-Engine PostgreSQL restores that reject non-absolute or linked
   recovery points, verify logical ownership and journaled checksum and size,
   then stream the exact custom dump into its isolated target transaction.
+- Fixed PostgreSQL logical provisioning to connect with the same managed
+  bootstrap administrator configured by the shared official image instead of
+  assuming the image also created a separate `postgres` role.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
