@@ -1,12 +1,13 @@
 use super::{
-    ActiveProjectCommand, BollardUnixEngineConnector, DaemonIterationResult,
-    DaemonRequestDispatchOptions, DiscoveryScheduler, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
-    FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue, ProjectLogSessionRegistry,
-    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
-    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_project_command_operations, validate_project_workload_adoption,
+    ActiveProjectCommand, ActiveProjectLogSession, BollardUnixEngineConnector,
+    DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineReconciliationPlanOptions,
+    EngineReconciliationSchedule, FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue,
+    ProjectLogSessionRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_project_command_operations,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -52,6 +53,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
+    pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
@@ -112,6 +114,7 @@ impl UnixDaemonRuntime {
             event_journal,
             project_commands,
             project_logs: ProjectLogSessionRegistry::default(),
+            active_project_logs: BTreeMap::new(),
             active_project_command: None,
             control_plane: ControlPlane::new(store),
             scheduler,
@@ -196,6 +199,7 @@ impl UnixDaemonRuntime {
                         self.reconcile_engine_plane(now);
                     }
                     self.drive_project_commands(now, unix_time_seconds());
+                    self.drive_project_logs(now);
                 }
                 Err(error) => {
                     tracing::error!(error = %error, "singleton daemon iteration failed");

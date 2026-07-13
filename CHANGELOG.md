@@ -12,6 +12,9 @@ All notable changes to this project are documented in this file.
 - Added authoritative v8 log-session registration, polling, and cancellation
   with exact resolution of project application and shared-service ownership
   before an Engine stream can start.
+- Added concurrent v8 Engine log producers with live ownership verification,
+  bounded channel backpressure, binary-safe stream attribution, and clean
+  cancellation without Docker CLI or host log tools.
 - Added strict v8 `open` using only daemon-published HTTPS routes, with exact
   service or all-route selection, machine-readable output, explicit platform
   opener failures, and no legacy curl, database-port, or health-path probing.

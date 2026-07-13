@@ -1,4 +1,5 @@
 mod active_project_command;
+mod active_project_log_session;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
 mod daemon_iteration_result;
@@ -21,6 +22,7 @@ mod engine_reconciliation_plan;
 mod engine_reconciliation_plan_error;
 mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
+mod execute_project_logs;
 mod execute_queued_project_command;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
@@ -38,6 +40,7 @@ mod project_discovery_options;
 mod project_discovery_report;
 mod project_log_buffer;
 mod project_log_buffer_error;
+mod project_log_message;
 mod project_log_request;
 mod project_log_session_registry;
 mod project_log_session_registry_error;
@@ -58,6 +61,7 @@ mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
 mod unix_daemon_project_commands;
+mod unix_daemon_project_logs;
 #[cfg(unix)]
 mod unix_daemon_runtime;
 #[cfg(unix)]
@@ -69,6 +73,7 @@ mod unix_daemon_watch_options;
 mod validate_project_workload_adoption;
 
 pub(crate) use active_project_command::ActiveProjectCommand;
+pub(crate) use active_project_log_session::ActiveProjectLogSession;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
@@ -96,6 +101,7 @@ pub(crate) use engine_reconciliation_plan::EngineReconciliationPlan;
 pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
 pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
+pub(crate) use execute_project_logs::execute_project_logs;
 pub(crate) use execute_queued_project_command::execute_queued_project_command;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
@@ -119,6 +125,7 @@ pub(crate) use project_discovery_options::ProjectDiscoveryOptions;
 pub(crate) use project_discovery_report::ProjectDiscoveryReport;
 pub(crate) use project_log_buffer::ProjectLogBuffer;
 pub(crate) use project_log_buffer_error::ProjectLogBufferError;
+pub(crate) use project_log_message::ProjectLogMessage;
 pub(crate) use project_log_request::ProjectLogRequest;
 pub(crate) use project_log_session_registry::ProjectLogSessionRegistry;
 pub(crate) use project_log_session_registry_error::ProjectLogSessionRegistryError;

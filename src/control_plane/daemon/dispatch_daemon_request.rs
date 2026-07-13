@@ -499,8 +499,10 @@ where
                     resources
                         .iter()
                         .find(|resource| {
-                            resource.resource_id() == logical.shared_resource_id()
+                            resource.kind() == "shared_service"
                                 && resource.project_id().is_none()
+                                && resource.compatibility_fingerprint()
+                                    == logical.compatibility_fingerprint()
                                 && resource.lifecycle() == ResourceLifecycle::Active
                         })
                         .map(|resource| {

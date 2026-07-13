@@ -2,11 +2,12 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
-    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogSessionRegistry,
-    QueuedProjectCommand, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    discover_project_sources, dispatch_daemon_request, execute_queued_project_command,
-    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_project_command_operations,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
+    ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectCommand, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_project_command, plan_engine_reconciliation,
+    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -25,6 +26,47 @@ use crate::control_plane::state::{
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn project_logs_stream_from_exact_live_owned_containers() {
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )]);
+    let request = ProjectLogRequest::new(
+        "logs-42".to_owned(),
+        "bill".to_owned(),
+        vec![ProjectLogTarget::new(
+            "app".to_owned(),
+            "container-app".to_owned(),
+            Some("bill".to_owned()),
+        )],
+        false,
+        Some(100),
+    );
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(execute_project_logs(
+            engine,
+            request,
+            "install-1".to_owned(),
+            8,
+            sender,
+        ))
+        .expect("project logs");
+
+    let first = receiver.try_recv().expect("stdout log chunk");
+    assert_eq!(first.service(), "app");
+    assert_eq!(first.stream(), IpcOutputStream::Stdout);
+    assert_eq!(first.bytes(), b"ready\n");
+}
 
 #[test]
 fn project_log_buffer_is_bounded_and_fails_loudly_for_expired_cursors() {
@@ -1866,6 +1908,28 @@ impl crate::control_plane::engine::ContainerDiscovery for RecordingProjectComman
         Vec<crate::control_plane::engine::ObservedContainer>,
     > {
         Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::LogSource for RecordingProjectCommandEngine {
+    fn logs<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _options: &'operation crate::control_plane::engine::ContainerLogOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::ContainerLogStream<'operation>,
+    > {
+        Box::pin(async {
+            let stream: crate::control_plane::engine::ContainerLogStream<'operation> =
+                Box::pin(futures_util::stream::once(async {
+                    Ok(crate::control_plane::engine::LogChunk::stdout(
+                        b"ready\n".to_vec(),
+                    ))
+                }));
+
+            Ok(stream)
+        })
     }
 }
 

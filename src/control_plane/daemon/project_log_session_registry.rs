@@ -112,6 +112,12 @@ impl ProjectLogSessionRegistry {
         Ok(())
     }
 
+    pub(crate) fn is_cancelled(&self, session_id: &str) -> bool {
+        self.sessions
+            .get(session_id)
+            .is_some_and(|session| session.buffer.is_cancelled())
+    }
+
     pub(crate) fn poll(
         &mut self,
         session_id: &str,

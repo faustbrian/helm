@@ -108,4 +108,8 @@ impl ProjectLogBuffer {
     pub(crate) fn cancel(&mut self) {
         self.state = IpcLogSessionState::Cancelled;
     }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.state == IpcLogSessionState::Cancelled
+    }
 }
