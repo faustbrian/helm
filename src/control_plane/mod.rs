@@ -16,6 +16,7 @@ mod state;
 mod tls;
 mod validate_route_claims;
 mod validated_route_registry;
+mod workload;
 
 pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
 use dns_label::DnsLabel;
