@@ -19,34 +19,14 @@ pub(crate) struct DaemonArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum DaemonCommands {
-    /// Start a per-project Stackctl daemon
-    Start(DaemonStartArgs),
     /// Run the authoritative singleton over watched project directories
     Watch(DaemonWatchArgs),
     /// Install or inspect a login-time daemon watch service
     Service(DaemonServiceArgs),
-    /// Show daemon status for a project
-    Status(DaemonStatusArgs),
-    /// Stop a per-project Stackctl daemon
-    Stop(DaemonStopArgs),
-    /// Show daemon log output for a project
-    Logs(DaemonLogsArgs),
-    #[command(hide = true)]
-    Run(DaemonRunArgs),
-}
-
-#[derive(Args)]
-pub(crate) struct DaemonStartArgs {
-    /// Project directory or nested path inside a Stackctl project
-    #[arg(long, value_name = "DIR")]
-    pub(crate) path: PathBuf,
-}
-
-#[derive(Args)]
-pub(crate) struct DaemonStatusArgs {
-    /// Project directory or nested path inside a Stackctl project
-    #[arg(long, value_name = "DIR")]
-    pub(crate) path: PathBuf,
+    /// Verify that the per-user singleton is responsive
+    Status,
+    /// Request one immediate complete watched-root reconciliation
+    Reconcile,
 }
 
 #[derive(Args)]
@@ -60,25 +40,4 @@ pub(crate) struct DaemonWatchArgs {
     /// Seconds between discovery scans
     #[arg(long, default_value_t = 30)]
     pub(crate) interval: u64,
-}
-
-#[derive(Args)]
-pub(crate) struct DaemonStopArgs {
-    /// Project directory or nested path inside a Stackctl project
-    #[arg(long, value_name = "DIR")]
-    pub(crate) path: PathBuf,
-}
-
-#[derive(Args)]
-pub(crate) struct DaemonLogsArgs {
-    /// Project directory or nested path inside a Stackctl project
-    #[arg(long, value_name = "DIR")]
-    pub(crate) path: PathBuf,
-}
-
-#[derive(Args)]
-pub(crate) struct DaemonRunArgs {
-    /// Project directory or nested path inside a Stackctl project
-    #[arg(long, value_name = "DIR")]
-    pub(crate) path: PathBuf,
 }

@@ -16,6 +16,10 @@ pub(crate) enum IpcError {
     UnsupportedProtocol { found: u16, expected: u16 },
     /// A request cannot be correlated or cancelled without an ID.
     EmptyRequestId,
+    /// A client timeout must bound both request and response I/O.
+    InvalidTimeout,
+    /// A response must complete the exact request sent on the connection.
+    ResponseCorrelation { expected: String, found: String },
     /// A local endpoint could not be bound or secured.
     EndpointIo {
         path: PathBuf,
@@ -40,6 +44,11 @@ impl Display for IpcError {
                 "IPC protocol version {found} is unsupported; expected {expected}"
             ),
             Self::EmptyRequestId => write!(formatter, "IPC request_id must not be empty"),
+            Self::InvalidTimeout => write!(formatter, "IPC timeout must be greater than zero"),
+            Self::ResponseCorrelation { expected, found } => write!(
+                formatter,
+                "IPC response request_id '{found}' does not match request '{expected}'"
+            ),
             Self::EndpointIo { path, source } => write!(
                 formatter,
                 "IPC endpoint '{}' failed: {source}",
@@ -57,7 +66,9 @@ impl Error for IpcError {
             Self::InvalidFrame
             | Self::FrameTooLarge { .. }
             | Self::UnsupportedProtocol { .. }
-            | Self::EmptyRequestId => None,
+            | Self::EmptyRequestId
+            | Self::InvalidTimeout
+            | Self::ResponseCorrelation { .. } => None,
         }
     }
 }

@@ -24,7 +24,10 @@ mod workload;
 
 pub(crate) use configuration::{parse_project_config, project_config_schema};
 #[cfg(unix)]
-pub(crate) use daemon::{UnixDaemonWatchOptions, run_unix_daemon_watch};
+pub(crate) use daemon::{
+    IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, UnixDaemonWatchOptions,
+    default_unix_daemon_runtime_directory, run_unix_daemon_watch, send_unix_request,
+};
 pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
 use dns_label::DnsLabel;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;

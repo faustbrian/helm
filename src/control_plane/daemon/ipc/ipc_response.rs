@@ -23,6 +23,18 @@ impl IpcDiagnostic {
             retryable,
         }
     }
+
+    pub(crate) fn code(&self) -> &str {
+        &self.code
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+
+    pub(crate) const fn retryable(&self) -> bool {
+        self.retryable
+    }
 }
 
 /// The typed outcome of one correlated IPC request.
@@ -72,5 +84,10 @@ impl IpcResponse {
     /// Returns the request ID this response completes or updates.
     pub(crate) fn request_id(&self) -> &str {
         &self.request_id
+    }
+
+    /// Returns the typed success or structured failure outcome.
+    pub(crate) const fn outcome(&self) -> &IpcOutcome {
+        &self.outcome
     }
 }

@@ -846,13 +846,6 @@ fn share_command_variants_parse() {
 
 #[test]
 fn daemon_command_variants_parse() {
-    let start = Cli::parse_from(["stackctl", "daemon", "start", "--path", "/tmp/project"]);
-    if let commands::Commands::Daemon(args) = start.command {
-        assert!(matches!(args.command, commands::DaemonCommands::Start(_)));
-    } else {
-        panic!("expected daemon command");
-    }
-
     let watch = Cli::parse_from(["stackctl", "daemon", "watch", "--dir", "/tmp/projects"]);
     if let commands::Commands::Daemon(args) = watch.command {
         assert!(matches!(args.command, commands::DaemonCommands::Watch(_)));
@@ -874,23 +867,16 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
-    let status = Cli::parse_from(["stackctl", "daemon", "status", "--path", "/tmp/project"]);
+    let status = Cli::parse_from(["stackctl", "daemon", "status"]);
     if let commands::Commands::Daemon(args) = status.command {
-        assert!(matches!(args.command, commands::DaemonCommands::Status(_)));
+        assert!(matches!(args.command, commands::DaemonCommands::Status));
     } else {
         panic!("expected daemon command");
     }
 
-    let stop = Cli::parse_from(["stackctl", "daemon", "stop", "--path", "/tmp/project"]);
-    if let commands::Commands::Daemon(args) = stop.command {
-        assert!(matches!(args.command, commands::DaemonCommands::Stop(_)));
-    } else {
-        panic!("expected daemon command");
-    }
-
-    let logs = Cli::parse_from(["stackctl", "daemon", "logs", "--path", "/tmp/project"]);
-    if let commands::Commands::Daemon(args) = logs.command {
-        assert!(matches!(args.command, commands::DaemonCommands::Logs(_)));
+    let reconcile = Cli::parse_from(["stackctl", "daemon", "reconcile"]);
+    if let commands::Commands::Daemon(args) = reconcile.command {
+        assert!(matches!(args.command, commands::DaemonCommands::Reconcile));
     } else {
         panic!("expected daemon command");
     }

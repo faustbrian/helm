@@ -87,6 +87,9 @@ All notable changes to this project are documented in this file.
 - Changed `daemon watch` and the login-service path to run one v8 control
   plane backed by SQLite instead of starting per-project daemons, and removed
   exclusion and project-limit flags that could produce partial registries.
+- Replaced project-scoped daemon start, status, stop, logs, and hidden run
+  commands with singleton status and reconciliation over typed IPC, removing
+  TOML PID sessions and the legacy per-project supervisor implementation.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

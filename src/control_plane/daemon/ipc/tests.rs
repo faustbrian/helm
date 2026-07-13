@@ -182,3 +182,62 @@ fn unix_listener_rejects_oversized_input_before_dispatch() {
     assert!(error.to_string().contains("maximum is 1048576 bytes"));
     assert!(!dispatched.load(Ordering::Acquire));
 }
+
+#[cfg(unix)]
+#[test]
+fn unix_client_sends_one_correlated_request_to_the_singleton() {
+    use super::{UnixIpcListener, send_unix_request};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let socket_path = std::env::temp_dir().join(format!("s8-{}-{unique}.sock", std::process::id()));
+    let listener = UnixIpcListener::bind(&socket_path).expect("bind IPC listener");
+    let server = std::thread::spawn(move || {
+        listener
+            .serve_next(|request| IpcResponse::success(request.request_id(), IpcResult::Pong))
+            .expect("serve IPC request")
+    });
+    let request = IpcRequest::new("client-ping", IpcPayload::Ping);
+
+    let response = send_unix_request(&socket_path, &request, Duration::from_secs(1))
+        .expect("send IPC request");
+
+    assert_eq!(
+        response,
+        IpcResponse::success("client-ping", IpcResult::Pong)
+    );
+    assert_eq!(server.join().expect("join IPC server"), request);
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_client_rejects_a_response_for_another_request() {
+    use super::{IpcError, UnixIpcListener, send_unix_request};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let socket_path = std::env::temp_dir().join(format!("s8-{}-{unique}.sock", std::process::id()));
+    let listener = UnixIpcListener::bind(&socket_path).expect("bind IPC listener");
+    let server = std::thread::spawn(move || {
+        listener
+            .serve_next(|_| IpcResponse::success("another-request", IpcResult::Pong))
+            .expect("serve IPC request")
+    });
+    let request = IpcRequest::new("expected-request", IpcPayload::Ping);
+
+    let error = send_unix_request(&socket_path, &request, Duration::from_secs(1))
+        .expect_err("uncorrelated response must fail");
+
+    assert!(matches!(
+        error,
+        IpcError::ResponseCorrelation { expected, found }
+            if expected == "expected-request" && found == "another-request"
+    ));
+    assert_eq!(server.join().expect("join IPC server"), request);
+}

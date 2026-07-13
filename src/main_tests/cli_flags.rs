@@ -1191,18 +1191,6 @@ fn lock_cli_parses_subcommands() {
 
 #[test]
 fn daemon_cli_parses_subcommands() {
-    let start = Cli::try_parse_from(["stackctl", "daemon", "start", "--path", "/tmp/project"])
-        .expect("parse daemon start");
-    match start.command {
-        Commands::Daemon(args) => match args.command {
-            crate::cli::args::DaemonCommands::Start(start_args) => {
-                assert_eq!(start_args.path, PathBuf::from("/tmp/project"));
-            }
-            _ => panic!("expected daemon start subcommand"),
-        },
-        _ => panic!("expected daemon command"),
-    }
-
     let watch = Cli::try_parse_from([
         "stackctl",
         "daemon",
@@ -1261,39 +1249,27 @@ fn daemon_cli_parses_subcommands() {
         _ => panic!("expected daemon command"),
     }
 
-    let status = Cli::try_parse_from(["stackctl", "daemon", "status", "--path", "/tmp/project"])
-        .expect("parse daemon status");
+    let status = Cli::try_parse_from(["stackctl", "daemon", "status"])
+        .expect("parse singleton daemon status");
     match status.command {
-        Commands::Daemon(args) => match args.command {
-            crate::cli::args::DaemonCommands::Status(status_args) => {
-                assert_eq!(status_args.path, PathBuf::from("/tmp/project"));
-            }
-            _ => panic!("expected daemon status subcommand"),
-        },
+        Commands::Daemon(args) => assert!(matches!(
+            args.command,
+            crate::cli::args::DaemonCommands::Status
+        )),
         _ => panic!("expected daemon command"),
     }
 
-    let stop = Cli::try_parse_from(["stackctl", "daemon", "stop", "--path", "/tmp/project"])
-        .expect("parse daemon stop");
-    match stop.command {
-        Commands::Daemon(args) => match args.command {
-            crate::cli::args::DaemonCommands::Stop(stop_args) => {
-                assert_eq!(stop_args.path, PathBuf::from("/tmp/project"));
-            }
-            _ => panic!("expected daemon stop subcommand"),
-        },
+    let reconcile = Cli::try_parse_from(["stackctl", "daemon", "reconcile"])
+        .expect("parse singleton daemon reconcile");
+    match reconcile.command {
+        Commands::Daemon(args) => assert!(matches!(
+            args.command,
+            crate::cli::args::DaemonCommands::Reconcile
+        )),
         _ => panic!("expected daemon command"),
     }
 
-    let logs = Cli::try_parse_from(["stackctl", "daemon", "logs", "--path", "/tmp/project"])
-        .expect("parse daemon logs");
-    match logs.command {
-        Commands::Daemon(args) => match args.command {
-            crate::cli::args::DaemonCommands::Logs(logs_args) => {
-                assert_eq!(logs_args.path, PathBuf::from("/tmp/project"));
-            }
-            _ => panic!("expected daemon logs subcommand"),
-        },
-        _ => panic!("expected daemon command"),
-    }
+    assert!(
+        Cli::try_parse_from(["stackctl", "daemon", "start", "--path", "/tmp/project"]).is_err()
+    );
 }

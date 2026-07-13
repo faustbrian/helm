@@ -11,8 +11,6 @@ use std::process::Command;
 #[cfg(test)]
 use std::cell::RefCell;
 
-use super::daemon_binary;
-
 const LAUNCHD_LABEL: &str = "dev.stackctl.daemon.watch";
 const SYSTEMD_UNIT_NAME: &str = "stackctl-daemon-watch.service";
 
@@ -297,7 +295,9 @@ fn daemon_service_binary() -> Result<String> {
         return Ok(binary);
     }
 
-    daemon_binary()
+    std::env::current_exe()
+        .context("failed to resolve current stackctl executable")
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn home_dir() -> Result<PathBuf> {

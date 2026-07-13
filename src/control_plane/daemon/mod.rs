@@ -1,4 +1,6 @@
 mod daemon_iteration_result;
+#[cfg(unix)]
+mod default_unix_daemon_runtime_directory;
 mod discover_project_sources;
 mod discovery_reconciliation_error;
 mod discovery_reconciliation_result;
@@ -36,6 +38,8 @@ pub(crate) use singleton_lease_error::SingletonLeaseError;
 #[cfg(test)]
 mod tests;
 pub(crate) use daemon_iteration_result::DaemonIterationResult;
+#[cfg(unix)]
+pub(crate) use default_unix_daemon_runtime_directory::default_unix_daemon_runtime_directory;
 pub(crate) use discover_project_sources::discover_project_sources;
 pub(crate) use discovery_reconciliation_error::DiscoveryReconciliationError;
 pub(crate) use discovery_reconciliation_result::DiscoveryReconciliationResult;
@@ -44,6 +48,10 @@ pub(crate) use discovery_scheduler::DiscoveryScheduler;
 pub(crate) use discovery_scheduler_error::DiscoverySchedulerError;
 pub(crate) use discovery_scheduler_options::DiscoverySchedulerOptions;
 pub(crate) use dispatch_daemon_request::dispatch_daemon_request;
+#[cfg(unix)]
+pub(crate) use ipc::{
+    IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,
+};
 pub(crate) use project_discovery_error::ProjectDiscoveryError;
 pub(crate) use project_discovery_issue::ProjectDiscoveryIssue;
 pub(crate) use project_discovery_options::ProjectDiscoveryOptions;

@@ -28,9 +28,8 @@ pub(crate) use commands::TaskCommands;
 pub(crate) use commands::TaskDepsArgs;
 pub(crate) use commands::TaskDepsCommands;
 pub(crate) use commands::{
-    DaemonArgs, DaemonCommands, DaemonLogsArgs, DaemonRunArgs, DaemonServiceArgs,
-    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonStartArgs,
-    DaemonStatusArgs, DaemonStopArgs, DaemonWatchArgs,
+    DaemonArgs, DaemonCommands, DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs,
+    DaemonServicePrintArgs, DaemonWatchArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;
