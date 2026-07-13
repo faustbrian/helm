@@ -155,3 +155,7 @@ are deterministic.
 
 Compilation is not platform evidence. Every claimed row requires a recorded
 platform acceptance result before release.
+
+The release status and evidence requirements for each concrete combination are
+tracked in [Platform support](platform-support.md). The table above describes
+ownership, not a support claim.

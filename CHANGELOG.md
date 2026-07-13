@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added full-suite Linux and macOS x86_64/arm64 CI coverage plus an explicit
+  platform matrix that keeps unverified and Windows combinations unsupported.
 - Added a CI-enforced v8 host-dependency audit that rejects direct process
   execution and legacy runtime imports outside explicit OS integration seams.
 - Added daemon-worker acceptance coverage proving rollback reconstructs the

@@ -14,6 +14,8 @@ is not complete until its milestone evidence and acceptance tests pass.
   backup, deletion, and host dependencies.
 - [Milestones](milestones.md): independently verifiable implementation phases.
 - [Benchmarks](benchmarks.md): resource and recovery measurement protocol.
+- [Platform support](platform-support.md): claimed, preview, blocked, and
+  unsupported operating-system and architecture combinations.
 
 ## Product invariant
 
