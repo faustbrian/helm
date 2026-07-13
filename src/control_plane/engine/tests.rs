@@ -23,6 +23,7 @@ use bollard::models::{
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::future::pending;
+use std::io::Read;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
@@ -631,15 +632,15 @@ fn resource_metrics_boundary_is_object_safe() {
 #[test]
 fn image_build_requests_are_content_addressed_labeled_and_offline() {
     let metadata = global_metadata(ResourceKind::Build);
+    let dockerfile = concat!(
+        "FROM ghcr.io/stackctl/php@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "COPY . /workspace\n"
+    );
     let request = ImageBuildRequest::new(
-        vec![0x01, 0x02, 0x03],
+        BTreeMap::from([("runtime.json".to_owned(), br#"{"php":"8.4"}"#.to_vec())]),
         "Dockerfile".to_owned(),
-        concat!(
-            "FROM ghcr.io/stackctl/php@sha256:",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-            "COPY . /workspace\n"
-        )
-        .to_owned(),
+        dockerfile.to_owned(),
         "linux/arm64".to_owned(),
         metadata.clone(),
     )
@@ -664,13 +665,32 @@ fn image_build_requests_are_content_addressed_labeled_and_offline() {
     for (key, value) in metadata.labels() {
         assert_eq!(labels.get(&key), Some(&value));
     }
-    assert!(!format!("{request:?}").contains("01, 02, 03"));
+    let mut files = BTreeMap::new();
+    for entry in tar::Archive::new(request.context_tar())
+        .entries()
+        .expect("build context entries")
+    {
+        let mut entry = entry.expect("build context entry");
+        let path = entry
+            .path()
+            .expect("build context path")
+            .to_string_lossy()
+            .into_owned();
+        let mut contents = Vec::new();
+        entry
+            .read_to_end(&mut contents)
+            .expect("build context contents");
+        files.insert(path, contents);
+    }
+    assert_eq!(files["Dockerfile"], dockerfile.as_bytes());
+    assert_eq!(files["runtime.json"], br#"{"php":"8.4"}"#);
+    assert!(!format!("{request:?}").contains("runtime.json"));
 }
 
 #[test]
 fn image_build_requests_reject_mutable_bases_and_remote_additions() {
     let mutable_base = ImageBuildRequest::new(
-        vec![1],
+        BTreeMap::new(),
         "Dockerfile".to_owned(),
         "FROM php:8.4\n".to_owned(),
         "linux/amd64".to_owned(),
@@ -678,7 +698,7 @@ fn image_build_requests_reject_mutable_bases_and_remote_additions() {
     )
     .expect_err("mutable base image");
     let remote_add = ImageBuildRequest::new(
-        vec![1],
+        BTreeMap::new(),
         "Dockerfile".to_owned(),
         concat!(
             "FROM php@sha256:",
@@ -690,6 +710,26 @@ fn image_build_requests_reject_mutable_bases_and_remote_additions() {
         global_metadata(ResourceKind::Build),
     )
     .expect_err("remote ADD");
+    let unsafe_context = ImageBuildRequest::new(
+        BTreeMap::from([("../secret".to_owned(), Vec::new())]),
+        "Dockerfile".to_owned(),
+        concat!(
+            "FROM php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        )
+        .to_owned(),
+        "linux/amd64".to_owned(),
+        global_metadata(ResourceKind::Build),
+    )
+    .expect_err("unsafe context path");
+    let shadowed_dockerfile = ImageBuildRequest::new(
+        BTreeMap::from([("Dockerfile".to_owned(), b"FROM scratch\n".to_vec())]),
+        "Dockerfile".to_owned(),
+        "FROM scratch\n".to_owned(),
+        "linux/amd64".to_owned(),
+        global_metadata(ResourceKind::Build),
+    )
+    .expect_err("shadowed Dockerfile");
 
     assert_eq!(
         mutable_base.to_string(),
@@ -698,6 +738,14 @@ fn image_build_requests_reject_mutable_bases_and_remote_additions() {
     assert_eq!(
         remote_add.to_string(),
         "image build Dockerfile must not ADD remote URLs"
+    );
+    assert_eq!(
+        unsafe_context.to_string(),
+        "image build context path '../secret' must be a safe relative archive path"
+    );
+    assert_eq!(
+        shadowed_dockerfile.to_string(),
+        "image build context must not define reserved Dockerfile path 'Dockerfile'"
     );
 }
 

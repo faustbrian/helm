@@ -19,18 +19,27 @@ pub(crate) struct ImageBuildRequest {
 
 impl ImageBuildRequest {
     pub(crate) fn new(
-        context_tar: Vec<u8>,
+        mut context_files: BTreeMap<String, Vec<u8>>,
         dockerfile_path: String,
         dockerfile_contents: String,
         platform: String,
         metadata: ManagedResourceMetadata,
     ) -> Result<Self, EngineError> {
-        if context_tar.is_empty() {
-            return Err(invalid_build("image build context must not be empty"));
-        }
-
         validate_dockerfile_path(&dockerfile_path)?;
         validate_dockerfile(&dockerfile_contents)?;
+        for path in context_files.keys() {
+            validate_context_path(path)?;
+        }
+        if context_files.contains_key(&dockerfile_path) {
+            return Err(invalid_build(format!(
+                "image build context must not define reserved Dockerfile path '{dockerfile_path}'"
+            )));
+        }
+        context_files.insert(
+            dockerfile_path.clone(),
+            dockerfile_contents.as_bytes().to_vec(),
+        );
+        let context_tar = build_context_tar(&context_files)?;
 
         if !platform.starts_with("linux/") || platform.trim_matches('/').split('/').count() < 2 {
             return Err(invalid_build(format!(
@@ -109,19 +118,63 @@ impl Debug for ImageBuildRequest {
 }
 
 fn validate_dockerfile_path(path: &str) -> Result<(), EngineError> {
-    if path.is_empty()
-        || path.starts_with('/')
-        || path
-            .split('/')
-            .any(|component| component.is_empty() || component == "..")
-        || path.contains(['\\', '\0'])
-    {
+    if !is_safe_archive_path(path) {
         return Err(invalid_build(format!(
             "image build Dockerfile path '{path}' must be a safe relative archive path"
         )));
     }
 
     Ok(())
+}
+
+fn validate_context_path(path: &str) -> Result<(), EngineError> {
+    if !is_safe_archive_path(path) {
+        return Err(invalid_build(format!(
+            "image build context path '{path}' must be a safe relative archive path"
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_safe_archive_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path
+            .split('/')
+            .any(|component| component.is_empty() || component == "." || component == "..")
+        && !path.contains(['\\', '\0'])
+}
+
+fn build_context_tar(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<u8>, EngineError> {
+    let mut archive = tar::Builder::new(Vec::new());
+    for (path, contents) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_path(path).map_err(|error| {
+            invalid_build(format!(
+                "failed to encode image build context path '{path}': {error}"
+            ))
+        })?;
+        let size = u64::try_from(contents.len()).map_err(|error| {
+            invalid_build(format!(
+                "image build context file '{path}' is too large: {error}"
+            ))
+        })?;
+        header.set_size(size);
+        header.set_mode(0o644);
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_mtime(0);
+        header.set_cksum();
+        archive
+            .append(&header, contents.as_slice())
+            .map_err(|error| {
+                invalid_build(format!("failed to encode image build context: {error}"))
+            })?;
+    }
+    archive
+        .into_inner()
+        .map_err(|error| invalid_build(format!("failed to finish image build context: {error}")))
 }
 
 fn validate_dockerfile(contents: &str) -> Result<(), EngineError> {
