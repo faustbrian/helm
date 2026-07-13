@@ -853,17 +853,7 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
-    let watch = Cli::parse_from([
-        "stackctl",
-        "daemon",
-        "watch",
-        "--dir",
-        "/tmp/projects",
-        "--exclude-dir",
-        "/tmp/archive",
-        "--max-projects",
-        "5",
-    ]);
+    let watch = Cli::parse_from(["stackctl", "daemon", "watch", "--dir", "/tmp/projects"]);
     if let commands::Commands::Daemon(args) = watch.command {
         assert!(matches!(args.command, commands::DaemonCommands::Watch(_)));
     } else {
@@ -877,10 +867,6 @@ fn daemon_command_variants_parse() {
         "install",
         "--dir",
         "/tmp/projects",
-        "--exclude-dir",
-        "/tmp/archive",
-        "--max-projects",
-        "5",
     ]);
     if let commands::Commands::Daemon(args) = service.command {
         assert!(matches!(args.command, commands::DaemonCommands::Service(_)));
@@ -908,4 +894,33 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+}
+
+#[test]
+fn singleton_daemon_rejects_partial_registry_watch_flags() {
+    assert!(
+        Cli::try_parse_from([
+            "stackctl",
+            "daemon",
+            "watch",
+            "--dir",
+            "/tmp/projects",
+            "--exclude-dir",
+            "/tmp/archive",
+        ])
+        .is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "stackctl",
+            "daemon",
+            "service",
+            "install",
+            "--dir",
+            "/tmp/projects",
+            "--max-projects",
+            "5",
+        ])
+        .is_err()
+    );
 }

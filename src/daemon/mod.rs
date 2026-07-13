@@ -1,12 +1,10 @@
 //! Per-project daemon state and process helpers.
 
-mod discovery;
 mod process;
 mod service;
 mod state;
 mod supervisor;
 
-pub(crate) use discovery::{DiscoveryOptions, DiscoveryReport, discover_projects};
 pub(crate) use process::{daemon_binary, pid_is_running, spawn_detached, stop_pid};
 pub(crate) use service::{
     DaemonServiceInstallOptions, ServiceManager, install_service, print_service, service_status,

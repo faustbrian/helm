@@ -12,16 +12,6 @@ pub(crate) use service::{
 };
 
 #[derive(Args)]
-pub(crate) struct DaemonWatchPolicyArgs {
-    /// Directory subtree to exclude from project discovery
-    #[arg(long, value_name = "DIR")]
-    pub(crate) exclude_dir: Vec<PathBuf>,
-    /// Maximum number of projects to auto-start from one watch pass
-    #[arg(long, value_name = "N")]
-    pub(crate) max_projects: Option<usize>,
-}
-
-#[derive(Args)]
 pub(crate) struct DaemonArgs {
     #[command(subcommand)]
     pub(crate) command: DaemonCommands,
@@ -31,7 +21,7 @@ pub(crate) struct DaemonArgs {
 pub(crate) enum DaemonCommands {
     /// Start a per-project Stackctl daemon
     Start(DaemonStartArgs),
-    /// Watch directories for Stackctl projects and ensure daemons are running
+    /// Run the authoritative singleton over watched project directories
     Watch(DaemonWatchArgs),
     /// Install or inspect a login-time daemon watch service
     Service(DaemonServiceArgs),
@@ -61,11 +51,9 @@ pub(crate) struct DaemonStatusArgs {
 
 #[derive(Args)]
 pub(crate) struct DaemonWatchArgs {
-    /// Directory to scan for Stackctl projects
+    /// Authoritative parent directory to scan for Stackctl projects
     #[arg(long, value_name = "DIR", required = true)]
     pub(crate) dir: Vec<PathBuf>,
-    #[command(flatten)]
-    pub(crate) policy: DaemonWatchPolicyArgs,
     /// Run one discovery pass and exit
     #[arg(long, default_value_t = false)]
     pub(crate) once: bool,

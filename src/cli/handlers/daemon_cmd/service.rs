@@ -2,7 +2,6 @@
 
 use crate::cli::args::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
-    DaemonWatchPolicyArgs,
 };
 use crate::daemon::{self, DaemonServiceInstallOptions, ServiceManager};
 use crate::output::{self, LogLevel, Persistence};
@@ -19,11 +18,7 @@ pub(super) fn handle_daemon_service(args: &DaemonServiceArgs) -> Result<()> {
 }
 
 fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {
-    let status = daemon::install_service(&install_options(
-        args.dir.clone(),
-        &args.policy,
-        args.interval,
-    ))?;
+    let status = daemon::install_service(&install_options(args.dir.clone(), args.interval))?;
     output::event(
         "daemon",
         LogLevel::Success,
@@ -60,11 +55,7 @@ fn handle_status() -> Result<()> {
 }
 
 fn handle_print(args: &DaemonServicePrintArgs) -> Result<()> {
-    let definition = daemon::print_service(&install_options(
-        args.dir.clone(),
-        &args.policy,
-        args.interval,
-    ))?;
+    let definition = daemon::print_service(&install_options(args.dir.clone(), args.interval))?;
     std::io::stdout().write_all(definition.contents.as_bytes())?;
     std::io::stdout().flush()?;
     Ok(())
@@ -96,15 +87,9 @@ fn handle_uninstall() -> Result<()> {
     Ok(())
 }
 
-fn install_options(
-    dirs: Vec<std::path::PathBuf>,
-    policy: &DaemonWatchPolicyArgs,
-    interval: u64,
-) -> DaemonServiceInstallOptions {
+fn install_options(dirs: Vec<std::path::PathBuf>, interval: u64) -> DaemonServiceInstallOptions {
     DaemonServiceInstallOptions {
         watch_dirs: dirs,
-        exclude_dirs: policy.exclude_dir.clone(),
-        max_projects: policy.max_projects,
         interval_secs: interval,
     }
 }

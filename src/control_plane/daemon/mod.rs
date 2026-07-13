@@ -17,6 +17,8 @@ mod retry_backoff;
 mod retry_backoff_error;
 mod retry_backoff_options;
 mod retry_delay;
+#[cfg(unix)]
+mod run_unix_daemon_watch;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
@@ -25,6 +27,8 @@ mod unix_daemon_runtime;
 mod unix_daemon_runtime_error;
 #[cfg(unix)]
 mod unix_daemon_runtime_options;
+#[cfg(unix)]
+mod unix_daemon_watch_options;
 
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
@@ -50,8 +54,12 @@ pub(crate) use retry_backoff_error::RetryBackoffError;
 pub(crate) use retry_backoff_options::RetryBackoffOptions;
 pub(crate) use retry_delay::RetryDelay;
 #[cfg(unix)]
+pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
+#[cfg(unix)]
 pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
+#[cfg(unix)]
+pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;

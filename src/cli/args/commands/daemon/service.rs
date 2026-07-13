@@ -3,8 +3,6 @@
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
-use super::DaemonWatchPolicyArgs;
-
 #[derive(Args)]
 pub(crate) struct DaemonServiceArgs {
     #[command(subcommand)]
@@ -13,7 +11,7 @@ pub(crate) struct DaemonServiceArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum DaemonServiceCommands {
-    /// Install and start a login-time daemon watch service
+    /// Install and start the login-time singleton control plane
     Install(DaemonServiceInstallArgs),
     /// Show service installation state
     Status,
@@ -25,11 +23,9 @@ pub(crate) enum DaemonServiceCommands {
 
 #[derive(Args)]
 pub(crate) struct DaemonServiceInstallArgs {
-    /// Directory to scan for Stackctl projects
+    /// Authoritative parent directory to scan for Stackctl projects
     #[arg(long, value_name = "DIR", required = true)]
     pub(crate) dir: Vec<PathBuf>,
-    #[command(flatten)]
-    pub(crate) policy: DaemonWatchPolicyArgs,
     /// Seconds between discovery scans
     #[arg(long, default_value_t = 30)]
     pub(crate) interval: u64,
@@ -37,11 +33,9 @@ pub(crate) struct DaemonServiceInstallArgs {
 
 #[derive(Args)]
 pub(crate) struct DaemonServicePrintArgs {
-    /// Directory to scan for Stackctl projects
+    /// Authoritative parent directory to scan for Stackctl projects
     #[arg(long, value_name = "DIR", required = true)]
     pub(crate) dir: Vec<PathBuf>,
-    #[command(flatten)]
-    pub(crate) policy: DaemonWatchPolicyArgs,
     /// Seconds between discovery scans
     #[arg(long, default_value_t = 30)]
     pub(crate) interval: u64,

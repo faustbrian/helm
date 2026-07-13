@@ -84,6 +84,9 @@ All notable changes to this project are documented in this file.
 - Added a Unix singleton daemon runtime that exclusively owns its private
   state, lease, and IPC paths, performs scheduled complete reconciliation,
   serves bounded requests, and safely recovers only stale socket files.
+- Changed `daemon watch` and the login-service path to run one v8 control
+  plane backed by SQLite instead of starting per-project daemons, and removed
+  exclusion and project-limit flags that could produce partial registries.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

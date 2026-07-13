@@ -33,8 +33,6 @@ pub(crate) enum ServiceManager {
 #[derive(Debug, Clone)]
 pub(crate) struct DaemonServiceInstallOptions {
     pub(crate) watch_dirs: Vec<PathBuf>,
-    pub(crate) exclude_dirs: Vec<PathBuf>,
-    pub(crate) max_projects: Option<usize>,
     pub(crate) interval_secs: u64,
 }
 
@@ -82,8 +80,6 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
     let manager = service_manager()?;
     let definition = service_definition(&DaemonServiceInstallOptions {
         watch_dirs: Vec::new(),
-        exclude_dirs: Vec::new(),
-        max_projects: None,
         interval_secs: 30,
     })?;
     let installed = definition.path.exists();
@@ -109,8 +105,6 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
 pub(crate) fn service_status() -> Result<DaemonServiceStatus> {
     let definition = service_definition(&DaemonServiceInstallOptions {
         watch_dirs: Vec::new(),
-        exclude_dirs: Vec::new(),
-        max_projects: None,
         interval_secs: 30,
     })?;
     Ok(DaemonServiceStatus {
@@ -164,14 +158,6 @@ fn watch_command_args(options: &DaemonServiceInstallOptions) -> Vec<String> {
     for dir in &options.watch_dirs {
         args.push("--dir".to_owned());
         args.push(dir.to_string_lossy().into_owned());
-    }
-    for dir in &options.exclude_dirs {
-        args.push("--exclude-dir".to_owned());
-        args.push(dir.to_string_lossy().into_owned());
-    }
-    if let Some(limit) = options.max_projects {
-        args.push("--max-projects".to_owned());
-        args.push(limit.to_string());
     }
     args
 }
@@ -425,8 +411,6 @@ mod tests {
     fn service_options() -> DaemonServiceInstallOptions {
         DaemonServiceInstallOptions {
             watch_dirs: vec![std::path::PathBuf::from("/tmp/projects")],
-            exclude_dirs: vec![std::path::PathBuf::from("/tmp/archive")],
-            max_projects: Some(5),
             interval_secs: 45,
         }
     }
@@ -446,10 +430,6 @@ mod tests {
         assert!(plist.contains("/tmp/stackctl"));
         assert!(plist.contains("<string>--dir</string>"));
         assert!(plist.contains("<string>/tmp/projects</string>"));
-        assert!(plist.contains("<string>--exclude-dir</string>"));
-        assert!(plist.contains("<string>/tmp/archive</string>"));
-        assert!(plist.contains("<string>--max-projects</string>"));
-        assert!(plist.contains("<string>5</string>"));
 
         let commands = take_test_service_commands();
         assert_eq!(commands.len(), 2);
@@ -476,8 +456,8 @@ mod tests {
         assert!(unit.contains("ExecStart="));
         assert!(unit.contains("/tmp/stackctl"));
         assert!(unit.contains("--interval"));
-        assert!(unit.contains("--exclude-dir"));
-        assert!(unit.contains("--max-projects"));
+        assert!(!unit.contains("--exclude-dir"));
+        assert!(!unit.contains("--max-projects"));
 
         let commands = take_test_service_commands();
         assert_eq!(commands.len(), 2);

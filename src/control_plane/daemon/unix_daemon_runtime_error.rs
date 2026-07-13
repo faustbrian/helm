@@ -1,4 +1,4 @@
-use super::{DiscoveryReconciliationError, SingletonLeaseError};
+use super::{DiscoveryReconciliationError, DiscoverySchedulerError, SingletonLeaseError};
 use crate::control_plane::daemon::ipc::IpcError;
 use crate::control_plane::state::StateStoreError;
 use std::error::Error;
@@ -20,6 +20,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     State(StateStoreError),
     Ipc(IpcError),
     Reconciliation(DiscoveryReconciliationError),
+    Scheduler(DiscoverySchedulerError),
 }
 
 impl Display for UnixDaemonRuntimeError {
@@ -39,6 +40,7 @@ impl Display for UnixDaemonRuntimeError {
             Self::State(error) => Display::fmt(error, formatter),
             Self::Ipc(error) => Display::fmt(error, formatter),
             Self::Reconciliation(error) => Display::fmt(error, formatter),
+            Self::Scheduler(error) => Display::fmt(error, formatter),
         }
     }
 }
@@ -52,6 +54,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::State(error) => Some(error),
             Self::Ipc(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
+            Self::Scheduler(error) => Some(error),
         }
     }
 }
@@ -77,5 +80,11 @@ impl From<IpcError> for UnixDaemonRuntimeError {
 impl From<DiscoveryReconciliationError> for UnixDaemonRuntimeError {
     fn from(error: DiscoveryReconciliationError) -> Self {
         Self::Reconciliation(error)
+    }
+}
+
+impl From<DiscoverySchedulerError> for UnixDaemonRuntimeError {
+    fn from(error: DiscoverySchedulerError) -> Self {
+        Self::Scheduler(error)
     }
 }
