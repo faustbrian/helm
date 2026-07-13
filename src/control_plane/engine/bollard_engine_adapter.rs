@@ -4,7 +4,10 @@ use super::{
     EngineError, EngineFuture, ObservedContainer,
 };
 use bollard::errors::Error as BollardError;
-use bollard::models::{ContainerCreateBody, ContainerSummary};
+use bollard::models::{
+    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, PortBinding,
+    RestartPolicy, RestartPolicyNameEnum,
+};
 use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use std::collections::{BTreeMap, HashMap};
@@ -189,10 +192,62 @@ pub(super) fn create_request(
                 .into_iter()
                 .collect::<HashMap<_, _>>(),
         ),
+        exposed_ports: (!options.port_bindings().is_empty()).then(|| {
+            options
+                .port_bindings()
+                .iter()
+                .map(|binding| format!("{}/tcp", binding.container_port()))
+                .collect()
+        }),
+        host_config: Some(host_config(options)),
         ..ContainerCreateBody::default()
     };
 
     (query, body)
+}
+
+fn host_config(options: &ContainerCreateOptions) -> HostConfig {
+    let mut port_bindings = HashMap::new();
+    for binding in options.port_bindings() {
+        let bindings = port_bindings
+            .entry(format!("{}/tcp", binding.container_port()))
+            .or_insert_with(|| Some(Vec::new()))
+            .as_mut()
+            .expect("new port binding list");
+        bindings.push(PortBinding {
+            host_ip: Some("127.0.0.1".to_owned()),
+            host_port: Some(binding.host_port().to_string()),
+        });
+        bindings.push(PortBinding {
+            host_ip: Some("::1".to_owned()),
+            host_port: Some(binding.host_port().to_string()),
+        });
+    }
+
+    HostConfig {
+        network_mode: options.network().map(str::to_owned),
+        port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
+        mounts: (!options.bind_mounts().is_empty()).then(|| {
+            options
+                .bind_mounts()
+                .iter()
+                .map(|mount| Mount {
+                    source: Some(mount.source().to_owned()),
+                    target: Some(mount.target().to_owned()),
+                    typ: Some(MountType::BIND),
+                    read_only: Some(mount.is_read_only()),
+                    ..Mount::default()
+                })
+                .collect()
+        }),
+        restart_policy: options.restart_policy().map(|policy| match policy {
+            super::ContainerRestartPolicy::UnlessStopped => RestartPolicy {
+                name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                maximum_retry_count: None,
+            },
+        }),
+        ..HostConfig::default()
+    }
 }
 
 pub(super) fn managed_container_list_request() -> bollard::query_parameters::ListContainersOptions {

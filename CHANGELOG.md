@@ -13,6 +13,9 @@ All notable changes to this project are documented in this file.
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
   Docker Engine endpoint, and atomically replaced canonical watched roots.
+- Added typed v8 Engine container settings for private networks, dual-stack
+  loopback port publication, read-only bind mounts, and restart policy so the
+  shared gateway can own ports 80/443 without a host web server.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added v8 dedicated application-container planning with immutable reusable

@@ -1,7 +1,8 @@
 use super::{
-    ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
-    ObservedResourceOwnership, ResourceKind, RetentionClass, classify_observed_resource,
+    BindMount, ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle,
+    ContainerRestartPolicy, ContainerState, EngineFuture, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, ObservedContainer, ObservedResourceOwnership, PortBinding,
+    ResourceKind, RetentionClass, classify_observed_resource,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -109,6 +110,71 @@ fn bollard_request_maps_only_typed_values_and_reserved_labels() {
     assert_eq!(
         body.labels.expect("ownership labels"),
         options.metadata().labels().into_iter().collect()
+    );
+}
+
+#[test]
+fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls() {
+    let metadata = global_metadata(ResourceKind::Gateway);
+    let options = ContainerCreateOptions::new(
+        "stackctl-gateway",
+        concat!(
+            "ghcr.io/stackctl/gateway@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        metadata,
+    )
+    .expect("immutable gateway options")
+    .with_network("stackctl")
+    .expect("private network")
+    .with_port_binding(PortBinding::loopback(80, 80).expect("HTTP port"))
+    .with_port_binding(PortBinding::loopback(443, 443).expect("HTTPS port"))
+    .with_bind_mount(BindMount::read_only("/state/tls", "/etc/stackctl/tls").expect("TLS mount"))
+    .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
+
+    let (_, body) = create_request(&options);
+    let host = body.host_config.expect("gateway host config");
+
+    assert_eq!(host.network_mode.as_deref(), Some("stackctl"));
+    let port_bindings = host.port_bindings.expect("loopback port bindings");
+    assert_eq!(
+        port_bindings
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["443/tcp".to_owned(), "80/tcp".to_owned()])
+    );
+    assert!(
+        port_bindings
+            .values()
+            .filter_map(Option::as_ref)
+            .flatten()
+            .all(|binding| binding
+                .host_port
+                .as_deref()
+                .is_some_and(|port| { port == "80" || port == "443" }))
+    );
+    assert_eq!(
+        port_bindings
+            .values()
+            .filter_map(Option::as_ref)
+            .flatten()
+            .filter_map(|binding| binding.host_ip.clone())
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(["127.0.0.1".to_owned(), "::1".to_owned()])
+    );
+    let mount = host
+        .mounts
+        .expect("TLS mounts")
+        .into_iter()
+        .next()
+        .expect("TLS mount");
+    assert_eq!(mount.source.as_deref(), Some("/state/tls"));
+    assert_eq!(mount.target.as_deref(), Some("/etc/stackctl/tls"));
+    assert_eq!(mount.read_only, Some(true));
+    assert_eq!(
+        host.restart_policy.expect("restart policy").name,
+        Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED)
     );
 }
 
