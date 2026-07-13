@@ -1,17 +1,20 @@
 use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineError, EngineFuture, NetworkCreateOptions, NetworkId, NetworkManager, ObservedContainer,
-    ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume, VolumeCreateOptions,
-    VolumeManager, classify_observed_resource,
+    EngineError, EngineFuture, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
+    OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    classify_observed_resource,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
-    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, NetworkCreateRequest,
-    PortBinding, RestartPolicy, RestartPolicyNameEnum, VolumeCreateRequest,
+    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, Network,
+    NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
+    VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, RemoveVolumeOptions,
+    CreateContainerOptionsBuilder, ListContainersOptionsBuilder, ListNetworksOptionsBuilder,
+    ListVolumesOptionsBuilder, RemoveVolumeOptions,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use std::collections::{BTreeMap, HashMap};
@@ -216,6 +219,45 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .into_iter()
             .map(observed_container)
             .collect()
+        })
+    }
+}
+
+impl NetworkDiscovery for BollardEngineAdapter {
+    fn discover_managed_networks(&self) -> EngineFuture<'_, Vec<ObservedNetwork>> {
+        Box::pin(async move {
+            bounded_engine_operation("list managed networks", request_timeout(), async {
+                self.docker
+                    .list_networks(Some(managed_network_list_request()))
+                    .await
+                    .map_err(|error| backend_error("list managed networks", error))
+            })
+            .await?
+            .into_iter()
+            .map(observed_network)
+            .collect()
+        })
+    }
+}
+
+impl VolumeDiscovery for BollardEngineAdapter {
+    fn discover_managed_volumes(&self) -> EngineFuture<'_, Vec<ObservedVolume>> {
+        Box::pin(async move {
+            let response =
+                bounded_engine_operation("list managed volumes", request_timeout(), async {
+                    self.docker
+                        .list_volumes(Some(managed_volume_list_request()))
+                        .await
+                        .map_err(|error| backend_error("list managed volumes", error))
+                })
+                .await?;
+
+            response
+                .volumes
+                .unwrap_or_default()
+                .into_iter()
+                .map(observed_volume)
+                .collect()
         })
     }
 }
@@ -463,15 +505,35 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
 }
 
 pub(super) fn managed_container_list_request() -> bollard::query_parameters::ListContainersOptions {
-    let filters = HashMap::from([(
-        "label".to_owned(),
-        vec!["dev.stackctl.managed=true".to_owned()],
-    )]);
+    let filters = managed_resource_filters();
 
     ListContainersOptionsBuilder::default()
         .all(true)
         .filters(&filters)
         .build()
+}
+
+pub(super) fn managed_network_list_request() -> bollard::query_parameters::ListNetworksOptions {
+    let filters = managed_resource_filters();
+
+    ListNetworksOptionsBuilder::default()
+        .filters(&filters)
+        .build()
+}
+
+pub(super) fn managed_volume_list_request() -> bollard::query_parameters::ListVolumesOptions {
+    let filters = managed_resource_filters();
+
+    ListVolumesOptionsBuilder::default()
+        .filters(&filters)
+        .build()
+}
+
+fn managed_resource_filters() -> HashMap<String, Vec<String>> {
+    HashMap::from([(
+        "label".to_owned(),
+        vec!["dev.stackctl.managed=true".to_owned()],
+    )])
 }
 
 pub(super) fn observed_container(
@@ -487,6 +549,30 @@ pub(super) fn observed_container(
         .collect::<BTreeMap<_, _>>();
 
     Ok(ObservedContainer::new(ContainerId::new(id), labels))
+}
+
+pub(super) fn observed_network(network: Network) -> Result<ObservedNetwork, EngineError> {
+    let id = network.id.ok_or_else(|| EngineError::Backend {
+        detail: "Engine returned a managed network without an ID".to_owned(),
+    })?;
+    let labels = network
+        .labels
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+    Ok(ObservedNetwork::new(NetworkId::new(id), labels))
+}
+
+pub(super) fn observed_volume(volume: Volume) -> Result<ObservedVolume, EngineError> {
+    if volume.name.is_empty() {
+        return Err(EngineError::Backend {
+            detail: "Engine returned a managed volume without a name".to_owned(),
+        });
+    }
+    let labels = volume.labels.into_iter().collect::<BTreeMap<_, _>>();
+
+    Ok(ObservedVolume::new(volume.name, labels))
 }
 
 async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {

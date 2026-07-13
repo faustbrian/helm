@@ -1,20 +1,23 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
     EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, OwnedContainer,
-    OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
-use bollard::models::ContainerSummary;
+use bollard::models::{ContainerSummary, Network, Volume};
 use std::collections::BTreeMap;
 use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    create_request, managed_container_list_request, network_create_request, observed_container,
-    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_create_request,
+    create_request, managed_container_list_request, managed_network_list_request,
+    managed_volume_list_request, network_create_request, observed_container, observed_network,
+    observed_volume, validate_engine_api_version, verify_owned_container_labels,
+    verify_owned_network_labels, verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -414,6 +417,79 @@ fn managed_container_rescan_includes_stopped_objects_and_filters_by_marker() {
 }
 
 #[test]
+fn managed_network_and_volume_rescans_filter_by_the_reserved_marker() {
+    let network_request = managed_network_list_request();
+    let volume_request = managed_volume_list_request();
+    let expected = Some(std::collections::HashMap::from([(
+        "label".to_owned(),
+        vec!["dev.stackctl.managed=true".to_owned()],
+    )]));
+
+    assert_eq!(network_request.filters, expected);
+    assert_eq!(volume_request.filters, expected);
+}
+
+#[test]
+fn network_and_volume_discovery_are_narrow_object_safe_strategies() {
+    let network = ObservedNetwork::new(
+        NetworkId::new("network-1"),
+        global_metadata(ResourceKind::Network).labels(),
+    );
+    let volume = ObservedVolume::new(
+        "stackctl-postgres-17-data",
+        project_metadata(ResourceKind::Volume).labels(),
+    );
+    let backend = RecordingResourceDiscovery {
+        networks: vec![network.clone()],
+        volumes: vec![volume.clone()],
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+    let network_discovery: &dyn NetworkDiscovery = &backend;
+    let volume_discovery: &dyn VolumeDiscovery = &backend;
+
+    assert_eq!(
+        runtime
+            .block_on(network_discovery.discover_managed_networks())
+            .expect("discover networks"),
+        vec![network]
+    );
+    assert_eq!(
+        runtime
+            .block_on(volume_discovery.discover_managed_volumes())
+            .expect("discover volumes"),
+        vec![volume]
+    );
+}
+
+#[test]
+fn network_and_volume_observations_reconstruct_owned_handles_from_labels() {
+    let network_metadata = global_metadata(ResourceKind::Network);
+    let volume_metadata = project_metadata(ResourceKind::Volume);
+    let network = observed_network(Network {
+        id: Some("network-1".to_owned()),
+        labels: Some(network_metadata.labels().into_iter().collect()),
+        ..Network::default()
+    })
+    .expect("observed network");
+    let volume = observed_volume(Volume {
+        name: "stackctl-postgres-17-data".to_owned(),
+        labels: volume_metadata.labels().into_iter().collect(),
+        ..Volume::default()
+    })
+    .expect("observed volume");
+
+    let owned_network = reconstruct_owned_network(&network, "install-1", 8).expect("owned network");
+    let owned_volume = reconstruct_owned_volume(&volume, "install-1", 8).expect("owned volume");
+
+    assert_eq!(owned_network.id().as_str(), "network-1");
+    assert_eq!(owned_network.metadata(), &network_metadata);
+    assert_eq!(owned_volume.name(), "stackctl-postgres-17-data");
+    assert_eq!(owned_volume.metadata(), &volume_metadata);
+}
+
+#[test]
 fn engine_container_summaries_map_to_backend_independent_observations() {
     let labels = project_metadata(ResourceKind::ProjectApplication)
         .labels()
@@ -570,6 +646,23 @@ fn create_volume_through_strategy<'operation>(
 struct RecordingVolumeBackend {
     created: Vec<VolumeCreateOptions>,
     removed: Vec<OwnedVolume>,
+}
+
+struct RecordingResourceDiscovery {
+    networks: Vec<ObservedNetwork>,
+    volumes: Vec<ObservedVolume>,
+}
+
+impl NetworkDiscovery for RecordingResourceDiscovery {
+    fn discover_managed_networks(&self) -> EngineFuture<'_, Vec<ObservedNetwork>> {
+        Box::pin(async { Ok(self.networks.clone()) })
+    }
+}
+
+impl VolumeDiscovery for RecordingResourceDiscovery {
+    fn discover_managed_volumes(&self) -> EngineFuture<'_, Vec<ObservedVolume>> {
+        Box::pin(async { Ok(self.volumes.clone()) })
+    }
 }
 
 impl VolumeManager for RecordingVolumeBackend {
