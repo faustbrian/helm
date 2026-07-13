@@ -2,19 +2,22 @@ use super::{
     CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerLogTail, ContainerState, EngineFuture, HealthObserver, ImageId, ImageResolver,
-    ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
+    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture, HealthObserver,
+    ImageId, ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
     NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, classify_observed_resource, gateway_container_request,
-    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind, ResourceMetrics, RetentionClass,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
+    reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
 use bollard::models::{
-    ContainerState as EngineContainerState, ContainerSummary, EventActor, EventMessage,
-    EventMessageTypeEnum, Health, HealthStatusEnum, Network, Volume,
+    ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats, ContainerNetworkStats,
+    ContainerPidsStats, ContainerState as EngineContainerState, ContainerStatsResponse,
+    ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Health, HealthStatusEnum,
+    Network, Volume,
 };
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
@@ -22,12 +25,12 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    command_create_request, container_event, container_health, create_request, image_pull_request,
-    log_chunk, log_request, managed_container_events_request, managed_container_list_request,
-    managed_network_list_request, managed_volume_list_request, network_create_request,
-    observed_container, observed_network, observed_volume, validate_engine_api_version,
-    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
-    volume_create_request,
+    command_create_request, container_event, container_health, container_resource_metrics,
+    create_request, image_pull_request, log_chunk, log_request, managed_container_events_request,
+    managed_container_list_request, managed_network_list_request, managed_volume_list_request,
+    network_create_request, observed_container, observed_network, observed_volume,
+    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
+    verify_owned_volume_labels, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -443,6 +446,88 @@ fn health_observer_boundary_is_object_safe() {
     fn accepts_health_observer(_observer: &dyn HealthObserver) {}
 
     let _ = accepts_health_observer;
+}
+
+#[test]
+fn resource_metrics_normalize_idle_benchmark_inputs_without_floats() {
+    let stats = ContainerStatsResponse {
+        id: Some("container-1".to_owned()),
+        cpu_stats: Some(ContainerCpuStats {
+            cpu_usage: Some(ContainerCpuUsage {
+                total_usage: Some(300),
+                ..ContainerCpuUsage::default()
+            }),
+            system_cpu_usage: Some(1_000),
+            online_cpus: Some(2),
+            ..ContainerCpuStats::default()
+        }),
+        precpu_stats: Some(ContainerCpuStats {
+            cpu_usage: Some(ContainerCpuUsage {
+                total_usage: Some(100),
+                ..ContainerCpuUsage::default()
+            }),
+            system_cpu_usage: Some(500),
+            ..ContainerCpuStats::default()
+        }),
+        memory_stats: Some(ContainerMemoryStats {
+            usage: Some(1_024),
+            ..ContainerMemoryStats::default()
+        }),
+        pids_stats: Some(ContainerPidsStats {
+            current: Some(3),
+            ..ContainerPidsStats::default()
+        }),
+        networks: Some(std::collections::HashMap::from([
+            (
+                "eth0".to_owned(),
+                ContainerNetworkStats {
+                    rx_bytes: Some(10),
+                    tx_bytes: Some(5),
+                    ..ContainerNetworkStats::default()
+                },
+            ),
+            (
+                "eth1".to_owned(),
+                ContainerNetworkStats {
+                    rx_bytes: Some(20),
+                    tx_bytes: Some(7),
+                    ..ContainerNetworkStats::default()
+                },
+            ),
+        ])),
+        ..ContainerStatsResponse::default()
+    };
+
+    let metrics = container_resource_metrics(&stats, &ContainerId::new("container-1"))
+        .expect("complete metrics");
+
+    assert_eq!(
+        metrics,
+        ContainerResourceMetrics::new(Some(8_000), Some(1_024), Some(3), Some(30), Some(12))
+    );
+}
+
+#[test]
+fn resource_metrics_reject_stats_for_a_different_container() {
+    let stats = ContainerStatsResponse {
+        id: Some("foreign-container".to_owned()),
+        ..ContainerStatsResponse::default()
+    };
+
+    let error = container_resource_metrics(&stats, &ContainerId::new("container-1"))
+        .expect_err("foreign stats");
+
+    assert_eq!(
+        error.to_string(),
+        "Engine stats belong to container 'foreign-container', expected 'container-1'"
+    );
+}
+
+#[test]
+fn resource_metrics_boundary_is_object_safe() {
+    fn accepts_resource_metrics(_metrics: &dyn ResourceMetrics) {}
+
+    let _ = accepts_resource_metrics;
 }
 
 #[test]

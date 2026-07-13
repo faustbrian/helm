@@ -4,18 +4,20 @@ use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerId,
-    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerState, EngineError,
-    EngineFuture, HealthObserver, ImageId, ImageResolver, ImmutableImageReference, LogChunk,
-    LogSource, LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
-    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
-    OwnedNetwork, OwnedVolume, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerResourceMetrics,
+    ContainerState, EngineError, EngineFuture, HealthObserver, ImageId, ImageResolver,
+    ImmutableImageReference, LogChunk, LogSource, LogStreamKind, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
     classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
-    ContainerCreateBody, ContainerState as EngineContainerState, ContainerSummary, EventMessage,
+    ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
+    ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary, EventMessage,
     EventMessageTypeEnum, HealthStatusEnum, HostConfig, Mount, MountType, Network,
     NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
     VolumeCreateRequest,
@@ -23,7 +25,7 @@ use bollard::models::{
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder,
     ListContainersOptionsBuilder, ListNetworksOptionsBuilder, ListVolumesOptionsBuilder,
-    LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions,
+    LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions, StatsOptionsBuilder,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
 use futures_util::{StreamExt, TryStreamExt};
@@ -451,6 +453,146 @@ impl HealthObserver for BollardEngineAdapter {
             .await
         })
     }
+}
+
+impl ResourceMetrics for BollardEngineAdapter {
+    fn sample_resources<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerResourceMetrics> {
+        Box::pin(async move {
+            bounded_engine_operation("sample container resources", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify container metric ownership", error))?;
+                verify_owned_container_labels_for(
+                    "measure resources for",
+                    container,
+                    &observed
+                        .config
+                        .and_then(|config| config.labels)
+                        .unwrap_or_default(),
+                )?;
+
+                let options = StatsOptionsBuilder::default()
+                    .stream(false)
+                    .one_shot(false)
+                    .build();
+                let mut samples = self.docker.stats(container.id().as_str(), Some(options));
+                let sample = samples
+                    .next()
+                    .await
+                    .ok_or_else(|| EngineError::Backend {
+                        detail: "Engine returned no container resource sample".to_owned(),
+                    })?
+                    .map_err(|error| backend_error("sample container resources", error))?;
+
+                container_resource_metrics(&sample, container.id())
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn container_resource_metrics(
+    stats: &ContainerStatsResponse,
+    expected_container_id: &ContainerId,
+) -> Result<ContainerResourceMetrics, EngineError> {
+    let observed_container_id = stats.id.as_deref().ok_or_else(|| EngineError::Backend {
+        detail: "Engine returned container stats without an ID".to_owned(),
+    })?;
+
+    if observed_container_id != expected_container_id.as_str() {
+        return Err(EngineError::Backend {
+            detail: format!(
+                "Engine stats belong to container '{observed_container_id}', expected '{}'",
+                expected_container_id.as_str()
+            ),
+        });
+    }
+
+    let memory_usage_bytes = stats.memory_stats.as_ref().and_then(|memory| {
+        memory
+            .usage
+            .or(memory.privateworkingset)
+            .or(memory.commitbytes)
+    });
+    let process_count = stats.pids_stats.as_ref().and_then(|pids| pids.current);
+    let network_received_bytes = sum_network_bytes(stats, |network| network.rx_bytes)?;
+    let network_transmitted_bytes = sum_network_bytes(stats, |network| network.tx_bytes)?;
+
+    Ok(ContainerResourceMetrics::new(
+        cpu_usage_basis_points(stats)?,
+        memory_usage_bytes,
+        process_count,
+        network_received_bytes,
+        network_transmitted_bytes,
+    ))
+}
+
+fn cpu_usage_basis_points(stats: &ContainerStatsResponse) -> Result<Option<u64>, EngineError> {
+    let Some(current) = stats.cpu_stats.as_ref() else {
+        return Ok(None);
+    };
+    let Some(previous) = stats.precpu_stats.as_ref() else {
+        return Ok(None);
+    };
+    let Some(cpu_delta) = cpu_total_usage(current).and_then(|current| {
+        cpu_total_usage(previous).and_then(|previous| current.checked_sub(previous))
+    }) else {
+        return Ok(None);
+    };
+    let Some(system_delta) = current
+        .system_cpu_usage
+        .and_then(|current| {
+            previous
+                .system_cpu_usage
+                .and_then(|previous| current.checked_sub(previous))
+        })
+        .filter(|delta| *delta > 0)
+    else {
+        return Ok(None);
+    };
+    let processors = u64::from(current.online_cpus.unwrap_or(1));
+    let basis_points = u128::from(cpu_delta)
+        .checked_mul(u128::from(processors))
+        .and_then(|value| value.checked_mul(10_000))
+        .map(|value| value / u128::from(system_delta))
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or_else(|| EngineError::Backend {
+            detail: "Engine container CPU metrics overflowed normalization".to_owned(),
+        })?;
+
+    Ok(Some(basis_points))
+}
+
+fn cpu_total_usage(stats: &ContainerCpuStats) -> Option<u64> {
+    stats.cpu_usage.as_ref().and_then(|usage| usage.total_usage)
+}
+
+fn sum_network_bytes(
+    stats: &ContainerStatsResponse,
+    select: fn(&ContainerNetworkStats) -> Option<u64>,
+) -> Result<Option<u64>, EngineError> {
+    let Some(networks) = stats.networks.as_ref() else {
+        return Ok(None);
+    };
+    let mut total = 0_u64;
+
+    for network in networks.values() {
+        let Some(bytes) = select(network) else {
+            return Ok(None);
+        };
+        total = total
+            .checked_add(bytes)
+            .ok_or_else(|| EngineError::Backend {
+                detail: "Engine container network metrics overflowed aggregation".to_owned(),
+            })?;
+    }
+
+    Ok(Some(total))
 }
 
 pub(super) fn container_health(
