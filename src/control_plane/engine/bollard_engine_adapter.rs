@@ -18,7 +18,7 @@ use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
     ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
     ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary, EventMessage,
-    EventMessageTypeEnum, HealthStatusEnum, HostConfig, Mount, MountType, Network,
+    EventMessageTypeEnum, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountType, Network,
     NetworkCreateRequest, PortBinding, RestartPolicy, RestartPolicyNameEnum, Volume,
     VolumeCreateRequest,
 };
@@ -1147,6 +1147,14 @@ pub(super) fn create_request(
                 .iter()
                 .map(|binding| format!("{}/tcp", binding.container_port()))
                 .collect()
+        }),
+        healthcheck: options.health_check().map(|health_check| HealthConfig {
+            test: Some(health_check.engine_test()),
+            interval: Some(health_check.interval_nanoseconds()),
+            timeout: Some(health_check.timeout_nanoseconds()),
+            retries: Some(health_check.retries()),
+            start_period: Some(health_check.start_period_nanoseconds()),
+            start_interval: None,
         }),
         host_config: Some(host_config(options)),
         ..ContainerCreateBody::default()

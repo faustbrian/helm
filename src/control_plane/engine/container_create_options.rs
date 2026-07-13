@@ -1,5 +1,5 @@
 use super::{
-    BindMount, ContainerRestartPolicy, EngineError, ImmutableImageReference,
+    BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ImmutableImageReference,
     ManagedResourceMetadata, PortBinding, VolumeMount,
 };
 use crate::control_plane::is_valid_environment_variable_key;
@@ -19,6 +19,7 @@ pub(crate) struct ContainerCreateOptions {
     volume_mounts: Vec<VolumeMount>,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
+    health_check: Option<ContainerHealthCheck>,
     restart_policy: Option<ContainerRestartPolicy>,
 }
 
@@ -51,6 +52,7 @@ impl ContainerCreateOptions {
             volume_mounts: Vec::new(),
             command: Vec::new(),
             environment: BTreeMap::new(),
+            health_check: None,
             restart_policy: None,
         })
     }
@@ -155,6 +157,11 @@ impl ContainerCreateOptions {
         self
     }
 
+    pub(crate) fn with_health_check(mut self, health_check: ContainerHealthCheck) -> Self {
+        self.health_check = Some(health_check);
+        self
+    }
+
     /// Returns the exact engine resource name.
     pub(crate) fn name(&self) -> &str {
         &self.name
@@ -201,6 +208,10 @@ impl ContainerCreateOptions {
     pub(crate) const fn restart_policy(&self) -> Option<ContainerRestartPolicy> {
         self.restart_policy
     }
+
+    pub(crate) const fn health_check(&self) -> Option<&ContainerHealthCheck> {
+        self.health_check.as_ref()
+    }
 }
 
 impl Debug for ContainerCreateOptions {
@@ -217,6 +228,7 @@ impl Debug for ContainerCreateOptions {
             .field("volume_mounts", &self.volume_mounts)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
+            .field("health_check", &self.health_check)
             .field("restart_policy", &self.restart_policy)
             .finish()
     }

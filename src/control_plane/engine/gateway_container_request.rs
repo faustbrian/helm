@@ -1,7 +1,8 @@
 use super::{
-    BindMount, ContainerCreateOptions, ContainerRestartPolicy, EngineError,
+    BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
     GatewayContainerRequestOptions, PortBinding,
 };
+use std::time::Duration;
 
 const GATEWAY_CONTAINER_NAME: &str = "stackctl-gateway";
 const GATEWAY_TLS_DIRECTORY: &str = "/etc/stackctl/tls";
@@ -37,6 +38,18 @@ pub(crate) fn gateway_container_request(
                 "--config".to_owned(),
                 GATEWAY_CONFIG_PATH.to_owned(),
             ])?
+            .with_health_check(ContainerHealthCheck::new(
+                vec![
+                    "caddy".to_owned(),
+                    "validate".to_owned(),
+                    "--config".to_owned(),
+                    GATEWAY_CONFIG_PATH.to_owned(),
+                ],
+                Duration::from_secs(30),
+                Duration::from_secs(5),
+                Duration::from_secs(10),
+                3,
+            )?)
             .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
 
     Ok(request)

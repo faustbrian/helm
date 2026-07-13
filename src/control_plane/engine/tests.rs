@@ -1,8 +1,8 @@
 use super::{
     CommandExecutor, CommandRequest, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
-    ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture,
+    ContainerHealth, ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions,
+    ContainerLogStream, ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineFuture,
     GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
     ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
@@ -789,9 +789,78 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
             "/etc/stackctl/config.json".to_owned(),
         ])
     );
+    let health_check = body.healthcheck.expect("gateway health check");
+    assert_eq!(
+        health_check.test,
+        Some(vec![
+            "CMD".to_owned(),
+            "caddy".to_owned(),
+            "validate".to_owned(),
+            "--config".to_owned(),
+            "/etc/stackctl/config.json".to_owned(),
+        ])
+    );
+    assert_eq!(health_check.interval, Some(30_000_000_000));
+    assert_eq!(health_check.timeout, Some(5_000_000_000));
+    assert_eq!(health_check.start_period, Some(10_000_000_000));
+    assert_eq!(health_check.retries, Some(3));
+    assert_eq!(health_check.start_interval, None);
     assert_eq!(
         host.restart_policy.expect("restart policy").name,
         Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED)
+    );
+}
+
+#[test]
+fn container_health_checks_reject_invalid_or_unbounded_settings() {
+    let empty = ContainerHealthCheck::new(
+        Vec::new(),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        1,
+    )
+    .expect_err("empty health command");
+    let short_interval = ContainerHealthCheck::new(
+        vec!["health".to_owned()],
+        Duration::from_nanos(999_999),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        1,
+    )
+    .expect_err("sub-millisecond interval");
+    let no_retries = ContainerHealthCheck::new(
+        vec!["health".to_owned()],
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        0,
+    )
+    .expect_err("zero retries");
+    let excessive_timeout = ContainerHealthCheck::new(
+        vec!["health".to_owned()],
+        Duration::from_secs(1),
+        Duration::MAX,
+        Duration::from_secs(1),
+        1,
+    )
+    .expect_err("unrepresentable Engine timeout");
+
+    assert_eq!(
+        empty.to_string(),
+        "container health check must contain a non-empty executable and no NUL bytes"
+    );
+    assert_eq!(
+        short_interval.to_string(),
+        "container health check interval must be at least 1 millisecond"
+    );
+    assert_eq!(
+        no_retries.to_string(),
+        "container health check retries must be greater than zero"
+    );
+    assert_eq!(
+        excessive_timeout.to_string(),
+        "container health check timeout exceeds the Engine duration limit"
     );
 }
 
