@@ -1,12 +1,16 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     ProjectProcessPlan, ProjectProcessPlanOptions, ProjectProcessRequestOptions,
-    application_container_request, project_process_request,
+    RuntimeEnvironment, RuntimeEnvironmentOptions, application_container_request,
+    project_process_request,
 };
 use crate::control_plane::ProjectIdentity;
 use crate::control_plane::engine::{
     ContainerRestartPolicy, ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind,
     RetentionClass,
+};
+use crate::control_plane::state::{
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -86,10 +90,11 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
             "serve".to_owned(),
             "--port=8080".to_owned(),
         ],
-        environment: BTreeMap::from([
-            ("APP_ENV".to_owned(), "local".to_owned()),
-            ("DB_PASSWORD".to_owned(), "project-secret".to_owned()),
-        ]),
+        environment: runtime_environment(
+            "bill",
+            BTreeMap::from([("APP_ENV".to_owned(), "local".to_owned())]),
+            BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
+        ),
     })
     .expect("application Engine request");
 
@@ -108,6 +113,35 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
     );
     assert!(request.environment().contains_key("DB_PASSWORD"));
     assert!(!format!("{request:?}").contains("project-secret"));
+}
+
+#[test]
+fn application_rejects_environment_owned_by_another_project() {
+    let plan = application_plan("bill", "/work/bill");
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "sha256:runtime-php-84".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("application metadata");
+
+    let error = application_container_request(ApplicationContainerRequestOptions {
+        plan,
+        metadata,
+        platform: "linux/arm64".to_owned(),
+        command: vec!["stackctl-runtime".to_owned(), "serve".to_owned()],
+        environment: runtime_environment("shop", BTreeMap::new(), BTreeMap::new()),
+    })
+    .expect_err("foreign runtime environment");
+
+    assert_eq!(
+        error.to_string(),
+        "application 'bill' cannot use runtime environment owned by 'shop'"
+    );
 }
 
 #[test]
@@ -131,7 +165,11 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
             "artisan".to_owned(),
             "queue:work".to_owned(),
         ],
-        environment: BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
+        environment: runtime_environment(
+            "bill",
+            BTreeMap::new(),
+            BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
+        ),
     })
     .expect("worker plan");
     assert!(!format!("{plan:?}").contains("project-secret"));
@@ -172,7 +210,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
 }
 
 #[test]
-fn unsafe_project_process_inputs_fail_before_engine_mutation() {
+fn project_process_rejects_environment_owned_by_another_project() {
     let project =
         ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
     let service = crate::control_plane::ServiceIdentity::new("worker").expect("service identity");
@@ -188,13 +226,36 @@ fn unsafe_project_process_inputs_fail_before_engine_mutation() {
         source_path: PathBuf::from("/work/bill"),
         network_name: "stackctl-private".to_owned(),
         command: vec!["php".to_owned(), "artisan".to_owned()],
-        environment: BTreeMap::from([("1INVALID".to_owned(), "value".to_owned())]),
+        environment: runtime_environment("shop", BTreeMap::new(), BTreeMap::new()),
     })
-    .expect_err("invalid environment key");
+    .expect_err("foreign runtime environment");
 
     assert_eq!(
         error.to_string(),
-        "project process environment key '1INVALID' is invalid"
+        "project process 'bill:worker' cannot use runtime environment owned by 'shop'"
+    );
+}
+
+#[test]
+fn declared_values_cannot_silently_replace_daemon_managed_environment() {
+    let project =
+        ProjectIdentity::resolve(Some("bill"), Path::new("/work/bill")).expect("project identity");
+    let managed = managed_environment(
+        "bill",
+        BTreeMap::from([("DB_HOST".to_owned(), "stackctl-postgres-17".to_owned())]),
+        EnvironmentLifecycle::Active,
+    );
+
+    let error = RuntimeEnvironment::new(RuntimeEnvironmentOptions {
+        project,
+        declared: BTreeMap::from([("DB_HOST".to_owned(), "localhost".to_owned())]),
+        managed,
+    })
+    .expect_err("managed environment collision");
+
+    assert_eq!(
+        error.to_string(),
+        "project 'bill' environment key 'DB_HOST' conflicts with its daemon-managed value"
     );
 }
 
@@ -216,4 +277,31 @@ fn application_options(project: &str, path: &str) -> ApplicationContainerPlanOpt
         network_name: "stackctl-private".to_owned(),
         internal_http_port: 8080,
     }
+}
+
+fn runtime_environment(
+    project: &str,
+    declared: BTreeMap<String, String>,
+    managed: BTreeMap<String, String>,
+) -> RuntimeEnvironment {
+    RuntimeEnvironment::new(RuntimeEnvironmentOptions {
+        project: ProjectIdentity::resolve(Some(project), Path::new("/work/bill"))
+            .expect("project identity"),
+        declared,
+        managed: managed_environment(project, managed, EnvironmentLifecycle::Active),
+    })
+    .expect("runtime environment")
+}
+
+fn managed_environment(
+    project: &str,
+    values: BTreeMap<String, String>,
+    lifecycle: EnvironmentLifecycle,
+) -> ManagedEnvironmentRecord {
+    ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: project.to_owned(),
+        revision: "sha256:environment-v1".to_owned(),
+        values,
+        lifecycle,
+    })
 }

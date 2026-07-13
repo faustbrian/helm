@@ -1,5 +1,5 @@
+use super::RuntimeEnvironment;
 use crate::control_plane::{ProjectIdentity, ServiceIdentity};
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Complete desired inputs for one long-running project process.
@@ -11,5 +11,5 @@ pub(crate) struct ProjectProcessPlanOptions {
     pub(crate) source_path: PathBuf,
     pub(crate) network_name: String,
     pub(crate) command: Vec<String>,
-    pub(crate) environment: BTreeMap<String, String>,
+    pub(crate) environment: RuntimeEnvironment,
 }

@@ -1,7 +1,5 @@
 use super::validate_image_digest::validate_image_digest;
-use super::{ProjectProcessPlanOptions, WorkloadPlanError};
-use crate::control_plane::is_valid_environment_variable_key;
-use std::collections::BTreeMap;
+use super::{ProjectProcessPlanOptions, RuntimeEnvironment, WorkloadPlanError};
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 
@@ -15,7 +13,7 @@ pub(crate) struct ProjectProcessPlan {
     source_path: PathBuf,
     network_name: String,
     command: Vec<String>,
-    environment: BTreeMap<String, String>,
+    environment: RuntimeEnvironment,
 }
 
 impl ProjectProcessPlan {
@@ -43,20 +41,15 @@ impl ProjectProcessPlan {
                 "project process command must contain a non-empty executable and no NUL bytes",
             ));
         }
-        for (key, value) in &options.environment {
-            if !is_valid_environment_variable_key(key) {
-                return Err(WorkloadPlanError::new(format!(
-                    "project process environment key '{key}' is invalid"
-                )));
-            }
-            if value.contains('\0') {
-                return Err(WorkloadPlanError::new(format!(
-                    "project process environment value for '{key}' must not contain NUL bytes"
-                )));
-            }
-        }
 
         let project_id = options.project.as_str().to_owned();
+        if options.environment.project_id() != project_id {
+            return Err(WorkloadPlanError::new(format!(
+                "project process '{project_id}:{}' cannot use runtime environment owned by '{}'",
+                options.service.as_str(),
+                options.environment.project_id()
+            )));
+        }
         let service_id = options.service.as_str().to_owned();
 
         Ok(Self {
@@ -99,7 +92,7 @@ impl ProjectProcessPlan {
         &self.command
     }
 
-    pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
+    pub(crate) const fn environment(&self) -> &RuntimeEnvironment {
         &self.environment
     }
 }
@@ -115,7 +108,7 @@ impl Debug for ProjectProcessPlan {
             .field("source_path", &self.source_path)
             .field("network_name", &self.network_name)
             .field("command", &self.command)
-            .field("environment_keys", &self.environment.keys())
+            .field("environment", &self.environment)
             .finish()
     }
 }

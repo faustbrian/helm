@@ -10,6 +10,15 @@ const PROJECT_SOURCE_TARGET: &str = "/workspace";
 pub(crate) fn application_container_request(
     options: ApplicationContainerRequestOptions,
 ) -> Result<ContainerCreateOptions, EngineError> {
+    if options.environment.project_id() != options.plan.project_id() {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "application '{}' cannot use runtime environment owned by '{}'",
+                options.plan.project_id(),
+                options.environment.project_id()
+            ),
+        });
+    }
     if options.metadata.kind() != ResourceKind::ProjectApplication
         || options.metadata.project_id() != Some(options.plan.project_id())
         || options.metadata.retention() != RetentionClass::Disposable
@@ -42,6 +51,6 @@ pub(crate) fn application_container_request(
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
     .with_command(options.command)?
-    .with_environment(options.environment)
+    .with_environment(options.environment.values().clone())
     .map(|request| request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }

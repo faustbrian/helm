@@ -33,6 +33,8 @@ All notable changes to this project are documented in this file.
   atomically registering discoveries and orphaning every project whose config vanished.
 - Added executable dedicated application-container requests with exact ownership,
   Linux platform, private networking, source mount, environment, command, and no host ports.
+- Added typed project runtime environment composition that requires active matching
+  daemon ownership, rejects conflicting declared values, and redacts every value in diagnostics.
 - Added strict v8 YAML process commands and deterministic environment mappings,
   including pre-mutation validation of executables, variable names, NUL bytes,
   and debug redaction of environment values.

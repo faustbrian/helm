@@ -43,6 +43,6 @@ pub(crate) fn project_process_request(
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
     .with_command(options.plan.command().to_vec())?
-    .with_environment(options.plan.environment().clone())
+    .with_environment(options.plan.environment().values().clone())
     .map(|request| request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }
