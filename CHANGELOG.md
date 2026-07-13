@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
   matching, direct Engine streaming, verified host artifacts, serialized Engine
   mutation, restart-safe queued replay, and loud terminalization of ambiguous
   in-flight backups.
+- Added `stackctl daemon backup <service> [path]` to queue an exact logical
+  recovery point, follow its ordered daemon events to completion, and report
+  the verified host recovery path, byte size, and SHA-256 evidence.
 - Added explicit data-lifecycle strategy resolution for every currently shared
   authoritative service family, including logical, native, bucket-export, and
   shared-snapshot boundaries. Non-data and unknown logical kinds now fail

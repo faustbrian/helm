@@ -3,6 +3,7 @@
 //! Contains cli args for `stackctl daemon` workflows.
 
 mod adopt;
+mod backup;
 mod migration;
 mod service;
 mod trust;
@@ -11,6 +12,7 @@ use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
 pub(crate) use adopt::DaemonAdoptArgs;
+pub(crate) use backup::DaemonBackupArgs;
 pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationStatusArgs,
 };
@@ -37,6 +39,8 @@ pub(crate) enum DaemonCommands {
     Reconcile,
     /// Explicitly reactivate the exact retained state for one project
     Adopt(DaemonAdoptArgs),
+    /// Create a verified recovery point for one project data service
+    Backup(DaemonBackupArgs),
     /// Inspect reversible resource migrations
     Migration(DaemonMigrationArgs),
     /// Manage trust for the singleton Stackctl certificate authority
