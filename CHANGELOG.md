@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added durable typed project-command IPC for Composer, Node, Bun, and declared
+  hooks, with exact owned-application resolution, serialized background Engine
+  execution, binary-safe stdout/stderr events, bounded operation retention, and
+  restart recovery that resumes queued work but never ambiguously replays a
+  command that was already running.
 - Added bounded lossless stdout and stderr capture for in-container project
   commands so singleton IPC clients can receive command output without host
   shell execution.

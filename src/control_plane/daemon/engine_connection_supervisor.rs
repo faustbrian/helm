@@ -75,6 +75,11 @@ where
         self.engine.as_mut()
     }
 
+    /// Borrows the connected adapter for independently owned read/exec clones.
+    pub(crate) const fn engine(&self) -> Option<&Connector::Engine> {
+        self.engine.as_ref()
+    }
+
     /// Reports whether this supervisor currently holds a usable adapter.
     pub(crate) const fn is_connected(&self) -> bool {
         self.engine.is_some()

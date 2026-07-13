@@ -1,3 +1,4 @@
+use super::IpcProjectCommand;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -16,4 +17,11 @@ pub(crate) enum IpcPayload {
     Cancel { target_request_id: String },
     /// Starts or resumes the ordered daemon event stream.
     SubscribeEvents { after_sequence: Option<u64> },
+    /// Queues one bounded non-shell command in an owned project application.
+    RunProjectCommand {
+        canonical_path: PathBuf,
+        service: String,
+        command: IpcProjectCommand,
+        timeout_seconds: u64,
+    },
 }

@@ -66,4 +66,16 @@ impl ProjectCommandPlan {
     pub(super) const fn attached(&self) -> &AttachedCommandOptions {
         &self.attached
     }
+
+    pub(crate) const fn environment(&self) -> &std::collections::BTreeMap<String, String> {
+        self.attached.request().environment()
+    }
+
+    pub(crate) fn input(&self) -> &[u8] {
+        self.attached.input()
+    }
+
+    pub(crate) const fn timeout(&self) -> std::time::Duration {
+        self.attached.timeout()
+    }
 }

@@ -1,6 +1,6 @@
 use super::{
-    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcPayload, IpcRequest, IpcResponse,
-    IpcResult, decode_request_frame, decode_response_frame, encode_frame,
+    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcPayload, IpcProjectCommand, IpcRequest,
+    IpcResponse, IpcResult, decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::path::PathBuf;
@@ -29,6 +29,26 @@ fn project_adoption_requests_round_trip_with_the_exact_target_path() {
 
     let frame = encode_frame(&request).expect("encode adoption request");
     let decoded = decode_request_frame(&frame).expect("decode adoption request");
+
+    assert_eq!(decoded, request);
+}
+
+#[test]
+fn project_command_requests_preserve_typed_non_shell_arguments() {
+    let request = IpcRequest::new(
+        "command-42",
+        IpcPayload::RunProjectCommand {
+            canonical_path: PathBuf::from("/work/bill"),
+            service: "app".to_owned(),
+            command: IpcProjectCommand::Composer {
+                arguments: vec!["install".to_owned(), "--no-interaction".to_owned()],
+            },
+            timeout_seconds: 300,
+        },
+    );
+
+    let frame = encode_frame(&request).expect("encode command request");
+    let decoded = decode_request_frame(&frame).expect("decode command request");
 
     assert_eq!(decoded, request);
 }

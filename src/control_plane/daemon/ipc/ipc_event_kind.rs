@@ -1,3 +1,4 @@
+use super::IpcOutputStream;
 use serde::{Deserialize, Serialize};
 
 /// One stable lifecycle transition published for a daemon operation.
@@ -7,6 +8,13 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum IpcEventKind {
     Accepted,
     Completed,
-    Failed { code: String, message: String },
+    Failed {
+        code: String,
+        message: String,
+    },
+    Output {
+        stream: IpcOutputStream,
+        data_base64: String,
+    },
     Cancelled,
 }

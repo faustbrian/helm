@@ -63,6 +63,8 @@ pub(crate) enum StateStoreError {
     CorruptState { detail: String },
     /// A daemon event cannot be persisted without violating journal invariants.
     InvalidDaemonEvent { detail: String },
+    /// A daemon operation cannot be persisted or transition safely.
+    InvalidDaemonOperation { detail: String },
     /// A private state snapshot could not be created or retained safely.
     StateBackupIo {
         action: &'static str,
@@ -176,6 +178,9 @@ impl Display for StateStoreError {
             Self::InvalidDaemonEvent { detail } => {
                 write!(formatter, "invalid daemon event: {detail}")
             }
+            Self::InvalidDaemonOperation { detail } => {
+                write!(formatter, "invalid daemon operation: {detail}")
+            }
             Self::StateBackupIo {
                 action,
                 path,
@@ -216,7 +221,8 @@ impl Error for StateStoreError {
             | Self::ProjectAdoptionTargetMissing { .. }
             | Self::ProjectAdoptionStateMismatch { .. }
             | Self::CorruptState { .. }
-            | Self::InvalidDaemonEvent { .. } => None,
+            | Self::InvalidDaemonEvent { .. }
+            | Self::InvalidDaemonOperation { .. } => None,
         }
     }
 }

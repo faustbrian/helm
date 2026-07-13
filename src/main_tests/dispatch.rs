@@ -239,19 +239,11 @@ fn cli_dispatch_open_succeeds_and_records_browser_invocation() {
 }
 
 #[test]
-fn cli_dispatch_daemon_status_uses_explicit_path_without_local_project_context() {
-    let project_root = temporary_project_root();
+fn cli_dispatch_daemon_status_works_without_local_project_context() {
     crate::docker::with_test_runtime_lock(|| {
-        let cli = Cli::parse_from([
-            "stackctl",
-            "daemon",
-            "status",
-            "--path",
-            project_root
-                .to_str()
-                .expect("project root path should be valid UTF-8"),
-        ]);
+        let cli = Cli::parse_from(["stackctl", "daemon", "status"]);
 
-        assert!(crate::cli::dispatch::run(cli).is_ok());
+        let error = crate::cli::dispatch::run(cli).expect_err("daemon is not running in test");
+        assert!(!error.to_string().contains("configuration"));
     });
 }

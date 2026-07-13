@@ -2,24 +2,233 @@ use super::{
     DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
-    ProjectDiscoveryOptions, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    discover_project_sources, dispatch_daemon_request, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation,
+    ProjectCommandQueue, ProjectDiscoveryOptions, QueuedProjectCommand, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
+    execute_queued_project_command, plan_engine_reconciliation, publish_project_command_result,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcPayload, IpcRequest, IpcResponse, IpcResult,
+    IpcEventKind, IpcPayload, IpcProjectCommand, IpcRequest, IpcResponse, IpcResult,
 };
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
-    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore,
+    DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
+    DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn queued_project_commands_execute_only_in_the_exact_owned_application() {
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )]);
+    let operation = queued_composer_command("operation-42", "bill", "app");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+
+    let result = runtime.block_on(execute_queued_project_command(
+        engine.clone(),
+        operation,
+        "install-1".to_owned(),
+        8,
+    ));
+
+    let output = result.outcome().as_ref().expect("command output");
+    assert_eq!(result.operation_id(), "operation-42");
+    assert_eq!(output.stdout(), b"installed\n");
+    assert_eq!(output.stderr(), b"notice\n");
+    assert_eq!(engine.started(), 1);
+    assert_eq!(engine.containers(), ["container-app"]);
+}
+
+#[test]
+fn queued_project_commands_reject_ambiguous_or_unowned_applications_before_exec() {
+    let exact = observed_project_application("app-1", "install-1", "bill", "app");
+    let malformed = malformed_project_application("malformed", "install-1", "bill", "app");
+    let cases = [
+        (Vec::new(), "is not ready"),
+        (vec![exact.clone(), exact], "duplicate owned containers"),
+        (
+            vec![observed_project_application(
+                "foreign",
+                "install-2",
+                "bill",
+                "app",
+            )],
+            "is not ready",
+        ),
+        (vec![malformed], "has invalid ownership"),
+    ];
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+
+    for (observed, expected) in cases {
+        let engine = RecordingProjectCommandEngine::new(observed);
+        let result = runtime.block_on(execute_queued_project_command(
+            engine.clone(),
+            queued_composer_command("operation-42", "bill", "app"),
+            "install-1".to_owned(),
+            8,
+        ));
+
+        let error = result.outcome().as_ref().expect_err("rejected command");
+        assert!(
+            error.to_string().contains(expected),
+            "unexpected error: {error}"
+        );
+        assert_eq!(engine.started(), 0);
+    }
+}
+
+#[test]
+fn project_command_results_publish_binary_safe_output_before_completion() {
+    use crate::control_plane::daemon::ipc::IpcOutputStream;
+    use base64::Engine as _;
+
+    let root = temporary_directory("project-command-result");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let mut control_plane = ControlPlane::new(store);
+    let mut journal = IpcEventJournal::default();
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+    let queued = queued_composer_command("operation-42", "bill", "app");
+    let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+        operation_id: "operation-42".to_owned(),
+        kind: "project_command".to_owned(),
+        payload_json: queued.payload_json().expect("durable command payload"),
+        status: DaemonOperationStatus::Queued,
+        created_at_unix_seconds: 100,
+        updated_at_unix_seconds: 100,
+    });
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    let accepted = control_plane
+        .enqueue_daemon_operation(&operation, &accepted_json, journal.capacity())
+        .expect("durable queued operation");
+    journal
+        .append_record(accepted)
+        .expect("accepted event record");
+    drop(
+        control_plane
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "operation-42",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 101,
+                event_kind_json: None,
+                event_retention_limit: journal.capacity(),
+            })
+            .expect("running operation"),
+    );
+    let result = runtime.block_on(execute_queued_project_command(
+        engine,
+        queued,
+        "install-1".to_owned(),
+        8,
+    ));
+
+    publish_project_command_result(&mut control_plane, &mut journal, result, 102)
+        .expect("publish command result");
+
+    let events = journal.events_after(Some(0)).expect("command events");
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0].kind(), &IpcEventKind::Accepted);
+    assert_eq!(
+        events[1].kind(),
+        &IpcEventKind::Output {
+            stream: IpcOutputStream::Stdout,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(b"installed\n"),
+        }
+    );
+    assert_eq!(
+        events[2].kind(),
+        &IpcEventKind::Output {
+            stream: IpcOutputStream::Stderr,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(b"notice\n"),
+        }
+    );
+    assert_eq!(events[3].kind(), &IpcEventKind::Completed);
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove command result fixture");
+}
+
+#[test]
+fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands() {
+    let root = temporary_directory("project-command-restart");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    for (operation_id, created_at) in [("queued-42", 100), ("running-42", 101)] {
+        let queued = queued_composer_command(operation_id, "bill", "app");
+        let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+            operation_id: operation_id.to_owned(),
+            kind: "project_command".to_owned(),
+            payload_json: queued.payload_json().expect("durable command payload"),
+            status: DaemonOperationStatus::Queued,
+            created_at_unix_seconds: created_at,
+            updated_at_unix_seconds: created_at,
+        });
+        store
+            .enqueue_daemon_operation(&operation, &accepted_json, 256)
+            .expect("persist queued command");
+    }
+    drop(
+        store
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "running-42",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 102,
+                event_kind_json: None,
+                event_retention_limit: 256,
+            })
+            .expect("claim running command"),
+    );
+
+    let mut restored =
+        restore_project_command_operations(&mut store, 200).expect("restore project commands");
+
+    assert_eq!(restored.len(), 1);
+    let queued = restored.pop_front().expect("restored queued command");
+    assert_eq!(queued.operation_id(), "queued-42");
+    assert_eq!(queued.plan().arguments(), ["composer", "install"]);
+    let active = store
+        .active_daemon_operations()
+        .expect("active daemon operations");
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].operation_id(), "queued-42");
+    let events = store.daemon_events().expect("daemon events");
+    let interrupted = events.last().expect("interrupted terminal event");
+    assert_eq!(interrupted.operation_id(), "running-42");
+    assert!(
+        interrupted
+            .kind_json()
+            .contains("project_command_interrupted")
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove restart fixture");
+}
 
 #[test]
 fn engine_connection_retries_only_after_backoff_and_recovers() {
@@ -776,12 +985,14 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     let mut control_plane = ControlPlane::new(store);
     let request = IpcRequest::new("reconcile-42", IpcPayload::Reconcile);
     let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         request: &request,
         event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
         now_unix_seconds: 10_000,
     });
 
@@ -808,6 +1019,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         request: &subscription,
         event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
         now_unix_seconds: 10_001,
     });
     let crate::control_plane::daemon::ipc::IpcOutcome::Success {
@@ -878,12 +1090,14 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         },
     );
     let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         request: &request,
         event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
         now_unix_seconds: 20_000,
     });
 
@@ -899,6 +1113,78 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove adoption fixture");
+}
+
+#[test]
+fn daemon_project_command_request_queues_an_exact_registered_runtime() {
+    let root = temporary_directory("ipc-project-command");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(
+        project_path.clone(),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    );
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::from([("DB_HOST".to_owned(), "postgres.internal".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist managed environment");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "command-42",
+        IpcPayload::RunProjectCommand {
+            canonical_path: project_path,
+            service: "app".to_owned(),
+            command: IpcProjectCommand::Composer {
+                arguments: vec!["install".to_owned(), "--no-interaction".to_owned()],
+            },
+            timeout_seconds: 300,
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        now_unix_seconds: 30_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "command-42",
+            IpcResult::Accepted {
+                operation_id: "command-42".to_owned(),
+            },
+        )
+    );
+    assert_eq!(project_commands.len(), 1);
+    let queued = project_commands
+        .pop_front()
+        .expect("queued project command");
+    assert_eq!(queued.operation_id(), "command-42");
+    assert_eq!(queued.service_id(), "app");
+    assert_eq!(queued.plan().project_id(), "bill");
+    assert_eq!(
+        queued.plan().arguments(),
+        ["composer", "install", "--no-interaction"]
+    );
+    assert_eq!(event_journal.latest_sequence(), 1);
+
+    drop(control_plane);
+    std::fs::remove_dir_all(&root).expect("remove command fixture");
 }
 
 #[test]
@@ -1202,4 +1488,172 @@ fn remove_lock(lock_path: &Path) {
     if lock_path.exists() {
         std::fs::remove_file(lock_path).expect("remove singleton lease");
     }
+}
+
+#[derive(Clone)]
+struct RecordingProjectCommandEngine {
+    observed: Vec<crate::control_plane::engine::ObservedContainer>,
+    execution: std::sync::Arc<RecordingProjectCommandExecution>,
+}
+
+#[derive(Default)]
+struct RecordingProjectCommandExecution {
+    started: std::sync::atomic::AtomicUsize,
+    containers: std::sync::Mutex<Vec<String>>,
+}
+
+impl RecordingProjectCommandEngine {
+    fn new(observed: Vec<crate::control_plane::engine::ObservedContainer>) -> Self {
+        Self {
+            observed,
+            execution: std::sync::Arc::new(RecordingProjectCommandExecution::default()),
+        }
+    }
+
+    fn started(&self) -> usize {
+        self.execution
+            .started
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn containers(&self) -> Vec<String> {
+        self.execution
+            .containers
+            .lock()
+            .expect("executed containers")
+            .clone()
+    }
+}
+
+impl crate::control_plane::engine::ContainerDiscovery for RecordingProjectCommandEngine {
+    fn discover_managed(
+        &self,
+    ) -> crate::control_plane::engine::EngineFuture<
+        '_,
+        Vec<crate::control_plane::engine::ObservedContainer>,
+    > {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEngine {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation crate::control_plane::engine::OwnedContainer,
+        _request: &'operation crate::control_plane::engine::CommandRequest,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandSession,
+    > {
+        self.execution
+            .started
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.execution
+            .containers
+            .lock()
+            .expect("executed containers")
+            .push(container.id().as_str().to_owned());
+        let container_id = container.id().clone();
+        Box::pin(async move {
+            let (writer, _reader) = tokio::io::duplex(1024);
+            let output: crate::control_plane::engine::ContainerLogStream<'static> =
+                Box::pin(futures_util::stream::iter([
+                    Ok(crate::control_plane::engine::LogChunk::stdout(
+                        b"installed\n".to_vec(),
+                    )),
+                    Ok(crate::control_plane::engine::LogChunk::new(
+                        crate::control_plane::engine::LogStreamKind::Stderr,
+                        b"notice\n".to_vec(),
+                    )),
+                ]));
+
+            Ok(crate::control_plane::engine::CommandSession::new(
+                crate::control_plane::engine::CommandExecutionId::new("command-1"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation crate::control_plane::engine::CommandExecutionId,
+        _container_id: &'operation crate::control_plane::engine::ContainerId,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandStatus,
+    > {
+        Box::pin(async { Ok(crate::control_plane::engine::CommandStatus::Exited(0)) })
+    }
+}
+
+fn queued_composer_command(
+    operation_id: &str,
+    project_id: &str,
+    service_id: &str,
+) -> QueuedProjectCommand {
+    let project = crate::control_plane::ProjectIdentity::resolve(
+        Some(project_id),
+        Path::new("/work/project"),
+    )
+    .expect("project identity");
+    let plan = crate::control_plane::workload::ProjectCommandPlan::new(
+        crate::control_plane::workload::ProjectCommandPlanOptions {
+            project,
+            command: crate::control_plane::workload::ProjectCommand::Composer {
+                arguments: vec!["install".to_owned()],
+            },
+            environment: BTreeMap::new(),
+            input: Vec::new(),
+            timeout: Duration::from_secs(30),
+        },
+    )
+    .expect("project command plan");
+
+    QueuedProjectCommand::new(operation_id.to_owned(), service_id.to_owned(), plan)
+}
+
+fn observed_project_application(
+    container_id: &str,
+    installation_id: &str,
+    project_id: &str,
+    service_id: &str,
+) -> crate::control_plane::engine::ObservedContainer {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::ProjectApplication,
+            project_id: Some(project_id.to_owned()),
+            compatibility_fingerprint: "sha256:application".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Disposable,
+        },
+    )
+    .expect("application metadata")
+    .with_resource_id(service_id)
+    .expect("application service identity");
+
+    crate::control_plane::engine::ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new(container_id),
+        metadata.labels(),
+    )
+}
+
+fn malformed_project_application(
+    container_id: &str,
+    installation_id: &str,
+    project_id: &str,
+    service_id: &str,
+) -> crate::control_plane::engine::ObservedContainer {
+    let observed =
+        observed_project_application(container_id, installation_id, project_id, service_id);
+    let mut labels = observed.labels().clone();
+    drop(labels.remove("dev.stackctl.desired"));
+
+    crate::control_plane::engine::ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new(container_id),
+        labels,
+    )
 }

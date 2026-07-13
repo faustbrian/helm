@@ -1,3 +1,4 @@
+mod active_project_command;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
 mod daemon_iteration_result;
@@ -20,19 +21,27 @@ mod engine_reconciliation_plan;
 mod engine_reconciliation_plan_error;
 mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
+mod execute_queued_project_command;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
 mod initialize_default_installation;
 mod installation_initialization_error;
 mod ipc;
+mod persisted_project_command;
 mod plan_engine_reconciliation;
+mod project_command_execution_result;
+mod project_command_queue;
+mod project_command_queue_error;
 mod project_discovery_error;
 mod project_discovery_issue;
 mod project_discovery_options;
 mod project_discovery_report;
+mod publish_project_command_result;
+mod queued_project_command;
 mod reconcile_watched_roots;
 mod record_ipc_event;
 mod requires_followup_reconciliation;
+mod restore_project_command_operations;
 mod retry_backoff;
 mod retry_backoff_error;
 mod retry_backoff_options;
@@ -41,6 +50,8 @@ mod retry_delay;
 mod run_unix_daemon_watch;
 mod singleton_lease;
 mod singleton_lease_error;
+#[cfg(unix)]
+mod unix_daemon_project_commands;
 #[cfg(unix)]
 mod unix_daemon_runtime;
 #[cfg(unix)]
@@ -51,6 +62,7 @@ mod unix_daemon_runtime_options;
 mod unix_daemon_watch_options;
 mod validate_project_workload_adoption;
 
+pub(crate) use active_project_command::ActiveProjectCommand;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
@@ -78,6 +90,7 @@ pub(crate) use engine_reconciliation_plan::EngineReconciliationPlan;
 pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
 pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
+pub(crate) use execute_queued_project_command::execute_queued_project_command;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
 pub(crate) use initialize_default_installation::initialize_default_installation;
@@ -86,13 +99,20 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 pub(crate) use ipc::{
     IpcEventJournal, IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,
 };
+pub(crate) use persisted_project_command::PersistedProjectCommand;
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
+pub(crate) use project_command_execution_result::ProjectCommandExecutionResult;
+pub(crate) use project_command_queue::ProjectCommandQueue;
+pub(crate) use project_command_queue_error::ProjectCommandQueueError;
 pub(crate) use project_discovery_error::ProjectDiscoveryError;
 pub(crate) use project_discovery_issue::ProjectDiscoveryIssue;
 pub(crate) use project_discovery_options::ProjectDiscoveryOptions;
 pub(crate) use project_discovery_report::ProjectDiscoveryReport;
+pub(crate) use publish_project_command_result::publish_project_command_result;
+pub(crate) use queued_project_command::QueuedProjectCommand;
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
+pub(crate) use restore_project_command_operations::restore_project_command_operations;
 pub(crate) use retry_backoff::RetryBackoff;
 pub(crate) use retry_backoff_error::RetryBackoffError;
 pub(crate) use retry_backoff_options::RetryBackoffOptions;

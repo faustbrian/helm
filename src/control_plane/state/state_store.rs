@@ -1,7 +1,7 @@
 use super::{
-    CredentialRecord, DaemonEventRecord, InstallationRecord, LogicalResourceRecord,
-    ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceRecord,
-    StateStoreError,
+    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationTransitionOptions,
+    InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord,
+    ProjectAdoptionPlan, ProjectRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -152,4 +152,21 @@ pub(crate) trait StateStore {
 
     /// Loads retained daemon events in monotonic sequence order.
     fn daemon_events(&self) -> Result<Vec<DaemonEventRecord>, StateStoreError>;
+
+    /// Atomically persists a queued operation and its accepted event.
+    fn enqueue_daemon_operation(
+        &mut self,
+        operation: &DaemonOperationRecord,
+        accepted_kind_json: &str,
+        event_retention_limit: usize,
+    ) -> Result<DaemonEventRecord, StateStoreError>;
+
+    /// Advances an exact operation lifecycle and optionally appends one event.
+    fn transition_daemon_operation(
+        &mut self,
+        options: DaemonOperationTransitionOptions<'_>,
+    ) -> Result<Option<DaemonEventRecord>, StateStoreError>;
+
+    /// Loads non-terminal operations in creation order for restart recovery.
+    fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError>;
 }

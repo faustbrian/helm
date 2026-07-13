@@ -1,10 +1,11 @@
 use super::{
-    BollardUnixEngineConnector, DaemonIterationResult, DaemonRequestDispatchOptions,
-    DiscoveryScheduler, EngineConnectionOutcome, EngineConnectionSupervisor,
-    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
-    IpcEventJournal, RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
-    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
+    ActiveProjectCommand, BollardUnixEngineConnector, DaemonIterationResult,
+    DaemonRequestDispatchOptions, DiscoveryScheduler, EngineConnectionOutcome,
+    EngineConnectionSupervisor, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
+    FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
+    dispatch_daemon_request, initialize_default_installation, plan_engine_reconciliation,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -43,13 +44,15 @@ pub(crate) struct UnixDaemonRuntime {
     _lease: SingletonLease,
     listener: UnixIpcListener,
     filesystem_watcher: FilesystemEventWatcher,
-    engine_runtime: tokio::runtime::Runtime,
-    engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
+    pub(super) engine_runtime: tokio::runtime::Runtime,
+    pub(super) engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
     runtime_directory: PathBuf,
-    global_network_request: NetworkCreateOptions,
+    pub(super) global_network_request: NetworkCreateOptions,
     engine_reconciliation: EngineReconciliationSchedule,
-    event_journal: IpcEventJournal,
-    control_plane: ControlPlane<SqliteStateStore>,
+    pub(super) event_journal: IpcEventJournal,
+    pub(super) project_commands: ProjectCommandQueue,
+    pub(super) active_project_command: Option<ActiveProjectCommand>,
+    pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
 }
@@ -76,6 +79,7 @@ impl UnixDaemonRuntime {
             &runtime_directory.join("state-backups"),
             unix_time_seconds(),
         )?;
+        let project_commands = restore_project_command_operations(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
@@ -105,6 +109,8 @@ impl UnixDaemonRuntime {
             global_network_request,
             engine_reconciliation: EngineReconciliationSchedule::default(),
             event_journal,
+            project_commands,
+            active_project_command: None,
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -140,6 +146,7 @@ impl UnixDaemonRuntime {
                 discovery_options: self.options.discovery_options,
                 request,
                 event_journal: &mut self.event_journal,
+                project_commands: &mut self.project_commands,
                 now_unix_seconds,
             })
         })?;
@@ -180,9 +187,12 @@ impl UnixDaemonRuntime {
                             );
                         }
                     }
-                    if self.engine_reconciliation.may_reconcile() {
+                    if !self.has_active_project_command()
+                        && self.engine_reconciliation.may_reconcile()
+                    {
                         self.reconcile_engine_plane(now);
                     }
+                    self.drive_project_commands(now, unix_time_seconds());
                 }
                 Err(error) => {
                     tracing::error!(error = %error, "singleton daemon iteration failed");

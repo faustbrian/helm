@@ -16,7 +16,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 11);
+    assert_eq!(store.schema_version().expect("schema version"), 12);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -1629,7 +1629,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 11);
+    assert_eq!(store.schema_version().expect("schema version"), 12);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -1685,7 +1685,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 11);
+    assert_eq!(store.schema_version().expect("schema version"), 12);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -1729,7 +1729,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 11);
+    assert_eq!(store.schema_version().expect("schema version"), 12);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);

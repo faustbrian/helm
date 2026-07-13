@@ -32,11 +32,11 @@ impl AttachedCommandOptions {
         })
     }
 
-    pub(super) const fn request(&self) -> &CommandRequest {
+    pub(crate) const fn request(&self) -> &CommandRequest {
         &self.request
     }
 
-    pub(super) fn input(&self) -> &[u8] {
+    pub(crate) fn input(&self) -> &[u8] {
         &self.input
     }
 
@@ -44,7 +44,7 @@ impl AttachedCommandOptions {
         &self.action
     }
 
-    pub(super) const fn timeout(&self) -> Duration {
+    pub(crate) const fn timeout(&self) -> Duration {
         self.timeout
     }
 }

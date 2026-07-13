@@ -6,17 +6,18 @@ use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
-    CredentialLifecycle, CredentialRecord, DaemonEventRecord, EngineProvider, EnvironmentLifecycle,
-    InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
-    ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, StateStore, StateStoreError,
+    CredentialLifecycle, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
+    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
+    EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    MigrationPhase, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 11;
+const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -238,6 +239,25 @@ impl SqliteStateStore {
                      operation_id TEXT NOT NULL CHECK(length(operation_id) > 0),
                      kind_json TEXT NOT NULL CHECK(length(kind_json) > 0)
                  ) STRICT;",
+            )?;
+        }
+
+        if found < 12 {
+            transaction.execute_batch(
+                "CREATE TABLE daemon_operations (
+                     operation_id TEXT PRIMARY KEY NOT NULL CHECK(length(operation_id) > 0),
+                     kind TEXT NOT NULL CHECK(length(kind) > 0),
+                     payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
+                     status TEXT NOT NULL CHECK(status IN (
+                         'queued', 'running', 'completed', 'failed', 'cancelled'
+                     )),
+                     created_at_unix_seconds INTEGER NOT NULL
+                         CHECK(created_at_unix_seconds >= 0),
+                     updated_at_unix_seconds INTEGER NOT NULL
+                         CHECK(updated_at_unix_seconds >= created_at_unix_seconds)
+                 ) STRICT;
+                 CREATE INDEX daemon_operations_active_idx
+                     ON daemon_operations(status, created_at_unix_seconds);",
             )?;
         }
 
@@ -1267,37 +1287,18 @@ impl StateStore for SqliteStateStore {
                     .to_owned(),
             });
         }
-        let retention_limit =
-            i64::try_from(retention_limit).map_err(|_| StateStoreError::InvalidDaemonEvent {
-                detail: "retention limit exceeds SQLite integer range".to_owned(),
-            })?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        transaction.execute(
-            "INSERT INTO daemon_events (operation_id, kind_json) VALUES (?1, ?2)",
-            params![operation_id, kind_json],
-        )?;
-        let sequence = u64::try_from(transaction.last_insert_rowid()).map_err(|_| {
-            StateStoreError::CorruptState {
-                detail: "daemon event sequence is outside the supported range".to_owned(),
-            }
-        })?;
-        transaction.execute(
-            "DELETE FROM daemon_events
-             WHERE sequence NOT IN (
-                 SELECT sequence FROM daemon_events
-                 ORDER BY sequence DESC LIMIT ?1
-             )",
-            [retention_limit],
+        let event = append_daemon_event_in_transaction(
+            &transaction,
+            operation_id,
+            kind_json,
+            retention_limit,
         )?;
         transaction.commit()?;
 
-        Ok(DaemonEventRecord::new(
-            sequence,
-            operation_id.to_owned(),
-            kind_json.to_owned(),
-        ))
+        Ok(event)
     }
 
     fn daemon_events(&self) -> Result<Vec<DaemonEventRecord>, StateStoreError> {
@@ -1326,6 +1327,281 @@ impl StateStore for SqliteStateStore {
             })
             .collect()
     }
+
+    fn enqueue_daemon_operation(
+        &mut self,
+        operation: &DaemonOperationRecord,
+        accepted_kind_json: &str,
+        event_retention_limit: usize,
+    ) -> Result<DaemonEventRecord, StateStoreError> {
+        validate_new_daemon_operation(operation, accepted_kind_json)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO daemon_operations (
+                 operation_id, kind, payload_json, status,
+                 created_at_unix_seconds, updated_at_unix_seconds
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                operation.operation_id(),
+                operation.kind(),
+                operation.payload_json(),
+                operation.status().label(),
+                operation.created_at_unix_seconds(),
+                operation.updated_at_unix_seconds(),
+            ],
+        )?;
+        let event = append_daemon_event_in_transaction(
+            &transaction,
+            operation.operation_id(),
+            accepted_kind_json,
+            event_retention_limit,
+        )?;
+        transaction.commit()?;
+
+        Ok(event)
+    }
+
+    fn transition_daemon_operation(
+        &mut self,
+        options: DaemonOperationTransitionOptions<'_>,
+    ) -> Result<Option<DaemonEventRecord>, StateStoreError> {
+        let DaemonOperationTransitionOptions {
+            operation_id,
+            expected,
+            next,
+            updated_at_unix_seconds,
+            event_kind_json,
+            event_retention_limit,
+        } = options;
+        validate_daemon_operation_transition(
+            operation_id,
+            expected,
+            next,
+            updated_at_unix_seconds,
+            event_kind_json,
+            event_retention_limit,
+        )?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = transaction.execute(
+            "UPDATE daemon_operations
+             SET status = ?1, updated_at_unix_seconds = ?2
+             WHERE operation_id = ?3 AND status = ?4
+               AND updated_at_unix_seconds <= ?2",
+            params![
+                next.label(),
+                updated_at_unix_seconds,
+                operation_id,
+                expected.label(),
+            ],
+        )?;
+        if changed != 1 {
+            return Err(StateStoreError::InvalidDaemonOperation {
+                detail: format!(
+                    "operation '{operation_id}' is missing, has moved beyond '{}', or has a later timestamp",
+                    expected.label()
+                ),
+            });
+        }
+        let event = event_kind_json
+            .map(|kind_json| {
+                append_daemon_event_in_transaction(
+                    &transaction,
+                    operation_id,
+                    kind_json,
+                    event_retention_limit,
+                )
+            })
+            .transpose()?;
+        prune_terminal_daemon_operations(&transaction, event_retention_limit)?;
+        transaction.commit()?;
+
+        Ok(event)
+    }
+
+    fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT operation_id, kind, payload_json, status,
+                    created_at_unix_seconds, updated_at_unix_seconds
+             FROM daemon_operations
+             WHERE status IN ('queued', 'running')
+             ORDER BY created_at_unix_seconds, operation_id",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(
+                |(operation_id, kind, payload_json, status, created_at, updated_at)| {
+                    if operation_id.is_empty()
+                        || kind.is_empty()
+                        || payload_json.is_empty()
+                        || created_at < 0
+                        || updated_at < created_at
+                    {
+                        return Err(StateStoreError::CorruptState {
+                            detail: "daemon operation contains invalid durable fields".to_owned(),
+                        });
+                    }
+
+                    Ok(DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                        operation_id,
+                        kind,
+                        payload_json,
+                        status: DaemonOperationStatus::parse(&status)?,
+                        created_at_unix_seconds: created_at,
+                        updated_at_unix_seconds: updated_at,
+                    }))
+                },
+            )
+            .collect()
+    }
+}
+
+fn append_daemon_event_in_transaction(
+    transaction: &Transaction<'_>,
+    operation_id: &str,
+    kind_json: &str,
+    retention_limit: usize,
+) -> Result<DaemonEventRecord, StateStoreError> {
+    if operation_id.is_empty() || kind_json.is_empty() || retention_limit == 0 {
+        return Err(StateStoreError::InvalidDaemonEvent {
+            detail: "operation ID, event payload, and retention limit must be non-empty".to_owned(),
+        });
+    }
+    let retention_limit =
+        i64::try_from(retention_limit).map_err(|_| StateStoreError::InvalidDaemonEvent {
+            detail: "retention limit exceeds SQLite integer range".to_owned(),
+        })?;
+    transaction.execute(
+        "INSERT INTO daemon_events (operation_id, kind_json) VALUES (?1, ?2)",
+        params![operation_id, kind_json],
+    )?;
+    let sequence = u64::try_from(transaction.last_insert_rowid()).map_err(|_| {
+        StateStoreError::CorruptState {
+            detail: "daemon event sequence is outside the supported range".to_owned(),
+        }
+    })?;
+    transaction.execute(
+        "DELETE FROM daemon_events
+         WHERE sequence NOT IN (
+             SELECT sequence FROM daemon_events
+             ORDER BY sequence DESC LIMIT ?1
+         )",
+        [retention_limit],
+    )?;
+
+    Ok(DaemonEventRecord::new(
+        sequence,
+        operation_id.to_owned(),
+        kind_json.to_owned(),
+    ))
+}
+
+fn prune_terminal_daemon_operations(
+    transaction: &Transaction<'_>,
+    retention_limit: usize,
+) -> Result<(), StateStoreError> {
+    let retention_limit =
+        i64::try_from(retention_limit).map_err(|_| StateStoreError::InvalidDaemonOperation {
+            detail: "operation retention limit exceeds SQLite integer range".to_owned(),
+        })?;
+    transaction.execute(
+        "DELETE FROM daemon_operations
+         WHERE status IN ('completed', 'failed', 'cancelled')
+           AND operation_id NOT IN (
+               SELECT operation_id FROM daemon_operations
+               WHERE status IN ('completed', 'failed', 'cancelled')
+               ORDER BY updated_at_unix_seconds DESC, operation_id DESC LIMIT ?1
+           )",
+        [retention_limit],
+    )?;
+
+    Ok(())
+}
+
+fn validate_new_daemon_operation(
+    operation: &DaemonOperationRecord,
+    accepted_kind_json: &str,
+) -> Result<(), StateStoreError> {
+    if operation.operation_id().is_empty()
+        || operation.kind().is_empty()
+        || operation.payload_json().is_empty()
+        || operation.status() != DaemonOperationStatus::Queued
+        || operation.created_at_unix_seconds() < 0
+        || operation.updated_at_unix_seconds() != operation.created_at_unix_seconds()
+        || accepted_kind_json.is_empty()
+    {
+        return Err(StateStoreError::InvalidDaemonOperation {
+            detail: "new operations require non-empty queued identity, payload, event, and valid timestamps"
+                .to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_daemon_operation_transition(
+    operation_id: &str,
+    expected: DaemonOperationStatus,
+    next: DaemonOperationStatus,
+    updated_at_unix_seconds: i64,
+    event_kind_json: Option<&str>,
+    event_retention_limit: usize,
+) -> Result<(), StateStoreError> {
+    let allowed = matches!(
+        (expected, next),
+        (
+            DaemonOperationStatus::Queued,
+            DaemonOperationStatus::Running
+        ) | (DaemonOperationStatus::Queued, DaemonOperationStatus::Failed)
+            | (
+                DaemonOperationStatus::Queued,
+                DaemonOperationStatus::Cancelled
+            )
+            | (
+                DaemonOperationStatus::Running,
+                DaemonOperationStatus::Completed
+            )
+            | (
+                DaemonOperationStatus::Running,
+                DaemonOperationStatus::Failed
+            )
+            | (
+                DaemonOperationStatus::Running,
+                DaemonOperationStatus::Cancelled
+            )
+    );
+    if operation_id.is_empty()
+        || updated_at_unix_seconds < 0
+        || !allowed
+        || event_retention_limit == 0
+        || event_kind_json.is_some_and(str::is_empty)
+    {
+        return Err(StateStoreError::InvalidDaemonOperation {
+            detail: format!(
+                "operation '{operation_id}' cannot transition from '{}' to '{}'",
+                expected.label(),
+                next.label()
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn replace_project_batch(

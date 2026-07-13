@@ -72,7 +72,7 @@ impl CommandRequest {
         &self.arguments
     }
 
-    pub(super) const fn environment(&self) -> &BTreeMap<String, String> {
+    pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
     }
 
