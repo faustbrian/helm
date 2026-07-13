@@ -1,6 +1,7 @@
 //! User-service definitions for login-time daemon watch startup.
 
 mod launchd;
+mod store_definition;
 mod systemd;
 
 use anyhow::{Context, Result, bail};
@@ -58,8 +59,7 @@ pub(crate) fn install_service(
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    fs::write(&definition.path, &definition.contents)
-        .with_context(|| format!("failed to write {}", definition.path.display()))?;
+    store_definition::store_definition(&definition.path, &definition.contents)?;
 
     match definition.manager {
         ServiceManager::Launchd => install_launchd(&definition)?,
@@ -262,15 +262,15 @@ fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()
 }
 
 fn launchd_domain() -> Result<String> {
-    let output = Command::new("id")
-        .arg("-u")
-        .output()
-        .context("failed to resolve current uid")?;
-    if !output.status.success() {
-        bail!("failed to resolve current uid");
-    }
-    let uid = String::from_utf8(output.stdout).context("uid was not valid UTF-8")?;
-    Ok(format!("gui/{}", uid.trim()))
+    #[cfg(unix)]
+    return Ok(format_launchd_domain(rustix::process::geteuid().as_raw()));
+
+    #[cfg(not(unix))]
+    bail!("launchd services require a Unix user identity")
+}
+
+fn format_launchd_domain(uid: u32) -> String {
+    format!("gui/{uid}")
 }
 
 fn service_manager() -> Result<ServiceManager> {
@@ -388,9 +388,9 @@ mod tests {
     use super::{
         DaemonServiceInstallOptions, ServiceManager, clear_test_service_binary,
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
-        install_service, print_service, service_status, set_test_service_binary,
-        set_test_service_home, set_test_service_manager, take_test_service_commands,
-        uninstall_service,
+        format_launchd_domain, install_service, print_service, service_status,
+        set_test_service_binary, set_test_service_home, set_test_service_manager,
+        take_test_service_commands, uninstall_service,
     };
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -413,6 +413,54 @@ mod tests {
             watch_dirs: vec![std::path::PathBuf::from("/tmp/projects")],
             interval_secs: 45,
         }
+    }
+
+    #[test]
+    fn launchd_domain_uses_the_numeric_uid_directly() {
+        assert_eq!(format_launchd_domain(501), "gui/501");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_service_replaces_a_definition_symlink_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let home = temp_home("definition-symlink");
+        let victim = home.join("victim.txt");
+        fs::write(&victim, "do not replace\n").expect("write victim");
+        let definition = home
+            .join("Library")
+            .join("LaunchAgents")
+            .join("dev.stackctl.daemon.watch.plist");
+        fs::create_dir_all(definition.parent().expect("definition parent"))
+            .expect("create definition parent");
+        symlink(&victim, &definition).expect("create definition symlink");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::Launchd);
+        clear_test_service_commands();
+
+        install_service(&service_options()).expect("install launchd");
+
+        assert_eq!(
+            fs::read_to_string(&victim).expect("read victim"),
+            "do not replace\n"
+        );
+        assert!(
+            !fs::symlink_metadata(&definition)
+                .expect("definition metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::read_to_string(&definition)
+                .expect("read definition")
+                .contains("/tmp/stackctl")
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
     }
 
     #[test]

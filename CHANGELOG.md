@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Made login-service definitions publish atomically without following an
+  existing destination symlink, preventing partial writes or writes through
+  redirected service paths.
+- Changed launchd login-service installation to obtain the effective user ID
+  from the operating system directly instead of invoking the host `id` tool.
 - Added an executable v8 retention policy that keeps active resources, ages out
   disposable orphans, and blocks persistent deletion without explicit prune
   intent and verified backup evidence.
