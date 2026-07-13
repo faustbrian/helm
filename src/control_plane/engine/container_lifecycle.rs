@@ -1,14 +1,35 @@
 use super::{ContainerCreateOptions, ContainerId, ContainerState, EngineError};
+use std::future::Future;
+use std::pin::Pin;
+
+/// An object-safe nonblocking Engine operation.
+pub(crate) type EngineFuture<'operation, Output> =
+    Pin<Box<dyn Future<Output = Result<Output, EngineError>> + Send + 'operation>>;
 
 /// Narrow container lifecycle effects implemented by Docker and Podman adapters.
 pub(crate) trait ContainerLifecycle {
-    fn create(&mut self, options: &ContainerCreateOptions) -> Result<ContainerId, EngineError>;
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation ContainerCreateOptions,
+    ) -> EngineFuture<'operation, ContainerId>;
 
-    fn start(&mut self, container: &ContainerId) -> Result<(), EngineError>;
+    fn start<'operation>(
+        &'operation mut self,
+        container: &'operation ContainerId,
+    ) -> EngineFuture<'operation, ()>;
 
-    fn stop(&mut self, container: &ContainerId) -> Result<(), EngineError>;
+    fn stop<'operation>(
+        &'operation mut self,
+        container: &'operation ContainerId,
+    ) -> EngineFuture<'operation, ()>;
 
-    fn remove(&mut self, container: &ContainerId) -> Result<(), EngineError>;
+    fn remove<'operation>(
+        &'operation mut self,
+        container: &'operation ContainerId,
+    ) -> EngineFuture<'operation, ()>;
 
-    fn inspect(&self, container: &ContainerId) -> Result<ContainerState, EngineError>;
+    fn inspect<'operation>(
+        &'operation self,
+        container: &'operation ContainerId,
+    ) -> EngineFuture<'operation, ContainerState>;
 }

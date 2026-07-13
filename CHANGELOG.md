@@ -24,6 +24,8 @@ All notable changes to this project are documented in this file.
   discovered registry before atomically persisting any project ownership.
 - Added the v8 Engine capability boundary with mandatory installation ownership
   metadata and replaceable container lifecycle strategies.
+- Added a nonblocking direct Docker-compatible API adapter for Docker Unix
+  sockets and Windows named pipes, also usable with Podman's compatible API.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
