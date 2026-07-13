@@ -98,6 +98,8 @@ All notable changes to this project are documented in this file.
   reports every known owner, and never falls back to random public ports.
 - Added unfiltered structured Engine discovery for running containers' published
   TCP ports so gateway diagnostics can identify foreign container owners.
+- Composed Engine port inventory with host listener probing so conflicts name
+  exact containers without invoking Docker, Podman, lsof, or netstat CLIs.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

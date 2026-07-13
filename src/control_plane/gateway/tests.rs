@@ -1,9 +1,11 @@
 use super::{
-    CaddyGatewayProvider, GatewayConfiguration, GatewayDocumentLoader, GatewayError, GatewayFuture,
-    GatewayPortAvailability, GatewayPortProbe, GatewayRoute, GatewaySnapshot, LocalhostResolver,
-    SystemGatewayPortProbe, render_caddy_document, store_caddy_bootstrap,
-    verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayDocumentLoader,
+    GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe, GatewayRoute,
+    GatewaySnapshot, LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports,
+    render_caddy_document, store_caddy_bootstrap, verify_gateway_ports_available,
+    verify_stackctl_localhost_resolution,
 };
+use crate::control_plane::engine::{EngineFuture, PublishedPortBinding, PublishedPortDiscovery};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -153,6 +155,93 @@ fn system_gateway_port_probe_detects_a_loopback_listener_without_binding() {
             .probe(address)
             .expect("probe listener"),
         GatewayPortAvailability::Occupied { owner: None }
+    );
+}
+
+#[test]
+fn engine_gateway_port_probe_attributes_exact_and_wildcard_bindings() {
+    let host_probe = RecordingGatewayPortProbe::with_results([(
+        SocketAddr::from((Ipv6Addr::LOCALHOST, 80)),
+        GatewayPortAvailability::Occupied { owner: None },
+    )]);
+    let bindings = vec![
+        PublishedPortBinding::new(
+            "container-1",
+            "legacy-proxy",
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            80,
+        )
+        .expect("wildcard Engine binding"),
+        PublishedPortBinding::new(
+            "container-2",
+            "secure-proxy",
+            IpAddr::V6(Ipv6Addr::LOCALHOST),
+            443,
+        )
+        .expect("exact Engine binding"),
+    ];
+    let probe = EngineGatewayPortProbe::new(&host_probe, &bindings);
+
+    assert_eq!(
+        probe
+            .probe(SocketAddr::from((Ipv4Addr::LOCALHOST, 80)))
+            .expect("IPv4 wildcard binding"),
+        GatewayPortAvailability::Occupied {
+            owner: Some("Engine container 'legacy-proxy' (id 'container-1')".to_owned())
+        }
+    );
+    assert_eq!(
+        probe
+            .probe(SocketAddr::from((Ipv6Addr::LOCALHOST, 443)))
+            .expect("exact IPv6 binding"),
+        GatewayPortAvailability::Occupied {
+            owner: Some("Engine container 'secure-proxy' (id 'container-2')".to_owned())
+        }
+    );
+    assert_eq!(
+        probe
+            .probe(SocketAddr::from((Ipv6Addr::LOCALHOST, 80)))
+            .expect("host listener fallback"),
+        GatewayPortAvailability::Occupied { owner: None }
+    );
+    assert_eq!(
+        host_probe.addresses.borrow().as_slice(),
+        &[SocketAddr::from((Ipv6Addr::LOCALHOST, 80))]
+    );
+}
+
+#[test]
+fn gateway_port_preflight_discovers_engine_owners_before_host_probing() {
+    let engine = RecordingPublishedPortDiscovery {
+        bindings: vec![
+            PublishedPortBinding::new(
+                "container-1",
+                "legacy-proxy",
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                80,
+            )
+            .expect("Engine binding"),
+        ],
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(preflight_gateway_ports(&engine, &host_probe))
+        .expect_err("Engine port conflict");
+
+    assert!(
+        error
+            .to_string()
+            .contains("127.0.0.1:80 is occupied by Engine container 'legacy-proxy'")
+    );
+    assert!(
+        !host_probe
+            .addresses
+            .borrow()
+            .contains(&SocketAddr::from((Ipv4Addr::LOCALHOST, 80)))
     );
 }
 
@@ -513,5 +602,15 @@ impl GatewayPortProbe for RecordingGatewayPortProbe {
             .get(&address)
             .cloned()
             .unwrap_or(GatewayPortAvailability::Available))
+    }
+}
+
+struct RecordingPublishedPortDiscovery {
+    bindings: Vec<PublishedPortBinding>,
+}
+
+impl PublishedPortDiscovery for RecordingPublishedPortDiscovery {
+    fn discover_published_tcp_ports(&self) -> EngineFuture<'_, Vec<PublishedPortBinding>> {
+        Box::pin(async { Ok(self.bindings.clone()) })
     }
 }
