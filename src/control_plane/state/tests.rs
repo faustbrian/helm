@@ -750,6 +750,62 @@ fn logical_resource_reconciliation_cannot_reassign_or_implicitly_adopt_tenants()
 }
 
 #[test]
+fn logical_ownership_and_managed_environment_publish_atomically() {
+    let database_path = temporary_database_path("logical-environment-transaction");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let logical = logical_resource_record("bill/database", "bill", "database");
+    let environment = managed_environment(BTreeMap::from([(
+        "DB_DATABASE".to_owned(),
+        "stackctl_bill_database".to_owned(),
+    )]));
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+
+    store
+        .record_logical_environment(std::slice::from_ref(&logical), &environment)
+        .expect("publish logical environment");
+
+    assert_eq!(
+        store.logical_resources().expect("logical resources"),
+        vec![logical.clone()]
+    );
+    assert_eq!(
+        store.managed_environments().expect("environments"),
+        vec![environment.clone()]
+    );
+
+    let conflicting = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: "foreign-postgres".to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: "sha256:changed".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let changed_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:changed".to_owned(),
+        values: BTreeMap::from([("DB_DATABASE".to_owned(), "changed".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+
+    store
+        .record_logical_environment(&[conflicting], &changed_environment)
+        .expect_err("ownership conflict rolls back environment");
+
+    assert_eq!(
+        store.managed_environments().expect("retained environment"),
+        vec![environment]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn resource_upsert_rejects_immutable_ownership_drift_atomically() {
     let database_path = temporary_database_path("resource-ownership-conflict");
     let first = resource_record("container-first", "bill", ResourceRetention::Persistent);

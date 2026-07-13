@@ -846,6 +846,39 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    fn record_logical_environment(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+        environment: &ManagedEnvironmentRecord,
+    ) -> Result<(), StateStoreError> {
+        if resources.is_empty() {
+            return Err(StateStoreError::InvalidLogicalEnvironment {
+                detail: "at least one logical resource is required".to_owned(),
+            });
+        }
+        if let Some(resource) = resources
+            .iter()
+            .find(|resource| resource.project_id() != environment.project_id())
+        {
+            return Err(StateStoreError::InvalidLogicalEnvironment {
+                detail: format!(
+                    "resource '{}' belongs to project '{}', not environment project '{}'",
+                    resource.logical_resource_id(),
+                    resource.project_id(),
+                    environment.project_id()
+                ),
+            });
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        persist_logical_resources(&transaction, resources)?;
+        persist_managed_environment(&transaction, environment)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError> {
         let transaction = self
             .connection

@@ -88,6 +88,13 @@ pub(crate) trait StateStore {
     /// Loads all retained managed environments in stable project order.
     fn managed_environments(&self) -> Result<Vec<ManagedEnvironmentRecord>, StateStoreError>;
 
+    /// Atomically publishes logical tenant ownership and its project environment.
+    fn record_logical_environment(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+        environment: &ManagedEnvironmentRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Records one monotonic, crash-recoverable migration checkpoint.
     fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError>;
 

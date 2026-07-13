@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an atomic state transaction for publishing logical shared-service
+  ownership together with its complete project environment, rolling back both
+  on identity conflicts or adoption requirements.
 - Added durable PostgreSQL preparation that reserves one bootstrap secret per
   compatibility group and one tenant secret per project service, reproducing
   identical instance, logical database, and environment plans on replay.

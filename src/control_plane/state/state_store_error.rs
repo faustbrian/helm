@@ -26,6 +26,8 @@ pub(crate) enum StateStoreError {
     ResourceOwnershipConflict { resource_id: String },
     /// A logical tenant identity cannot silently change shared ownership metadata.
     LogicalResourceOwnershipConflict { logical_resource_id: String },
+    /// Logical tenant ownership and its generated environment disagree.
+    InvalidLogicalEnvironment { detail: String },
     /// Generic reconciliation cannot reactivate retained project data.
     ResourceAdoptionRequired { resource_id: String },
     /// Disabled project state cannot be reactivated by ordinary reconciliation.
@@ -103,6 +105,9 @@ impl Display for StateStoreError {
                 formatter,
                 "logical resource '{logical_resource_id}' has immutable ownership metadata that differs from durable state; explicit adoption or migration is required"
             ),
+            Self::InvalidLogicalEnvironment { detail } => {
+                write!(formatter, "invalid logical resource environment: {detail}")
+            }
             Self::ResourceAdoptionRequired { resource_id } => write!(
                 formatter,
                 "resource '{resource_id}' is orphaned or retained; explicit adoption is required before reactivation"
@@ -174,6 +179,7 @@ impl Error for StateStoreError {
             | Self::CredentialOwnershipConflict { .. }
             | Self::ResourceOwnershipConflict { .. }
             | Self::LogicalResourceOwnershipConflict { .. }
+            | Self::InvalidLogicalEnvironment { .. }
             | Self::ResourceAdoptionRequired { .. }
             | Self::ProjectAdoptionRequired { .. }
             | Self::InvalidProjectAdoption { .. }
