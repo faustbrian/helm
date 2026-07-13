@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-worker acceptance coverage proving rollback reconstructs the
+  retained PostgreSQL source environment and preserves the isolated target.
 - Added explicit `stackctl daemon migration confirm` and `rollback` commands
   that follow durable daemon operations and validate exact terminal evidence.
 - Added asynchronous confirm-or-rollback execution that reconstructs exact

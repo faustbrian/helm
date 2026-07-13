@@ -887,8 +887,12 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
         .pop()
         .expect("PostgreSQL instance");
     let fingerprint = shared.fingerprint().as_str().to_owned();
+    let source_container_name = format!(
+        "stackctl-shared-{}",
+        fingerprint.strip_prefix("sha256:").expect("fingerprint")
+    );
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
-        "postgres-source",
+        &source_container_name,
         "install-1",
         "postgres-source",
         &fingerprint,
@@ -896,7 +900,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let source = crate::control_plane::state::LogicalResourceRecord::new(
         crate::control_plane::state::LogicalResourceRecordOptions {
             logical_resource_id: "stackctl_bill_database".to_owned(),
-            shared_resource_id: "postgres-source".to_owned(),
+            shared_resource_id: source_container_name.clone(),
             project_id: "bill".to_owned(),
             service_id: "database".to_owned(),
             kind: "postgres_database_and_role".to_owned(),
@@ -931,7 +935,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
         project_id: "bill".to_owned(),
         revision: "sha256:source".to_owned(),
         values: BTreeMap::from([
-            ("DB_HOST".to_owned(), "postgres-source".to_owned()),
+            ("DB_HOST".to_owned(), source_container_name.clone()),
             (
                 "DB_DATABASE".to_owned(),
                 "stackctl_bill_database".to_owned(),
@@ -1067,6 +1071,9 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     assert!(engine.removed().is_empty());
 
     drop(store);
+    let rollback_database_path = root.join("rollback-state.sqlite3");
+    std::fs::copy(&database_path, &rollback_database_path)
+        .expect("snapshot cutover state for independent rollback path");
     let decision = runtime.block_on(execute_queued_migration_decision(
         engine.clone(),
         FixedRestoreEntropy(0x55),
@@ -1078,12 +1085,12 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 IpcMigrationDecision::Confirm,
             )
             .expect("confirmation decision"),
-            shared,
+            shared: shared.clone(),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
             state_database_path: database_path.clone(),
-            backup_root,
+            backup_root: backup_root.clone(),
             updated_at_unix_seconds: 40_003,
             timeout: Duration::from_secs(30),
         },
@@ -1103,6 +1110,54 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
             .get("PGPASSWORD"),
         Some(&"source-admin".to_owned())
     );
+
+    drop(store);
+    let rollback = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0x66),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "rollback-42".to_owned(),
+                "restore-42".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Rollback,
+            )
+            .expect("rollback decision"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: rollback_database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 40_004,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        rollback.outcome(),
+        &Ok(MigrationExecutionResult::RolledBack)
+    );
+    let store = SqliteStateStore::open(&rollback_database_path).expect("reopen rolled-back state");
+    let rolled_back = store
+        .migrations()
+        .expect("rolled-back migrations")
+        .into_iter()
+        .find(|migration| migration.migration_id() == "restore-42")
+        .expect("rolled-back migration");
+    assert_eq!(rolled_back.phase(), MigrationPhase::RolledBack);
+    assert_eq!(
+        store.managed_environments().expect("source environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&source_container_name)
+    );
+    assert!(
+        engine
+            .created()
+            .contains(&"stackctl-migration-restore-42".to_owned())
+    );
+    assert!(engine.removed().is_empty());
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove restore fixture");
