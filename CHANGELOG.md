@@ -49,6 +49,8 @@ All notable changes to this project are documented in this file.
 - Added dedicated Engine-backed project process plans for workers and schedulers,
   with immutable Linux images, private networking, no published ports, restart supervision,
   and secret-safe desired-plan diagnostics.
+- Added ownership-safe project application reconciliation with idempotent start,
+  unhealthy restart, disposable revision replacement, and duplicate failure.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
