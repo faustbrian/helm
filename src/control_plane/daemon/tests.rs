@@ -531,6 +531,50 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
 }
 
 #[test]
+fn steady_engine_plans_exclude_ephemeral_browser_services() {
+    let application_image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let browser_image = concat!(
+        "selenium/standalone-chromium@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {application_image}\n  browser:\n    preset: dusk\n    image: {browser_image}\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("steady Engine plan");
+
+    assert_eq!(plan.applications().len(), 1);
+    assert!(plan.dedicated_services().is_empty());
+    assert!(plan.processes().is_empty());
+    assert_eq!(plan.gateway().routes().len(), 1);
+    assert_eq!(
+        plan.gateway().routes()[0].domain(),
+        "bill-app.stackctl.localhost"
+    );
+}
+
+#[test]
 fn dedicated_stateful_services_plan_one_retained_project_volume() {
     let image = concat!(
         "localstack/localstack@sha256:",

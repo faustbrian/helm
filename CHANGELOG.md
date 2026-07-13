@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Excluded ephemeral Dusk and Selenium declarations from steady Engine
+  reconciliation so browser containers remain command-scoped and disposable
+  instead of becoming always-on project workloads.
 - Isolated concurrent legacy Caddy filesystem tests with unique temporary home
   directories so one test cannot remove another test's active fixture.
 - Added a revisioned built-in v8 artifact catalog for preset-only services,

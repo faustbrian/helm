@@ -41,6 +41,9 @@ pub(crate) fn plan_engine_reconciliation(
         {
             continue;
         }
+        if service.strategy() == ServiceDeploymentStrategy::Ephemeral {
+            continue;
+        }
         if service.strategy() == ServiceDeploymentStrategy::ProjectProcess {
             process_services.push(service);
             continue;
