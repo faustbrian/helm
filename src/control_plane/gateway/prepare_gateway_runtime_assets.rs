@@ -24,7 +24,7 @@ pub(crate) fn prepare_gateway_runtime_assets(
     let gateway_directory = options.runtime_directory.join("gateway");
     let config_path = gateway_directory.join("bootstrap.json");
     let admin_runtime_directory = gateway_directory.join("run");
-    let snapshot = GatewaySnapshot::new("bootstrap-v1", Vec::new())?;
+    let snapshot = GatewaySnapshot::new(Vec::new())?;
     let document = render_caddy_document(
         &snapshot,
         Path::new(CONTAINER_CERTIFICATE_PATH),

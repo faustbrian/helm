@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Made complete gateway snapshot revisions derive from their sorted domain and
+  upstream content, preventing changed route sets from reusing a stale
+  caller-supplied revision and being skipped as already active.
 - Made application workload plans preserve each declared service identity in
   deterministic container names and gateway routes instead of rewriting every
   application-like service to `app`.

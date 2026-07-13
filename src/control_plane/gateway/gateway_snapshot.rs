@@ -1,4 +1,5 @@
 use super::{GatewayError, GatewayRoute};
+use sha2::{Digest, Sha256};
 
 /// The complete immutable route set applied as one gateway transaction.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8,18 +9,7 @@ pub(crate) struct GatewaySnapshot {
 }
 
 impl GatewaySnapshot {
-    pub(crate) fn new(
-        revision: impl Into<String>,
-        mut routes: Vec<GatewayRoute>,
-    ) -> Result<Self, GatewayError> {
-        let revision = revision.into();
-
-        if revision.is_empty() {
-            return Err(GatewayError::InvalidPlan {
-                detail: "gateway snapshot revision must not be empty".to_owned(),
-            });
-        }
-
+    pub(crate) fn new(mut routes: Vec<GatewayRoute>) -> Result<Self, GatewayError> {
         routes.sort();
 
         if let Some(domain) = duplicate_domain(&routes) {
@@ -27,6 +17,8 @@ impl GatewaySnapshot {
                 detail: format!("gateway domain '{domain}' has multiple upstreams"),
             });
         }
+
+        let revision = route_revision(&routes);
 
         Ok(Self { revision, routes })
     }
@@ -38,6 +30,19 @@ impl GatewaySnapshot {
     pub(crate) fn routes(&self) -> &[GatewayRoute] {
         &self.routes
     }
+}
+
+fn route_revision(routes: &[GatewayRoute]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"stackctl-gateway-routes-v1\0");
+    for route in routes {
+        digest.update(route.domain().as_bytes());
+        digest.update([0]);
+        digest.update(route.upstream().as_bytes());
+        digest.update([0]);
+    }
+
+    format!("sha256:{}", hex::encode(digest.finalize()))
 }
 
 fn duplicate_domain(routes: &[GatewayRoute]) -> Option<&str> {

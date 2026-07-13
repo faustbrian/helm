@@ -125,15 +125,12 @@ use tokio::net::UnixListener;
 
 #[test]
 fn complete_route_snapshots_are_sorted_before_provider_application() {
-    let snapshot = GatewaySnapshot::new(
-        "sha256:routes-v1",
-        vec![
-            GatewayRoute::new("shop-mailpit.stackctl.localhost", "http://mailpit:8025")
-                .expect("mail route"),
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
-                .expect("app route"),
-        ],
-    )
+    let snapshot = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-mailpit.stackctl.localhost", "http://mailpit:8025")
+            .expect("mail route"),
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("app route"),
+    ])
     .expect("complete snapshot");
 
     assert_eq!(
@@ -147,20 +144,33 @@ fn complete_route_snapshots_are_sorted_before_provider_application() {
             "shop-mailpit.stackctl.localhost"
         ]
     );
-    assert_eq!(snapshot.revision(), "sha256:routes-v1");
+    assert!(snapshot.revision().starts_with("sha256:"));
+}
+
+#[test]
+fn complete_route_snapshot_revision_changes_with_its_routes() {
+    let first = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("first route"),
+    ])
+    .expect("first snapshot");
+    let second = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app-v2:8080")
+            .expect("changed route"),
+    ])
+    .expect("second snapshot");
+
+    assert_ne!(first.revision(), second.revision());
 }
 
 #[test]
 fn duplicate_domains_reject_the_entire_gateway_snapshot() {
-    let error = GatewaySnapshot::new(
-        "sha256:routes-v1",
-        vec![
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
-                .expect("first route"),
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://other-app:8080")
-                .expect("second route"),
-        ],
-    )
+    let error = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("first route"),
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://other-app:8080")
+            .expect("second route"),
+    ])
     .expect_err("duplicate domain");
 
     assert_eq!(
@@ -709,7 +719,7 @@ fn gateway_readiness_times_out_with_the_last_observed_health() {
 #[test]
 fn gateway_plane_reconciles_container_readiness_then_route_revision() {
     let request = gateway_request(gateway_metadata("sha256:gateway-v1"));
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("snapshot");
     let mut engine = RecordingGatewayEngine {
         health_sequence: Mutex::new(VecDeque::from([
             ContainerHealth::Starting,
@@ -755,7 +765,7 @@ fn gateway_plane_reconciles_container_readiness_then_route_revision() {
 #[test]
 fn gateway_plane_never_applies_routes_when_readiness_fails() {
     let request = gateway_request(gateway_metadata("sha256:gateway-v1"));
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("snapshot");
     let mut engine = RecordingGatewayEngine {
         health_sequence: Mutex::new(VecDeque::from([
             ContainerHealth::Starting,
@@ -794,13 +804,10 @@ fn gateway_plane_never_applies_routes_when_readiness_fails() {
 
 #[test]
 fn gateway_configuration_is_an_object_safe_atomic_strategy() {
-    let snapshot = GatewaySnapshot::new(
-        "sha256:routes-v1",
-        vec![
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
-                .expect("app route"),
-        ],
-    )
+    let snapshot = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("app route"),
+    ])
     .expect("complete snapshot");
     let mut provider = RecordingGatewayProvider::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -818,7 +825,7 @@ fn gateway_configuration_is_an_object_safe_atomic_strategy() {
 
 #[test]
 fn gateway_configuration_reconciliation_skips_the_active_revision() {
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("snapshot");
     let mut provider = RecordingGatewayProvider {
         active_revision: Some(snapshot.revision().to_owned()),
         ..RecordingGatewayProvider::default()
@@ -837,7 +844,7 @@ fn gateway_configuration_reconciliation_skips_the_active_revision() {
 
 #[test]
 fn gateway_configuration_reconciliation_applies_and_verifies_the_desired_revision() {
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("snapshot");
     let mut provider = RecordingGatewayProvider::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -857,7 +864,7 @@ fn gateway_configuration_reconciliation_applies_and_verifies_the_desired_revisio
 
 #[test]
 fn gateway_configuration_reconciliation_fails_when_revision_cannot_be_verified() {
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("snapshot");
     let mut provider = RecordingGatewayProvider {
         reported_revision_after_apply: Some("sha256:stale".to_owned()),
         ..RecordingGatewayProvider::default()
@@ -872,19 +879,19 @@ fn gateway_configuration_reconciliation_fails_when_revision_cannot_be_verified()
 
     assert_eq!(
         error.to_string(),
-        "gateway applied revision 'sha256:routes-v1' but reported active revision 'sha256:stale'"
+        format!(
+            "gateway applied revision '{}' but reported active revision 'sha256:stale'",
+            snapshot.revision()
+        )
     );
 }
 
 #[test]
 fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
-    let snapshot = GatewaySnapshot::new(
-        "sha256:routes-v1",
-        vec![
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
-                .expect("app route"),
-        ],
-    )
+    let snapshot = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("app route"),
+    ])
     .expect("complete snapshot");
 
     let document = render_caddy_document(
@@ -957,7 +964,7 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
     ));
     let config_path = root.join("config/config.json");
     let runtime_directory = root.join("run");
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).unwrap();
+    let snapshot = GatewaySnapshot::new(Vec::new()).unwrap();
     let document = render_caddy_document(
         &snapshot,
         Path::new("/etc/stackctl/tls/leaf.pem"),
@@ -1003,13 +1010,10 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
 
 #[test]
 fn caddy_provider_advances_revision_only_after_atomic_load_succeeds() {
-    let snapshot = GatewaySnapshot::new(
-        "sha256:routes-v1",
-        vec![
-            GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
-                .expect("app route"),
-        ],
-    )
+    let snapshot = GatewaySnapshot::new(vec![
+        GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
+            .expect("app route"),
+    ])
     .expect("complete snapshot");
     let loader = RecordingDocumentLoader::default();
     let mut provider = CaddyGatewayProvider::new(
@@ -1028,14 +1032,14 @@ fn caddy_provider_advances_revision_only_after_atomic_load_succeeds() {
 
     assert_eq!(
         runtime.block_on(provider.active_revision()).unwrap(),
-        Some("sha256:routes-v1".to_owned())
+        Some(snapshot.revision().to_owned())
     );
     assert_eq!(provider.loader().documents.len(), 1);
 }
 
 #[test]
 fn caddy_provider_keeps_previous_revision_when_load_fails() {
-    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).unwrap();
+    let snapshot = GatewaySnapshot::new(Vec::new()).unwrap();
     let loader = RecordingDocumentLoader {
         failure: Some("Caddy rejected configuration".to_owned()),
         ..RecordingDocumentLoader::default()
