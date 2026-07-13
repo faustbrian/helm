@@ -12,7 +12,10 @@ pub(crate) use isolation_capability::IsolationCapability;
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
-pub(crate) use postgres::{PostgresLogicalResourcePlan, PostgresPlanError};
+pub(crate) use postgres::{
+    PostgresLogicalResourcePlan, PostgresPlanError, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions,
+};
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_request::SharedServiceRequest;
 

@@ -1,7 +1,8 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
-    PersistenceMode, PostgresLogicalResourcePlan, SharedServiceRequest, generate_credential_secret,
+    PersistenceMode, PostgresLogicalResourcePlan, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions, SharedServiceRequest, generate_credential_secret,
     plan_shared_instances,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -179,6 +180,65 @@ fn postgres_logical_resources_fail_instead_of_shortening_identifiers() {
             .to_string()
             .contains("exceeds PostgreSQL's 63-byte limit")
     );
+}
+
+#[test]
+fn postgres_shared_instances_materialize_one_private_persistent_container() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let plan = PostgresSharedInstancePlan::new(
+        &shared,
+        PostgresSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL instance plan");
+
+    assert!(plan.container().name().starts_with("stackctl-shared-"));
+    assert_eq!(plan.container().image(), shared.profile().image_digest());
+    assert_eq!(
+        plan.container()
+            .metadata()
+            .labels()
+            .get("dev.stackctl.kind"),
+        Some(&"shared_service".to_owned())
+    );
+    assert_eq!(plan.data_mount_target(), "/var/lib/postgresql/data");
+    assert!(plan.volume().is_some());
+    assert!(!format!("{:?}", plan.container()).contains("root-secret"));
+}
+
+#[test]
+fn postgres_eighteen_uses_the_new_parent_volume_mount() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "18"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let plan = PostgresSharedInstancePlan::new(
+        &shared,
+        PostgresSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("PostgreSQL 18 instance plan");
+
+    assert_eq!(plan.data_mount_target(), "/var/lib/postgresql");
 }
 
 struct SequentialEntropy;

@@ -93,6 +93,10 @@ All notable changes to this project are documented in this file.
   injectable randomness for tests and redaction-safe secret diagnostics.
 - Added deterministic PostgreSQL database and restricted-role provisioning
   plans that fail on overlong names and keep passwords in attached stdin only.
+- Added executable shared PostgreSQL container and volume plans with exact
+  profile ownership, private networking, secrets, restart, and platform policy.
+- Added version-aware PostgreSQL persistence targets, retaining the legacy data
+  directory through 17 and using the official parent mount for 18 and newer.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.
