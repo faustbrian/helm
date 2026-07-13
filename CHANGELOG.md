@@ -100,6 +100,8 @@ All notable changes to this project are documented in this file.
   TCP ports so gateway diagnostics can identify foreign container owners.
 - Composed Engine port inventory with host listener probing so conflicts name
   exact containers without invoking Docker, Podman, lsof, or netstat CLIs.
+- Added idempotent gateway reconciliation that creates missing containers,
+  restarts stopped owned containers, and leaves healthy owned state untouched.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

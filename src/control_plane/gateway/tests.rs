@@ -1,11 +1,17 @@
 use super::{
     CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayDocumentLoader,
-    GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe, GatewayRoute,
-    GatewaySnapshot, LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports,
-    render_caddy_document, store_caddy_bootstrap, verify_gateway_ports_available,
-    verify_stackctl_localhost_resolution,
+    GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe, GatewayReconcileAction,
+    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, LocalhostResolver,
+    SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway, render_caddy_document,
+    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
 };
-use crate::control_plane::engine::{EngineFuture, PublishedPortBinding, PublishedPortDiscovery};
+use crate::control_plane::engine::{
+    ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
+    ContainerState, EngineError, EngineFuture, GatewayContainerRequestOptions, HealthObserver,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer,
+    PublishedPortBinding, PublishedPortDiscovery, ResourceKind, RetentionClass,
+    gateway_container_request, reconstruct_owned_container,
+};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -243,6 +249,310 @@ fn gateway_port_preflight_discovers_engine_owners_before_host_probing() {
             .borrow()
             .contains(&SocketAddr::from((Ipv4Addr::LOCALHOST, 80)))
     );
+}
+
+#[test]
+fn gateway_reconciliation_creates_starts_and_observes_a_missing_gateway() {
+    let request = gateway_request(gateway_metadata("sha256:gateway-v1"));
+    let mut engine = RecordingGatewayEngine {
+        health: ContainerHealth::Starting,
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect("reconcile missing gateway");
+
+    assert_eq!(result.action(), GatewayReconcileAction::Created);
+    assert_eq!(result.health(), ContainerHealth::Starting);
+    assert_eq!(result.container().id().as_str(), "created-gateway");
+    assert_eq!(engine.created, vec![request]);
+    assert_eq!(engine.started.len(), 1);
+    assert_eq!(host_probe.addresses.borrow().len(), 4);
+}
+
+#[test]
+fn gateway_reconciliation_leaves_an_owned_healthy_gateway_unchanged() {
+    let metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(metadata.clone());
+    let observed = ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new("gateway-1"),
+        metadata.labels(),
+    );
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![observed],
+        state: ContainerState::Running,
+        health: ContainerHealth::Healthy,
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect("reconcile healthy gateway");
+
+    assert_eq!(result.action(), GatewayReconcileAction::Unchanged);
+    assert_eq!(result.health(), ContainerHealth::Healthy);
+    assert!(engine.created.is_empty());
+    assert!(engine.started.is_empty());
+    assert!(host_probe.addresses.borrow().is_empty());
+}
+
+#[test]
+fn gateway_reconciliation_starts_a_stopped_owned_gateway() {
+    let metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(metadata.clone());
+    let observed = ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new("gateway-1"),
+        metadata.labels(),
+    );
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![observed],
+        state: ContainerState::Stopped,
+        health: ContainerHealth::Starting,
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect("reconcile stopped gateway");
+
+    assert_eq!(result.action(), GatewayReconcileAction::Started);
+    assert_eq!(engine.started.len(), 1);
+    assert_eq!(host_probe.addresses.borrow().len(), 4);
+}
+
+#[test]
+fn gateway_reconciliation_replaces_owned_disposable_revision_drift() {
+    let old_metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(gateway_metadata("sha256:gateway-v2"));
+    let observed = ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new("gateway-1"),
+        old_metadata.labels(),
+    );
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![observed],
+        published: vec![
+            PublishedPortBinding::new(
+                "gateway-1",
+                "stackctl-gateway",
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                80,
+            )
+            .expect("owned HTTP binding"),
+            PublishedPortBinding::new(
+                "gateway-1",
+                "stackctl-gateway",
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                443,
+            )
+            .expect("owned HTTPS binding"),
+        ],
+        state: ContainerState::Running,
+        health: ContainerHealth::Starting,
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect("replace drifted gateway");
+
+    assert_eq!(result.action(), GatewayReconcileAction::Replaced);
+    assert_eq!(engine.stopped.len(), 1);
+    assert_eq!(engine.removed.len(), 1);
+    assert_eq!(engine.created, vec![request]);
+    assert_eq!(engine.started.len(), 1);
+}
+
+#[test]
+fn gateway_reconciliation_restarts_an_unhealthy_owned_gateway() {
+    let metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(metadata.clone());
+    let observed = ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new("gateway-1"),
+        metadata.labels(),
+    );
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![observed],
+        published: vec![
+            PublishedPortBinding::new(
+                "gateway-1",
+                "stackctl-gateway",
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                80,
+            )
+            .expect("owned HTTP binding"),
+        ],
+        state: ContainerState::Running,
+        health: ContainerHealth::Unhealthy { failing_streak: 3 },
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect("restart unhealthy gateway");
+
+    assert_eq!(result.action(), GatewayReconcileAction::Restarted);
+    assert_eq!(engine.stopped.len(), 1);
+    assert_eq!(engine.started.len(), 1);
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn gateway_replacement_fails_before_mutation_when_a_foreign_binding_conflicts() {
+    let old_metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(gateway_metadata("sha256:gateway-v2"));
+    let observed = ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new("gateway-1"),
+        old_metadata.labels(),
+    );
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![observed],
+        published: vec![
+            PublishedPortBinding::new(
+                "gateway-1",
+                "stackctl-gateway",
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                443,
+            )
+            .expect("owned HTTPS binding"),
+            PublishedPortBinding::new(
+                "foreign-1",
+                "foreign-proxy",
+                IpAddr::V6(Ipv6Addr::LOCALHOST),
+                443,
+            )
+            .expect("foreign HTTPS binding"),
+        ],
+        state: ContainerState::Running,
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect_err("foreign binding must block replacement");
+
+    assert!(
+        error
+            .to_string()
+            .contains("[::1]:443 is occupied by Engine container 'foreign-proxy'")
+    );
+    assert!(engine.stopped.is_empty());
+    assert!(engine.removed.is_empty());
+    assert!(engine.created.is_empty());
+}
+
+#[test]
+fn gateway_reconciliation_rejects_multiple_owned_gateway_containers() {
+    let metadata = gateway_metadata("sha256:gateway-v1");
+    let request = gateway_request(metadata.clone());
+    let mut engine = RecordingGatewayEngine {
+        observed: vec![
+            ObservedContainer::new(
+                crate::control_plane::engine::ContainerId::new("gateway-1"),
+                metadata.labels(),
+            ),
+            ObservedContainer::new(
+                crate::control_plane::engine::ContainerId::new("gateway-2"),
+                metadata.labels(),
+            ),
+        ],
+        ..RecordingGatewayEngine::default()
+    };
+    let host_probe = RecordingGatewayPortProbe::with_results([]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_gateway(
+            &mut engine,
+            GatewayReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+                host_probe: &host_probe,
+            },
+        ))
+        .expect_err("ambiguous gateways");
+
+    assert_eq!(
+        error.to_string(),
+        "cannot reconcile gateway because installation 'install-1' owns 2 gateway containers"
+    );
+    assert!(engine.created.is_empty());
+    assert!(host_probe.addresses.borrow().is_empty());
 }
 
 #[test]
@@ -612,5 +922,142 @@ struct RecordingPublishedPortDiscovery {
 impl PublishedPortDiscovery for RecordingPublishedPortDiscovery {
     fn discover_published_tcp_ports(&self) -> EngineFuture<'_, Vec<PublishedPortBinding>> {
         Box::pin(async { Ok(self.bindings.clone()) })
+    }
+}
+
+fn gateway_metadata(desired_revision: &str) -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Gateway,
+        project_id: None,
+        compatibility_fingerprint: "sha256:gateway-profile".to_owned(),
+        schema_version: 8,
+        desired_revision: desired_revision.to_owned(),
+        retention: RetentionClass::Disposable,
+    })
+    .expect("gateway metadata")
+}
+
+fn gateway_request(metadata: ManagedResourceMetadata) -> ContainerCreateOptions {
+    gateway_container_request(GatewayContainerRequestOptions::new(
+        concat!(
+            "ghcr.io/stackctl/gateway@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .to_owned(),
+        "stackctl".to_owned(),
+        std::path::PathBuf::from("/state/tls"),
+        std::path::PathBuf::from("/state/gateway/config.json"),
+        std::path::PathBuf::from("/state/gateway/run"),
+        metadata,
+    ))
+    .expect("gateway request")
+}
+
+struct RecordingGatewayEngine {
+    observed: Vec<ObservedContainer>,
+    published: Vec<PublishedPortBinding>,
+    state: ContainerState,
+    health: ContainerHealth,
+    created: Vec<ContainerCreateOptions>,
+    started: Vec<OwnedContainer>,
+    stopped: Vec<OwnedContainer>,
+    removed: Vec<OwnedContainer>,
+}
+
+impl Default for RecordingGatewayEngine {
+    fn default() -> Self {
+        Self {
+            observed: Vec::new(),
+            published: Vec::new(),
+            state: ContainerState::Missing,
+            health: ContainerHealth::Starting,
+            created: Vec::new(),
+            started: Vec::new(),
+            stopped: Vec::new(),
+            removed: Vec::new(),
+        }
+    }
+}
+
+impl ContainerDiscovery for RecordingGatewayEngine {
+    fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl PublishedPortDiscovery for RecordingGatewayEngine {
+    fn discover_published_tcp_ports(&self) -> EngineFuture<'_, Vec<PublishedPortBinding>> {
+        Box::pin(async { Ok(self.published.clone()) })
+    }
+}
+
+impl ContainerLifecycle for RecordingGatewayEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation ContainerCreateOptions,
+    ) -> EngineFuture<'operation, OwnedContainer> {
+        Box::pin(async move {
+            self.created.push(options.clone());
+            let observed = ObservedContainer::new(
+                crate::control_plane::engine::ContainerId::new("created-gateway"),
+                options.metadata().labels(),
+            );
+
+            reconstruct_owned_container(
+                &observed,
+                options.metadata().installation_id(),
+                options.metadata().schema_version(),
+            )
+            .map_err(|ownership| EngineError::Backend {
+                detail: format!("could not reconstruct recorded gateway: {ownership:?}"),
+            })
+        })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.started.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.stopped.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removed.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerState> {
+        Box::pin(async { Ok(self.state) })
+    }
+}
+
+impl HealthObserver for RecordingGatewayEngine {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async { Ok(self.health) })
     }
 }
