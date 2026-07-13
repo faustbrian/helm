@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an idempotent MySQL-family logical deletion adapter that validates
+  exact orphan, credential, installation, flavor, and compatibility ownership
+  before attached Engine exec while keeping tenant secrets out of deletion SQL.
 - Added explicit daemon uninstall modes with keep-data behavior as the default
   and a confirmation-gated delete-data spelling that fails before service or
   resource mutation until complete persistent deletion coverage is proven.

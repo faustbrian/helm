@@ -1,9 +1,10 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
-    DataLifecycleStrategyError, DeletionDecision, PostgresLogicalPrunePlan,
-    PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget, RestoreTargetError,
-    evaluate_deletion, open_stored_backup_artifact, resolve_data_lifecycle_strategy,
-    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
+    DataLifecycleStrategyError, DeletionDecision, MySqlLogicalPruneOptions,
+    PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget,
+    RestoreTargetError, evaluate_deletion, open_stored_backup_artifact,
+    prune_mysql_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
+    store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
 };
@@ -56,11 +57,165 @@ fn lifecycle_strategy_resolution_fails_loudly_for_non_data_and_unknown_kinds() {
         }),
     );
 }
+use crate::control_plane::engine::{
+    CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
+    ContainerId, ContainerLogStream, EngineFuture, OwnedContainer,
+};
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
     LogicalResourceRecordOptions, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
 };
+use futures_util::stream;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use tokio::io::AsyncReadExt;
+
+#[derive(Clone, Default)]
+struct RecordingPruneExecutor {
+    arguments: Arc<Mutex<Vec<String>>>,
+    environment: Arc<Mutex<BTreeMap<String, String>>>,
+    stdin: Arc<Mutex<Vec<u8>>>,
+}
+
+impl RecordingPruneExecutor {
+    fn arguments(&self) -> Vec<String> {
+        self.arguments.lock().expect("arguments lock").clone()
+    }
+
+    fn environment(&self) -> BTreeMap<String, String> {
+        self.environment.lock().expect("environment lock").clone()
+    }
+
+    fn stdin(&self) -> Vec<u8> {
+        self.stdin.lock().expect("stdin lock").clone()
+    }
+}
+
+impl CommandExecutor for RecordingPruneExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        *self.arguments.lock().expect("arguments lock") = request.arguments().to_vec();
+        *self.environment.lock().expect("environment lock") = request.environment().clone();
+        let stdin = Arc::clone(&self.stdin);
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(16 * 1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read prune stdin");
+                *stdin.lock().expect("stdin lock") = bytes;
+            });
+            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("prune-exec"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async {
+            tokio::task::yield_now().await;
+            Ok(CommandStatus::Exited(0))
+        })
+    }
+}
+
+#[test]
+fn mysql_logical_prune_uses_exact_idempotent_schema_and_user_deletion() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use crate::control_plane::shared_infrastructure::MySqlFlavor;
+    use std::time::Duration;
+
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: "sha256:mysql-8".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("MySQL metadata");
+    let observed = ObservedContainer::new(ContainerId::new("mysql-8"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned MySQL container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mysql-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: "sha256:mysql-8".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mysql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/mysql-8/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "mysql".to_owned(),
+        username: "root".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPruneExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_mysql_logical_resource(
+            &executor,
+            MySqlLogicalPruneOptions {
+                installation_id: "install-1",
+                flavor: MySqlFlavor::MySql,
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("prune MySQL tenant");
+
+    assert_eq!(executor.arguments()[0], "mysql");
+    assert_eq!(
+        executor.environment().get("MYSQL_PWD"),
+        Some(&"administrator-secret".to_owned())
+    );
+    let sql = String::from_utf8(executor.stdin()).expect("MySQL prune SQL");
+    assert!(sql.contains("DROP DATABASE IF EXISTS `stackctl_bill_database`"));
+    assert!(sql.contains("DROP USER IF EXISTS 'st_bill_database'@'%'"));
+    assert!(!sql.contains("project-secret"));
+}
 
 #[test]
 fn postgres_prune_plan_binds_exact_retained_state_backup_and_confirmation() {
