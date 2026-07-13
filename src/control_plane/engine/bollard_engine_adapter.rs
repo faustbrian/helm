@@ -1119,9 +1119,11 @@ pub(super) fn create_request(
     bollard::query_parameters::CreateContainerOptions,
     ContainerCreateBody,
 ) {
-    let query = CreateContainerOptionsBuilder::default()
-        .name(options.name())
-        .build();
+    let mut query = CreateContainerOptionsBuilder::default().name(options.name());
+    if let Some(platform) = options.platform() {
+        query = query.platform(platform);
+    }
+    let query = query.build();
     let body = ContainerCreateBody {
         image: Some(options.image().to_owned()),
         cmd: (!options.command().is_empty()).then(|| options.command().to_vec()),

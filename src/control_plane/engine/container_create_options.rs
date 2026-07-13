@@ -11,6 +11,7 @@ pub(crate) struct ContainerCreateOptions {
     name: String,
     image: String,
     metadata: ManagedResourceMetadata,
+    platform: Option<String>,
     network: Option<String>,
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
@@ -42,6 +43,7 @@ impl ContainerCreateOptions {
             name,
             image,
             metadata,
+            platform: None,
             network: None,
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
@@ -62,6 +64,32 @@ impl ContainerCreateOptions {
         }
 
         self.network = Some(network);
+
+        Ok(self)
+    }
+
+    pub(crate) fn with_platform(
+        mut self,
+        platform: impl Into<String>,
+    ) -> Result<Self, EngineError> {
+        let platform = platform.into();
+        let segments = platform.split('/').collect::<Vec<_>>();
+
+        if !matches!(segments.as_slice(), ["linux", architecture] if !architecture.is_empty())
+            && !matches!(
+                segments.as_slice(),
+                ["linux", architecture, variant]
+                    if !architecture.is_empty() && !variant.is_empty()
+            )
+        {
+            return Err(EngineError::InvalidRequest {
+                detail: format!(
+                    "managed container platform '{platform}' must identify a Linux architecture"
+                ),
+            });
+        }
+
+        self.platform = Some(platform);
 
         Ok(self)
     }
@@ -141,6 +169,10 @@ impl ContainerCreateOptions {
         &self.metadata
     }
 
+    pub(super) fn platform(&self) -> Option<&str> {
+        self.platform.as_deref()
+    }
+
     pub(super) fn network(&self) -> Option<&str> {
         self.network.as_deref()
     }
@@ -177,6 +209,7 @@ impl Debug for ContainerCreateOptions {
             .field("name", &self.name)
             .field("image", &self.image)
             .field("metadata", &self.metadata)
+            .field("platform", &self.platform)
             .field("network", &self.network)
             .field("port_bindings", &self.port_bindings)
             .field("bind_mounts", &self.bind_mounts)

@@ -412,6 +412,25 @@ fn managed_named_volumes_remain_distinct_from_host_bind_mounts() {
 }
 
 #[test]
+fn managed_container_platform_is_explicitly_forwarded_to_the_engine() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-shared-postgres",
+        concat!(
+            "postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::SharedService),
+    )
+    .expect("container options")
+    .with_platform("linux/arm64")
+    .expect("Linux platform");
+
+    let (query, _) = create_request(&options);
+
+    assert_eq!(query.platform, "linux/arm64");
+}
+
+#[test]
 fn command_requests_reject_ambiguous_or_unsafe_values_before_engine_access() {
     let empty_command =
         CommandRequest::new(Vec::new(), BTreeMap::new(), None).expect_err("empty command");

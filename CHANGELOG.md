@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
   shared gateway can own ports 80/443 without a host web server.
 - Added validated managed-container environment injection with deterministic
   Engine mapping and key-only diagnostics that never expose secret values.
+- Added explicit Linux platform selection to managed container creation so
+  compatibility profiles retain their architecture at the Engine boundary.
 - Added one enforced v8 gateway Engine request that fixes its deterministic
   name, loopback ports, private network attachment, TLS mount, and restart policy.
 - Added a narrow v8 NetworkManager capability backed by direct Engine API calls
