@@ -1,4 +1,7 @@
-use super::{CredentialRecord, InstallationRecord, ProjectRecord, ResourceRecord, StateStoreError};
+use super::{
+    CredentialRecord, InstallationRecord, ManagedEnvironmentRecord, ProjectRecord, ResourceRecord,
+    StateStoreError,
+};
 use std::path::{Path, PathBuf};
 
 /// Durable control-plane state needed independently of any runtime backend.
@@ -50,4 +53,13 @@ pub(crate) trait StateStore {
 
     /// Loads all retained credentials in stable identity order.
     fn credentials(&self) -> Result<Vec<CredentialRecord>, StateStoreError>;
+
+    /// Atomically replaces the daemon-owned environment for one project.
+    fn replace_managed_environment(
+        &mut self,
+        environment: &ManagedEnvironmentRecord,
+    ) -> Result<(), StateStoreError>;
+
+    /// Loads all retained managed environments in stable project order.
+    fn managed_environments(&self) -> Result<Vec<ManagedEnvironmentRecord>, StateStoreError>;
 }

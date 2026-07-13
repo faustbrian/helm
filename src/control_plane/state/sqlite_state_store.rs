@@ -1,13 +1,14 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, StateStore, StateStoreError,
+    EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 4;
+const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -123,6 +124,17 @@ impl SqliteStateStore {
                      lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
                  ) STRICT;\n\
                  CREATE INDEX credentials_project_idx ON credentials(project_id);",
+            )?;
+        }
+
+        if found < 5 {
+            transaction.execute_batch(
+                "CREATE TABLE managed_environments (\n\
+                     project_id TEXT PRIMARY KEY NOT NULL CHECK(length(project_id) > 0),\n\
+                     revision TEXT NOT NULL CHECK(length(revision) > 0),\n\
+                     values_json TEXT NOT NULL,\n\
+                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
+                 ) STRICT;",
             )?;
         }
 
@@ -326,6 +338,11 @@ impl StateStore for SqliteStateStore {
                 [&project_id],
             )?;
             transaction.execute(
+                "UPDATE managed_environments SET lifecycle = 'disabled'\n\
+                 WHERE project_id = ?1 AND lifecycle = 'active'",
+                [&project_id],
+            )?;
+            transaction.execute(
                 "DELETE FROM projects WHERE canonical_path = ?1",
                 [canonical_path],
             )?;
@@ -517,6 +534,86 @@ impl StateStore for SqliteStateStore {
         persisted
             .into_iter()
             .map(credential_from_persisted)
+            .collect()
+    }
+
+    fn replace_managed_environment(
+        &mut self,
+        environment: &ManagedEnvironmentRecord,
+    ) -> Result<(), StateStoreError> {
+        let values_json = serde_json::to_string(environment.values()).map_err(|error| {
+            StateStoreError::CorruptState {
+                detail: format!("failed to encode managed environment: {error}"),
+            }
+        })?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
+            "INSERT INTO managed_environments (\n\
+                 project_id, revision, values_json, lifecycle\n\
+             ) VALUES (?1, ?2, ?3, ?4)\n\
+             ON CONFLICT(project_id) DO UPDATE SET\n\
+                 revision = excluded.revision,\n\
+                 values_json = excluded.values_json,\n\
+                 lifecycle = excluded.lifecycle",
+            params![
+                environment.project_id(),
+                environment.revision(),
+                values_json,
+                environment.lifecycle().label(),
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn managed_environments(&self) -> Result<Vec<ManagedEnvironmentRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT project_id, revision, values_json, lifecycle\n\
+             FROM managed_environments ORDER BY project_id",
+        )?;
+        let persisted = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        persisted
+            .into_iter()
+            .map(
+                |(project_id, revision, values_json, lifecycle)| -> Result<_, StateStoreError> {
+                    let values = serde_json::from_str::<BTreeMap<String, String>>(&values_json)
+                        .map_err(|error| StateStoreError::CorruptState {
+                            detail: format!(
+                                "managed environment '{project_id}' has invalid values: {error}"
+                            ),
+                        })?;
+                    let lifecycle =
+                        EnvironmentLifecycle::from_label(&lifecycle).ok_or_else(|| {
+                            StateStoreError::CorruptState {
+                                detail: format!(
+                                    "managed environment '{project_id}' has unknown lifecycle '{lifecycle}'"
+                                ),
+                            }
+                        })?;
+
+                    Ok(ManagedEnvironmentRecord::new(
+                        ManagedEnvironmentRecordOptions {
+                            project_id,
+                            revision,
+                            values,
+                            lifecycle,
+                        },
+                    ))
+                },
+            )
             .collect()
     }
 }

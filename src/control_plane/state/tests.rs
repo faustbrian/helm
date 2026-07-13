@@ -1,8 +1,10 @@
 use super::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
-    InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, SqliteStateStore, StateStore,
+    EnvironmentLifecycle, InstallationRecord, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -12,7 +14,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 4);
+    assert_eq!(store.schema_version().expect("schema version"), 5);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -309,6 +311,80 @@ fn unregistering_a_project_disables_credentials_without_deleting_them() {
 }
 
 #[test]
+fn managed_environment_replaces_completely_and_survives_restart() {
+    let database_path = temporary_database_path("managed-environment");
+    let initial = managed_environment(BTreeMap::from([
+        (
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        ),
+        ("DB_PASSWORD".to_owned(), "project-secret".to_owned()),
+    ]));
+    let replacement = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v2".to_owned(),
+        values: BTreeMap::from([(
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        )]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        store
+            .replace_managed_environment(&initial)
+            .expect("persist environment");
+        store
+            .replace_managed_environment(&replacement)
+            .expect("replace environment");
+        assert!(!format!("{initial:?}").contains("project-secret"));
+        assert!(format!("{initial:?}").contains("DB_PASSWORD"));
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load managed environments"),
+        vec![replacement]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn unregistering_a_project_disables_its_managed_environment() {
+    let database_path = temporary_database_path("environment-orphan");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .replace_managed_environment(&managed_environment(BTreeMap::from([(
+            "DB_PASSWORD".to_owned(),
+            "project-secret".to_owned(),
+        )])))
+        .expect("persist environment");
+
+    store
+        .orphan_project(Path::new("/work/bill"), 12_345)
+        .expect("orphan project");
+
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load managed environment")[0]
+            .lifecycle(),
+        EnvironmentLifecycle::Disabled
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn version_one_state_migrates_without_losing_project_ownership() {
     let database_path = temporary_database_path("v1-migration");
     let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
@@ -333,7 +409,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 4);
+    assert_eq!(store.schema_version().expect("schema version"), 5);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -383,6 +459,15 @@ fn credential_record(secret: &str) -> CredentialRecord {
         username: "stackctl_bill".to_owned(),
         secret: secret.to_owned(),
         lifecycle: CredentialLifecycle::Active,
+    })
+}
+
+fn managed_environment(values: BTreeMap<String, String>) -> ManagedEnvironmentRecord {
+    ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v1".to_owned(),
+        values,
+        lifecycle: EnvironmentLifecycle::Active,
     })
 }
 
