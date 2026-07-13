@@ -83,12 +83,17 @@ fn validate(
     let invalid = checkpoint.phase() != MigrationPhase::TargetProvisioned
         || options.installation_id.is_empty()
         || options.target_database_name.is_empty()
+        || options.target_role_name.is_empty()
         || checkpoint.target_resource_id() != Some(options.target_database_name)
         || options.source_logical_resource.kind() != "postgres_database_and_role"
+        || options.source_logical_resource.project_id() != checkpoint.project_id()
         || options.source_logical_resource.lifecycle() != ResourceLifecycle::Active
         || options.source_logical_resource.compatibility_fingerprint()
             != checkpoint.source_compatibility_fingerprint()
         || options.credential.username().is_empty()
+        || options.credential.username() != options.target_role_name
+        || options.credential.project_id() != Some(checkpoint.project_id())
+        || options.credential.service_id() != options.source_logical_resource.service_id()
         || options.credential.secret().is_empty()
         || options.credential.lifecycle() != CredentialLifecycle::Active
         || options.timeout.is_zero()

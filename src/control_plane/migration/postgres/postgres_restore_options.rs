@@ -9,6 +9,7 @@ pub(crate) struct PostgresRestoreOptions<'operation> {
     pub(crate) credential: &'operation CredentialRecord,
     pub(crate) installation_id: &'operation str,
     pub(crate) target_database_name: &'operation str,
+    pub(crate) target_role_name: &'operation str,
     pub(crate) verified_at_unix_seconds: i64,
     pub(crate) timeout: Duration,
 }

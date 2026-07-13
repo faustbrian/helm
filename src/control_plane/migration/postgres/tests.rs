@@ -135,7 +135,7 @@ fn postgres_restore_verifies_journaled_backup_before_streaming_to_target() {
         evidence.artifact_sha256(),
         evidence.artifact_size_bytes(),
     );
-    let credential = credential();
+    let credential = project_credential();
     let container = owned_container();
     let executor = RecordingExecutor::new(Vec::new(), 0);
     let options = PostgresRestoreOptions {
@@ -144,6 +144,7 @@ fn postgres_restore_verifies_journaled_backup_before_streaming_to_target() {
         credential: &credential,
         installation_id: "install-1",
         target_database_name: "stackctl_bill_database_restore",
+        target_role_name: "stackctl_bill_database_role",
         verified_at_unix_seconds: 47_001,
         timeout: Duration::from_secs(5),
     };
@@ -160,10 +161,10 @@ fn postgres_restore_verifies_journaled_backup_before_streaming_to_target() {
             "--single-transaction".to_owned(),
             "--no-owner".to_owned(),
             "--no-privileges".to_owned(),
-            "--username=stackctl_admin".to_owned(),
+            "--username=stackctl_bill_database_role".to_owned(),
             "--dbname=stackctl_bill_database_restore".to_owned(),
         ],
-        BTreeMap::from([("PGPASSWORD".to_owned(), "do-not-log".to_owned())]),
+        BTreeMap::from([("PGPASSWORD".to_owned(), "project-secret".to_owned())]),
         None,
     )
     .expect("expected restore request");
@@ -192,7 +193,7 @@ fn postgres_restore_rejects_journal_checksum_mismatch_before_target_command() {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         13,
     );
-    let credential = credential();
+    let credential = project_credential();
     let container = owned_container();
     let executor = RecordingExecutor::new(Vec::new(), 0);
     let options = PostgresRestoreOptions {
@@ -201,6 +202,7 @@ fn postgres_restore_rejects_journal_checksum_mismatch_before_target_command() {
         credential: &credential,
         installation_id: "install-1",
         target_database_name: "stackctl_bill_database_restore",
+        target_role_name: "stackctl_bill_database_role",
         verified_at_unix_seconds: 48_001,
         timeout: Duration::from_secs(5),
     };
@@ -216,6 +218,51 @@ fn postgres_restore_rejects_journal_checksum_mismatch_before_target_command() {
     assert!(executor.request.lock().expect("restore request").is_none());
 
     std::fs::remove_dir_all(&root).expect("remove restore mismatch fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn postgres_restore_rejects_administrator_as_the_target_owner() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL restore runtime");
+    let root = backup_root("restore-owner");
+    let logical = logical_resource();
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let stored = store_backup_artifact_for_identity(&identity, b"verified dump", 49_000, &root)
+        .expect("stored owner fixture");
+    let evidence = verify_stored_backup_artifact(&stored, 49_001).expect("backup evidence");
+    let checkpoint = restore_checkpoint(
+        stored.recovery_point().to_str().expect("backup reference"),
+        evidence.artifact_sha256(),
+        evidence.artifact_size_bytes(),
+    );
+    let administrator = credential();
+    let container = owned_container();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let options = PostgresRestoreOptions {
+        checkpoint: &checkpoint,
+        source_logical_resource: &logical,
+        credential: &administrator,
+        installation_id: "install-1",
+        target_database_name: "stackctl_bill_database_restore",
+        target_role_name: "stackctl_bill_database_role",
+        verified_at_unix_seconds: 49_001,
+        timeout: Duration::from_secs(5),
+    };
+
+    let error = runtime
+        .block_on(restore_postgres_database(&executor, &container, &options))
+        .expect_err("administrator-owned restore");
+
+    assert_eq!(
+        error.to_string(),
+        "PostgreSQL restore request does not match its owned migration target"
+    );
+    assert!(executor.request.lock().expect("restore request").is_none());
+
+    std::fs::remove_dir_all(&root).expect("remove restore owner fixture");
 }
 
 struct RecordingExecutor {
@@ -309,6 +356,17 @@ fn credential() -> CredentialRecord {
         service_id: "postgresql".to_owned(),
         username: "stackctl_admin".to_owned(),
         secret: "do-not-log".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    })
+}
+
+fn project_credential() -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/postgresql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database_role".to_owned(),
+        secret: "project-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     })
 }

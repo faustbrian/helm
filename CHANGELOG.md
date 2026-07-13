@@ -45,6 +45,9 @@ All notable changes to this project are documented in this file.
 - Made PostgreSQL logical provisioning authenticate explicitly with the active
   managed bootstrap credential through redacted command environment state,
   avoiding image-version-dependent local authentication assumptions.
+- Required PostgreSQL restore to run as the exact active project role rather
+  than the bootstrap administrator, ensuring `--no-owner` restores create
+  application objects with usable project ownership.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,
