@@ -50,7 +50,11 @@ mod v8_project;
 #[cfg(unix)]
 mod v8_project_command;
 #[cfg(unix)]
+mod v8_project_status;
+#[cfg(unix)]
 mod v8_status_cmd;
+#[cfg(unix)]
+mod v8_url_cmd;
 
 pub(crate) use about_cmd::handle_about;
 pub(crate) use app_create_cmd::{HandleAppCreateOptions, handle_app_create};
@@ -110,3 +114,5 @@ pub(crate) use v8_env_cmd::handle_v8_env;
 pub(crate) use v8_project_command::handle_v8_project_command;
 #[cfg(unix)]
 pub(crate) use v8_status_cmd::handle_v8_status;
+#[cfg(unix)]
+pub(crate) use v8_url_cmd::handle_v8_url;

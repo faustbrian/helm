@@ -23,6 +23,10 @@ impl V8Project {
     pub(super) fn has_service(&self, service: &str) -> bool {
         self.services.contains(service)
     }
+
+    pub(super) fn service_names(&self) -> Vec<String> {
+        self.services.iter().cloned().collect()
+    }
 }
 
 pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Option<V8Project>> {

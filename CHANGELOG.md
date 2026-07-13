@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict v8 `url` lookup through authoritative singleton project status,
+  returning only exact published HTTPS routes and rejecting legacy kind or
+  driver selectors instead of deriving host ports through the v7 config path.
 - Added strict v8 Artisan and non-interactive exec dispatch through the
   singleton command queue, preserving exact non-shell arguments and rejecting
   interactive PTY and browser-bootstrap flows until the daemon IPC can support
