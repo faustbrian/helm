@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit strict v8 managed-environment export through user-only IPC,
+  with redacted diagnostics, exact active-project selection, sorted escaped
+  dotenv output, user-only file permissions, and create-once behavior that
+  never silently merges with or overwrites a developer's `.env` file.
 - Added strict v8 `ps` over singleton IPC with table and JSON output for exact
   registered routes, project-owned runtime resources, shared logical tenants,
   and their durable lifecycle without exposing credentials or invoking the

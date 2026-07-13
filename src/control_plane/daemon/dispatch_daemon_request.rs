@@ -2,8 +2,8 @@ use super::record_ipc_event::record_ipc_event;
 use super::{DaemonRequestDispatchOptions, QueuedProjectCommand, reconcile_watched_roots};
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDiagnostic, IpcEventKind, IpcPayload, IpcProjectCommand, IpcProjectStatus,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand,
+    IpcProjectStatus, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -111,6 +111,22 @@ where
                 Err(message) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new("project_status_failed", message, false)],
+                ),
+            }
+        }
+        IpcPayload::ProjectEnvironment { canonical_path } => {
+            match project_environment(control_plane, canonical_path) {
+                Ok(environment) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::ProjectEnvironment { environment },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_environment_failed",
+                        message,
+                        false,
+                    )],
                 ),
             }
         }
@@ -327,6 +343,46 @@ where
             )],
         ),
     }
+}
+
+fn project_environment<Store>(
+    control_plane: &ControlPlane<Store>,
+    canonical_path: &std::path::Path,
+) -> Result<IpcManagedEnvironment, String>
+where
+    Store: StateStore,
+{
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let environment = control_plane
+        .managed_environments()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|environment| {
+            environment.project_id() == project.project_name()
+                && environment.lifecycle() == EnvironmentLifecycle::Active
+        })
+        .ok_or_else(|| {
+            format!(
+                "project '{}' has no active managed environment; wait for reconciliation",
+                project.project_name()
+            )
+        })?;
+
+    Ok(IpcManagedEnvironment::new(
+        environment.project_id().to_owned(),
+        environment.revision().to_owned(),
+        environment.values().clone(),
+    ))
 }
 
 fn project_status<Store>(

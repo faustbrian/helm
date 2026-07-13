@@ -9,8 +9,8 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand, IpcProjectStatus,
+    IpcRequest, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
@@ -1147,6 +1147,67 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove status fixture");
+}
+
+#[test]
+fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
+    let root = temporary_directory("ipc-project-environment");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment".to_owned(),
+        values: BTreeMap::from([
+            ("DB_HOST".to_owned(), "postgres.internal".to_owned()),
+            ("DB_PASSWORD".to_owned(), "secret-value".to_owned()),
+        ]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .replace_managed_environment(&environment)
+        .expect("persist environment");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "environment-42",
+        IpcPayload::ProjectEnvironment {
+            canonical_path: project_path,
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "environment-42",
+            IpcResult::ProjectEnvironment {
+                environment: IpcManagedEnvironment::new(
+                    "bill".to_owned(),
+                    "sha256:environment".to_owned(),
+                    BTreeMap::from([
+                        ("DB_HOST".to_owned(), "postgres.internal".to_owned()),
+                        ("DB_PASSWORD".to_owned(), "secret-value".to_owned()),
+                    ]),
+                ),
+            },
+        )
+    );
+    assert!(!format!("{response:?}").contains("secret-value"));
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove environment fixture");
 }
 
 #[test]

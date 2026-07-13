@@ -61,6 +61,11 @@ pub(super) fn handle_setup_commands(
     }
 
     #[cfg(unix)]
+    if handlers::handle_v8_env(cli, context)? {
+        return Ok(true);
+    }
+
+    #[cfg(unix)]
     if handlers::handle_v8_status(cli, context)? {
         return Ok(true);
     }

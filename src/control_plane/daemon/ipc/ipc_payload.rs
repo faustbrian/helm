@@ -15,6 +15,8 @@ pub(crate) enum IpcPayload {
     AdoptProject { canonical_path: PathBuf },
     /// Reads secret-free durable status for one exact registered project path.
     ProjectStatus { canonical_path: PathBuf },
+    /// Explicitly exports daemon-owned values for one exact registered project.
+    ProjectEnvironment { canonical_path: PathBuf },
     /// Cancels an active request or stream by request ID.
     Cancel { target_request_id: String },
     /// Starts or resumes the ordered daemon event stream.

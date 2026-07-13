@@ -1,4 +1,4 @@
-use super::{IpcEvent, IpcProjectStatus};
+use super::{IpcEvent, IpcManagedEnvironment, IpcProjectStatus};
 use serde::{Deserialize, Serialize};
 
 /// A typed successful daemon operation result.
@@ -20,6 +20,8 @@ pub(crate) enum IpcResult {
     ProjectAdopted { project_id: String },
     /// Returns one project status derived from authoritative daemon state.
     ProjectStatus { project: IpcProjectStatus },
+    /// Returns explicitly requested managed values over the user-only channel.
+    ProjectEnvironment { environment: IpcManagedEnvironment },
     /// Returns the retained ordered daemon events after one optional cursor.
     Events {
         events: Vec<IpcEvent>,

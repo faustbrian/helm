@@ -50,6 +50,21 @@ fn project_status_requests_round_trip_with_the_exact_target_path() {
 }
 
 #[test]
+fn project_environment_requests_round_trip_with_the_exact_target_path() {
+    let request = IpcRequest::new(
+        "environment-42",
+        IpcPayload::ProjectEnvironment {
+            canonical_path: PathBuf::from("/work/bill"),
+        },
+    );
+
+    let frame = encode_frame(&request).expect("encode environment request");
+    let decoded = decode_request_frame(&frame).expect("decode environment request");
+
+    assert_eq!(decoded, request);
+}
+
+#[test]
 fn project_command_requests_preserve_typed_non_shell_arguments() {
     let request = IpcRequest::new(
         "command-42",

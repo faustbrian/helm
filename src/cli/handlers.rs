@@ -44,6 +44,8 @@ mod up_cmd;
 mod update_cmd;
 mod url_cmd;
 #[cfg(unix)]
+mod v8_env_cmd;
+#[cfg(unix)]
 mod v8_project;
 #[cfg(unix)]
 mod v8_project_command;
@@ -102,6 +104,8 @@ pub(crate) use task_cmd::{
 pub(crate) use up_cmd::{HandleUpOptions, handle_up};
 pub(crate) use update_cmd::{HandleUpdateOptions, handle_update};
 pub(crate) use url_cmd::handle_url;
+#[cfg(unix)]
+pub(crate) use v8_env_cmd::handle_v8_env;
 #[cfg(unix)]
 pub(crate) use v8_project_command::handle_v8_project_command;
 #[cfg(unix)]
