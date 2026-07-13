@@ -46,6 +46,7 @@ pub(crate) use postgres::{
     PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance,
     plan_postgres_project_resources, prepare_postgres_shared_instances,
     provision_postgres_logical_resource, reconcile_postgres_project_resources,
+    reconcile_prepared_postgres_instance,
 };
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
 pub(crate) use rabbitmq::{

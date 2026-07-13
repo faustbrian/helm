@@ -1,4 +1,9 @@
 use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
+use crate::control_plane::shared_infrastructure::{
+    CredentialEntropy, PostgresPreparationError, PostgresPreparationOptions,
+    PreparedPostgresSharedInstance, SharedInstancePlan, prepare_postgres_shared_instances,
+};
+use crate::control_plane::state::LogicalResourceRecord;
 use crate::control_plane::state::{ManagedEnvironmentRecord, ProjectRecord, StateStore};
 use std::path::PathBuf;
 
@@ -26,6 +31,25 @@ where
         &self,
     ) -> Result<Vec<ManagedEnvironmentRecord>, ControlPlaneError> {
         self.state_store.managed_environments().map_err(Into::into)
+    }
+
+    pub(crate) fn prepare_postgres(
+        &mut self,
+        shared: &[SharedInstancePlan],
+        entropy: &impl CredentialEntropy,
+        options: PostgresPreparationOptions<'_>,
+    ) -> Result<Vec<PreparedPostgresSharedInstance>, PostgresPreparationError> {
+        prepare_postgres_shared_instances(&mut self.state_store, shared, entropy, options)
+    }
+
+    pub(crate) fn record_logical_environment(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+        environment: &ManagedEnvironmentRecord,
+    ) -> Result<(), ControlPlaneError> {
+        self.state_store
+            .record_logical_environment(resources, environment)
+            .map_err(Into::into)
     }
 
     /// Plans all sources, then atomically persists the validated batch.

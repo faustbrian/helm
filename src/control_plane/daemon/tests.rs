@@ -112,6 +112,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
 
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
+        prepared_shared_services: &[],
         managed_environments: &[],
         installation_id: "install-1",
         schema_version: 8,
@@ -149,6 +150,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
 
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
+        prepared_shared_services: &[],
         managed_environments: &[],
         installation_id: "install-1",
         schema_version: 8,
@@ -162,6 +164,21 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
         error.to_string(),
         "service 'bill-db' strategy SharedByCompatibility has no registered Engine reconciler"
     );
+
+    let prepared = vec![("bill".to_owned(), "db".to_owned())];
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &prepared,
+        managed_environments: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("prepared shared service");
+
+    assert_eq!(plan.applications().len(), 1);
 }
 
 #[test]

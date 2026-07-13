@@ -16,10 +16,20 @@ use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
+use crate::control_plane::shared_infrastructure::{
+    OsCredentialEntropy, PostgresPreparationOptions, PreparedPostgresSharedInstance,
+    SharedInfrastructureReconcileError, reconcile_prepared_postgres_instance,
+    resolve_execution_shared_instances,
+};
+use crate::control_plane::state::{
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+};
 use crate::control_plane::state::{SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
     WorkloadReconcileError, WorkloadReconcileOptions, reconcile_project_application,
 };
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -196,15 +206,6 @@ impl UnixDaemonRuntime {
 
             return;
         };
-        let managed_environments = match self.control_plane.managed_environments() {
-            Ok(environments) => environments,
-            Err(error) => {
-                self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "managed environment loading blocked");
-
-                return;
-            }
-        };
         let platform = match runtime_linux_platform() {
             Ok(platform) => platform,
             Err(detail) => {
@@ -214,8 +215,59 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
+        let shared = match resolve_execution_shared_instances(execution, platform) {
+            Ok(shared) => shared,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "shared service demand planning blocked");
+
+                return;
+            }
+        };
+        let prepared_postgres = match self.control_plane.prepare_postgres(
+            &shared,
+            &OsCredentialEntropy,
+            PostgresPreparationOptions {
+                installation_id: self.global_network_request.metadata().installation_id(),
+                network_name: self.global_network_request.name(),
+                schema_version: self.global_network_request.metadata().schema_version(),
+            },
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "PostgreSQL durable preparation blocked");
+
+                return;
+            }
+        };
+        let managed_environments = match self
+            .control_plane
+            .managed_environments()
+            .map_err(|error| error.to_string())
+            .and_then(|existing| merge_prepared_environments(existing, &prepared_postgres))
+        {
+            Ok(environments) => environments,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error, "managed environment planning blocked");
+
+                return;
+            }
+        };
+        let prepared_shared_services = prepared_postgres
+            .iter()
+            .flat_map(|prepared| prepared.projects())
+            .map(|project| {
+                (
+                    project.logical().project_id().to_owned(),
+                    project.logical().service_id().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
         let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
             execution,
+            prepared_shared_services: &prepared_shared_services,
             managed_environments: &managed_environments,
             installation_id: self.global_network_request.metadata().installation_id(),
             schema_version: self.global_network_request.metadata().schema_version(),
@@ -269,6 +321,67 @@ impl UnixDaemonRuntime {
                 network_id = network.network().id().as_str(),
                 "created the global Stackctl Engine network"
             );
+        }
+
+        let mut provisioned = BTreeMap::<String, Vec<_>>::new();
+        for prepared in &prepared_postgres {
+            let logical = self
+                .engine_runtime
+                .block_on(reconcile_prepared_postgres_instance(
+                    engine,
+                    prepared,
+                    self.global_network_request.metadata().installation_id(),
+                    self.global_network_request.metadata().schema_version(),
+                ));
+            let logical = match logical {
+                Ok(logical) => logical,
+                Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
+                    let retry = self.engine_connection.invalidate(now);
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "PostgreSQL reconciliation lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+                Err(error) => {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(error = %error, "PostgreSQL shared instance blocked");
+
+                    return;
+                }
+            };
+            for logical in logical {
+                provisioned
+                    .entry(logical.project_id().to_owned())
+                    .or_default()
+                    .push(logical);
+            }
+        }
+        for (project_id, logical) in provisioned {
+            let Some(environment) = managed_environments
+                .iter()
+                .find(|environment| environment.project_id() == project_id.as_str())
+            else {
+                self.engine_reconciliation.complete();
+                tracing::error!(
+                    project = project_id,
+                    "provisioned project environment is missing"
+                );
+
+                return;
+            };
+            if let Err(error) = self
+                .control_plane
+                .record_logical_environment(&logical, environment)
+            {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "PostgreSQL tenant state publication blocked");
+
+                return;
+            }
         }
 
         for application in engine_plan.applications() {
@@ -442,6 +555,46 @@ fn runtime_linux_platform() -> Result<&'static str, String> {
             "host architecture '{architecture}' has no supported Linux Engine platform mapping"
         )),
     }
+}
+
+fn merge_prepared_environments(
+    existing: Vec<ManagedEnvironmentRecord>,
+    prepared: &[PreparedPostgresSharedInstance],
+) -> Result<Vec<ManagedEnvironmentRecord>, String> {
+    let mut environments = existing
+        .into_iter()
+        .map(|environment| (environment.project_id().to_owned(), environment))
+        .collect::<BTreeMap<_, _>>();
+    let mut generated = BTreeMap::<String, BTreeMap<String, String>>::new();
+
+    for project in prepared.iter().flat_map(|prepared| prepared.projects()) {
+        let project_id = project.environment().project_id();
+        let values = generated.entry(project_id.to_owned()).or_default();
+        for (key, value) in project.environment().values() {
+            if values.get(key).is_some_and(|existing| existing != value) {
+                return Err(format!(
+                    "project '{project_id}' has conflicting generated environment key '{key}'"
+                ));
+            }
+            values.insert(key.clone(), value.clone());
+        }
+    }
+
+    for (project_id, values) in generated {
+        let canonical = serde_json::to_vec(&values)
+            .map_err(|error| format!("failed to encode managed environment: {error}"))?;
+        environments.insert(
+            project_id.clone(),
+            ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+                project_id,
+                revision: format!("sha256:{}", hex::encode(Sha256::digest(canonical))),
+                values,
+                lifecycle: EnvironmentLifecycle::Active,
+            }),
+        );
+    }
+
+    Ok(environments.into_values().collect())
 }
 
 fn unix_time_seconds() -> i64 {

@@ -24,11 +24,12 @@ use super::{
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
     reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
     reconcile_object_store_project_resources, reconcile_postgres_project_resources,
-    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
-    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
-    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
-    run_provisioning_job, store_credential_secret, store_mailpit_authentication,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_prepared_postgres_instance, reconcile_rabbitmq_definitions,
+    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
+    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
+    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -189,6 +190,67 @@ fn postgres_preparation_reuses_durable_bootstrap_and_project_secrets() {
         second[0].projects()[0].credential().secret()
     );
     assert_eq!(store.credentials().expect("durable credentials").len(), 3);
+
+    drop(store);
+    std::fs::remove_file(database_path).expect("remove state store");
+}
+
+#[test]
+fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
+    let image = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_postgres_source("/work/bill", "bill", "17", image),
+        shared_postgres_source("/work/shop", "shop", "17", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-postgres-reconciliation-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let prepared = prepare_postgres_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        PostgresPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("PostgreSQL preparation");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let logical = runtime
+        .block_on(reconcile_prepared_postgres_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("prepared PostgreSQL reconciliation");
+
+    assert_eq!(logical.len(), 2);
+    assert_eq!(logical[0].project_id(), "bill");
+    assert_eq!(logical[1].project_id(), "shop");
+    assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.started_containers.len(), 1);
+    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
 
     drop(store);
     std::fs::remove_file(database_path).expect("remove state store");

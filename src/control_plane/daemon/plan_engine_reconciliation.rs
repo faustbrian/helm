@@ -20,6 +20,16 @@ pub(crate) fn plan_engine_reconciliation(
     let mut routes = Vec::new();
 
     for service in options.execution.services() {
+        if service.strategy() == ServiceDeploymentStrategy::SharedByCompatibility
+            && options
+                .prepared_shared_services
+                .iter()
+                .any(|(project, name)| {
+                    project == service.project().as_str() && name == service.service().as_str()
+                })
+        {
+            continue;
+        }
         if service.strategy() != ServiceDeploymentStrategy::ProjectApplication {
             return Err(invalid(format!(
                 "service '{}-{}' strategy {:?} has no registered Engine reconciler",

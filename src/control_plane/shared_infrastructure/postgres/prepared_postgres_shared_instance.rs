@@ -1,4 +1,7 @@
 use super::{PostgresProjectResources, PostgresSharedInstancePlan};
+use crate::control_plane::state::{
+    LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle,
+};
 
 /// One physical PostgreSQL plan and every isolated project tenant it owns.
 pub(crate) struct PreparedPostgresSharedInstance {
@@ -20,5 +23,28 @@ impl PreparedPostgresSharedInstance {
 
     pub(crate) fn projects(&self) -> &[PostgresProjectResources] {
         &self.projects
+    }
+
+    pub(crate) fn logical_record(
+        &self,
+        project: &PostgresProjectResources,
+        shared_resource_id: &str,
+    ) -> LogicalResourceRecord {
+        LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: project.logical().credential_id().to_owned(),
+            shared_resource_id: shared_resource_id.to_owned(),
+            project_id: project.logical().project_id().to_owned(),
+            service_id: project.logical().service_id().to_owned(),
+            kind: "postgresql_database".to_owned(),
+            compatibility_fingerprint: self
+                .instance
+                .container()
+                .metadata()
+                .compatibility_fingerprint()
+                .to_owned(),
+            desired_revision: project.environment().revision().to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        })
     }
 }

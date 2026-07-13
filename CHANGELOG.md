@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Connected explicit immutable PostgreSQL demand to daemon convergence: shared
+  groups and credentials resolve before mutation, each physical instance starts
+  once, tenants provision before dependent apps, and merged ownership plus
+  environment state publishes before gateway routes.
 - Added an atomic state transaction for publishing logical shared-service
   ownership together with its complete project environment, rolling back both
   on identity conflicts or adoption requirements.
