@@ -1,5 +1,5 @@
-use super::{ProjectIdentity, RouteIdentity, ServiceIdentity};
-use std::path::Path;
+use super::{ProjectIdentity, RouteClaim, RouteIdentity, ServiceIdentity, validate_route_claims};
+use std::path::{Path, PathBuf};
 
 #[test]
 fn explicit_project_name_is_preserved_exactly() {
@@ -63,4 +63,54 @@ fn combined_route_label_longer_than_63_bytes_is_rejected() {
         error.to_string(),
         "route label 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbb' exceeds 63 bytes"
     );
+}
+
+#[test]
+fn duplicate_discovery_of_the_same_canonical_path_is_deduplicated() {
+    let first = route_claim("/work/bill", "bill", "app");
+    let duplicate = route_claim("/work/bill", "bill", "app");
+
+    let registry = validate_route_claims(vec![first, duplicate]).expect("valid registry");
+
+    assert_eq!(registry.claims().len(), 1);
+}
+
+#[test]
+fn distinct_paths_claiming_the_same_domain_fail_loudly() {
+    let first = route_claim("/work/bill", "bill", "app");
+    let second = route_claim("/work/archive/bill", "bill", "app");
+
+    let error = validate_route_claims(vec![first, second]).expect_err("route collision");
+
+    assert_eq!(
+        error.to_string(),
+        concat!(
+            "route registry contains conflicting ownership:\n",
+            "- bill-app.stackctl.localhost is claimed by:\n",
+            "  - project 'bill', service 'app', path '/work/archive/bill'\n",
+            "  - project 'bill', service 'app', path '/work/bill'",
+        )
+    );
+}
+
+#[test]
+fn composite_name_collision_fails_instead_of_receiving_a_fallback_domain() {
+    let first = route_claim("/work/bill", "bill", "app-admin");
+    let second = route_claim("/work/bill-app", "bill-app", "admin");
+
+    let error = validate_route_claims(vec![first, second]).expect_err("route collision");
+
+    assert_eq!(error.conflicts().len(), 1);
+    assert_eq!(
+        error.conflicts()[0].domain(),
+        "bill-app-admin.stackctl.localhost"
+    );
+}
+
+fn route_claim(path: &str, project: &str, service: &str) -> RouteClaim {
+    let project =
+        ProjectIdentity::resolve(Some(project), Path::new(path)).expect("valid project identity");
+    let service = ServiceIdentity::new(service).expect("valid service identity");
+
+    RouteClaim::new(PathBuf::from(path), project, service).expect("valid route claim")
 }

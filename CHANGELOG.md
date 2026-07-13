@@ -8,6 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Added strict v8 project, service, and route identities that preserve valid
   input exactly and reject normalization or overlong route labels.
+- Added all-at-once v8 route registry validation so repeated discovery of one
+  canonical path deduplicates while ownership collisions fail with every path.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
