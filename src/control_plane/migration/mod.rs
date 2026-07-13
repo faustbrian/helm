@@ -10,6 +10,7 @@ mod migration_operation_error;
 mod migration_operations;
 mod migration_rollback_plan;
 mod migration_target_plan;
+mod mysql;
 mod postgres;
 mod recovery_point_restore_options;
 mod run_migration;
@@ -23,6 +24,7 @@ pub(crate) use migration_operation_error::MigrationOperationError;
 pub(crate) use migration_operations::{MigrationFuture, MigrationOperations};
 pub(crate) use migration_rollback_plan::MigrationRollbackPlan;
 pub(crate) use migration_target_plan::MigrationTargetPlan;
+pub(crate) use mysql::{MySqlBackupOptions, backup_mysql_database};
 pub(crate) use postgres::{
     EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,

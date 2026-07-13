@@ -984,6 +984,84 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
 }
 
 #[test]
+fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-mysql-backup");
+    let fingerprint = format!("sha256:{}", "b".repeat(64));
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "mysql-container",
+        "install-1",
+        "mysql-8",
+        &fingerprint,
+    )]);
+    let operation = QueuedProjectBackup::new(
+        "backup-mysql".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "stackctl_bill_database".to_owned(),
+        "mysql_database".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid MySQL backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mysql-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mysql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "secret-value".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified MySQL backup");
+    assert_eq!(backup.artifact_size_bytes(), 10);
+    assert_eq!(engine.containers(), ["mysql-container"]);
+    assert_eq!(engine.command_arguments()[0][0], "mysqldump");
+    assert_eq!(
+        engine.command_environments()[0].get("MYSQL_PWD"),
+        Some(&"secret-value".to_owned())
+    );
+    assert!(!format!("{:?}", engine.command_arguments()).contains("secret-value"));
+    let recovery_point = Path::new(backup.reference());
+    assert!(recovery_point.join("artifact.bin").is_file());
+    assert!(recovery_point.join("manifest.json").is_file());
+
+    std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
 fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
     use crate::control_plane::retention::{
         PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,

@@ -151,12 +151,13 @@ retirement already committed, restart recovery completes the durable operation
 without touching the Engine again. Partial durable retirement fails loudly for
 manual inspection.
 
-MySQL-family deletion requires an exact verified recovery point, but normal
-MySQL/MariaDB backup creation is not yet implemented. This makes the adapter
-and coordinator executable for cataloged evidence without claiming a complete
-end-user lifecycle. Other logical service kinds fail closed until they have
-service-specific backup and deletion adapters; Stackctl does not reinterpret
-container removal as data deletion.
+The normal backup command creates MySQL/MariaDB recovery points by streaming a
+consistent logical dump from the exact owned shared container into private,
+immutable Stackctl storage and verifying its checksum. MySQL-family restore is
+not yet implemented, so this is backup-and-delete coverage rather than a
+complete lifecycle claim. Other logical service kinds fail closed until they
+have service-specific backup and deletion adapters; Stackctl does not
+reinterpret container removal as data deletion.
 
 `stackctl daemon service uninstall` defaults to keep-data behavior. The
 equivalent explicit form is `stackctl daemon service uninstall --keep-data`.

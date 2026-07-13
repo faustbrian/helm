@@ -2,7 +2,10 @@ use super::{ProjectBackupExecutionOptions, ProjectBackupExecutionResult};
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
 };
-use crate::control_plane::migration::{PostgresBackupOptions, backup_postgres_database};
+use crate::control_plane::migration::{
+    MySqlBackupOptions, PostgresBackupOptions, backup_mysql_database, backup_postgres_database,
+};
+use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 
 /// Resolves exact live ownership and creates one verified logical recovery point.
@@ -62,19 +65,50 @@ where
             options.operation.compatibility_fingerprint()
         ));
     }
-    let backup = PostgresBackupOptions {
-        logical_resource: logical,
-        credential,
-        database_name: logical.logical_resource_id(),
-        installation_id: &options.installation_id,
-        created_at_unix_seconds: options.created_at_unix_seconds,
-        backup_root: &options.backup_root,
-        timeout: options.timeout,
-    };
-
-    backup_postgres_database(engine, &container, &backup)
+    match logical.kind() {
+        "postgres_database_and_role" => backup_postgres_database(
+            engine,
+            &container,
+            &PostgresBackupOptions {
+                logical_resource: logical,
+                credential,
+                database_name: logical.logical_resource_id(),
+                installation_id: &options.installation_id,
+                created_at_unix_seconds: options.created_at_unix_seconds,
+                backup_root: &options.backup_root,
+                timeout: options.timeout,
+            },
+        )
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string()),
+        "mysql_database" | "mariadb_database" => backup_mysql_database(
+            engine,
+            &container,
+            &MySqlBackupOptions {
+                flavor: mysql_flavor(logical.kind())?,
+                logical_resource: logical,
+                credential,
+                database_name: logical.logical_resource_id(),
+                installation_id: &options.installation_id,
+                created_at_unix_seconds: options.created_at_unix_seconds,
+                backup_root: &options.backup_root,
+                timeout: options.timeout,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string()),
+        kind => Err(format!("project backup kind '{kind}' is not implemented")),
+    }
+}
+
+fn mysql_flavor(kind: &str) -> Result<MySqlFlavor, String> {
+    match kind {
+        "mysql_database" => Ok(MySqlFlavor::MySql),
+        "mariadb_database" => Ok(MySqlFlavor::MariaDb),
+        _ => Err(format!(
+            "logical resource kind '{kind}' is not MySQL-family"
+        )),
+    }
 }
 
 fn validate_runtime_state(

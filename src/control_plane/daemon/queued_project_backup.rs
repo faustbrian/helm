@@ -82,7 +82,10 @@ impl QueuedProjectBackup {
         {
             return Err("project backup identity fields must not be empty".to_owned());
         }
-        if self.kind != "postgres_database_and_role" {
+        if !matches!(
+            self.kind.as_str(),
+            "postgres_database_and_role" | "mysql_database" | "mariadb_database"
+        ) {
             return Err(format!(
                 "project backup kind '{}' is not implemented",
                 self.kind

@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 1,415 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 1,416 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -53,7 +53,7 @@ identified below.
 | AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, strict legacy guard | Live Engine compatibility negotiation record |
 | AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | event supervisor, bounded backoff, health invalidation, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
 | AC-21 | Daemon restart, login, reboot, service crash, sleep, and wake recover | Partial | queue/state restore, idempotent reconciliation, restart, and crash tests | Login, reboot, sleep/wake, and service-crash platform artifacts |
-| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, backup, restore, disposable GC, crash-replayable PostgreSQL and MySQL/MariaDB prune, and explicit safe uninstall-mode tests | MySQL-family backup creation, remaining persistent-service adapters, delete-data uninstall execution, and live rename/remove/restore acceptance |
+| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL and MySQL/MariaDB backup, disposable GC, crash-replayable PostgreSQL and MySQL/MariaDB prune, PostgreSQL restore, and explicit safe uninstall-mode tests | MySQL-family restore, remaining persistent-service adapters, delete-data uninstall execution, and live rename/remove/restore acceptance |
 | AC-23 | Existing v7 projects have tested migration and rollback | Partial | TOML-to-YAML semantic migration; reversible PostgreSQL backup/restore/cutover/confirm/rollback tests | Complete v7 inventory and adapters for remaining data services, routes, trust, app runtimes, volumes, and generated environment |
 
 ## Supply chain, platforms, and efficiency
