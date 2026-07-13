@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::io;
 use std::path::PathBuf;
 
 /// A durable state migration, validation, or transaction failure.
@@ -60,6 +61,12 @@ pub(crate) enum StateStoreError {
     ProjectAdoptionStateMismatch { project_id: String, detail: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
+    /// A private state snapshot could not be created or retained safely.
+    StateBackupIo {
+        action: &'static str,
+        path: PathBuf,
+        source: io::Error,
+    },
 }
 
 impl Display for StateStoreError {
@@ -164,6 +171,15 @@ impl Display for StateStoreError {
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
             }
+            Self::StateBackupIo {
+                action,
+                path,
+                source,
+            } => write!(
+                formatter,
+                "failed to {action} state backup '{}': {source}",
+                path.display()
+            ),
         }
     }
 }
@@ -172,6 +188,7 @@ impl Error for StateStoreError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Database(error) => Some(error),
+            Self::StateBackupIo { source, .. } => Some(source),
             Self::UnsupportedSchema { .. }
             | Self::NonUtf8Path { .. }
             | Self::RouteOwnershipConflict { .. }

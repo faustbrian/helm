@@ -14,6 +14,7 @@ mod migration_phase;
 mod migration_record;
 mod migration_record_error;
 mod migration_record_options;
+mod open_sqlite_state_store_with_backups;
 mod persist_managed_environment;
 mod persist_migration_record;
 mod persisted_migration;

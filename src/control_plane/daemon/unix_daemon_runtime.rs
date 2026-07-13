@@ -69,7 +69,11 @@ impl UnixDaemonRuntime {
         remove_stale_socket(&options.socket_path)?;
         let listener = UnixIpcListener::bind(&options.socket_path)?;
         listener.set_nonblocking(true)?;
-        let mut store = SqliteStateStore::open(&options.state_database_path)?;
+        let mut store = SqliteStateStore::open_with_backups(
+            &options.state_database_path,
+            &runtime_directory.join("state-backups"),
+            unix_time_seconds(),
+        )?;
         let installation = initialize_default_installation(&mut store)?;
         let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
         let engine_runtime = tokio::runtime::Builder::new_current_thread()

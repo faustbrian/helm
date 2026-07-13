@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon startup integrity checks and private, bounded, consistent SQLite
+  recovery snapshots before state migration or mutation, with fail-closed
+  handling that preserves the original database when verification fails.
 - Added durable reference-counted shared-service idling that stops unused
   compatibility instances only after their final active logical consumer is
   released, while retaining containers, volumes, and tenant data.

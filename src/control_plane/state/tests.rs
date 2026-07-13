@@ -672,6 +672,88 @@ fn logical_resources_persist_and_reference_count_only_active_consumers() {
 }
 
 #[test]
+fn recoverable_open_snapshots_valid_state_and_preserves_backups_on_corruption() {
+    let database_path = temporary_database_path("recoverable-open");
+    let backup_directory = database_path.with_extension("backups");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    drop(store);
+
+    for created_at in 40_000..40_004 {
+        drop(
+            SqliteStateStore::open_with_backups(&database_path, &backup_directory, created_at)
+                .expect("open with state backup"),
+        );
+    }
+    drop(
+        SqliteStateStore::open_with_backups(&database_path, &backup_directory, 40_003)
+            .expect("reuse same-second recovery point"),
+    );
+
+    let mut backups = std::fs::read_dir(&backup_directory)
+        .expect("read state backups")
+        .map(|entry| entry.expect("backup entry").path())
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("sqlite3"))
+        .collect::<Vec<_>>();
+    backups.sort();
+    assert_eq!(backups.len(), 3);
+    assert!(
+        backups[0]
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.contains("00000000000000040001"))
+    );
+    for backup in &backups {
+        let connection = rusqlite::Connection::open(backup).expect("open state backup");
+        let project_name = connection
+            .query_row("SELECT project_name FROM projects", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("read backed-up project");
+        assert_eq!(project_name, "bill");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(
+            std::fs::metadata(&backup_directory)
+                .expect("backup directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(backups.iter().all(|backup| {
+            std::fs::metadata(backup)
+                .expect("backup metadata")
+                .permissions()
+                .mode()
+                & 0o777
+                == 0o600
+        }));
+    }
+
+    std::fs::write(&database_path, b"not a sqlite database").expect("corrupt primary state");
+    let error = match SqliteStateStore::open_with_backups(&database_path, &backup_directory, 50_000)
+    {
+        Ok(_) => panic!("corrupt state must fail before backup or migration"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("integrity check failed"));
+    assert_eq!(
+        std::fs::read_dir(&backup_directory)
+            .expect("retained state backups")
+            .count(),
+        3
+    );
+
+    std::fs::remove_dir_all(&backup_directory).expect("remove state backups");
+    remove_database(&database_path);
+}
+
+#[test]
 fn orphaning_a_project_releases_its_active_shared_service_reference() {
     let database_path = temporary_database_path("logical-resource-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
