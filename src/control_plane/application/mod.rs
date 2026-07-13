@@ -4,6 +4,7 @@ mod control_plane_error;
 mod desired_registry;
 mod plan_project_registry;
 mod project_source;
+mod reconcile_logical_environment;
 mod registry_plan_error;
 
 pub(crate) use control_plane::ControlPlane;

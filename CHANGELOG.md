@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added exact per-project logical-service reconciliation that orphans omitted
+  tenants, disables their credentials, releases active shared references, and
+  replaces generated managed environments atomically, including empty sets.
 - Added explicit project adoption through the singleton IPC boundary, restoring
   orphaned workloads, logical tenants, credentials, and managed environments
   atomically while preserving superseded retained resources as history.

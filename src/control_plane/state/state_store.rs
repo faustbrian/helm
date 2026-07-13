@@ -102,6 +102,14 @@ pub(crate) trait StateStore {
         environment: &ManagedEnvironmentRecord,
     ) -> Result<(), StateStoreError>;
 
+    /// Replaces one project's active logical set and orphans omitted services.
+    fn reconcile_logical_environment(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+        environment: &ManagedEnvironmentRecord,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError>;
+
     /// Records one monotonic, crash-recoverable migration checkpoint.
     fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError>;
 

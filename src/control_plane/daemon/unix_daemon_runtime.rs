@@ -266,12 +266,7 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let managed_environments = match self
-            .control_plane
-            .managed_environments()
-            .map_err(|error| error.to_string())
-            .and_then(|existing| merge_prepared_environments(existing, &prepared_shared))
-        {
+        let managed_environments = match merge_prepared_environments(execution, &prepared_shared) {
             Ok(environments) => environments,
             Err(error) => {
                 self.engine_reconciliation.complete();
@@ -349,7 +344,11 @@ impl UnixDaemonRuntime {
         }
 
         let mut physical_resources = Vec::new();
-        let mut provisioned = BTreeMap::<String, Vec<_>>::new();
+        let mut provisioned = execution
+            .services()
+            .iter()
+            .map(|service| (service.project().as_str().to_owned(), Vec::new()))
+            .collect::<BTreeMap<String, Vec<_>>>();
         for prepared in &prepared_shared {
             let logical = self
                 .engine_runtime
@@ -387,9 +386,10 @@ impl UnixDaemonRuntime {
                     .push(logical.clone());
             }
         }
+        let reconciled_at_unix_seconds = unix_time_seconds();
         if let Err(error) = self
             .control_plane
-            .record_resources(&physical_resources, unix_time_seconds())
+            .record_resources(&physical_resources, reconciled_at_unix_seconds)
         {
             self.engine_reconciliation.complete();
             tracing::error!(error = %error, "physical shared ownership publication blocked");
@@ -409,10 +409,11 @@ impl UnixDaemonRuntime {
 
                 return;
             };
-            if let Err(error) = self
-                .control_plane
-                .record_logical_environment(&logical, environment)
-            {
+            if let Err(error) = self.control_plane.reconcile_logical_environment(
+                &logical,
+                environment,
+                reconciled_at_unix_seconds,
+            ) {
                 self.engine_reconciliation.complete();
                 tracing::error!(error = %error, "shared tenant state publication blocked");
 
@@ -679,15 +680,15 @@ fn runtime_linux_platform() -> Result<&'static str, String> {
     }
 }
 
-fn merge_prepared_environments(
-    existing: Vec<ManagedEnvironmentRecord>,
+pub(super) fn merge_prepared_environments(
+    execution: &crate::control_plane::ExecutionPlan,
     prepared: &[PreparedSharedInstance],
 ) -> Result<Vec<ManagedEnvironmentRecord>, String> {
-    let mut environments = existing
-        .into_iter()
-        .map(|environment| (environment.project_id().to_owned(), environment))
-        .collect::<BTreeMap<_, _>>();
-    let mut generated = BTreeMap::<String, BTreeMap<String, String>>::new();
+    let mut generated = execution
+        .services()
+        .iter()
+        .map(|service| (service.project().as_str().to_owned(), BTreeMap::new()))
+        .collect::<BTreeMap<String, BTreeMap<String, String>>>();
 
     for environment in prepared
         .iter()
@@ -705,21 +706,21 @@ fn merge_prepared_environments(
         }
     }
 
-    for (project_id, values) in generated {
-        let canonical = serde_json::to_vec(&values)
-            .map_err(|error| format!("failed to encode managed environment: {error}"))?;
-        environments.insert(
-            project_id.clone(),
-            ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
-                project_id,
-                revision: format!("sha256:{}", hex::encode(Sha256::digest(canonical))),
-                values,
-                lifecycle: EnvironmentLifecycle::Active,
-            }),
-        );
-    }
-
-    Ok(environments.into_values().collect())
+    generated
+        .into_iter()
+        .map(|(project_id, values)| {
+            let canonical = serde_json::to_vec(&values)
+                .map_err(|error| format!("failed to encode managed environment: {error}"))?;
+            Ok(ManagedEnvironmentRecord::new(
+                ManagedEnvironmentRecordOptions {
+                    project_id,
+                    revision: format!("sha256:{}", hex::encode(Sha256::digest(canonical))),
+                    values,
+                    lifecycle: EnvironmentLifecycle::Active,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn unix_time_seconds() -> i64 {

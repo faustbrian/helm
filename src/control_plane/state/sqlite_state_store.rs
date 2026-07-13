@@ -984,6 +984,86 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    fn reconcile_logical_environment(
+        &mut self,
+        resources: &[LogicalResourceRecord],
+        environment: &ManagedEnvironmentRecord,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError> {
+        if orphaned_at_unix_seconds < 0 {
+            return Err(StateStoreError::InvalidLogicalEnvironment {
+                detail: "logical orphan time must not be negative".to_owned(),
+            });
+        }
+        if let Some(resource) = resources
+            .iter()
+            .find(|resource| resource.project_id() != environment.project_id())
+        {
+            return Err(StateStoreError::InvalidLogicalEnvironment {
+                detail: format!(
+                    "resource '{}' belongs to project '{}', not environment project '{}'",
+                    resource.logical_resource_id(),
+                    resource.project_id(),
+                    environment.project_id()
+                ),
+            });
+        }
+        let desired_resources = resources
+            .iter()
+            .map(LogicalResourceRecord::logical_resource_id)
+            .collect::<BTreeSet<_>>();
+        let desired_services = resources
+            .iter()
+            .map(LogicalResourceRecord::service_id)
+            .collect::<BTreeSet<_>>();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let active_resources = {
+            let mut statement = transaction.prepare(
+                "SELECT logical_resource_id FROM logical_resources
+                 WHERE project_id = ?1 AND lifecycle = 'active'",
+            )?;
+            statement
+                .query_map([environment.project_id()], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for logical_resource_id in active_resources {
+            if !desired_resources.contains(logical_resource_id.as_str()) {
+                transaction.execute(
+                    "UPDATE logical_resources
+                     SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
+                     WHERE logical_resource_id = ?2",
+                    params![orphaned_at_unix_seconds, logical_resource_id],
+                )?;
+            }
+        }
+        let active_credentials = {
+            let mut statement = transaction.prepare(
+                "SELECT credential_id, service_id FROM credentials
+                 WHERE project_id = ?1 AND lifecycle = 'active'",
+            )?;
+            statement
+                .query_map([environment.project_id()], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for (credential_id, service_id) in active_credentials {
+            if !desired_services.contains(service_id.as_str()) {
+                transaction.execute(
+                    "UPDATE credentials SET lifecycle = 'disabled' WHERE credential_id = ?1",
+                    [credential_id],
+                )?;
+            }
+        }
+        persist_logical_resources(&transaction, resources)?;
+        persist_managed_environment(&transaction, environment)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn record_migration(&mut self, migration: &MigrationRecord) -> Result<(), StateStoreError> {
         let transaction = self
             .connection

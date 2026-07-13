@@ -3,9 +3,7 @@ use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, PreparedSharedInstance, SharedInstancePlan, SharedPreparationError,
     SharedPreparationOptions, prepare_shared_instances,
 };
-use crate::control_plane::state::{
-    LogicalResourceRecord, ManagedEnvironmentRecord, ProjectRecord, ResourceRecord, StateStore,
-};
+use crate::control_plane::state::{ProjectRecord, ResourceRecord, StateStore};
 use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
@@ -27,13 +25,6 @@ where
         self.state_store.watched_roots().map_err(Into::into)
     }
 
-    /// Loads daemon-owned project environments for Engine planning.
-    pub(crate) fn managed_environments(
-        &self,
-    ) -> Result<Vec<ManagedEnvironmentRecord>, ControlPlaneError> {
-        self.state_store.managed_environments().map_err(Into::into)
-    }
-
     /// Loads durable physical ownership for lifecycle reconciliation.
     pub(crate) fn resources(&self) -> Result<Vec<ResourceRecord>, ControlPlaneError> {
         self.state_store.resources().map_err(Into::into)
@@ -46,16 +37,6 @@ where
         options: SharedPreparationOptions<'_>,
     ) -> Result<Vec<PreparedSharedInstance>, SharedPreparationError> {
         prepare_shared_instances(&mut self.state_store, shared, entropy, options)
-    }
-
-    pub(crate) fn record_logical_environment(
-        &mut self,
-        resources: &[LogicalResourceRecord],
-        environment: &ManagedEnvironmentRecord,
-    ) -> Result<(), ControlPlaneError> {
-        self.state_store
-            .record_logical_environment(resources, environment)
-            .map_err(Into::into)
     }
 
     pub(crate) fn record_resources(

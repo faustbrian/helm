@@ -806,6 +806,100 @@ fn logical_ownership_and_managed_environment_publish_atomically() {
 }
 
 #[test]
+fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
+    let database_path = temporary_database_path("logical-environment-removal");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let database = logical_resource_record("bill/database", "bill", "database");
+    let cache = logical_resource_record("bill/cache", "bill", "cache");
+    let database_credential = credential_record("database-secret");
+    let cache_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/cache/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: "cache-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let initial_environment = managed_environment(BTreeMap::from([
+        ("DB_PASSWORD".to_owned(), "database-secret".to_owned()),
+        ("REDIS_PASSWORD".to_owned(), "cache-secret".to_owned()),
+    ]));
+    let current_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v2".to_owned(),
+        values: BTreeMap::from([("DB_PASSWORD".to_owned(), "database-secret".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    store
+        .insert_credential_if_absent(&database_credential)
+        .expect("persist database credential");
+    store
+        .insert_credential_if_absent(&cache_credential)
+        .expect("persist cache credential");
+    store
+        .record_logical_environment(&[database.clone(), cache.clone()], &initial_environment)
+        .expect("publish initial logical environment");
+
+    store
+        .reconcile_logical_environment(
+            std::slice::from_ref(&database),
+            &current_environment,
+            12_345,
+        )
+        .expect("replace logical environment");
+
+    let logical = store.logical_resources().expect("logical resources");
+    assert_eq!(logical[0].logical_resource_id(), "bill/cache");
+    assert_eq!(logical[0].lifecycle(), ResourceLifecycle::Orphaned);
+    assert_eq!(logical[0].orphaned_at_unix_seconds(), Some(12_345));
+    assert_eq!(logical[1], database);
+    let credentials = store.credentials().expect("credentials");
+    assert_eq!(credentials[0].credential_id(), "bill/cache/primary");
+    assert_eq!(credentials[0].lifecycle(), CredentialLifecycle::Disabled);
+    assert_eq!(credentials[1], database_credential);
+    assert_eq!(
+        store.managed_environments().expect("managed environment"),
+        vec![current_environment.clone()]
+    );
+    assert_eq!(
+        store
+            .active_logical_reference_count("postgres-shared-17")
+            .expect("remaining database reference"),
+        1
+    );
+    let empty_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v3".to_owned(),
+        values: BTreeMap::new(),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+
+    store
+        .reconcile_logical_environment(&[], &empty_environment, 23_456)
+        .expect("remove final logical service");
+
+    assert_eq!(
+        store
+            .active_logical_reference_count("postgres-shared-17")
+            .expect("released shared references"),
+        0
+    );
+    assert_eq!(
+        store.credentials().expect("disabled credentials")[1].lifecycle(),
+        CredentialLifecycle::Disabled
+    );
+    assert_eq!(
+        store.managed_environments().expect("empty environment"),
+        vec![empty_environment]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn resource_upsert_rejects_immutable_ownership_drift_atomically() {
     let database_path = temporary_database_path("resource-ownership-conflict");
     let first = resource_record("container-first", "bill", ResourceRetention::Persistent);

@@ -139,6 +139,31 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn managed_environment_planning_replaces_absent_shared_values_with_empty_state() {
+    use super::unix_daemon_runtime::merge_prepared_environments;
+
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!("schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n"),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let environments = merge_prepared_environments(&execution, &[]).expect("managed environments");
+
+    assert_eq!(environments.len(), 1);
+    assert_eq!(environments[0].project_id(), "bill");
+    assert!(environments[0].values().is_empty());
+    assert_eq!(environments[0].lifecycle(), EnvironmentLifecycle::Active);
+}
+
 #[test]
 fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
     let image = concat!(
