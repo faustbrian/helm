@@ -13,6 +13,16 @@ pub(crate) enum MigrationError {
     MissingCheckpoint {
         migration_id: String,
     },
+    RecoveryPointNotFound {
+        recovery_point_id: String,
+        project_id: String,
+    },
+    RecoveryPointMismatch {
+        recovery_point_id: String,
+        project_id: String,
+        service_id: String,
+        logical_resource_id: String,
+    },
     CheckpointMismatch {
         migration_id: String,
     },
@@ -42,6 +52,22 @@ impl Display for MigrationError {
                     "migration '{migration_id}' has not been inventoried"
                 )
             }
+            Self::RecoveryPointNotFound {
+                recovery_point_id,
+                project_id,
+            } => write!(
+                formatter,
+                "recovery point '{recovery_point_id}' does not exist for project '{project_id}'"
+            ),
+            Self::RecoveryPointMismatch {
+                recovery_point_id,
+                project_id,
+                service_id,
+                logical_resource_id,
+            } => write!(
+                formatter,
+                "recovery point '{recovery_point_id}' does not match project '{project_id}' service '{service_id}' logical resource '{logical_resource_id}'"
+            ),
             Self::CheckpointMismatch { migration_id } => write!(
                 formatter,
                 "migration '{migration_id}' checkpoint does not match its inventory"
@@ -67,6 +93,8 @@ impl Error for MigrationError {
             Self::Operation { source, .. } => Some(source),
             Self::InvalidInventory { .. }
             | Self::MissingCheckpoint { .. }
+            | Self::RecoveryPointNotFound { .. }
+            | Self::RecoveryPointMismatch { .. }
             | Self::CheckpointMismatch { .. }
             | Self::InvalidCheckpoint { .. }
             | Self::InvalidAction { .. } => None,

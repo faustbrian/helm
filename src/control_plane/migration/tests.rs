@@ -1,13 +1,14 @@
 use super::{
     MigrationBackup, MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture,
-    MigrationOperations, MigrationRollbackPlan, MigrationTargetPlan, confirm_migration,
-    execute_migration, rollback_migration,
+    MigrationOperations, MigrationRollbackPlan, MigrationTargetPlan, RecoveryPointRestoreOptions,
+    confirm_migration, execute_migration, execute_recovery_point_restore, rollback_migration,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
     LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
     ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
-    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
+    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -113,6 +114,102 @@ fn migration_resumes_from_the_last_durable_checkpoint_after_failure() {
         assert_eq!(
             resumed.restored_target_resource_id.as_deref(),
             Some("postgres-v8-bill")
+        );
+
+        drop(store);
+        remove_database(&database_path);
+    });
+}
+
+#[test]
+fn recovery_point_restore_resumes_at_isolated_target_provisioning() {
+    run_test(async {
+        let database_path = temporary_database_path("recovery-point-restore");
+        let mut store = migration_store(&database_path);
+        store
+            .record_recovery_point(&recovery_point())
+            .expect("record recovery point");
+        let mut operations = RecordingMigrationOperations::default();
+
+        let result = execute_recovery_point_restore(
+            &mut store,
+            &inventory(),
+            &mut operations,
+            &RecoveryPointRestoreOptions {
+                recovery_point_id: "recovery-bill-database-100",
+                service_id: "database",
+                logical_resource_id: "bill/database",
+                resource_kind: "postgres_database_and_role",
+                updated_at_unix_seconds: 101,
+            },
+        )
+        .await
+        .expect("restore cataloged recovery point");
+
+        assert_eq!(result, MigrationExecutionResult::AwaitingConfirmation);
+        assert_eq!(
+            operations.calls,
+            ["provision", "restore", "verify", "cutover"]
+        );
+        assert_eq!(
+            operations.received_phases,
+            [
+                MigrationPhase::BackupVerified,
+                MigrationPhase::TargetProvisioned,
+                MigrationPhase::DataRestored,
+                MigrationPhase::TargetVerified,
+            ]
+        );
+        assert_eq!(
+            operations.restored_backup_reference.as_deref(),
+            Some("/backups/recovery-bill-database-100")
+        );
+        assert_eq!(
+            operations.restored_artifact_sha256.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(operations.restored_artifact_size_bytes, Some(2_048));
+
+        drop(store);
+        remove_database(&database_path);
+    });
+}
+
+#[test]
+fn recovery_point_restore_rejects_a_mismatched_logical_identity_before_mutation() {
+    run_test(async {
+        let database_path = temporary_database_path("recovery-point-mismatch");
+        let mut store = migration_store(&database_path);
+        store
+            .record_recovery_point(&recovery_point())
+            .expect("record recovery point");
+        let mut operations = RecordingMigrationOperations::default();
+
+        let error = execute_recovery_point_restore(
+            &mut store,
+            &inventory(),
+            &mut operations,
+            &RecoveryPointRestoreOptions {
+                recovery_point_id: "recovery-bill-database-100",
+                service_id: "reporting",
+                logical_resource_id: "bill/reporting",
+                resource_kind: "postgres_database_and_role",
+                updated_at_unix_seconds: 101,
+            },
+        )
+        .await
+        .expect_err("mismatched recovery point");
+
+        assert_eq!(
+            error.to_string(),
+            "recovery point 'recovery-bill-database-100' does not match project 'bill' service 'reporting' logical resource 'bill/reporting'"
+        );
+        assert!(operations.calls.is_empty());
+        assert!(
+            store
+                .migrations()
+                .expect("migration checkpoints")
+                .is_empty()
         );
 
         drop(store);
@@ -266,6 +363,24 @@ fn inventory() -> MigrationRecord {
         updated_at_unix_seconds: 99,
     })
     .expect("valid migration plan")
+}
+
+fn recovery_point() -> RecoveryPointRecord {
+    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "recovery-bill-database-100".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "bill/database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-16".to_owned(),
+        reference: "/backups/recovery-bill-database-100".to_owned(),
+        artifact_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .to_owned(),
+        artifact_size_bytes: 2_048,
+        created_at_unix_seconds: 100,
+        verified_at_unix_seconds: 100,
+    })
+    .expect("valid recovery point")
 }
 
 fn original_project() -> ProjectRecord {

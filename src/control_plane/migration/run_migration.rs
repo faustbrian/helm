@@ -215,7 +215,7 @@ pub(crate) async fn rollback_migration(
     Ok(MigrationExecutionResult::RolledBack)
 }
 
-fn validate_inventory(
+pub(super) fn validate_inventory(
     inventory: &MigrationRecord,
     updated_at_unix_seconds: i64,
 ) -> Result<(), MigrationError> {
@@ -238,7 +238,7 @@ fn validate_inventory(
     Ok(())
 }
 
-fn load_checkpoint(
+pub(super) fn load_checkpoint(
     store: &dyn StateStore,
     inventory: &MigrationRecord,
 ) -> Result<Option<MigrationRecord>, MigrationError> {

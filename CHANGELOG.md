@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an exact recovery-point restore coordinator that selects immutable
+  catalog evidence by ID, verifies project, service, logical-resource, kind,
+  and compatibility ownership before mutation, and resumes the reversible
+  migration state machine at isolated target provisioning without taking a
+  redundant source backup.
 - Added durable singleton PostgreSQL recovery-point operations with secret-free
   queued identity, runtime-only credential resolution, exact owned shared-service
   matching, direct Engine streaming, verified host artifacts, serialized Engine
