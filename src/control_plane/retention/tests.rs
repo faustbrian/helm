@@ -1,7 +1,7 @@
 use super::{
-    BackupArtifactManifest, DeletionDecision, PruneAuthorization, evaluate_deletion,
-    store_backup_artifact, store_backup_artifact_from_reader, verify_backup_artifact,
-    verify_stored_backup_artifact,
+    BackupArtifactManifest, DeletionDecision, PruneAuthorization, RestoreTarget,
+    RestoreTargetError, evaluate_deletion, restore_verified_backup, store_backup_artifact,
+    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
@@ -365,6 +365,337 @@ fn backup_store_streams_large_artifacts_without_requiring_one_byte_buffer() {
     verify_stored_backup_artifact(&stored, 42_001).expect("verified streamed backup");
 
     std::fs::remove_dir_all(&root).expect("remove streamed backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_stages_verifies_and_commits_exact_verified_bytes() {
+    let fixture = RestoreFixture::new("successful");
+    let mut target = RecordingRestoreTarget::default();
+
+    let evidence = restore_verified_backup(
+        "restore-1",
+        &fixture.resource,
+        &fixture.stored,
+        41_000,
+        &mut target,
+    )
+    .expect("restored backup");
+
+    assert_eq!(target.operations, ["stage", "verify", "commit"]);
+    assert_eq!(target.staged_bytes, b"recoverable bytes");
+    assert_eq!(evidence.artifact_size_bytes(), 17);
+    assert!(!evidence.artifact_sha256().is_empty());
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_rejects_corruption_before_mutating_the_target() {
+    let fixture = RestoreFixture::new("corrupt");
+    std::fs::write(fixture.stored.artifact_file(), b"tampered").expect("tamper backup");
+    let mut target = RecordingRestoreTarget::default();
+
+    let error = restore_verified_backup(
+        "restore-1",
+        &fixture.resource,
+        &fixture.stored,
+        41_000,
+        &mut target,
+    )
+    .expect_err("corrupt backup");
+
+    assert_eq!(
+        error.to_string(),
+        "backup artifact checksum does not match its manifest"
+    );
+    assert!(target.operations.is_empty());
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_rejects_wrong_resource_evidence_before_mutating_the_target() {
+    let fixture = RestoreFixture::new("wrong-resource");
+    let other = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "resource-2".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:fingerprint".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(1_000),
+    });
+    let mut target = RecordingRestoreTarget::default();
+
+    let error = restore_verified_backup("restore-1", &other, &fixture.stored, 41_000, &mut target)
+        .expect_err("wrong resource backup");
+
+    assert_eq!(
+        error.to_string(),
+        "backup evidence does not match the restore resource"
+    );
+    assert!(target.operations.is_empty());
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_rejects_unsafe_restore_ids_before_mutating_the_target() {
+    let fixture = RestoreFixture::new("unsafe-id");
+    let mut target = RecordingRestoreTarget::default();
+
+    for restore_id in ["", "../restore", "restore/child", "restore\0child"] {
+        let error = restore_verified_backup(
+            restore_id,
+            &fixture.resource,
+            &fixture.stored,
+            41_000,
+            &mut target,
+        )
+        .expect_err("unsafe restore id");
+
+        assert_eq!(error.to_string(), "restore id must be non-empty and valid");
+    }
+    assert!(target.operations.is_empty());
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_rolls_back_when_the_target_consumes_only_a_prefix() {
+    let fixture = RestoreFixture::new("prefix");
+    let mut target = RecordingRestoreTarget {
+        read_limit: Some(4),
+        ..RecordingRestoreTarget::default()
+    };
+
+    let error = restore_verified_backup(
+        "restore-1",
+        &fixture.resource,
+        &fixture.stored,
+        41_000,
+        &mut target,
+    )
+    .expect_err("partial restore");
+
+    assert_eq!(
+        error.to_string(),
+        "restore target did not consume the complete backup artifact"
+    );
+    assert_eq!(target.operations, ["stage", "rollback"]);
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_rolls_back_target_verification_and_commit_failures() {
+    for (failure, expected_operations) in [
+        (RestoreFailure::Stage, vec!["stage", "rollback"]),
+        (RestoreFailure::Verify, vec!["stage", "verify", "rollback"]),
+        (
+            RestoreFailure::Commit,
+            vec!["stage", "verify", "commit", "rollback"],
+        ),
+    ] {
+        let fixture = RestoreFixture::new(failure.label());
+        let mut target = RecordingRestoreTarget {
+            failure,
+            ..RecordingRestoreTarget::default()
+        };
+
+        let error = restore_verified_backup(
+            "restore-1",
+            &fixture.resource,
+            &fixture.stored,
+            41_000,
+            &mut target,
+        )
+        .expect_err("target failure");
+
+        assert_eq!(
+            error.to_string(),
+            format!("restore target {failure} failed")
+        );
+        assert_eq!(target.operations, expected_operations);
+
+        fixture.remove();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn restore_reports_both_primary_and_rollback_failures() {
+    let fixture = RestoreFixture::new("rollback-failure");
+    let mut target = RecordingRestoreTarget {
+        failure: RestoreFailure::VerifyAndRollback,
+        ..RecordingRestoreTarget::default()
+    };
+
+    let error = restore_verified_backup(
+        "restore-1",
+        &fixture.resource,
+        &fixture.stored,
+        41_000,
+        &mut target,
+    )
+    .expect_err("rollback failure");
+
+    assert_eq!(
+        error.to_string(),
+        "restore target verify failed; rollback also failed: restore target rollback failed"
+    );
+    assert_eq!(target.operations, ["stage", "verify", "rollback"]);
+
+    fixture.remove();
+}
+
+#[cfg(unix)]
+struct RestoreFixture {
+    root: std::path::PathBuf,
+    resource: ResourceRecord,
+    stored: super::StoredBackupArtifact,
+}
+
+#[cfg(unix)]
+impl RestoreFixture {
+    fn new(label: &str) -> Self {
+        let root =
+            std::env::temp_dir().join(format!("stackctl-restore-{label}-{}", std::process::id()));
+        let resource = resource(
+            ResourceRetention::Persistent,
+            ResourceLifecycle::Orphaned,
+            Some(1_000),
+        );
+        let stored = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+            .expect("stored restore fixture");
+
+        Self {
+            root,
+            resource,
+            stored,
+        }
+    }
+
+    fn remove(self) {
+        std::fs::remove_dir_all(self.root).expect("remove restore fixture");
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum RestoreFailure {
+    #[default]
+    None,
+    Stage,
+    Verify,
+    Commit,
+    VerifyAndRollback,
+}
+
+#[cfg(unix)]
+impl RestoreFailure {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Stage => "stage",
+            Self::Verify => "verify",
+            Self::Commit => "commit",
+            Self::VerifyAndRollback => "verify-rollback",
+        }
+    }
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for RestoreFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.label())
+    }
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct RecordingRestoreTarget {
+    operations: Vec<&'static str>,
+    staged_bytes: Vec<u8>,
+    read_limit: Option<u64>,
+    failure: RestoreFailure,
+}
+
+#[cfg(unix)]
+impl RestoreTarget for RecordingRestoreTarget {
+    fn stage(
+        &mut self,
+        _restore_id: &str,
+        _resource: &ResourceRecord,
+        input: &mut dyn std::io::Read,
+    ) -> Result<(), RestoreTargetError> {
+        self.operations.push("stage");
+        if self.failure == RestoreFailure::Stage {
+            return Err(RestoreTargetError::new("restore target stage failed"));
+        }
+        if let Some(read_limit) = self.read_limit {
+            let mut prefix = vec![0_u8; usize::try_from(read_limit).expect("read limit")];
+            input.read_exact(&mut prefix).expect("read staged prefix");
+            self.staged_bytes.extend(prefix);
+        } else {
+            input
+                .read_to_end(&mut self.staged_bytes)
+                .expect("read staged backup");
+        }
+
+        Ok(())
+    }
+
+    fn verify(
+        &mut self,
+        _restore_id: &str,
+        _resource: &ResourceRecord,
+    ) -> Result<(), RestoreTargetError> {
+        self.operations.push("verify");
+        if matches!(
+            self.failure,
+            RestoreFailure::Verify | RestoreFailure::VerifyAndRollback
+        ) {
+            return Err(RestoreTargetError::new("restore target verify failed"));
+        }
+
+        Ok(())
+    }
+
+    fn commit(
+        &mut self,
+        _restore_id: &str,
+        _resource: &ResourceRecord,
+    ) -> Result<(), RestoreTargetError> {
+        self.operations.push("commit");
+        if self.failure == RestoreFailure::Commit {
+            return Err(RestoreTargetError::new("restore target commit failed"));
+        }
+
+        Ok(())
+    }
+
+    fn rollback(
+        &mut self,
+        _restore_id: &str,
+        _resource: &ResourceRecord,
+    ) -> Result<(), RestoreTargetError> {
+        self.operations.push("rollback");
+        if self.failure == RestoreFailure::VerifyAndRollback {
+            return Err(RestoreTargetError::new("restore target rollback failed"));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(unix)]

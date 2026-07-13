@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
   module-aware readiness and daemon-managed project endpoints.
 - Replaced in-place v7 config rewriting with non-destructive strict v8 YAML
   candidates, checksum-bound semantic reports, and explicit review blockers.
+- Added transactional backup restoration with exact resource verification,
+  checksum-tracked isolated staging, target-native validation, atomic cutover,
+  and mandatory rollback after every post-staging failure.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

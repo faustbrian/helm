@@ -45,6 +45,7 @@ pub(super) fn verify_backup_checksum(
         manifest.resource_kind().to_owned(),
         manifest.compatibility_fingerprint().to_owned(),
         artifact_sha256.to_owned(),
+        artifact_size_bytes,
         verified_at_unix_seconds,
     ))
 }
