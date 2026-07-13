@@ -34,6 +34,7 @@ pub(crate) use rabbitmq::{
     StoredRabbitMqPaths, plan_rabbitmq_project_resources, reload_rabbitmq_definitions,
     revoke_rabbitmq_project_access, store_rabbitmq_definitions,
 };
+pub(crate) use reconcile_shared_service::reconcile_shared_service;
 pub(crate) use reconcile_shared_volume::reconcile_shared_volume;
 pub(crate) use redis::{
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,
@@ -42,6 +43,9 @@ pub(crate) use redis::{
 };
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
+pub(crate) use shared_service_reconcile_action::SharedServiceReconcileAction;
+pub(crate) use shared_service_reconcile_options::SharedServiceReconcileOptions;
+pub(crate) use shared_service_reconcile_result::SharedServiceReconcileResult;
 pub(crate) use shared_service_request::SharedServiceRequest;
 pub(crate) use shared_volume_reconcile_action::SharedVolumeReconcileAction;
 pub(crate) use shared_volume_reconcile_options::SharedVolumeReconcileOptions;
@@ -66,10 +70,14 @@ mod persistence_mode;
 mod plan_shared_instances;
 mod postgres;
 mod rabbitmq;
+mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;
+mod shared_service_reconcile_action;
+mod shared_service_reconcile_options;
+mod shared_service_reconcile_result;
 mod shared_service_request;
 mod shared_volume_reconcile_action;
 mod shared_volume_reconcile_options;

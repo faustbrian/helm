@@ -108,6 +108,8 @@ All notable changes to this project are documented in this file.
   inside the matching owned application container through the direct Engine API.
 - Added ownership-safe shared-volume reconciliation that creates or adopts an
   exact compatibility volume and never deletes persistent data during convergence.
+- Added compatibility-keyed shared-service reconciliation that detects foreign
+  ownership before mutation and replaces drifted containers without deleting data.
 - Added a native-JSON Caddy gateway provider that atomically loads complete route
   snapshots over a private Unix socket while using only Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application

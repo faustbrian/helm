@@ -7,13 +7,14 @@ use super::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    generate_credential_secret, plan_mongodb_project_resources, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
-    plan_shared_instances, provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_postgres_logical_resource, reconcile_shared_volume, reload_rabbitmq_definitions,
-    reload_redis_acl, revoke_rabbitmq_project_access, store_credential_secret,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, generate_credential_secret,
+    plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
+    plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
+    provision_mongodb_logical_resource, provision_mysql_logical_resource,
+    provision_postgres_logical_resource, reconcile_shared_service, reconcile_shared_volume,
+    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
+    store_credential_secret, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -170,6 +171,156 @@ fn shared_volume_reconciliation_refuses_foreign_name_ownership() {
     );
     assert!(engine.created.is_empty());
     assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn missing_shared_services_create_volume_before_starting_one_container() {
+    let volume = shared_volume_request();
+    let container = shared_container_request("sha256:desired-v1");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_shared_service(
+            &mut engine,
+            SharedServiceReconcileOptions {
+                request: &container,
+                volume: Some(&volume),
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("create shared service");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert_eq!(result.container().metadata(), container.metadata());
+    assert_eq!(
+        result.volume().expect("shared volume").action(),
+        SharedVolumeReconcileAction::Created
+    );
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+}
+
+#[test]
+fn shared_service_revision_drift_replaces_only_the_container() {
+    let old_volume = shared_volume_request_with_revision("sha256:desired-v1");
+    let volume = shared_volume_request_with_revision("sha256:desired-v2");
+    let old_container = shared_container_request("sha256:desired-v1");
+    let container = shared_container_request("sha256:desired-v2");
+    let mut engine = RecordingSharedVolumeEngine {
+        observed: vec![crate::control_plane::engine::ObservedVolume::new(
+            volume.name(),
+            old_volume.metadata().labels(),
+        )],
+        observed_containers: vec![ObservedContainer::new(
+            ContainerId::new("postgres-17"),
+            old_container.metadata().labels(),
+        )],
+        state: crate::control_plane::engine::ContainerState::Running,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_shared_service(
+            &mut engine,
+            SharedServiceReconcileOptions {
+                request: &container,
+                volume: Some(&volume),
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("replace shared service container");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Replaced);
+    assert_eq!(
+        engine.operations,
+        vec![
+            "stop-container",
+            "remove-container",
+            "create-container",
+            "start-container"
+        ]
+    );
+    assert!(engine.created.is_empty());
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn foreign_shared_service_conflicts_before_volume_creation() {
+    let volume = shared_volume_request();
+    let container = shared_container_request("sha256:desired-v1");
+    let foreign = shared_container_metadata("install-2", "sha256:desired-v1");
+    let mut engine = RecordingSharedVolumeEngine {
+        observed_containers: vec![ObservedContainer::new(
+            ContainerId::new("foreign-postgres-17"),
+            foreign.labels(),
+        )],
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_shared_service(
+            &mut engine,
+            SharedServiceReconcileOptions {
+                request: &container,
+                volume: Some(&volume),
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect_err("foreign shared service");
+
+    assert_eq!(
+        error.to_string(),
+        "shared service compatibility 'sha256:postgres-17' is already owned by another installation"
+    );
+    assert!(engine.operations.is_empty());
+}
+
+#[test]
+fn stale_shared_service_discovery_recreates_the_missing_container() {
+    let container = shared_container_request("sha256:desired-v1");
+    let mut engine = RecordingSharedVolumeEngine {
+        observed_containers: vec![ObservedContainer::new(
+            ContainerId::new("stale-postgres-17"),
+            container.metadata().labels(),
+        )],
+        state: crate::control_plane::engine::ContainerState::Missing,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_shared_service(
+            &mut engine,
+            SharedServiceReconcileOptions {
+                request: &container,
+                volume: None,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("recover missing shared service");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert_eq!(
+        engine.operations,
+        vec!["create-container", "start-container"]
+    );
 }
 
 #[test]
@@ -1769,11 +1920,36 @@ fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {
     reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle")
 }
 
-#[derive(Default)]
 struct RecordingSharedVolumeEngine {
     observed: Vec<crate::control_plane::engine::ObservedVolume>,
     created: Vec<crate::control_plane::engine::VolumeCreateOptions>,
     removed: Vec<crate::control_plane::engine::OwnedVolume>,
+    observed_containers: Vec<ObservedContainer>,
+    created_containers: Vec<crate::control_plane::engine::ContainerCreateOptions>,
+    started_containers: Vec<OwnedContainer>,
+    stopped_containers: Vec<OwnedContainer>,
+    removed_containers: Vec<OwnedContainer>,
+    state: crate::control_plane::engine::ContainerState,
+    health: crate::control_plane::engine::ContainerHealth,
+    operations: Vec<&'static str>,
+}
+
+impl Default for RecordingSharedVolumeEngine {
+    fn default() -> Self {
+        Self {
+            observed: Vec::new(),
+            created: Vec::new(),
+            removed: Vec::new(),
+            observed_containers: Vec::new(),
+            created_containers: Vec::new(),
+            started_containers: Vec::new(),
+            stopped_containers: Vec::new(),
+            removed_containers: Vec::new(),
+            state: crate::control_plane::engine::ContainerState::Missing,
+            health: crate::control_plane::engine::ContainerHealth::Starting,
+            operations: Vec::new(),
+        }
+    }
 }
 
 impl crate::control_plane::engine::VolumeDiscovery for RecordingSharedVolumeEngine {
@@ -1790,6 +1966,7 @@ impl crate::control_plane::engine::VolumeManager for RecordingSharedVolumeEngine
         options: &'operation crate::control_plane::engine::VolumeCreateOptions,
     ) -> EngineFuture<'operation, crate::control_plane::engine::OwnedVolume> {
         Box::pin(async move {
+            self.operations.push("create-volume");
             self.created.push(options.clone());
             crate::control_plane::engine::reconstruct_owned_volume(
                 &crate::control_plane::engine::ObservedVolume::new(
@@ -1818,6 +1995,86 @@ impl crate::control_plane::engine::VolumeManager for RecordingSharedVolumeEngine
     }
 }
 
+impl crate::control_plane::engine::ContainerDiscovery for RecordingSharedVolumeEngine {
+    fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async { Ok(self.observed_containers.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerLifecycle for RecordingSharedVolumeEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation crate::control_plane::engine::ContainerCreateOptions,
+    ) -> EngineFuture<'operation, OwnedContainer> {
+        Box::pin(async move {
+            self.operations.push("create-container");
+            self.created_containers.push(options.clone());
+            reconstruct_owned_container(
+                &ObservedContainer::new(
+                    ContainerId::new("created-shared-service"),
+                    options.metadata().labels(),
+                ),
+                options.metadata().installation_id(),
+                options.metadata().schema_version(),
+            )
+            .map_err(
+                |ownership| crate::control_plane::engine::EngineError::Backend {
+                    detail: format!("could not reconstruct shared service: {ownership:?}"),
+                },
+            )
+        })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.operations.push("start-container");
+            self.started_containers.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.operations.push("stop-container");
+            self.stopped_containers.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.operations.push("remove-container");
+            self.removed_containers.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ContainerState> {
+        Box::pin(async { Ok(self.state) })
+    }
+}
+
+impl crate::control_plane::engine::HealthObserver for RecordingSharedVolumeEngine {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ContainerHealth> {
+        Box::pin(async { Ok(self.health) })
+    }
+}
+
 fn shared_volume_request() -> crate::control_plane::engine::VolumeCreateOptions {
     shared_volume_request_with_revision("sha256:desired-v1")
 }
@@ -1843,6 +2100,35 @@ fn shared_volume_request_with_revision(
         metadata,
     )
     .expect("shared volume request")
+}
+
+fn shared_container_request(
+    desired_revision: &str,
+) -> crate::control_plane::engine::ContainerCreateOptions {
+    crate::control_plane::engine::ContainerCreateOptions::new(
+        "stackctl-shared-postgres-17",
+        format!("postgres@sha256:{}", "a".repeat(64)),
+        shared_container_metadata("install-1", desired_revision),
+    )
+    .expect("shared container request")
+}
+
+fn shared_container_metadata(
+    installation_id: &str,
+    desired_revision: &str,
+) -> crate::control_plane::engine::ManagedResourceMetadata {
+    crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::SharedService,
+            project_id: None,
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            schema_version: 8,
+            desired_revision: desired_revision.to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("shared container metadata")
 }
 
 fn postgres_options(extensions: Vec<&str>, major_version: &str) -> CompatibilityFingerprintOptions {
