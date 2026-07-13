@@ -13,6 +13,13 @@ pub(crate) trait StateStore {
     /// Loads all registered projects in canonical-path order.
     fn projects(&self) -> Result<Vec<ProjectRecord>, StateStoreError>;
 
+    /// Atomically unregisters a project and orphans its project-owned resources.
+    fn orphan_project(
+        &mut self,
+        canonical_path: &std::path::Path,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError>;
+
     /// Upserts observed ownership without implicitly deleting missing resources.
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
 

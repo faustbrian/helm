@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Added an executable v8 retention policy that keeps active resources, ages out
   disposable orphans, and blocks persistent deletion without explicit prune
   intent and verified backup evidence.
+- Added atomic v8 project unregistration that releases route ownership while
+  preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added v8 dedicated application-container planning with immutable reusable

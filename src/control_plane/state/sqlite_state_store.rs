@@ -197,6 +197,41 @@ impl StateStore for SqliteStateStore {
         Ok(records)
     }
 
+    fn orphan_project(
+        &mut self,
+        canonical_path: &Path,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError> {
+        let canonical_path = exact_path(canonical_path)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let project_id = transaction
+            .query_row(
+                "SELECT project_name FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+
+        if let Some(project_id) = project_id {
+            transaction.execute(
+                "UPDATE resources
+                 SET lifecycle = 'orphaned', orphaned_at_unix_seconds = ?1
+                 WHERE project_id = ?2 AND lifecycle = 'active'",
+                params![orphaned_at_unix_seconds, project_id],
+            )?;
+            transaction.execute(
+                "DELETE FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
         let transaction = self
             .connection

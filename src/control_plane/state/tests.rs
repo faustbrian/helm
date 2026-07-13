@@ -132,6 +132,49 @@ fn complete_resource_ownership_survives_store_restart() {
 }
 
 #[test]
+fn unregistering_a_project_atomically_orphans_only_its_resources() {
+    let database_path = temporary_database_path("project-orphan");
+    let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let shop = project_record("/work/shop", "shop", &["shop-app.stackctl.localhost"]);
+    let bill_resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let shop_resource = resource_record("container-shop", "shop", ResourceRetention::Disposable);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_projects(&[bill, shop.clone()])
+        .expect("persist projects");
+    store
+        .upsert_resources(&[bill_resource, shop_resource.clone()])
+        .expect("persist resources");
+
+    store
+        .orphan_project(Path::new("/work/bill"), 12_345)
+        .expect("orphan missing project");
+
+    assert_eq!(store.projects().expect("load projects"), vec![shop]);
+    assert_eq!(
+        store.resources().expect("load resources"),
+        vec![
+            ResourceRecord::new(ResourceRecordOptions {
+                resource_id: "container-bill".to_owned(),
+                installation_id: "install-1".to_owned(),
+                kind: "application".to_owned(),
+                compatibility_fingerprint: "sha256:runtime".to_owned(),
+                project_id: Some("bill".to_owned()),
+                schema_version: 8,
+                desired_revision: "sha256:desired-v1".to_owned(),
+                retention: ResourceRetention::Persistent,
+                lifecycle: ResourceLifecycle::Orphaned,
+                orphaned_at_unix_seconds: Some(12_345),
+            }),
+            shop_resource,
+        ]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn version_one_state_migrates_without_losing_project_ownership() {
     let database_path = temporary_database_path("v1-migration");
     let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
@@ -177,6 +220,25 @@ fn project_record(path: &str, name: &str, domains: &[&str]) -> ProjectRecord {
         name.to_owned(),
         domains.iter().map(|domain| (*domain).to_owned()).collect(),
     )
+}
+
+fn resource_record(
+    resource_id: &str,
+    project_id: &str,
+    retention: ResourceRetention,
+) -> ResourceRecord {
+    ResourceRecord::new(ResourceRecordOptions {
+        resource_id: resource_id.to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "application".to_owned(),
+        compatibility_fingerprint: "sha256:runtime".to_owned(),
+        project_id: Some(project_id.to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
 }
 
 fn temporary_database_path(name: &str) -> PathBuf {
