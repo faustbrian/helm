@@ -1,5 +1,6 @@
 mod mysql_flavor;
 mod mysql_logical_resource_plan;
+mod mysql_migration_instance_plan_options;
 mod mysql_plan_error;
 mod mysql_preparation_error;
 mod mysql_preparation_options;
@@ -15,6 +16,7 @@ mod reconcile_prepared_mysql_instance;
 
 pub(crate) use mysql_flavor::MySqlFlavor;
 pub(crate) use mysql_logical_resource_plan::MySqlLogicalResourcePlan;
+pub(crate) use mysql_migration_instance_plan_options::MySqlMigrationInstancePlanOptions;
 pub(crate) use mysql_plan_error::MySqlPlanError;
 pub(crate) use mysql_preparation_error::MySqlPreparationError;
 pub(crate) use mysql_preparation_options::MySqlPreparationOptions;

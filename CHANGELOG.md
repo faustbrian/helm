@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added separately owned, persistent MySQL/MariaDB migration target plans that
+  reuse exact Linux compatibility profiles without changing normal sharing.
 - Added a bounded MySQL/MariaDB restore adapter that re-verifies exact durable
   recovery identity, checksum, size, tenant ownership, and isolated target
   ownership before streaming through the flavor-specific in-container client.

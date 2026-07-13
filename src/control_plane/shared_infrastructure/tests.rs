@@ -4,20 +4,20 @@ use super::{
     GotenbergSharedInstancePlanOptions, IsolationCapability, MailpitAuthenticationSnapshot,
     MailpitProjectDefinition, MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions,
     MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
-    MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
-    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
-    ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresMigrationInstancePlanOptions, PostgresMigrationPreparationOptions,
-    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
-    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
-    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
-    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
-    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
-    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources,
+    MySqlFlavor, MySqlMigrationInstancePlanOptions, MySqlSharedInstancePlan,
+    MySqlSharedInstancePlanOptions, ObjectStoreFlavor, ObjectStoreProjectResources,
+    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions, PersistenceMode,
+    PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
+    PostgresMigrationPreparationOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
+    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
+    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_postgres_migration_target,
@@ -4419,6 +4419,53 @@ fn mysql_and_mariadb_materialize_as_separate_private_instances() {
     assert!(mysql.volume().is_some());
     assert!(maria.volume().is_some());
     assert!(!format!("{:?}", mysql.bootstrap_credential()).contains("mysql-root"));
+}
+
+#[test]
+fn mysql_migration_target_is_separate_owned_and_retained() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let target = MySqlSharedInstancePlan::new_migration_target(
+        &shared,
+        MySqlMigrationInstancePlanOptions {
+            migration_id: "restore-42".to_owned(),
+            project_id: "bill".to_owned(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-target".to_owned(),
+            bootstrap_secret: CredentialSecret::new("target-root".to_owned()),
+        },
+    )
+    .expect("MySQL migration target");
+
+    assert_eq!(target.container().name(), "stackctl-migration-restore-42");
+    assert_eq!(target.container().metadata().project_id(), Some("bill"));
+    assert_eq!(
+        target.container().metadata().retention(),
+        crate::control_plane::engine::RetentionClass::Persistent
+    );
+    assert_eq!(
+        target.bootstrap_credential().credential_id(),
+        "migration/restore-42/mysql-bootstrap"
+    );
+    assert!(target.volume().is_some());
+    assert_ne!(
+        target.container().name(),
+        format!(
+            "stackctl-shared-{}",
+            shared
+                .fingerprint()
+                .as_str()
+                .strip_prefix("sha256:")
+                .expect("fingerprint")
+        )
+    );
 }
 
 #[test]

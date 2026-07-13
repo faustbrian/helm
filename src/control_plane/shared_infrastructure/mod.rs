@@ -33,8 +33,8 @@ pub(crate) use mongodb::{
     reconcile_prepared_mongodb_instance,
 };
 pub(crate) use mysql::{
-    MySqlFlavor, MySqlLogicalResourcePlan, MySqlPlanError, MySqlPreparationError,
-    MySqlPreparationOptions, MySqlProjectResources, MySqlSharedInstancePlan,
+    MySqlFlavor, MySqlLogicalResourcePlan, MySqlMigrationInstancePlanOptions, MySqlPlanError,
+    MySqlPreparationError, MySqlPreparationOptions, MySqlProjectResources, MySqlSharedInstancePlan,
     MySqlSharedInstancePlanOptions, PreparedMySqlSharedInstance, plan_mysql_project_resources,
     prepare_mysql_shared_instances, provision_mysql_logical_resource,
     reconcile_mysql_project_resources, reconcile_prepared_mysql_instance,
