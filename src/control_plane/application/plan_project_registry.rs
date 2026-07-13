@@ -1,5 +1,7 @@
 use super::{DesiredRegistry, ProjectSource, RegistryPlanError};
-use crate::control_plane::configuration::parse_project_config;
+use crate::control_plane::configuration::{
+    apply_artifact_lock, parse_artifact_lock, parse_project_config,
+};
 use crate::control_plane::{resolve_desired_project, validate_route_claims};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -19,7 +21,13 @@ pub(crate) fn plan_project_registry(
     let mut projects = Vec::with_capacity(sources_by_path.len());
 
     for source in sources_by_path.into_values() {
-        let raw = parse_project_config(source.yaml(), source.config_path())?;
+        let mut raw = parse_project_config(source.yaml(), source.config_path())?;
+        if let (Some(lock_yaml), Some(lock_path)) =
+            (source.artifact_lock_yaml(), source.artifact_lock_path())
+        {
+            let lock = parse_artifact_lock(lock_yaml, lock_path)?;
+            apply_artifact_lock(&mut raw, &lock, lock_path)?;
+        }
         projects.push(resolve_desired_project(raw, source.canonical_path())?);
     }
 

@@ -8,6 +8,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".stackctl.yaml";
+const ARTIFACT_LOCK_FILE: &str = ".stackctl.lock.yaml";
 const LEGACY_CONFIG_FILE: &str = ".stackctl.toml";
 const PRUNED_DIRECTORIES: [&str; 5] = [".git", ".stackctl", "node_modules", "target", "vendor"];
 
@@ -122,10 +123,13 @@ fn inspect_project_directory(
             }
             match read_bounded_utf8(&config_path, options.maximum_config_bytes()) {
                 Ok(yaml) => {
-                    sources.insert(
-                        directory.to_path_buf(),
-                        ProjectSource::new(directory.to_path_buf(), config_path, yaml),
-                    );
+                    let mut source = ProjectSource::new(directory.to_path_buf(), config_path, yaml);
+                    if let Some((lock_path, lock_yaml)) =
+                        read_optional_artifact_lock(directory, options, issues)?
+                    {
+                        source = source.with_artifact_lock(lock_path, lock_yaml);
+                    }
+                    sources.insert(directory.to_path_buf(), source);
                 }
                 Err(issue) => issues.push(issue),
             }
@@ -159,6 +163,84 @@ fn inspect_project_directory(
     }
 
     Ok(())
+}
+
+fn read_optional_artifact_lock(
+    directory: &Path,
+    options: ProjectDiscoveryOptions,
+    issues: &mut Vec<ProjectDiscoveryIssue>,
+) -> Result<Option<(PathBuf, String)>, ProjectDiscoveryError> {
+    let path = directory.join(ARTIFACT_LOCK_FILE);
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(ProjectDiscoveryError::Io {
+                action: "inspect project artifact lock",
+                path,
+                source,
+            });
+        }
+    };
+
+    if metadata.file_type().is_symlink() {
+        issues.push(ProjectDiscoveryIssue::SymlinkArtifactLock { path });
+        return Ok(None);
+    }
+    if !metadata.is_file() {
+        issues.push(ProjectDiscoveryIssue::UnreadableArtifactLock {
+            path,
+            detail: "expected a regular file".to_owned(),
+        });
+        return Ok(None);
+    }
+    if metadata.len() > options.maximum_config_bytes() as u64 {
+        issues.push(ProjectDiscoveryIssue::ArtifactLockTooLarge {
+            path,
+            actual: metadata.len(),
+            maximum: options.maximum_config_bytes(),
+        });
+        return Ok(None);
+    }
+
+    match read_bounded_artifact_lock(&path, options.maximum_config_bytes()) {
+        Ok(yaml) => Ok(Some((path, yaml))),
+        Err(issue) => {
+            issues.push(issue);
+            Ok(None)
+        }
+    }
+}
+
+fn read_bounded_artifact_lock(
+    path: &Path,
+    maximum: usize,
+) -> Result<String, ProjectDiscoveryIssue> {
+    let file =
+        fs::File::open(path).map_err(|error| ProjectDiscoveryIssue::UnreadableArtifactLock {
+            path: path.to_path_buf(),
+            detail: error.to_string(),
+        })?;
+    let limit = u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1);
+    let mut bytes = Vec::with_capacity(maximum.min(64 * 1024));
+    file.take(limit).read_to_end(&mut bytes).map_err(|error| {
+        ProjectDiscoveryIssue::UnreadableArtifactLock {
+            path: path.to_path_buf(),
+            detail: error.to_string(),
+        }
+    })?;
+    if bytes.len() > maximum {
+        return Err(ProjectDiscoveryIssue::ArtifactLockTooLarge {
+            path: path.to_path_buf(),
+            actual: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            maximum,
+        });
+    }
+
+    String::from_utf8(bytes).map_err(|error| ProjectDiscoveryIssue::UnreadableArtifactLock {
+        path: path.to_path_buf(),
+        detail: error.to_string(),
+    })
 }
 
 fn read_bounded_utf8(path: &Path, maximum: usize) -> Result<String, ProjectDiscoveryIssue> {

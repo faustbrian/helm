@@ -20,6 +20,18 @@ pub(crate) enum ProjectDiscoveryIssue {
     SymlinkConfig {
         path: PathBuf,
     },
+    ArtifactLockTooLarge {
+        path: PathBuf,
+        actual: u64,
+        maximum: usize,
+    },
+    UnreadableArtifactLock {
+        path: PathBuf,
+        detail: String,
+    },
+    SymlinkArtifactLock {
+        path: PathBuf,
+    },
     DepthLimit {
         path: PathBuf,
         maximum: usize,
@@ -51,6 +63,25 @@ impl Display for ProjectDiscoveryIssue {
             Self::SymlinkConfig { path } => write!(
                 formatter,
                 "project config '{}' must be a regular file, not a symbolic link",
+                path.display()
+            ),
+            Self::ArtifactLockTooLarge {
+                path,
+                actual,
+                maximum,
+            } => write!(
+                formatter,
+                "project artifact lock '{}' is {actual} bytes; maximum is {maximum} bytes",
+                path.display()
+            ),
+            Self::UnreadableArtifactLock { path, detail } => write!(
+                formatter,
+                "project artifact lock '{}' cannot be read: {detail}",
+                path.display()
+            ),
+            Self::SymlinkArtifactLock { path } => write!(
+                formatter,
+                "project artifact lock '{}' must be a regular file, not a symbolic link",
                 path.display()
             ),
             Self::DepthLimit { path, maximum } => write!(

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict project-local v8 YAML artifact-lock consumption with exact
+  source freshness checks, immutable sha256 resolutions, bounded non-symlink
+  discovery, and fail-before-Engine planning for malformed or stale locks.
 - Added retained project-volume convergence for stateful dedicated presets with
   canonical container mount paths, exact ownership, adoption gating, durable
   lifecycle, and explicit-migration failure on data identity drift. Log target

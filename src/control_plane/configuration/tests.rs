@@ -1,8 +1,106 @@
-use super::{parse_project_config, project_config_schema};
+use super::{
+    apply_artifact_lock, parse_artifact_lock, parse_project_config, project_config_schema,
+};
 use crate::control_plane::{KNOWN_SERVICE_PRESETS, resolve_desired_project};
 use std::path::Path;
 
 const CONFIG_PATH: &str = "/work/bill/.stackctl.yaml";
+const LOCK_PATH: &str = "/work/bill/.stackctl.lock.yaml";
+
+#[test]
+fn artifact_lock_parser_rejects_ambiguous_or_extended_yaml() {
+    let cases = [
+        (
+            "schema_version: 1\nimages: {}\nextra: true\n",
+            "unknown field `extra`",
+        ),
+        (
+            "schema_version: 1\nimages: {}\n---\nimages: {}\n",
+            "expected exactly one YAML document",
+        ),
+        (
+            "schema_version: 1\nimages: {}\nimages: {}\n",
+            "duplicate field `images`",
+        ),
+    ];
+
+    for (source, expected) in cases {
+        let error = parse_artifact_lock(source, Path::new(LOCK_PATH)).expect_err(expected);
+
+        assert!(error.to_string().contains(expected), "{error}");
+        assert!(error.to_string().contains(LOCK_PATH));
+    }
+}
+
+#[test]
+fn artifact_lock_requires_immutable_resolutions_and_declared_services() {
+    let mut config = parse_project_config(
+        "schema_version: 8\nservices:\n  app:\n    image: ghcr.io/stackctl/php:8.4\n",
+        Path::new(CONFIG_PATH),
+    )
+    .expect("project config");
+    let mutable = parse_artifact_lock(
+        concat!(
+            "schema_version: 1\nimages:\n  app:\n",
+            "    source: ghcr.io/stackctl/php:8.4\n",
+            "    resolved: ghcr.io/stackctl/php:8.4\n"
+        ),
+        Path::new(LOCK_PATH),
+    )
+    .expect("syntactically valid lock");
+    let unknown = parse_artifact_lock(
+        concat!(
+            "schema_version: 1\nimages:\n  worker:\n",
+            "    source: ghcr.io/stackctl/php:8.4\n",
+            "    resolved: ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+        Path::new(LOCK_PATH),
+    )
+    .expect("syntactically valid lock");
+
+    assert!(
+        apply_artifact_lock(&mut config, &mutable, Path::new(LOCK_PATH))
+            .expect_err("mutable resolution")
+            .to_string()
+            .contains("must use an immutable sha256 digest")
+    );
+    assert!(
+        apply_artifact_lock(&mut config, &unknown, Path::new(LOCK_PATH))
+            .expect_err("unknown service")
+            .to_string()
+            .contains("does not match a declared service")
+    );
+}
+
+#[test]
+fn artifact_lock_source_for_a_versioned_preset_is_deterministic() {
+    let mut config = parse_project_config(
+        "schema_version: 8\nservices:\n  db:\n    preset: postgres\n    version: \"17\"\n",
+        Path::new(CONFIG_PATH),
+    )
+    .expect("project config");
+    let lock = parse_artifact_lock(
+        concat!(
+            "schema_version: 1\nimages:\n  db:\n",
+            "    source: preset:postgres:17\n",
+            "    resolved: ghcr.io/stackctl/postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+        Path::new(LOCK_PATH),
+    )
+    .expect("artifact lock");
+
+    apply_artifact_lock(&mut config, &lock, Path::new(LOCK_PATH)).expect("matching preset lock");
+
+    assert_eq!(
+        config.services()["db"].image(),
+        Some(concat!(
+            "ghcr.io/stackctl/postgres@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ))
+    );
+}
 
 #[test]
 fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {

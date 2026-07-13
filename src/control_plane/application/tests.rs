@@ -53,6 +53,62 @@ fn resolved_execution_plan_preserves_project_and_dependency_order() {
 }
 
 #[test]
+fn project_local_yaml_artifact_lock_resolves_mutable_image_before_planning() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/stackctl/php:8.4\n"
+            .to_owned(),
+    )
+    .with_artifact_lock(
+        PathBuf::from("/work/bill/.stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\nimages:\n  app:\n",
+            "    source: ghcr.io/stackctl/php:8.4\n",
+            "    resolved: ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        )
+        .to_owned(),
+    );
+
+    let registry = plan_project_registry(&[source]).expect("artifact-locked registry");
+    let plan = resolve_execution_plan(&registry).expect("execution plan");
+
+    assert_eq!(
+        plan.services()[0].desired().image(),
+        Some(concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ))
+    );
+}
+
+#[test]
+fn stale_project_artifact_lock_fails_loudly() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/stackctl/php:8.4\n"
+            .to_owned(),
+    )
+    .with_artifact_lock(
+        PathBuf::from("/work/bill/.stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\nimages:\n  app:\n",
+            "    source: ghcr.io/stackctl/php:8.3\n",
+            "    resolved: ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        )
+        .to_owned(),
+    );
+
+    let error = plan_project_registry(&[source]).expect_err("stale artifact lock");
+
+    assert!(error.to_string().contains("source does not match"));
+    assert!(error.to_string().contains(".stackctl.lock.yaml"));
+}
+
+#[test]
 fn complete_discovered_registry_collision_fails_before_persistence() {
     let first = project_source("/work/bill", "bill", "app");
     let second = project_source("/work/archive/bill", "bill", "app");

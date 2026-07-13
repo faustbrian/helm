@@ -26,4 +26,8 @@ impl RawProjectConfig {
     pub(crate) fn services(&self) -> &BTreeMap<String, RawServiceConfig> {
         &self.services
     }
+
+    pub(super) fn services_mut(&mut self) -> &mut BTreeMap<String, RawServiceConfig> {
+        &mut self.services
+    }
 }

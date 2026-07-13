@@ -1102,6 +1102,44 @@ fn watched_root_scan_discovers_nested_yaml_in_canonical_order() {
 }
 
 #[test]
+fn watched_root_scan_attaches_a_bounded_project_local_artifact_lock() {
+    let root = temporary_directory("artifact-lock-discovery");
+    std::fs::write(
+        root.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/stackctl/php:8.4\n",
+    )
+    .expect("project config");
+    std::fs::write(
+        root.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\nimages:\n  app:\n",
+            "    source: ghcr.io/stackctl/php:8.4\n",
+            "    resolved: ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("artifact lock");
+
+    let report = discover_project_sources(
+        std::slice::from_ref(&root),
+        ProjectDiscoveryOptions::bounded_defaults(),
+    )
+    .expect("bounded discovery");
+    let registry = plan_project_registry(report.sources()).expect("locked registry");
+
+    assert!(report.issues().is_empty());
+    assert_eq!(
+        registry.projects()[0].service("app").expect("app").image(),
+        Some(concat!(
+            "ghcr.io/stackctl/php@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ))
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove discovery fixture");
+}
+
+#[test]
 fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
     let root = temporary_directory("legacy-toml");
     for project in ["alpha", "zeta"] {
@@ -2045,6 +2083,35 @@ fn watched_root_scan_never_follows_a_symlinked_project_config() {
 
     assert!(report.sources().is_empty());
     assert_eq!(report.issues().len(), 1);
+    assert!(report.issues()[0].to_string().contains("symbolic link"));
+
+    std::fs::remove_dir_all(&root).expect("remove symlink fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn watched_root_scan_never_follows_a_symlinked_artifact_lock() {
+    use std::os::unix::fs::symlink;
+
+    let root = temporary_directory("symlink-artifact-lock");
+    std::fs::write(
+        root.join(".stackctl.yaml"),
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let target = root.join("outside-lock.yaml");
+    std::fs::write(&target, "schema_version: 1\nimages: {}\n").expect("lock target");
+    symlink(&target, root.join(".stackctl.lock.yaml")).expect("lock symlink");
+
+    let report = discover_project_sources(
+        std::slice::from_ref(&root),
+        ProjectDiscoveryOptions::bounded_defaults(),
+    )
+    .expect("bounded discovery");
+
+    assert_eq!(report.sources().len(), 1);
+    assert_eq!(report.issues().len(), 1);
+    assert!(report.issues()[0].to_string().contains("artifact lock"));
     assert!(report.issues()[0].to_string().contains("symbolic link"));
 
     std::fs::remove_dir_all(&root).expect("remove symlink fixture");

@@ -46,6 +46,10 @@ impl RawServiceConfig {
         self.image.as_deref()
     }
 
+    pub(super) fn set_image(&mut self, image: String) {
+        self.image = Some(image);
+    }
+
     /// Returns the exact compatibility version string when declared.
     pub(crate) fn version(&self) -> Option<&str> {
         self.version.as_deref()

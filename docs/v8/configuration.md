@@ -58,6 +58,36 @@ project, daemon, or container engine through `stackctl config schema`.
 state without writing the project file or contacting the daemon or container
 engine. Without a path it reads `.stackctl.yaml` in the current directory.
 
+## Immutable artifact lock
+
+Mutable image declarations and built-in preset identities are resolved through
+the project-local `.stackctl.lock.yaml` before Engine planning. The lock is
+strict YAML with its own schema version and maps exact service identities to
+the source declaration and an immutable sha256 digest:
+
+```yaml
+schema_version: 1
+images:
+  app:
+    source: ghcr.io/stackctl/php:8.4
+    resolved: ghcr.io/stackctl/php@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  db:
+    source: preset:postgres:17
+    resolved: ghcr.io/stackctl/postgres@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+```
+
+The source field is an exact freshness check. Explicit images use their exact
+configured value; presets use `preset:{name}` or
+`preset:{name}:{version}`. A changed source, unknown service, mutable resolved
+value, unsupported field, duplicate key, tag, or additional YAML document
+fails the complete registry before mutation. Stackctl never repairs a stale
+lock or guesses a replacement.
+
+Discovery reads the lock only beside `.stackctl.yaml`, with the same byte bound,
+UTF-8 requirement, and symbolic-link prohibition as the project file. Projects
+without mutable artifacts may omit it. Mutable or preset artifacts must be
+resolved to immutable identities before their Engine resources can be planned.
+
 ## Project identity and routes
 
 The project name is explicit `project` when present; otherwise it is the exact

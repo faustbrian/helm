@@ -6,6 +6,8 @@ pub(crate) struct ProjectSource {
     canonical_path: PathBuf,
     config_path: PathBuf,
     yaml: String,
+    artifact_lock_path: Option<PathBuf>,
+    artifact_lock_yaml: Option<String>,
 }
 
 impl ProjectSource {
@@ -15,7 +17,16 @@ impl ProjectSource {
             canonical_path,
             config_path,
             yaml,
+            artifact_lock_path: None,
+            artifact_lock_yaml: None,
         }
+    }
+
+    /// Attaches one project-local immutable artifact lock discovered with the config.
+    pub(crate) fn with_artifact_lock(mut self, path: PathBuf, yaml: String) -> Self {
+        self.artifact_lock_path = Some(path);
+        self.artifact_lock_yaml = Some(yaml);
+        self
     }
 
     pub(crate) fn canonical_path(&self) -> &Path {
@@ -28,5 +39,13 @@ impl ProjectSource {
 
     pub(super) fn yaml(&self) -> &str {
         &self.yaml
+    }
+
+    pub(super) fn artifact_lock_path(&self) -> Option<&Path> {
+        self.artifact_lock_path.as_deref()
+    }
+
+    pub(super) fn artifact_lock_yaml(&self) -> Option<&str> {
+        self.artifact_lock_yaml.as_deref()
     }
 }

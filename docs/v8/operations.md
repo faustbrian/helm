@@ -23,6 +23,11 @@ Built-in images use immutable digests. Runtime images are content-addressed by
 base digest, runtime version, PHP extensions, system packages, JavaScript
 runtime, and immutable configuration. Equivalent projects reuse layers.
 
+Project-local `.stackctl.lock.yaml` records bind exact configured image or
+preset sources to immutable sha256 digests. Registry planning validates and
+applies those bindings before producing Engine requests; stale or malformed
+locks fail closed rather than silently advancing an artifact.
+
 Built-in generation never executes mutable remote installer pipelines such as
 `curl | sh` or `curl | php`. Downloaded tools require a pinned source and
 checksum or signature. Releases include SBOM and provenance.
