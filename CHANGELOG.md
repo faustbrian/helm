@@ -105,6 +105,9 @@ All notable changes to this project are documented in this file.
 - Added the production singleton gateway request using the official Caddy
   2.11.4 multi-platform manifest by immutable digest, with the image command
   contract, global network, loopback ports, and ownership fixed in core code.
+- Added restart-safe certificate bundle recovery that verifies every immutable
+  stored revision, deterministically selects the latest renewal generation,
+  and blocks unexpected or ambiguous private TLS state.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

@@ -492,6 +492,44 @@ fn certificate_bundles_load_with_their_persisted_renewal_deadline() {
 
 #[cfg(unix)]
 #[test]
+fn certificate_store_recovers_the_latest_verified_bundle_after_restart() {
+    let root = temporary_certificate_root();
+    let initial =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("initial TLS bundle");
+    let renewed = renew_local_leaf_certificate(&initial, datetime!(2026-10-13 12:00 UTC))
+        .expect("renewed TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    store.persist(&initial).expect("persist initial bundle");
+    let expected = store.persist(&renewed).expect("persist renewed bundle");
+
+    let (current, paths) = FilesystemCertificateStore::new(root.clone())
+        .load_current()
+        .expect("recover current bundle")
+        .expect("stored current bundle");
+
+    assert_eq!(current, renewed);
+    assert_eq!(paths, expected);
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
+fn certificate_store_refuses_unexpected_state_in_its_private_root() {
+    let root = temporary_certificate_root();
+    std::fs::create_dir_all(&root).expect("certificate root");
+    std::fs::write(root.join("current.pem"), "unowned certificate material")
+        .expect("unexpected certificate state");
+
+    let error = FilesystemCertificateStore::new(root.clone())
+        .load_current()
+        .expect_err("unexpected state must block recovery");
+
+    assert!(error.to_string().contains("unexpected entry 'current.pem'"));
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_bundle_loading_rejects_a_corrupt_renewal_deadline() {
     let root = temporary_certificate_root();
     let bundle =

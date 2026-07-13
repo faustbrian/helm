@@ -15,6 +15,70 @@ impl FilesystemCertificateStore {
         Self { root }
     }
 
+    /// Recovers the newest fully verified immutable certificate generation.
+    pub(crate) fn load_current(
+        &self,
+    ) -> Result<Option<(LocalCertificateBundle, StoredCertificatePaths)>, LocalCertificateError>
+    {
+        if !self.root.exists() {
+            return Ok(None);
+        }
+        let metadata = fs::symlink_metadata(&self.root)
+            .map_err(|error| io_error("inspect certificate root", &self.root, error))?;
+        if !metadata.file_type().is_dir() {
+            return Err(LocalCertificateError::new(format!(
+                "certificate root '{}' must be a directory",
+                self.root.display()
+            )));
+        }
+
+        let mut directories = Vec::new();
+        let entries = fs::read_dir(&self.root)
+            .map_err(|error| io_error("read certificate root", &self.root, error))?;
+        for entry in entries {
+            let entry = entry
+                .map_err(|error| io_error("read certificate root entry", &self.root, error))?;
+            let path = entry.path();
+            if !entry
+                .file_type()
+                .map_err(|error| io_error("inspect certificate root entry", &path, error))?
+                .is_dir()
+                || !is_bundle_directory(&path)
+            {
+                return Err(LocalCertificateError::new(format!(
+                    "certificate root '{}' contains unexpected entry '{}'",
+                    self.root.display(),
+                    entry.file_name().to_string_lossy()
+                )));
+            }
+            directories.push(path);
+        }
+        directories.sort();
+
+        let mut current: Option<(LocalCertificateBundle, StoredCertificatePaths)> = None;
+        for directory in directories {
+            let candidate = self.load_directory(&directory)?;
+            let Some((bundle, _paths)) = &current else {
+                current = Some(candidate);
+                continue;
+            };
+            if candidate.0.leaf_renew_after() > bundle.leaf_renew_after() {
+                current = Some(candidate);
+                continue;
+            }
+            if candidate.0.leaf_renew_after() == bundle.leaf_renew_after() && candidate.0 != *bundle
+            {
+                return Err(LocalCertificateError::new(format!(
+                    "certificate root '{}' contains ambiguous bundles with renewal deadline {}",
+                    self.root.display(),
+                    bundle.leaf_renew_after()
+                )));
+            }
+        }
+
+        Ok(current)
+    }
+
     #[cfg(unix)]
     pub(crate) fn persist(
         &self,
