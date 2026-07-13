@@ -1,5 +1,6 @@
 use super::{
-    PostgresBackupOptions, PostgresProvisionTargetOptions, PostgresRestoreOptions,
+    PostgresBackupOptions, PostgresMigrationOperations, PostgresMigrationOperationsOptions,
+    PostgresProvisionTargetOptions, PostgresRestoreOptions, PostgresSourceRetirement,
     PostgresVerifyTargetOptions, backup_postgres_database, provision_postgres_target,
     restore_postgres_database, verify_postgres_target,
 };
@@ -9,18 +10,23 @@ use crate::control_plane::engine::{
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
     RetentionClass, reconstruct_owned_container,
 };
+use crate::control_plane::migration::{
+    MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture, MigrationOperations,
+    MigrationRollbackPlan, confirm_migration, execute_migration,
+};
 use crate::control_plane::retention::{
     BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
 };
 use crate::control_plane::shared_infrastructure::{CredentialSecret, PostgresLogicalResourcePlan};
 use crate::control_plane::state::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
-    ResourceLifecycle,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -334,12 +340,23 @@ fn postgres_target_provisioning_returns_the_deterministic_database_identity() {
         .expect("PostgreSQL target runtime");
     let checkpoint = backup_checkpoint();
     let target = logical_resource();
+    let target_credential = project_credential();
     let plan = PostgresLogicalResourcePlan::new(
         "bill",
         "database",
         CredentialSecret::new("project-secret".to_owned()),
     )
     .expect("target logical plan");
+    assert!(plan.matches_credential(&target_credential));
+    let mismatched_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/postgresql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill_database_role".to_owned(),
+        secret: "different-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    assert!(!plan.matches_credential(&mismatched_credential));
     let administrator = credential();
     let container = owned_container();
     let executor = RecordingExecutor::new(Vec::new(), 0);
@@ -361,6 +378,287 @@ fn postgres_target_provisioning_returns_the_deterministic_database_identity() {
             .expect("provisioning SQL UTF-8")
             .contains("CREATE DATABASE stackctl_bill_database")
     );
+}
+
+#[test]
+fn postgres_migration_adapter_returns_owned_deterministic_target_state() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL migration runtime");
+    let checkpoint = backup_checkpoint();
+    let source = logical_resource();
+    let target = logical_resource();
+    let target_credential = project_credential();
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("target logical plan");
+    let administrator = credential();
+    let source_container = owned_container();
+    let target_container = owned_container();
+    let executor = RecordingExecutor::new(Vec::new(), 0);
+    let mut retirement = NoopPostgresSourceRetirement;
+    let backup_root = backup_root("migration-adapter");
+    let cutover =
+        MigrationCutoverPlan::new(cutover_project(), cutover_environment()).expect("cutover plan");
+    let rollback = MigrationRollbackPlan::new(
+        rollback_project(),
+        rollback_environment(),
+        vec![retained_logical_resource()],
+    )
+    .expect("rollback plan");
+    let options = PostgresMigrationOperationsOptions {
+        source_container: &source_container,
+        target_container: &target_container,
+        source_logical_resource: &source,
+        target_logical_resource: &target,
+        source_credential: &target_credential,
+        target_credential: &target_credential,
+        target_plan: &plan,
+        administrator: &administrator,
+        installation_id: "install-1",
+        source_database_name: "stackctl_bill_database",
+        backup_root: &backup_root,
+        operation_unix_seconds: 50_001,
+        timeout: Duration::from_secs(30),
+        cutover,
+        rollback,
+    };
+    let mut operations = PostgresMigrationOperations::new(&executor, &mut retirement, options)
+        .expect("PostgreSQL migration operations");
+
+    let provisioned = runtime
+        .block_on(operations.provision_target(&checkpoint))
+        .expect("provision migration target");
+
+    assert_eq!(provisioned.target_resource_id(), "stackctl_bill_database");
+    assert_eq!(provisioned.logical_resource(), &target);
+    assert_eq!(provisioned.credential(), &target_credential);
+}
+
+#[cfg(unix)]
+#[test]
+fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("PostgreSQL migration runtime");
+    let root = backup_root("migration-execution");
+    std::fs::create_dir_all(&root).expect("create PostgreSQL migration root");
+    let database_path = root.join("state.sqlite3");
+    let source = logical_resource();
+    let target = logical_resource();
+    let target_credential = project_credential();
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("target logical plan");
+    let administrator = credential();
+    let source_container = owned_container();
+    let target_container = owned_container();
+    let executor = RoutingPostgresExecutor;
+    let mut retirement = RecordingPostgresSourceRetirement::default();
+    let retirement_called = Arc::clone(&retirement.called);
+    let cutover =
+        MigrationCutoverPlan::new(cutover_project(), cutover_environment()).expect("cutover plan");
+    let rollback = MigrationRollbackPlan::new(
+        rollback_project(),
+        rollback_environment(),
+        vec![retained_logical_resource()],
+    )
+    .expect("rollback plan");
+    let options = PostgresMigrationOperationsOptions {
+        source_container: &source_container,
+        target_container: &target_container,
+        source_logical_resource: &source,
+        target_logical_resource: &target,
+        source_credential: &target_credential,
+        target_credential: &target_credential,
+        target_plan: &plan,
+        administrator: &administrator,
+        installation_id: "install-1",
+        source_database_name: "stackctl_bill_database",
+        backup_root: &root,
+        operation_unix_seconds: 50_001,
+        timeout: Duration::from_secs(30),
+        cutover,
+        rollback,
+    };
+    let inventory = adapter_inventory();
+    let mut store = SqliteStateStore::open(&database_path).expect("open migration state");
+    store
+        .replace_project(&rollback_project())
+        .expect("persist project");
+    store
+        .replace_managed_environment(&rollback_environment())
+        .expect("persist source environment");
+    let mut operations = PostgresMigrationOperations::new(&executor, &mut retirement, options)
+        .expect("PostgreSQL migration operations");
+
+    let result = runtime
+        .block_on(execute_migration(
+            &mut store,
+            &inventory,
+            &mut operations,
+            50_001,
+        ))
+        .expect("execute PostgreSQL migration");
+
+    assert_eq!(result, MigrationExecutionResult::AwaitingConfirmation);
+    assert_eq!(
+        store.migrations().expect("cutover checkpoint")[0].phase(),
+        MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.managed_environments().expect("cutover environment"),
+        vec![cutover_environment()]
+    );
+    assert!(!retirement_called.load(Ordering::Acquire));
+
+    let result = runtime
+        .block_on(confirm_migration(
+            &mut store,
+            &inventory,
+            &mut operations,
+            50_002,
+        ))
+        .expect("confirm PostgreSQL migration");
+
+    assert_eq!(result, MigrationExecutionResult::Confirmed);
+    assert!(retirement_called.load(Ordering::Acquire));
+
+    drop(operations);
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove PostgreSQL migration root");
+}
+
+struct NoopPostgresSourceRetirement;
+
+impl PostgresSourceRetirement for NoopPostgresSourceRetirement {
+    fn retire_source<'operation>(
+        &'operation mut self,
+        _inventory: &'operation MigrationRecord,
+        _checkpoint: &'operation MigrationRecord,
+        _source: &'operation LogicalResourceRecord,
+    ) -> MigrationFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+#[derive(Default)]
+struct RecordingPostgresSourceRetirement {
+    called: Arc<AtomicBool>,
+}
+
+impl PostgresSourceRetirement for RecordingPostgresSourceRetirement {
+    fn retire_source<'operation>(
+        &'operation mut self,
+        _inventory: &'operation MigrationRecord,
+        checkpoint: &'operation MigrationRecord,
+        source: &'operation LogicalResourceRecord,
+    ) -> MigrationFuture<'operation, ()> {
+        assert_eq!(checkpoint.phase(), MigrationPhase::Cutover);
+        assert_eq!(source.logical_resource_id(), "bill/database");
+        self.called.store(true, Ordering::Release);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+struct RoutingPostgresExecutor;
+
+impl CommandExecutor for RoutingPostgresExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        let output = match request.arguments().first().map(String::as_str) {
+            Some("pg_dump") => b"portable-custom-format-dump".to_vec(),
+            Some("psql")
+                if request.arguments().iter().any(|argument| {
+                    argument.starts_with("--command=SELECT current_database()")
+                }) =>
+            {
+                b"stackctl_bill_database\tstackctl_bill_database_role\t0\t0\n".to_vec()
+            }
+            _ => Vec::new(),
+        };
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = duplex(64 * 1024);
+            tokio::spawn(async move {
+                tokio::io::copy(&mut reader, &mut tokio::io::sink())
+                    .await
+                    .expect("drain migration command input");
+            });
+            let output: ContainerLogStream<'static> =
+                Box::pin(stream::iter(vec![Ok(LogChunk::stdout(output))]));
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("postgres-migration"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(0)) })
+    }
+}
+
+fn cutover_project() -> ProjectRecord {
+    ProjectRecord::new(
+        PathBuf::from("/work/bill"),
+        "bill".to_owned(),
+        vec!["bill-app.stackctl.localhost".to_owned()],
+    )
+}
+
+fn rollback_project() -> ProjectRecord {
+    cutover_project()
+}
+
+fn cutover_environment() -> ManagedEnvironmentRecord {
+    migration_environment("sha256:environment-v8", "stackctl_bill_database")
+}
+
+fn rollback_environment() -> ManagedEnvironmentRecord {
+    migration_environment("sha256:environment-v7", "legacy_bill")
+}
+
+fn migration_environment(revision: &str, database: &str) -> ManagedEnvironmentRecord {
+    ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: revision.to_owned(),
+        values: BTreeMap::from([("DB_DATABASE".to_owned(), database.to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    })
+}
+
+fn retained_logical_resource() -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Retained,
+        orphaned_at_unix_seconds: None,
+    })
 }
 
 struct RecordingExecutor {
@@ -530,6 +828,25 @@ fn backup_checkpoint() -> MigrationRecord {
     .expect("backup checkpoint")
 }
 
+fn adapter_inventory() -> MigrationRecord {
+    MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "migration-bill-database".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:v7".to_owned(),
+        target_revision: "sha256:v8".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        phase: MigrationPhase::Inventoried,
+        backup_reference: None,
+        backup_artifact_sha256: None,
+        backup_artifact_size_bytes: None,
+        target_resource_id: None,
+        rollback_reference: Some("v7:bill/database".to_owned()),
+        updated_at_unix_seconds: 50_000,
+    })
+    .expect("PostgreSQL migration inventory")
+}
+
 fn owned_container() -> OwnedContainer {
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
@@ -561,7 +878,7 @@ fn contains_manifest(root: &Path) -> bool {
 }
 
 #[cfg(unix)]
-fn backup_root(label: &str) -> std::path::PathBuf {
+fn backup_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "stackctl-postgres-backup-{label}-{}",
         std::process::id()

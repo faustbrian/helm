@@ -66,6 +66,9 @@ All notable changes to this project are documented in this file.
 - Added atomic migration target ownership so a provisioned logical tenant,
   its exact stable project credential, and the target checkpoint become
   durable together or all remain absent after a failed validation or restart.
+- Added a concrete PostgreSQL migration adapter that binds streamed backup,
+  deterministic provisioning, restore, catalog verification, atomic cutover
+  and rollback plans, and confirmation-only source retirement to exact state.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

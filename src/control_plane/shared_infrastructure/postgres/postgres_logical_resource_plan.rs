@@ -1,6 +1,7 @@
 use super::{POSTGRES_BOOTSTRAP_USERNAME, PostgresPlanError};
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
+use crate::control_plane::state::CredentialRecord;
 use std::fmt::{Debug, Formatter};
 
 const POSTGRES_IDENTIFIER_BYTES: usize = 63;
@@ -72,6 +73,15 @@ impl PostgresLogicalResourcePlan {
 
     pub(crate) fn credential_id(&self) -> &str {
         &self.credential_id
+    }
+
+    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
+        credential.credential_id() == self.credential_id()
+            && credential.project_id() == Some(self.project_id())
+            && credential.service_id() == self.service_id()
+            && credential.username() == self.role_name()
+            && self.stdin_sql
+                == provisioning_sql(self.database_name(), self.role_name(), credential.secret())
     }
 
     pub(crate) fn command_arguments(&self) -> &[String] {
