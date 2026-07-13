@@ -106,6 +106,36 @@ fn node_package_manager_requests_preserve_the_exact_known_executable() {
 }
 
 #[test]
+fn artisan_and_exec_requests_preserve_non_shell_arguments() {
+    let commands = [
+        IpcProjectCommand::Artisan {
+            arguments: vec!["migrate".to_owned(), "--force".to_owned()],
+        },
+        IpcProjectCommand::Exec {
+            arguments: vec!["php".to_owned(), "-v".to_owned()],
+        },
+    ];
+
+    for (index, command) in commands.into_iter().enumerate() {
+        let request = IpcRequest::new(
+            format!("command-structured-{index}"),
+            IpcPayload::RunProjectCommand {
+                canonical_path: PathBuf::from("/work/bill"),
+                service: "app".to_owned(),
+                command,
+                timeout_seconds: 300,
+            },
+        );
+
+        let frame = encode_frame(&request).expect("encode command request");
+        assert_eq!(
+            decode_request_frame(&frame).expect("decode command request"),
+            request
+        );
+    }
+}
+
+#[test]
 fn cancellation_targets_an_existing_request_id() {
     let request = IpcRequest::new(
         "cancel-1",

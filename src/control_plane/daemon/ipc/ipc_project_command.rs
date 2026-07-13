@@ -17,6 +17,12 @@ pub(crate) enum IpcProjectCommand {
     Bun {
         arguments: Vec<String>,
     },
+    Artisan {
+        arguments: Vec<String>,
+    },
+    Exec {
+        arguments: Vec<String>,
+    },
     Hook {
         name: String,
         arguments: Vec<String>,

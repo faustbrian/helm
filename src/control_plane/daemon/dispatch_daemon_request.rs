@@ -543,6 +543,12 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
         IpcProjectCommand::Bun { arguments } => ProjectCommand::Bun {
             arguments: arguments.clone(),
         },
+        IpcProjectCommand::Artisan { arguments } => ProjectCommand::Artisan {
+            arguments: arguments.clone(),
+        },
+        IpcProjectCommand::Exec { arguments } => ProjectCommand::Exec {
+            arguments: arguments.clone(),
+        },
         IpcProjectCommand::Hook { name, arguments } => ProjectCommand::Hook {
             name: name.clone(),
             arguments: arguments.clone(),

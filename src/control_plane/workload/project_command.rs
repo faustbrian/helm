@@ -15,6 +15,12 @@ pub(crate) enum ProjectCommand {
     Bun {
         arguments: Vec<String>,
     },
+    Artisan {
+        arguments: Vec<String>,
+    },
+    Exec {
+        arguments: Vec<String>,
+    },
     Hook {
         name: String,
         arguments: Vec<String>,
@@ -30,6 +36,8 @@ impl Debug for ProjectCommand {
                 arguments,
             } => ("node_package_manager", None, arguments.len()),
             Self::Bun { arguments } => ("bun", None, arguments.len()),
+            Self::Artisan { arguments } => ("artisan", None, arguments.len()),
+            Self::Exec { arguments } => ("exec", None, arguments.len()),
             Self::Hook { name, arguments } => ("hook", Some(name), arguments.len()),
         };
 
@@ -57,6 +65,17 @@ impl ProjectCommand {
                 prefixed_arguments(package_manager.executable(), arguments),
             )),
             Self::Bun { arguments } => Ok(("Bun".to_owned(), prefixed_arguments("bun", arguments))),
+            Self::Artisan { arguments } => Ok((
+                "Artisan".to_owned(),
+                prefixed_arguments("php", prefixed_arguments("artisan", arguments)),
+            )),
+            Self::Exec { arguments } => {
+                if arguments.first().is_none_or(String::is_empty) {
+                    return Err("project exec command must not be empty".to_owned());
+                }
+
+                Ok(("Exec".to_owned(), arguments))
+            }
             Self::Hook { name, arguments } => {
                 if !valid_hook_name(&name) {
                     return Err(format!("project hook name '{name}' is invalid"));

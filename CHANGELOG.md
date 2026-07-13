@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added strict v8 Artisan and non-interactive exec dispatch through the
+  singleton command queue, preserving exact non-shell arguments and rejecting
+  interactive PTY and browser-bootstrap flows until the daemon IPC can support
+  them without silently falling back to the legacy runtime.
 - Added explicit strict v8 managed-environment export through user-only IPC,
   with redacted diagnostics, exact active-project selection, sorted escaped
   dotenv output, user-only file permissions, and create-once behavior that

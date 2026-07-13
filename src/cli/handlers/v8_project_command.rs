@@ -53,7 +53,11 @@ fn resolve_v8_invocation(
 ) -> Result<Option<V8ProjectInvocation>> {
     if !matches!(
         &cli.command,
-        Commands::Composer(_) | Commands::Node(_) | Commands::Bun(_)
+        Commands::Artisan(_)
+            | Commands::Exec(_)
+            | Commands::Composer(_)
+            | Commands::Node(_)
+            | Commands::Bun(_)
     ) {
         return Ok(None);
     }
@@ -75,6 +79,34 @@ fn resolve_v8_invocation(
 
 fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjectCommand)> {
     match &cli.command {
+        Commands::Artisan(args) => {
+            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
+            if args.browser || args.command.iter().any(|argument| argument == "--browser") {
+                bail!(
+                    "v8 artisan browser bootstrapping is not supported; run browser tests without --browser or use the v7 runtime"
+                );
+            }
+            Ok((
+                args.service().unwrap_or("app").to_owned(),
+                IpcProjectCommand::Artisan {
+                    arguments: args.command.clone(),
+                },
+            ))
+        }
+        Commands::Exec(args) => {
+            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
+            if args.command.first().is_none_or(String::is_empty) {
+                bail!(
+                    "v8 exec requires a non-interactive command; interactive shells need daemon stdin and PTY support"
+                );
+            }
+            Ok((
+                args.service().unwrap_or("app").to_owned(),
+                IpcProjectCommand::Exec {
+                    arguments: args.command.clone(),
+                },
+            ))
+        }
         Commands::Composer(args) => {
             reject_legacy_selectors(args.kind.is_some(), args.profile())?;
             let arguments = if args.command.is_empty() {
@@ -386,5 +418,74 @@ mod tests {
         let error = resolve_v8_invocation(&cli, &context).expect_err("missing app");
 
         assert!(error.to_string().contains("service 'app'"));
+    }
+
+    #[test]
+    fn v8_artisan_commands_preserve_exact_arguments() {
+        let root = project(
+            ".stackctl.yaml",
+            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+        );
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root"),
+            "artisan",
+            "migrate",
+            "--force",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let invocation = resolve_v8_invocation(&cli, &context)
+            .expect("resolve invocation")
+            .expect("v8 invocation");
+
+        assert_eq!(
+            invocation.command,
+            IpcProjectCommand::Artisan {
+                arguments: vec!["migrate".to_owned(), "--force".to_owned()],
+            }
+        );
+    }
+
+    #[test]
+    fn v8_exec_requires_a_non_interactive_command() {
+        let root = project(
+            ".stackctl.yaml",
+            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+        );
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root"),
+            "exec",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let error = resolve_v8_invocation(&cli, &context).expect_err("interactive exec");
+
+        assert!(error.to_string().contains("non-interactive command"));
+        assert!(error.to_string().contains("PTY"));
+    }
+
+    #[test]
+    fn v8_artisan_rejects_unimplemented_browser_bootstrapping() {
+        let root = project(
+            ".stackctl.yaml",
+            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
+        );
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            root.to_str().expect("root"),
+            "artisan",
+            "--browser",
+            "test",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let error = resolve_v8_invocation(&cli, &context).expect_err("browser bootstrap");
+
+        assert!(error.to_string().contains("browser bootstrapping"));
     }
 }

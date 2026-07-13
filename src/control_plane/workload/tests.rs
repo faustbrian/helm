@@ -256,6 +256,12 @@ fn project_tools_and_hooks_are_structured_container_commands() {
             vec!["composer", "install", "--no-interaction"],
         ),
         (
+            ProjectCommand::Artisan {
+                arguments: vec!["migrate".to_owned(), "--force".to_owned()],
+            },
+            vec!["php", "artisan", "migrate", "--force"],
+        ),
+        (
             ProjectCommand::NodePackageManager {
                 package_manager: super::NodePackageManager::Pnpm,
                 arguments: vec!["run".to_owned(), "build".to_owned()],
@@ -274,6 +280,12 @@ fn project_tools_and_hooks_are_structured_container_commands() {
                 arguments: vec!["php".to_owned(), "artisan".to_owned(), "migrate".to_owned()],
             },
             vec!["php", "artisan", "migrate"],
+        ),
+        (
+            ProjectCommand::Exec {
+                arguments: vec!["php".to_owned(), "-v".to_owned()],
+            },
+            vec!["php", "-v"],
         ),
     ];
 
