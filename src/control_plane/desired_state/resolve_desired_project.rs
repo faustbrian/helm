@@ -20,6 +20,7 @@ pub(crate) fn resolve_desired_project(
 ) -> Result<DesiredProject, DesiredProjectError> {
     let project = ProjectIdentity::resolve(raw.project(), project_directory)?;
     let mut services = BTreeMap::new();
+    let mut routable_services = Vec::new();
 
     for (name, raw_service) in raw.services() {
         let identity = ServiceIdentity::new(name)?;
@@ -45,6 +46,11 @@ pub(crate) fn resolve_desired_project(
                 name,
                 "must declare at least a preset or image",
             ));
+        }
+        if deployment_strategy.is_some_and(|strategy| strategy.claims_gateway_route())
+            || (deployment_strategy.is_none() && image.is_some())
+        {
+            routable_services.push(identity.clone());
         }
         let version = optional_non_empty(name, "version", raw_service.version())?;
         let database = optional_non_empty(name, "database", raw_service.database())?;
@@ -75,7 +81,6 @@ pub(crate) fn resolve_desired_project(
                 identity,
                 dependencies,
                 preset,
-                deployment_strategy,
                 image,
                 version,
                 php_extensions,
@@ -88,16 +93,9 @@ pub(crate) fn resolve_desired_project(
 
     validate_dependencies_exist(&services)?;
     let startup_order = resolve_startup_order(&services)?;
-    let route_claims = services
-        .values()
-        .filter(|service| service.claims_gateway_route())
-        .map(|service| {
-            RouteClaim::new(
-                project_directory.to_path_buf(),
-                project.clone(),
-                service.identity().clone(),
-            )
-        })
+    let route_claims = routable_services
+        .into_iter()
+        .map(|service| RouteClaim::new(project_directory.to_path_buf(), project.clone(), service))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(DesiredProject::new(

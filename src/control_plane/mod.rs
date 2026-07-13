@@ -5,6 +5,7 @@ mod desired_state;
 mod dns_label;
 mod engine;
 mod environment_variable_key;
+mod execution_plan;
 mod gateway;
 mod identity_error;
 mod migration;
@@ -29,9 +30,12 @@ pub(crate) use daemon::{
     IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, UnixDaemonWatchOptions,
     default_unix_daemon_runtime_directory, run_unix_daemon_watch, send_unix_request,
 };
-pub(crate) use desired_state::{DesiredProject, DesiredProjectError, resolve_desired_project};
+pub(crate) use desired_state::{
+    DesiredProject, DesiredProjectError, DesiredService, resolve_desired_project,
+};
 use dns_label::DnsLabel;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;
+pub(crate) use execution_plan::{ExecutionPlan, resolve_execution_plan};
 pub(crate) use identity_error::IdentityError;
 pub(crate) use project_identity::ProjectIdentity;
 pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};

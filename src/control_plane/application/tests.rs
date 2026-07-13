@@ -1,5 +1,6 @@
 use super::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::{ServiceDeploymentStrategy, resolve_execution_plan};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -10,6 +11,39 @@ fn repeated_discovery_of_one_canonical_project_is_planned_once() {
     let registry = plan_project_registry(&[source.clone(), source]).expect("valid registry");
 
     assert_eq!(registry.projects().len(), 1);
+}
+
+#[test]
+fn resolved_execution_plan_preserves_project_and_dependency_order() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  worker:\n    preset: queue-worker\n    depends_on: [app]\n  app:\n    preset: laravel\n    depends_on: [db]\n  db:\n    preset: postgres\n"
+            .to_owned(),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+
+    let plan = resolve_execution_plan(&registry).expect("resolved execution plan");
+
+    assert_eq!(
+        plan.services()
+            .iter()
+            .map(|service| (
+                service.project().as_str(),
+                service.service().as_str(),
+                service.strategy(),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "bill",
+                "db",
+                ServiceDeploymentStrategy::SharedByCompatibility
+            ),
+            ("bill", "app", ServiceDeploymentStrategy::ProjectApplication),
+            ("bill", "worker", ServiceDeploymentStrategy::ProjectProcess),
+        ]
+    );
 }
 
 #[test]

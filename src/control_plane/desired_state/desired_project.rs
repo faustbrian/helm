@@ -35,6 +35,10 @@ impl DesiredProject {
         self.identity.as_str()
     }
 
+    pub(crate) const fn identity(&self) -> &ProjectIdentity {
+        &self.identity
+    }
+
     /// Returns the canonical project directory supplied by discovery.
     pub(crate) fn project_directory(&self) -> &Path {
         &self.project_directory

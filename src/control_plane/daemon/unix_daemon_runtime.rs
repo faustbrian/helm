@@ -141,7 +141,12 @@ impl UnixDaemonRuntime {
             match self.run_iteration(now, unix_time_seconds()) {
                 Ok(iteration) => {
                     if let Some(reconciliation) = iteration.reconciliation() {
-                        self.engine_reconciliation.observe(reconciliation);
+                        if let Err(error) = self.engine_reconciliation.observe(reconciliation) {
+                            tracing::error!(
+                                error = %error,
+                                "validated registry could not resolve to an Engine plan"
+                            );
+                        }
                     }
                     if self.engine_reconciliation.may_reconcile() {
                         self.reconcile_engine_plane(now);

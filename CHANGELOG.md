@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a distinct dependency-ordered execution plan that resolves validated
+  desired services to explicit deployment strategies and is retained by the
+  daemon as the sole input for later Engine-side service dispatch.
 - Retained the last complete validated project registry in the daemon Engine
   schedule while conflicted scans block further mutation, preserving exact
   desired context for recovery after the conflict is corrected.

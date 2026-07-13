@@ -1,5 +1,5 @@
 use super::DesiredServiceOptions;
-use crate::control_plane::{ServiceDeploymentStrategy, ServiceIdentity};
+use crate::control_plane::ServiceIdentity;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 
@@ -9,7 +9,6 @@ pub(crate) struct DesiredService {
     identity: ServiceIdentity,
     dependencies: Vec<ServiceIdentity>,
     preset: Option<String>,
-    deployment_strategy: Option<ServiceDeploymentStrategy>,
     image: Option<String>,
     version: Option<String>,
     php_extensions: Vec<String>,
@@ -41,7 +40,6 @@ impl DesiredService {
             identity: options.identity,
             dependencies: options.dependencies,
             preset: options.preset,
-            deployment_strategy: options.deployment_strategy,
             image: options.image,
             version: options.version,
             php_extensions: options.php_extensions,
@@ -63,14 +61,6 @@ impl DesiredService {
 
     pub(crate) fn preset(&self) -> Option<&str> {
         self.preset.as_deref()
-    }
-
-    /// Whether reconciliation for this service produces a gateway route.
-    pub(crate) const fn claims_gateway_route(&self) -> bool {
-        match self.deployment_strategy {
-            Some(strategy) => strategy.claims_gateway_route(),
-            None => self.image.is_some(),
-        }
     }
 
     pub(crate) fn image(&self) -> Option<&str> {
@@ -97,7 +87,7 @@ impl DesiredService {
         &self.environment
     }
 
-    pub(super) const fn identity(&self) -> &ServiceIdentity {
+    pub(crate) const fn identity(&self) -> &ServiceIdentity {
         &self.identity
     }
 }

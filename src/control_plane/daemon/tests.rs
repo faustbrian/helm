@@ -347,7 +347,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     .expect("complete scan");
     assert!(applied.was_applied());
     let mut engine_schedule = EngineReconciliationSchedule::default();
-    engine_schedule.observe(&applied);
+    engine_schedule.observe(&applied).expect("resolve registry");
     assert!(engine_schedule.may_reconcile());
     assert!(engine_schedule.is_due());
     assert_eq!(
@@ -357,6 +357,16 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
             .projects()[0]
             .project_name(),
         "bill"
+    );
+    assert_eq!(
+        engine_schedule
+            .execution_plan()
+            .expect("resolved execution plan")
+            .services()
+            .iter()
+            .map(|service| service.strategy())
+            .collect::<Vec<_>>(),
+        vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
     engine_schedule.complete();
     assert!(!engine_schedule.is_due());
@@ -382,7 +392,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     )
     .expect("incomplete scan is a durable diagnostic");
     assert!(!blocked.was_applied());
-    engine_schedule.observe(&blocked);
+    engine_schedule.observe(&blocked).expect("block registry");
     assert!(!engine_schedule.may_reconcile());
     assert!(!engine_schedule.is_due());
     assert_eq!(
@@ -392,6 +402,16 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
             .projects()[0]
             .project_name(),
         "bill"
+    );
+    assert_eq!(
+        engine_schedule
+            .execution_plan()
+            .expect("retained execution plan")
+            .services()
+            .iter()
+            .map(|service| service.strategy())
+            .collect::<Vec<_>>(),
+        vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
     assert_eq!(blocked.report().issues().len(), 1);
 
