@@ -1,12 +1,12 @@
 use super::bounded_engine_operation::bounded_engine_operation;
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineError, EngineFuture, ObservedContainer,
+    EngineError, EngineFuture, NetworkCreateOptions, NetworkId, NetworkManager, ObservedContainer,
 };
 use bollard::errors::Error as BollardError;
 use bollard::models::{
-    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, PortBinding,
-    RestartPolicy, RestartPolicyNameEnum,
+    ContainerCreateBody, ContainerSummary, HostConfig, Mount, MountType, NetworkCreateRequest,
+    PortBinding, RestartPolicy, RestartPolicyNameEnum,
 };
 use bollard::query_parameters::{CreateContainerOptionsBuilder, ListContainersOptionsBuilder};
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker};
@@ -171,6 +171,50 @@ impl ContainerDiscovery for BollardEngineAdapter {
             .map(observed_container)
             .collect()
         })
+    }
+}
+
+impl NetworkManager for BollardEngineAdapter {
+    fn create_network<'operation>(
+        &'operation mut self,
+        options: &'operation NetworkCreateOptions,
+    ) -> EngineFuture<'operation, NetworkId> {
+        Box::pin(async move {
+            let request = network_create_request(options);
+            let response = bounded_engine_operation("create network", request_timeout(), async {
+                self.docker
+                    .create_network(request)
+                    .await
+                    .map_err(|error| backend_error("create network", error))
+            })
+            .await?;
+
+            Ok(NetworkId::new(response.id))
+        })
+    }
+
+    fn remove_network<'operation>(
+        &'operation mut self,
+        network: &'operation NetworkId,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            bounded_engine_operation("remove network", request_timeout(), async {
+                self.docker
+                    .remove_network(network.as_str())
+                    .await
+                    .map_err(|error| backend_error("remove network", error))
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn network_create_request(options: &NetworkCreateOptions) -> NetworkCreateRequest {
+    NetworkCreateRequest {
+        name: options.name().to_owned(),
+        driver: Some("bridge".to_owned()),
+        labels: Some(options.metadata().labels().into_iter().collect()),
+        ..NetworkCreateRequest::default()
     }
 }
 

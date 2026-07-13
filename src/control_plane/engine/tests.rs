@@ -1,8 +1,8 @@
 use super::{
     ContainerCreateOptions, ContainerDiscovery, ContainerId, ContainerLifecycle, ContainerState,
-    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
-    ObservedResourceOwnership, ResourceKind, RetentionClass, classify_observed_resource,
-    gateway_container_request,
+    EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    NetworkId, NetworkManager, ObservedContainer, ObservedResourceOwnership, ResourceKind,
+    RetentionClass, classify_observed_resource, gateway_container_request,
 };
 use bollard::ClientVersion;
 use bollard::models::ContainerSummary;
@@ -11,7 +11,8 @@ use std::future::pending;
 use std::time::Duration;
 
 use super::bollard_engine_adapter::{
-    create_request, managed_container_list_request, observed_container, validate_engine_api_version,
+    create_request, managed_container_list_request, network_create_request, observed_container,
+    validate_engine_api_version,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -170,6 +171,38 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
     assert_eq!(
         host.restart_policy.expect("restart policy").name,
         Some(bollard::models::RestartPolicyNameEnum::UNLESS_STOPPED)
+    );
+}
+
+#[test]
+fn network_management_is_an_object_safe_owned_resource_strategy() {
+    let options = NetworkCreateOptions::new("stackctl", global_metadata(ResourceKind::Network))
+        .expect("managed network");
+    let mut backend = RecordingNetworkBackend::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let id = runtime
+        .block_on(create_network_through_strategy(&mut backend, &options))
+        .expect("create network");
+
+    assert_eq!(id.as_str(), "network-1");
+    assert_eq!(backend.created, vec![options]);
+}
+
+#[test]
+fn network_requests_use_bridge_driver_and_complete_ownership_labels() {
+    let metadata = global_metadata(ResourceKind::Network);
+    let options = NetworkCreateOptions::new("stackctl", metadata.clone()).expect("managed network");
+
+    let request = network_create_request(&options);
+
+    assert_eq!(request.name, "stackctl");
+    assert_eq!(request.driver.as_deref(), Some("bridge"));
+    assert_eq!(
+        request.labels.expect("network ownership labels"),
+        metadata.labels().into_iter().collect()
     );
 }
 
@@ -403,6 +436,37 @@ fn discover_through_strategy(
     strategy: &dyn ContainerDiscovery,
 ) -> EngineFuture<'_, Vec<ObservedContainer>> {
     strategy.discover_managed()
+}
+
+fn create_network_through_strategy<'operation>(
+    strategy: &'operation mut dyn NetworkManager,
+    options: &'operation NetworkCreateOptions,
+) -> EngineFuture<'operation, NetworkId> {
+    strategy.create_network(options)
+}
+
+#[derive(Default)]
+struct RecordingNetworkBackend {
+    created: Vec<NetworkCreateOptions>,
+}
+
+impl NetworkManager for RecordingNetworkBackend {
+    fn create_network<'operation>(
+        &'operation mut self,
+        options: &'operation NetworkCreateOptions,
+    ) -> EngineFuture<'operation, NetworkId> {
+        Box::pin(async move {
+            self.created.push(options.clone());
+            Ok(NetworkId::new("network-1"))
+        })
+    }
+
+    fn remove_network<'operation>(
+        &'operation mut self,
+        _network: &'operation NetworkId,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[derive(Default)]

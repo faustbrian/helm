@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
   shared gateway can own ports 80/443 without a host web server.
 - Added one enforced v8 gateway Engine request that fixes its deterministic
   name, loopback ports, private network attachment, TLS mount, and restart policy.
+- Added a narrow v8 NetworkManager capability backed by direct Engine API calls
+  and complete ownership labels for the shared Stackctl bridge network.
 - Added v8 SQLite resource ownership, compatibility, retention, and orphan-state
   persistence with a transactional, data-preserving schema-v1 migration.
 - Added v8 dedicated application-container planning with immutable reusable
