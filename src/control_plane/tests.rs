@@ -164,7 +164,10 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
         ("dusk", ServiceDeploymentStrategy::Ephemeral),
         ("selenium", ServiceDeploymentStrategy::Ephemeral),
         ("gotenberg", ServiceDeploymentStrategy::SharedStateless),
-        ("mailhog", ServiceDeploymentStrategy::SharedWithAttribution),
+        (
+            "mailhog",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
         ("mailpit", ServiceDeploymentStrategy::SharedWithAttribution),
         ("rabbitmq", ServiceDeploymentStrategy::SharedByCompatibility),
         (

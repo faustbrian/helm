@@ -1,22 +1,25 @@
 use super::{
     CompatibilityFingerprint, CompatibilityFingerprintOptions, CompatibilityProfile,
     CredentialEntropy, CredentialGenerationError, CredentialSecret, IsolationCapability,
-    MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
-    MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, PersistenceMode,
-    PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
-    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
-    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, generate_credential_secret,
+    MailpitAuthenticationSnapshot, MailpitProjectDefinition, MailpitSharedInstancePlan,
+    MailpitSharedInstancePlanOptions, MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan,
+    MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlSharedInstancePlan,
+    MySqlSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
+    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, RabbitMqDefinitions,
+    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
+    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
+    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedServiceReconcileAction,
+    SharedServiceReconcileOptions, SharedServiceRequest, SharedVolumeReconcileAction,
+    SharedVolumeReconcileOptions, generate_credential_secret, plan_mailpit_project_resources,
     plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_postgres_logical_resource, reconcile_mongodb_project_resources,
-    reconcile_mysql_project_resources, reconcile_postgres_project_resources,
-    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
-    reconcile_shared_volume, reload_rabbitmq_definitions, reload_redis_acl,
-    revoke_rabbitmq_project_access, store_credential_secret, store_rabbitmq_definitions,
+    provision_postgres_logical_resource, reconcile_mailpit_authentication,
+    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
+    reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
+    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
+    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
     store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
@@ -1199,6 +1202,382 @@ fn rabbitmq_project_access_revocation_bounds_broker_output() {
 }
 
 #[test]
+fn mailpit_authentication_is_deterministic_attributed_and_secret_free() {
+    let snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "shop",
+            "mailpit",
+            CredentialSecret::new("shop-secret".to_owned()),
+        )
+        .expect("shop Mailpit definition"),
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("bill-secret".to_owned()),
+        )
+        .expect("bill Mailpit definition"),
+    ])
+    .expect("Mailpit authentication snapshot");
+    let contents = std::str::from_utf8(snapshot.contents()).expect("UTF-8 password file");
+
+    assert!(contents.starts_with("st_bill_mailpit:$2b$10$"));
+    assert!(contents.contains("\nst_shop_mailpit:$2b$10$"));
+    assert!(!contents.contains("secret"));
+    assert_eq!(snapshot.project_count(), 2);
+    assert!(snapshot.revision().starts_with("sha256:"));
+    assert_eq!(
+        format!("{snapshot:?}"),
+        "MailpitAuthenticationSnapshot { project_count: 2 }"
+    );
+}
+
+#[test]
+fn mailpit_authentication_rejects_deterministic_identity_collisions() {
+    let definitions = vec![
+        MailpitProjectDefinition::new(
+            "bill-api",
+            "mailpit",
+            CredentialSecret::new("one".to_owned()),
+        )
+        .expect("first Mailpit definition"),
+        MailpitProjectDefinition::new(
+            "bill",
+            "api-mailpit",
+            CredentialSecret::new("two".to_owned()),
+        )
+        .expect("second Mailpit definition"),
+    ];
+
+    let error = MailpitAuthenticationSnapshot::new(definitions).expect_err("identity collision");
+
+    assert_eq!(
+        error.to_string(),
+        "Mailpit SMTP user 'st_bill_api_mailpit' is defined more than once"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn mailpit_authentication_store_is_private_hash_only_and_atomically_replaceable() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mailpit-authentication-{}",
+        std::process::id()
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    let initial = MailpitAuthenticationSnapshot::new(Vec::new()).expect("initial snapshot");
+    let replacement = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("Mailpit definition"),
+    ])
+    .expect("replacement snapshot");
+
+    let stored = store_mailpit_authentication(&initial, &root).expect("initial store");
+    store_mailpit_authentication(&replacement, &root).expect("replacement store");
+
+    assert_eq!(stored.directory(), root);
+    assert_eq!(stored.mount_directory(), root.join("mounted"));
+    assert_eq!(stored.password_file(), root.join("mounted/smtp-passwords"));
+    let contents = std::fs::read_to_string(stored.password_file()).expect("password file");
+    assert_eq!(contents.as_bytes(), replacement.contents());
+    assert!(!contents.contains("project-secret"));
+    assert_eq!(
+        std::fs::metadata(stored.directory())
+            .expect("private root")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(stored.password_file())
+            .expect("password file")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove Mailpit fixture");
+}
+
+#[test]
+fn mailpit_materializes_one_persistent_attribution_enabled_instance() {
+    let snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("Mailpit definition"),
+    ])
+    .expect("Mailpit snapshot");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "mailpit",
+        mailpit_profile("1"),
+    )])
+    .pop()
+    .expect("shared Mailpit plan");
+    let plan = MailpitSharedInstancePlan::new(
+        &shared,
+        MailpitSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mailpit-v1".to_owned(),
+            authentication_directory: "/private/mailpit/mounted".into(),
+            authentication_revision: snapshot.revision().to_owned(),
+        },
+    )
+    .expect("Mailpit instance");
+    let rotated_snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("rotated-secret".to_owned()),
+        )
+        .expect("rotated Mailpit definition"),
+    ])
+    .expect("rotated Mailpit snapshot");
+    let rotated = MailpitSharedInstancePlan::new(
+        &shared,
+        MailpitSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mailpit-v1".to_owned(),
+            authentication_directory: "/private/mailpit/mounted".into(),
+            authentication_revision: rotated_snapshot.revision().to_owned(),
+        },
+    )
+    .expect("rotated Mailpit instance");
+
+    assert!(plan.container().name().starts_with("stackctl-shared-"));
+    assert_eq!(plan.smtp_port(), 1025);
+    assert_eq!(plan.ui_port(), 8025);
+    assert!(plan.volume().is_some());
+    assert_eq!(plan.authentication_revision(), snapshot.revision());
+    assert_eq!(plan.container().name(), rotated.container().name());
+    assert_ne!(
+        plan.container()
+            .metadata()
+            .labels()
+            .get("dev.stackctl.desired"),
+        rotated
+            .container()
+            .metadata()
+            .labels()
+            .get("dev.stackctl.desired")
+    );
+    assert_eq!(
+        plan.container().environment().get("MP_TAGS_USERNAME"),
+        Some(&"true".to_owned())
+    );
+    assert_eq!(
+        plan.container().environment().get("MP_SMTP_AUTH_FILE"),
+        Some(&"/etc/stackctl/mailpit/smtp-passwords".to_owned())
+    );
+    assert_eq!(
+        plan.container()
+            .health_check()
+            .expect("Mailpit health check")
+            .engine_test(),
+        ["CMD", "/mailpit", "readyz"]
+    );
+    assert!(!format!("{:?}", plan.container()).contains("project-secret"));
+}
+
+#[test]
+fn mailpit_project_resources_publish_attributed_smtp_and_deterministic_route() {
+    let snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("Mailpit definition"),
+    ])
+    .expect("Mailpit snapshot");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "mailpit",
+        mailpit_profile("1"),
+    )])
+    .pop()
+    .expect("shared Mailpit plan");
+    let instance = MailpitSharedInstancePlan::new(
+        &shared,
+        MailpitSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mailpit-v1".to_owned(),
+            authentication_directory: "/private/mailpit/mounted".into(),
+            authentication_revision: snapshot.revision().to_owned(),
+        },
+    )
+    .expect("Mailpit instance");
+
+    let project = plan_mailpit_project_resources(
+        "bill",
+        "mailpit",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("Mailpit project resources");
+
+    assert_eq!(project.definition().username(), "st_bill_mailpit");
+    assert_eq!(project.credential().credential_id(), "bill/mailpit/mailpit");
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            (
+                "MAIL_HOST".to_owned(),
+                instance.container().name().to_owned()
+            ),
+            ("MAIL_MAILER".to_owned(), "smtp".to_owned()),
+            ("MAIL_PASSWORD".to_owned(), "project-secret".to_owned()),
+            ("MAIL_PORT".to_owned(), "1025".to_owned()),
+            ("MAIL_USERNAME".to_owned(), "st_bill_mailpit".to_owned()),
+        ])
+    );
+    assert_eq!(project.route().domain(), "bill-mailpit.stackctl.localhost");
+    assert_eq!(
+        project.route().upstream(),
+        format!("http://{}:8025", instance.container().name())
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[cfg(unix)]
+#[test]
+fn mailpit_reconciliation_publishes_authentication_before_start() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-mailpit-reconcile-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale Mailpit fixture");
+    }
+    let snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("Mailpit definition"),
+    ])
+    .expect("Mailpit snapshot");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "mailpit",
+        mailpit_profile("1"),
+    )])
+    .pop()
+    .expect("shared Mailpit plan");
+    let instance = MailpitSharedInstancePlan::new(
+        &shared,
+        MailpitSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mailpit-v1".to_owned(),
+            authentication_directory: root.join("mounted"),
+            authentication_revision: snapshot.revision().to_owned(),
+        },
+    )
+    .expect("Mailpit instance");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_mailpit_authentication(
+            &mut engine,
+            &instance,
+            &snapshot,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile Mailpit authentication");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert!(root.join("mounted/smtp-passwords").is_file());
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove Mailpit fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn mailpit_reconciliation_rejects_snapshot_or_mount_drift_before_writes() {
+    let root =
+        std::env::temp_dir().join(format!("stackctl-v8-mailpit-reject-{}", std::process::id()));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale Mailpit fixture");
+    }
+    let planned_snapshot =
+        MailpitAuthenticationSnapshot::new(Vec::new()).expect("planned snapshot");
+    let actual_snapshot = MailpitAuthenticationSnapshot::new(vec![
+        MailpitProjectDefinition::new(
+            "bill",
+            "mailpit",
+            CredentialSecret::new("project-secret".to_owned()),
+        )
+        .expect("Mailpit definition"),
+    ])
+    .expect("actual snapshot");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "mailpit",
+        mailpit_profile("1"),
+    )])
+    .pop()
+    .expect("shared Mailpit plan");
+    let instance = MailpitSharedInstancePlan::new(
+        &shared,
+        MailpitSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mailpit-v1".to_owned(),
+            authentication_directory: root.join("wrong"),
+            authentication_revision: planned_snapshot.revision().to_owned(),
+        },
+    )
+    .expect("Mailpit instance");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_mailpit_authentication(
+            &mut engine,
+            &instance,
+            &actual_snapshot,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect_err("snapshot drift");
+
+    assert!(error.to_string().contains("authentication revision"));
+    assert!(!root.exists());
+    assert!(engine.operations.is_empty());
+}
+
+#[test]
 fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
     let snapshot = RedisAclSnapshot::new(
         CredentialSecret::new("admin-secret".to_owned()),
@@ -2355,6 +2734,26 @@ fn rabbitmq_profile(major_version: &str) -> CompatibilityProfile {
         platform_architecture: Some("linux/arm64".to_owned()),
     })
     .expect("valid RabbitMQ compatibility profile")
+}
+
+fn mailpit_profile(major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: "mailpit".to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("axllent/mailpit@sha256:{}", "e".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::from([
+            ("smtp_authentication".to_owned(), "password_file".to_owned()),
+            (
+                "attribution".to_owned(),
+                "authenticated_username".to_owned(),
+            ),
+        ]),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::None,
+        platform_architecture: Some("linux/amd64".to_owned()),
+    })
+    .expect("Mailpit compatibility profile")
 }
 
 fn mongodb_profile(major_version: &str) -> CompatibilityProfile {

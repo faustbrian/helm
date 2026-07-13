@@ -35,7 +35,8 @@ logical resources reconcile independently and idempotently.
 | Scheduler | Project execution | Timed container exec or supervised process | No independent persistent data | Always project-scoped; avoid idle container when exec works |
 | Dusk/Selenium | Ephemeral/dedicated | Whole browser container | Disposable | Always per test/project run |
 | Gotenberg | Shared by exact image/config | Stateless HTTP | No service data | Fonts, policy, or config differs |
-| MailHog/Mailpit | Shared | Project attribution and deterministic route | Optional message export | Attribution or access isolation differs |
+| Mailpit | Shared | Authenticated SMTP username tag and deterministic route | Optional message export | Attribution or access isolation differs |
+| MailHog | Dedicated until attribution is proven | Whole project instance | Optional message export | Default; no equivalent authenticated attribution contract is proven |
 | RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Definitions and queue backup policy | Plugins, policies, topology, or isolation differs |
 | Soketi | Shared only after credential isolation is proven | Project app ID/key/secret | Configuration export | Global settings or isolation differs |
 

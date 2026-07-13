@@ -15,6 +15,10 @@ All notable changes to this project are documented in this file.
   data and uses bounded, credential-free direct Engine exec output.
 - Added ownership-safe RabbitMQ reconciliation that atomically publishes complete
   core definitions before broker convergence and reloads them through direct Engine exec.
+- Added one compatibility-keyed Mailpit with deterministic bcrypt SMTP identities,
+  authenticated project tags, retained storage, readiness, and per-project UI routes.
+- Changed MailHog to remain dedicated until it proves the same project-attribution
+  contract used for safe Mailpit sharing.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and
