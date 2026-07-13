@@ -50,6 +50,8 @@ mod queued_project_command;
 mod reconcile_watched_roots;
 mod record_ipc_event;
 mod requires_followup_reconciliation;
+mod resource_health_registry;
+mod resource_health_registry_error;
 mod restore_project_command_operations;
 mod retry_backoff;
 mod retry_backoff_error;
@@ -111,8 +113,8 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 pub(crate) use ipc::{
     IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,
     IpcManagedEnvironment, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload,
-    IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceLifecycle,
-    IpcResourceStatus, IpcResponse, IpcResult, send_unix_request,
+    IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, send_unix_request,
 };
 pub(crate) use persisted_project_command::PersistedProjectCommand;
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
@@ -134,6 +136,8 @@ pub(crate) use publish_project_command_result::publish_project_command_result;
 pub(crate) use queued_project_command::QueuedProjectCommand;
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
+pub(crate) use resource_health_registry::ResourceHealthRegistry;
+pub(crate) use resource_health_registry_error::ResourceHealthRegistryError;
 pub(crate) use restore_project_command_operations::restore_project_command_operations;
 pub(crate) use retry_backoff::RetryBackoff;
 pub(crate) use retry_backoff_error::RetryBackoffError;

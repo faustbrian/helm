@@ -3,8 +3,8 @@ use super::{
     DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
     EngineConnectionOutcome, EngineConnectionSupervisor, EngineReconciliationPlanOptions,
     EngineReconciliationSchedule, FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue,
-    ProjectLogSessionRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
+    ProjectLogSessionRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
     requires_followup_reconciliation, restore_project_command_operations,
     validate_project_workload_adoption,
@@ -53,6 +53,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) event_journal: IpcEventJournal,
     pub(super) project_commands: ProjectCommandQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
+    pub(super) resource_health: ResourceHealthRegistry,
     pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
@@ -114,6 +115,7 @@ impl UnixDaemonRuntime {
             event_journal,
             project_commands,
             project_logs: ProjectLogSessionRegistry::default(),
+            resource_health: ResourceHealthRegistry::default(),
             active_project_logs: BTreeMap::new(),
             active_project_command: None,
             control_plane: ControlPlane::new(store),
@@ -153,6 +155,7 @@ impl UnixDaemonRuntime {
                 event_journal: &mut self.event_journal,
                 project_commands: &mut self.project_commands,
                 project_logs: &mut self.project_logs,
+                resource_health: &self.resource_health,
                 now_unix_seconds,
             })
         })?;
@@ -369,6 +372,8 @@ impl UnixDaemonRuntime {
             );
         }
 
+        let observed_at_unix_seconds = unix_time_seconds();
+        let mut health_snapshot = ResourceHealthRegistry::default();
         let mut physical_resources = Vec::new();
         let mut provisioned = execution
             .services()
@@ -404,6 +409,20 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
+            let container_resource = logical
+                .physical_resources()
+                .first()
+                .expect("shared reconciliation always returns its container first");
+            if let Err(error) = health_snapshot.record(
+                container_resource.resource_id(),
+                logical.health(),
+                observed_at_unix_seconds,
+            ) {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "shared health snapshot publication blocked");
+
+                return;
+            }
             physical_resources.extend(logical.physical_resources().iter().cloned());
             for logical in logical.logical_resources() {
                 provisioned
@@ -412,7 +431,7 @@ impl UnixDaemonRuntime {
                     .push(logical.clone());
             }
         }
-        let reconciled_at_unix_seconds = unix_time_seconds();
+        let reconciled_at_unix_seconds = observed_at_unix_seconds;
         if let Err(error) = self
             .control_plane
             .record_resources(&physical_resources, reconciled_at_unix_seconds)
@@ -546,6 +565,16 @@ impl UnixDaemonRuntime {
             ));
             match result {
                 Ok(result) => {
+                    if let Err(error) = health_snapshot.record(
+                        result.container().id().as_str(),
+                        result.health(),
+                        observed_at_unix_seconds,
+                    ) {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "application health snapshot publication blocked");
+
+                        return;
+                    }
                     workload_resources.push(workload_resource_record(&result));
                     tracing::debug!(
                         project = application
@@ -593,6 +622,16 @@ impl UnixDaemonRuntime {
             ));
             match result {
                 Ok(result) => {
+                    if let Err(error) = health_snapshot.record(
+                        result.container().id().as_str(),
+                        result.health(),
+                        observed_at_unix_seconds,
+                    ) {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "process health snapshot publication blocked");
+
+                        return;
+                    }
                     workload_resources.push(workload_resource_record(&result));
                     tracing::debug!(
                         project = process.metadata().project_id().unwrap_or_default(),
@@ -677,6 +716,7 @@ impl UnixDaemonRuntime {
 
         match gateway {
             Ok(gateway) => {
+                self.resource_health = health_snapshot;
                 self.engine_reconciliation.complete();
                 tracing::debug!(
                     action = ?gateway.gateway_action(),

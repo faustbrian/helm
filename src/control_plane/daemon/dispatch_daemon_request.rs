@@ -1,12 +1,13 @@
 use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
-    ProjectLogTarget, QueuedProjectCommand, reconcile_watched_roots,
+    ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry, reconcile_watched_roots,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
     IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand,
-    IpcProjectStatus, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse,
+    IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -19,6 +20,7 @@ use crate::control_plane::{ProjectIdentity, ServiceIdentity};
 use std::time::Duration;
 
 const MAX_PROJECT_COMMAND_TIMEOUT_SECONDS: u64 = 3_600;
+const MAX_RESOURCE_HEALTH_AGE_SECONDS: i64 = 120;
 
 /// Dispatches one correlated request without allowing partial registry mutation.
 pub(crate) fn dispatch_daemon_request<Store>(
@@ -34,6 +36,7 @@ where
         event_journal,
         project_commands,
         project_logs,
+        resource_health,
         now_unix_seconds,
     } = options;
     match request.payload() {
@@ -108,7 +111,12 @@ where
             }
         }
         IpcPayload::ProjectStatus { canonical_path } => {
-            match project_status(control_plane, canonical_path) {
+            match project_status(
+                control_plane,
+                resource_health,
+                canonical_path,
+                now_unix_seconds,
+            ) {
                 Ok(project) => {
                     IpcResponse::success(request.request_id(), IpcResult::ProjectStatus { project })
                 }
@@ -584,7 +592,9 @@ where
 
 fn project_status<Store>(
     control_plane: &ControlPlane<Store>,
+    resource_health: &ResourceHealthRegistry,
     canonical_path: &std::path::Path,
+    now_unix_seconds: i64,
 ) -> Result<IpcProjectStatus, String>
 where
     Store: StateStore,
@@ -606,6 +616,10 @@ where
         .into_iter()
         .filter(|resource| resource.project_id() == Some(project.project_name()))
         .map(|resource| {
+            let (health, observed_at) = ipc_resource_health(
+                resource_health.observation(resource.resource_id()),
+                now_unix_seconds,
+            );
             IpcResourceStatus::new(
                 resource
                     .scope_id()
@@ -613,6 +627,8 @@ where
                     .to_owned(),
                 resource.kind().to_owned(),
                 ipc_resource_lifecycle(resource.lifecycle()),
+                health,
+                observed_at,
                 false,
             )
         })
@@ -624,10 +640,16 @@ where
             .into_iter()
             .filter(|resource| resource.project_id() == project.project_name())
             .map(|resource| {
+                let (health, observed_at) = ipc_resource_health(
+                    resource_health.observation(resource.shared_resource_id()),
+                    now_unix_seconds,
+                );
                 IpcResourceStatus::new(
                     resource.service_id().to_owned(),
                     resource.kind().to_owned(),
                     ipc_resource_lifecycle(resource.lifecycle()),
+                    health,
+                    observed_at,
                     true,
                 )
             }),
@@ -644,6 +666,34 @@ where
         project.route_domains().to_vec(),
         resources,
     ))
+}
+
+const fn ipc_resource_health(
+    observation: Option<(crate::control_plane::engine::ContainerHealth, i64)>,
+    now_unix_seconds: i64,
+) -> (IpcResourceHealth, Option<i64>) {
+    use crate::control_plane::engine::ContainerHealth;
+
+    let Some((health, observed_at)) = observation else {
+        return (IpcResourceHealth::Unknown, None);
+    };
+    if observed_at > now_unix_seconds
+        || now_unix_seconds.saturating_sub(observed_at) > MAX_RESOURCE_HEALTH_AGE_SECONDS
+    {
+        return (IpcResourceHealth::Unknown, Some(observed_at));
+    }
+    let health = match health {
+        ContainerHealth::Missing => IpcResourceHealth::Missing,
+        ContainerHealth::Stopped => IpcResourceHealth::Stopped,
+        ContainerHealth::RunningUnverified => IpcResourceHealth::RunningUnverified,
+        ContainerHealth::Starting => IpcResourceHealth::Starting,
+        ContainerHealth::Healthy => IpcResourceHealth::Healthy,
+        ContainerHealth::Unhealthy { failing_streak } => {
+            IpcResourceHealth::Unhealthy { failing_streak }
+        }
+    };
+
+    (health, Some(observed_at))
 }
 
 const fn ipc_resource_lifecycle(lifecycle: ResourceLifecycle) -> IpcResourceLifecycle {

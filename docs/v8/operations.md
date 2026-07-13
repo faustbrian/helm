@@ -85,6 +85,14 @@ process health, service readiness, authentication, logical-resource drift,
 gateway drift, certificate expiry, name collision, approval blocking, orphaning,
 and destructive replacement.
 
+Project status reports durable lifecycle and last Engine-observed health as
+separate fields. Health snapshots remain in daemon memory, are timestamped, and
+publish only after a complete Engine reconciliation; they are never written to
+SQLite. Missing or stale observations are `unknown`, not implicitly healthy.
+Browser opening accepts `healthy` and `running_unverified` routes and otherwise
+fails with the exact service state and observation time instead of issuing an
+ad-hoc application HTTP probe.
+
 Engine events provide prompt reaction while periodic scans restore correctness.
 Repeated failures back off with jitter and one durable diagnostic rather than
 log spam. One project or shared service failure does not block unrelated work.

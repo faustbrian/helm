@@ -41,7 +41,10 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
     for route in status.routes() {
         writeln!(writer, "ROUTE\t{route}")?;
     }
-    writeln!(writer, "SERVICE\tKIND\tSCOPE\tLIFECYCLE")?;
+    writeln!(
+        writer,
+        "SERVICE\tKIND\tSCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT"
+    )?;
     for resource in status.resources() {
         let scope = if resource.shared() {
             "shared"
@@ -50,11 +53,15 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
         };
         writeln!(
             writer,
-            "{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}",
             resource.service(),
             resource.kind(),
             scope,
-            resource.lifecycle().as_str()
+            resource.lifecycle().as_str(),
+            resource.health().as_str(),
+            resource
+                .observed_at_unix_seconds()
+                .map_or_else(|| "-".to_owned(), |value| value.to_string())
         )?;
     }
     Ok(())
@@ -63,7 +70,9 @@ fn render_table(writer: &mut impl Write, status: &IpcProjectStatus) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::render_table;
-    use crate::control_plane::{IpcProjectStatus, IpcResourceLifecycle, IpcResourceStatus};
+    use crate::control_plane::{
+        IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+    };
 
     #[test]
     fn table_status_distinguishes_project_and_shared_resources() {
@@ -75,12 +84,16 @@ mod tests {
                     "app".to_owned(),
                     "project_application".to_owned(),
                     IpcResourceLifecycle::Active,
+                    IpcResourceHealth::Healthy,
+                    Some(10_000),
                     false,
                 ),
                 IpcResourceStatus::new(
                     "db".to_owned(),
                     "postgresql".to_owned(),
                     IpcResourceLifecycle::Active,
+                    IpcResourceHealth::Unknown,
+                    None,
                     true,
                 ),
             ],
@@ -93,9 +106,9 @@ mod tests {
             String::from_utf8(output).expect("utf8 status"),
             "PROJECT\tbill\n\
              ROUTE\tbill-app.stackctl.localhost\n\
-             SERVICE\tKIND\tSCOPE\tLIFECYCLE\n\
-             app\tproject_application\tproject\tactive\n\
-             db\tpostgresql\tshared\tactive\n"
+             SERVICE\tKIND\tSCOPE\tLIFECYCLE\tHEALTH\tOBSERVED_AT\n\
+             app\tproject_application\tproject\tactive\thealthy\t10000\n\
+             db\tpostgresql\tshared\tactive\tunknown\t-\n"
         );
     }
 }

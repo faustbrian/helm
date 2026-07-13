@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use crate::cli::args::{Cli, Commands, OpenArgs};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::cli::support::try_open_in_browser;
+use crate::control_plane::{IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle};
 
 use super::v8_project::resolve_v8_project;
 use super::v8_project_status::request_v8_project_status;
@@ -36,6 +37,7 @@ pub(crate) fn handle_v8_open(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
             status.project()
         );
     }
+    ensure_routes_ready(&status, &routes)?;
 
     if args.json {
         render_routes(&mut std::io::stdout(), &routes, false, "json")?;
@@ -53,6 +55,35 @@ pub(crate) fn handle_v8_open(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
     }
 
     Ok(true)
+}
+
+fn ensure_routes_ready(status: &IpcProjectStatus, routes: &[(String, String)]) -> Result<()> {
+    for (service, _) in routes {
+        let resource = status
+            .resources()
+            .iter()
+            .find(|resource| {
+                resource.service() == service
+                    && resource.lifecycle() == IpcResourceLifecycle::Active
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "v8 service '{service}' has no active reconciled runtime; wait for the daemon"
+                )
+            })?;
+        match resource.health() {
+            IpcResourceHealth::Healthy | IpcResourceHealth::RunningUnverified => {}
+            health => bail!(
+                "v8 service '{service}' is not ready (health: {}, observed_at: {}); wait for daemon reconciliation",
+                health.as_str(),
+                resource
+                    .observed_at_unix_seconds()
+                    .map_or_else(|| "never".to_owned(), |value| value.to_string())
+            ),
+        }
+    }
+
+    Ok(())
 }
 
 fn open_selection(args: &OpenArgs) -> Result<V8OpenSelection<'_>> {
@@ -81,8 +112,11 @@ mod tests {
     use clap::Parser;
 
     use crate::cli::args::{Cli, Commands};
+    use crate::control_plane::{
+        IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+    };
 
-    use super::{V8OpenSelection, open_selection};
+    use super::{V8OpenSelection, ensure_routes_ready, open_selection};
 
     #[test]
     fn open_defaults_to_the_exact_app_service() {
@@ -124,6 +158,36 @@ mod tests {
             let error = open_selection(&args).expect_err("legacy open mode");
 
             assert!(error.to_string().contains("not supported"));
+        }
+    }
+
+    #[test]
+    fn open_requires_typed_ready_state_for_every_selected_route() {
+        let routes = vec![(
+            "app".to_owned(),
+            "https://bill-app.stackctl.localhost".to_owned(),
+        )];
+        for (health, succeeds) in [
+            (IpcResourceHealth::Healthy, true),
+            (IpcResourceHealth::RunningUnverified, true),
+            (IpcResourceHealth::Starting, false),
+            (IpcResourceHealth::Unknown, false),
+            (IpcResourceHealth::Unhealthy { failing_streak: 3 }, false),
+        ] {
+            let status = IpcProjectStatus::new(
+                "bill".to_owned(),
+                vec!["bill-app.stackctl.localhost".to_owned()],
+                vec![IpcResourceStatus::new(
+                    "app".to_owned(),
+                    "project_application".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    health,
+                    Some(10_000),
+                    false,
+                )],
+            );
+
+            assert_eq!(ensure_routes_ready(&status, &routes).is_ok(), succeeds);
         }
     }
 }

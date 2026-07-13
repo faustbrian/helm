@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added timestamped, non-durable Engine health snapshots to strict v8 project
+  status for exact project workloads and shared logical services. Stale
+  observations become unknown, and `open` now requires typed ready state rather
+  than probing an arbitrary HTTP path or trusting durable lifecycle alone.
 - Isolated legacy inferred-environment tests from process-global Docker and
   Podman selection so parallel test execution cannot leak Podman's host alias
   into assertions scoped to Docker behavior, and made doctor runtime fixture

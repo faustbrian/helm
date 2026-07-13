@@ -1,4 +1,4 @@
-use crate::control_plane::engine::{ManagedResourceMetadata, RetentionClass};
+use crate::control_plane::engine::{ContainerHealth, ManagedResourceMetadata, RetentionClass};
 use crate::control_plane::state::{
     LogicalResourceRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
     ResourceRetention,
@@ -8,6 +8,7 @@ use crate::control_plane::state::{
 pub(crate) struct SharedInstanceReconcileResult {
     physical_resources: Vec<ResourceRecord>,
     logical_resources: Vec<LogicalResourceRecord>,
+    health: ContainerHealth,
 }
 
 impl SharedInstanceReconcileResult {
@@ -16,6 +17,7 @@ impl SharedInstanceReconcileResult {
         container_metadata: &ManagedResourceMetadata,
         volume: Option<(&str, &ManagedResourceMetadata)>,
         logical_resources: Vec<LogicalResourceRecord>,
+        health: ContainerHealth,
     ) -> Self {
         let mut physical_resources = vec![resource_record(container_id, container_metadata)];
         if let Some((volume_name, volume_metadata)) = volume {
@@ -25,6 +27,7 @@ impl SharedInstanceReconcileResult {
         Self {
             physical_resources,
             logical_resources,
+            health,
         }
     }
 
@@ -34,6 +37,10 @@ impl SharedInstanceReconcileResult {
 
     pub(crate) fn logical_resources(&self) -> &[LogicalResourceRecord] {
         &self.logical_resources
+    }
+
+    pub(crate) const fn health(&self) -> ContainerHealth {
+        self.health
     }
 }
 

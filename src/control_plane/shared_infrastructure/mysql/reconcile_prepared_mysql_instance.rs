@@ -60,5 +60,6 @@ where
             .volume()
             .map(|volume| (volume.volume().name(), volume.volume().metadata())),
         logical,
+        shared.health(),
     ))
 }

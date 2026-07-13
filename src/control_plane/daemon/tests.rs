@@ -3,18 +3,19 @@ use super::{
     DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
     ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
-    ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectCommand, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_project_command, plan_engine_reconciliation,
-    publish_project_command_result, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_project_command_operations,
+    ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
+    dispatch_daemon_request, execute_project_logs, execute_queued_project_command,
+    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
     IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcOutputStream, IpcPayload,
-    IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceLifecycle, IpcResourceStatus,
-    IpcResponse, IpcResult,
+    IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle,
+    IpcResourceStatus, IpcResponse, IpcResult,
 };
+use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
@@ -1113,6 +1114,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 10_000,
     });
 
@@ -1141,6 +1143,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 10_001,
     });
     let crate::control_plane::daemon::ipc::IpcOutcome::Success {
@@ -1229,6 +1232,13 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
     let mut project_logs = ProjectLogSessionRegistry::default();
+    let mut resource_health = ResourceHealthRegistry::default();
+    resource_health
+        .record("container-app", ContainerHealth::Healthy, 9_998)
+        .expect("record application health");
+    resource_health
+        .record("postgres-17", ContainerHealth::Starting, 9_800)
+        .expect("record shared health");
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -1237,6 +1247,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &resource_health,
         now_unix_seconds: 10_000,
     });
 
@@ -1253,12 +1264,16 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
                             "app".to_owned(),
                             "project_application".to_owned(),
                             IpcResourceLifecycle::Active,
+                            IpcResourceHealth::Healthy,
+                            Some(9_998),
                             false,
                         ),
                         IpcResourceStatus::new(
                             "db".to_owned(),
                             "postgresql".to_owned(),
                             IpcResourceLifecycle::Active,
+                            IpcResourceHealth::Unknown,
+                            Some(9_800),
                             true,
                         ),
                     ],
@@ -1344,6 +1359,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 10_000,
     });
 
@@ -1380,6 +1396,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 10_001,
     });
     assert_eq!(
@@ -1437,6 +1454,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 10_000,
     });
 
@@ -1508,6 +1526,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 20_000,
     });
 
@@ -1570,6 +1589,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         event_journal: &mut event_journal,
         project_commands: &mut project_commands,
         project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
         now_unix_seconds: 30_000,
     });
 

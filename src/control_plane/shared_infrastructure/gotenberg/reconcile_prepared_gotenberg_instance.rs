@@ -39,5 +39,6 @@ where
         shared.container().metadata(),
         None,
         logical,
+        shared.health(),
     ))
 }

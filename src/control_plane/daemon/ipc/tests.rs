@@ -1,7 +1,8 @@
 use super::{
     IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,
-    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand, IpcRequest, IpcResponse,
-    IpcResult, decode_request_frame, decode_response_frame, encode_frame,
+    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand, IpcRequest,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::path::PathBuf;
@@ -47,6 +48,34 @@ fn project_status_requests_round_trip_with_the_exact_target_path() {
     let decoded = decode_request_frame(&frame).expect("decode status request");
 
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn project_status_responses_preserve_typed_timestamped_health() {
+    let response = IpcResponse::success(
+        "status-42",
+        IpcResult::ProjectStatus {
+            project: super::IpcProjectStatus::new(
+                "bill".to_owned(),
+                Vec::new(),
+                vec![IpcResourceStatus::new(
+                    "app".to_owned(),
+                    "project_application".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    IpcResourceHealth::Unhealthy { failing_streak: 4 },
+                    Some(10_000),
+                    false,
+                )],
+            ),
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode project status");
+
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode project status"),
+        response
+    );
 }
 
 #[test]
