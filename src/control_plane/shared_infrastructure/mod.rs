@@ -53,12 +53,14 @@ pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
     PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
-    PostgresMigrationPreparationOptions, PostgresPlanError, PostgresPreparationError,
+    PostgresMigrationPreparationOptions, PostgresMigrationTargetReconcileError,
+    PostgresMigrationTargetReconcileResult, PostgresPlanError, PostgresPreparationError,
     PostgresPreparationOptions, PostgresProjectResources, PostgresSharedInstancePlan,
     PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance,
     plan_postgres_project_resources, prepare_postgres_migration_target,
     prepare_postgres_shared_instances, provision_postgres_logical_resource,
-    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
+    reconcile_postgres_migration_target, reconcile_postgres_project_resources,
+    reconcile_prepared_postgres_instance,
 };
 pub(crate) use prepare_shared_instances::prepare_shared_instances;
 pub(crate) use prepared_shared_instance::PreparedSharedInstance;

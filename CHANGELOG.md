@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added one idempotent PostgreSQL migration-target boundary that durably
+  prepares credentials, reconciles an isolated retained volume and service
+  through typed Engine capabilities, and returns success only for a healthy,
+  exactly owned target without publishing host ports.
 - Added deterministic project-owned PostgreSQL migration target plans that
   reuse the exact immutable compatibility profile while creating a separate
   private container and retained volume, preventing verified restores from

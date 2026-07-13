@@ -4,8 +4,8 @@ use crate::control_plane::engine::{
     ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind, RetentionClass,
 };
 
-/// Restores one isolated project infrastructure service by exact identity.
-pub(crate) async fn reconcile_project_service<E>(
+/// Restores one retained project service without weakening normal workloads.
+pub(crate) async fn reconcile_retained_project_service<E>(
     engine: &mut E,
     options: WorkloadReconcileOptions<'_>,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
@@ -16,7 +16,7 @@ where
         engine,
         options,
         ResourceKind::ProjectService,
-        RetentionClass::Disposable,
+        RetentionClass::Persistent,
     )
     .await
 }

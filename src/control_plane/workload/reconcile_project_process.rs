@@ -1,7 +1,7 @@
 use super::reconcile_project_application::reconcile_project_workload;
 use super::{WorkloadReconcileError, WorkloadReconcileOptions, WorkloadReconcileResult};
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind,
+    ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind, RetentionClass,
 };
 
 /// Restores one supervised project worker or scheduler by stable resource identity.
@@ -12,5 +12,11 @@ pub(crate) async fn reconcile_project_process<E>(
 where
     E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
 {
-    reconcile_project_workload(engine, options, ResourceKind::ProjectProcess).await
+    reconcile_project_workload(
+        engine,
+        options,
+        ResourceKind::ProjectProcess,
+        RetentionClass::Disposable,
+    )
+    .await
 }

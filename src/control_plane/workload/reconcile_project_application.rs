@@ -16,18 +16,25 @@ pub(crate) async fn reconcile_project_application<E>(
 where
     E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
 {
-    reconcile_project_workload(engine, options, ResourceKind::ProjectApplication).await
+    reconcile_project_workload(
+        engine,
+        options,
+        ResourceKind::ProjectApplication,
+        RetentionClass::Disposable,
+    )
+    .await
 }
 
 pub(super) async fn reconcile_project_workload<E>(
     engine: &mut E,
     options: WorkloadReconcileOptions<'_>,
     expected_kind: ResourceKind,
+    expected_retention: RetentionClass,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
     E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
 {
-    let (project_id, resource_id) = validate_request(&options, expected_kind)?;
+    let (project_id, resource_id) = validate_request(&options, expected_kind, expected_retention)?;
     let observed = engine
         .discover_managed()
         .await
@@ -209,6 +216,7 @@ where
 fn validate_request(
     options: &WorkloadReconcileOptions<'_>,
     expected_kind: ResourceKind,
+    expected_retention: RetentionClass,
 ) -> Result<(String, Option<String>), WorkloadReconcileError> {
     let metadata = options.request.metadata();
     let project_id =
@@ -240,7 +248,7 @@ fn validate_request(
     if metadata.kind() != expected_kind
         || metadata.installation_id() != options.installation_id
         || metadata.schema_version() != options.schema_version
-        || metadata.retention() != RetentionClass::Disposable
+        || metadata.retention() != expected_retention
     {
         return Err(WorkloadReconcileError::InvalidRequest {
             detail: format!(

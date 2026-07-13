@@ -26,13 +26,14 @@ use super::{
     provision_object_store_project_resources, provision_postgres_logical_resource,
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
     reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
-    reconcile_object_store_project_resources, reconcile_postgres_project_resources,
-    reconcile_prepared_postgres_instance, reconcile_prepared_shared_instance,
-    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
-    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
-    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
-    run_provisioning_job, stop_unreferenced_shared_services, store_credential_secret,
-    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_object_store_project_resources, reconcile_postgres_migration_target,
+    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
+    reconcile_prepared_shared_instance, reconcile_rabbitmq_definitions,
+    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
+    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
+    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
+    stop_unreferenced_shared_services, store_credential_secret, store_mailpit_authentication,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -3922,6 +3923,173 @@ fn postgres_migration_target_reuses_its_durable_bootstrap_credential() {
     assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
     assert_eq!(store.credentials().expect("credentials").len(), 1);
     assert!(!format!("{:?}", first.container()).contains(first.bootstrap_credential().secret()));
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove migration target state");
+        }
+    }
+}
+
+#[test]
+fn postgres_migration_target_reconciliation_is_owned_ready_and_idempotent() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-postgres-migration-reconcile-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let mut engine = RecordingSharedVolumeEngine {
+        health: crate::control_plane::engine::ContainerHealth::Healthy,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_postgres_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x11),
+            PostgresMigrationPreparationOptions {
+                migration_id: "restore-bill-database-100",
+                project_id: "bill",
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                desired_revision: "sha256:restore-v1",
+            },
+        ))
+        .expect("migration target reconciliation");
+
+    assert_eq!(
+        result.container().metadata().resource_id(),
+        Some("restore-bill-database-100")
+    );
+    assert_eq!(
+        result.volume().name(),
+        "stackctl-migration-restore-bill-database-100-data"
+    );
+    assert_eq!(
+        result.health(),
+        crate::control_plane::engine::ContainerHealth::Healthy
+    );
+    assert_eq!(result.bootstrap_credential().project_id(), Some("bill"));
+    assert_eq!(store.credentials().expect("credentials").len(), 1);
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    let first_secret = result.bootstrap_credential().secret().to_owned();
+    let created_volume = engine.created[0].clone();
+    let created_container = engine.created_containers[0].clone();
+    engine.observed = vec![crate::control_plane::engine::ObservedVolume::new(
+        created_volume.name(),
+        created_volume.metadata().labels(),
+    )];
+    engine.observed_containers = vec![ObservedContainer::new(
+        result.container().id().clone(),
+        created_container.metadata().labels(),
+    )];
+    engine.state = crate::control_plane::engine::ContainerState::Running;
+    engine.operations.clear();
+
+    let replay = runtime
+        .block_on(reconcile_postgres_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x22),
+            PostgresMigrationPreparationOptions {
+                migration_id: "restore-bill-database-100",
+                project_id: "bill",
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                desired_revision: "sha256:restore-v1",
+            },
+        ))
+        .expect("replayed migration target reconciliation");
+
+    assert_eq!(replay.container(), result.container());
+    assert_eq!(replay.volume(), result.volume());
+    assert_eq!(replay.bootstrap_credential().secret(), first_secret);
+    assert!(engine.operations.is_empty());
+    assert_eq!(store.credentials().expect("replayed credentials").len(), 1);
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove migration target state");
+        }
+    }
+}
+
+#[test]
+fn postgres_migration_target_reconciliation_rejects_an_unready_container() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-postgres-migration-unready-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_postgres_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x11),
+            PostgresMigrationPreparationOptions {
+                migration_id: "restore-bill-database-100",
+                project_id: "bill",
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                desired_revision: "sha256:restore-v1",
+            },
+        ))
+        .err()
+        .expect("starting target must not be returned as ready");
+
+    assert_eq!(
+        error.to_string(),
+        "PostgreSQL migration target is not ready: Starting"
+    );
+    assert_eq!(engine.created_containers.len(), 1);
 
     drop(store);
     for suffix in ["", "-shm", "-wal"] {
