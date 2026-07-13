@@ -7,19 +7,21 @@ use super::{
     MySqlFlavor, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
     ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
     ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresMigrationInstancePlanOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
-    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
-    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
-    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
-    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
-    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    PostgresMigrationInstancePlanOptions, PostgresMigrationPreparationOptions,
+    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
+    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
+    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
+    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
+    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
+    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
+    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
+    plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    plan_sql_server_project_resources, prepare_postgres_shared_instances, prepare_shared_instances,
+    plan_sql_server_project_resources, prepare_postgres_migration_target,
+    prepare_postgres_shared_instances, prepare_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_object_store_project_resources, provision_postgres_logical_resource,
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
@@ -3871,6 +3873,63 @@ fn postgres_migration_target_is_separate_owned_and_retained() {
     assert_eq!(plan.bootstrap_credential().project_id(), Some("bill"));
     assert_eq!(plan.bootstrap_credential().secret(), "restore-root-secret");
     assert!(!format!("{:?}", plan.container()).contains("restore-root-secret"));
+}
+
+#[test]
+fn postgres_migration_target_reuses_its_durable_bootstrap_credential() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-postgres-migration-target-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        profile(Vec::new(), "17"),
+    )])
+    .pop()
+    .expect("shared PostgreSQL plan");
+    let options = PostgresMigrationPreparationOptions {
+        migration_id: "restore-bill-database-100",
+        project_id: "bill",
+        installation_id: "install-1",
+        network_name: "stackctl",
+        schema_version: 8,
+        desired_revision: "sha256:restore-v1",
+    };
+
+    let first = prepare_postgres_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        options,
+    )
+    .expect("first migration target preparation");
+    let second = prepare_postgres_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        options,
+    )
+    .expect("replayed migration target preparation");
+
+    assert_eq!(first.container(), second.container());
+    assert_eq!(first.volume(), second.volume());
+    assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
+    assert_eq!(store.credentials().expect("credentials").len(), 1);
+    assert!(!format!("{:?}", first.container()).contains(first.bootstrap_credential().secret()));
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove migration target state");
+        }
+    }
 }
 
 #[test]

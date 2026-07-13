@@ -9,7 +9,9 @@ All notable changes to this project are documented in this file.
 - Added deterministic project-owned PostgreSQL migration target plans that
   reuse the exact immutable compatibility profile while creating a separate
   private container and retained volume, preventing verified restores from
-  targeting the active shared instance.
+  targeting the active shared instance. Target preparation now persists and
+  reuses its administrator credential before Engine mutation so daemon restarts
+  cannot rotate the restore target secret.
 - Added an exact recovery-point restore coordinator that selects immutable
   catalog evidence by ID, verifies project, service, logical-resource, kind,
   and compatibility ownership before mutation, and resumes the reversible
