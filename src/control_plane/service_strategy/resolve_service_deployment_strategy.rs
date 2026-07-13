@@ -6,14 +6,16 @@ pub(crate) fn resolve_service_deployment_strategy(
 ) -> Result<ServiceDeploymentStrategy, ServiceStrategyError> {
     let strategy = match preset {
         "mongodb" | "postgres" | "pg" | "pgsql" | "mysql" | "mariadb" | "sqlserver" | "mssql"
-        | "redis" | "valkey" | "minio" | "rustfs" | "rabbitmq" => {
+        | "redis" | "valkey" | "minio" | "rabbitmq" => {
             ServiceDeploymentStrategy::SharedByCompatibility
         }
         "mailpit" => ServiceDeploymentStrategy::SharedWithAttribution,
         "gotenberg" => ServiceDeploymentStrategy::SharedStateless,
         "memcached" | "localstack" => ServiceDeploymentStrategy::DedicatedProject,
-        "dragonfly" | "garage" | "opensearch" | "elasticsearch" | "meilisearch" | "typesense"
-        | "mailhog" | "soketi" => ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        "dragonfly" | "garage" | "rustfs" | "opensearch" | "elasticsearch" | "meilisearch"
+        | "typesense" | "mailhog" | "soketi" => {
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven
+        }
         "frankenphp" | "laravel" | "reverb" => ServiceDeploymentStrategy::ProjectApplication,
         "horizon" | "queue-worker" | "queue" | "scheduler" => {
             ServiceDeploymentStrategy::ProjectProcess

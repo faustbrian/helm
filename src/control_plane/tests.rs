@@ -137,7 +137,10 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
             ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
         ),
         ("localstack", ServiceDeploymentStrategy::DedicatedProject),
-        ("rustfs", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "rustfs",
+            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        ),
         (
             "opensearch",
             ServiceDeploymentStrategy::DedicatedUntilIsolationProven,

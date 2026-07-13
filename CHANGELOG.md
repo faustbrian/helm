@@ -23,6 +23,10 @@ All notable changes to this project are documented in this file.
   disposable provisioning containers without Docker CLI process calls.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
+- Added compatibility-keyed MinIO instances with persistent shared data,
+  deterministic bucket identities, scoped policies, and secret-safe reconciliation.
+- Kept RustFS dedicated until its external admin-client lifecycle and recovery
+  behavior prove the same bucket, identity, and policy isolation contract.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

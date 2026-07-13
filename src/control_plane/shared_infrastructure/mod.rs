@@ -26,6 +26,13 @@ pub(crate) use mysql::{
     MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, plan_mysql_project_resources,
     provision_mysql_logical_resource, reconcile_mysql_project_resources,
 };
+pub(crate) use object_store::{
+    ObjectStoreFlavor, ObjectStorePlanError, ObjectStoreProjectDefinition,
+    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
+    ObjectStoreSharedInstancePlanOptions, plan_object_store_project_resources,
+    provision_object_store_project_resources, reconcile_object_store_project_resources,
+    store_object_store_policy,
+};
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
@@ -75,6 +82,7 @@ mod mailpit;
 mod managed_secret_store_error;
 mod mongodb;
 mod mysql;
+mod object_store;
 mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;

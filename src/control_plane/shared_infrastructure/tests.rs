@@ -4,18 +4,21 @@ use super::{
     MailpitAuthenticationSnapshot, MailpitProjectDefinition, MailpitSharedInstancePlan,
     MailpitSharedInstancePlanOptions, MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan,
     MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlSharedInstancePlan,
-    MySqlSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions, ProvisioningJobOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    MySqlSharedInstancePlanOptions, ObjectStoreFlavor, ObjectStoreProjectResources,
+    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions, PersistenceMode,
+    PostgresLogicalResourcePlan, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
+    ProvisioningJobOptions, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
     SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
     SharedVolumeReconcileAction, SharedVolumeReconcileOptions, generate_credential_secret,
     plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
-    plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
-    plan_shared_instances, provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_postgres_logical_resource, reconcile_mailpit_authentication,
-    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
+    plan_object_store_project_resources, plan_postgres_project_resources,
+    plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
+    provision_mongodb_logical_resource, provision_mysql_logical_resource,
+    provision_object_store_project_resources, provision_postgres_logical_resource,
+    reconcile_mailpit_authentication, reconcile_mongodb_project_resources,
+    reconcile_mysql_project_resources, reconcile_object_store_project_resources,
     reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
@@ -153,6 +156,283 @@ fn timed_out_provisioning_jobs_are_retained_for_recovery() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(engine.removed_containers.is_empty());
+}
+
+#[test]
+fn compatible_object_stores_get_one_private_persistent_instance() {
+    for (implementation, flavor, health_path) in [
+        ("minio", ObjectStoreFlavor::Minio, "/minio/health/ready"),
+        ("rustfs", ObjectStoreFlavor::RustFs, "/health/ready"),
+    ] {
+        let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+            "bill",
+            "s3",
+            object_store_profile(implementation, "1"),
+        )])
+        .pop()
+        .expect("shared object-store plan");
+        let instance = ObjectStoreSharedInstancePlan::new(
+            &shared,
+            ObjectStoreSharedInstancePlanOptions {
+                installation_id: "install-1".to_owned(),
+                network_name: "stackctl".to_owned(),
+                schema_version: 8,
+                desired_revision: "sha256:object-store-v1".to_owned(),
+                policy_directory: "/private/object-store/policies".into(),
+                root_secret: CredentialSecret::new("root-secret".to_owned()),
+            },
+        )
+        .expect("object-store instance");
+
+        assert_eq!(instance.flavor(), flavor);
+        assert_eq!(instance.container().network(), Some("stackctl"));
+        assert!(instance.container().port_bindings().is_empty());
+        assert_eq!(instance.container().volume_mounts().len(), 1);
+        assert_eq!(instance.data_mount_target(), "/data");
+        assert_eq!(instance.container().bind_mounts().len(), 1);
+        assert!(instance.container().bind_mounts()[0].is_read_only());
+        assert_eq!(
+            instance.policy_mount_target(),
+            "/etc/stackctl/object-store/policies"
+        );
+        assert_eq!(
+            instance
+                .container()
+                .health_check()
+                .expect("health check")
+                .engine_test(),
+            vec![
+                "CMD".to_owned(),
+                "curl".to_owned(),
+                "--fail".to_owned(),
+                "--silent".to_owned(),
+                format!("http://127.0.0.1:9000{health_path}"),
+            ]
+        );
+        assert_eq!(instance.root_credential().username(), "stackctl_admin");
+        assert_eq!(instance.root_credential().secret(), "root-secret");
+        assert!(!format!("{instance:?}").contains("root-secret"));
+    }
+}
+
+#[test]
+fn object_store_projects_get_bucket_scoped_credentials_and_environment() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "s3",
+        object_store_profile("minio", "1"),
+    )])
+    .pop()
+    .expect("shared object-store plan");
+    let instance = ObjectStoreSharedInstancePlan::new(
+        &shared,
+        ObjectStoreSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:object-store-v1".to_owned(),
+            policy_directory: "/private/object-store/policies".into(),
+            root_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("object-store instance");
+
+    let project = plan_object_store_project_resources(
+        "bill",
+        "s3",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("object-store project resources");
+
+    assert_eq!(project.definition().bucket(), "stackctl-bill-s3");
+    assert_eq!(project.definition().username(), "st_bill_s3");
+    assert_eq!(project.definition().policy_name(), "stackctl-bill-s3");
+    assert!(
+        project
+            .definition()
+            .policy_json()
+            .contains("arn:aws:s3:::stackctl-bill-s3/*")
+    );
+    assert_eq!(project.credential().secret(), "project-secret");
+    assert_eq!(
+        project.environment().values(),
+        &BTreeMap::from([
+            ("AWS_ACCESS_KEY_ID".to_owned(), "st_bill_s3".to_owned()),
+            ("AWS_BUCKET".to_owned(), "stackctl-bill-s3".to_owned()),
+            ("AWS_DEFAULT_REGION".to_owned(), "us-east-1".to_owned()),
+            (
+                "AWS_ENDPOINT".to_owned(),
+                format!("http://{}:9000", instance.container().name()),
+            ),
+            (
+                "AWS_SECRET_ACCESS_KEY".to_owned(),
+                "project-secret".to_owned()
+            ),
+            ("AWS_USE_PATH_STYLE_ENDPOINT".to_owned(), "true".to_owned()),
+        ])
+    );
+    assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[test]
+fn minio_project_provisioning_streams_secrets_and_uses_non_shell_commands() {
+    let (instance, project) = object_store_project("minio");
+    let container = owned_shared_container("minio-container", "sha256:minio-1");
+    let executor = RecordingObjectStoreExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_object_store_project_resources(
+            &executor, &container, &instance, &project,
+        ))
+        .expect("provision MinIO project resources");
+    runtime.block_on(tokio::task::yield_now());
+
+    let requests = executor.requests.lock().expect("object-store requests");
+    assert_eq!(requests.len(), 4);
+    assert_eq!(requests[0][..3], ["mc", "mb", "--ignore-existing"]);
+    assert_eq!(requests[1][..4], ["mc", "admin", "policy", "create"]);
+    assert_eq!(requests[2], ["mc", "admin", "user", "add", "stackctl"]);
+    assert_eq!(requests[3][..4], ["mc", "admin", "policy", "attach"]);
+    assert!(
+        !requests
+            .iter()
+            .flatten()
+            .any(|value| value.contains("secret"))
+    );
+    drop(requests);
+    let inputs = executor.inputs.lock().expect("object-store inputs");
+    assert!(
+        inputs
+            .iter()
+            .any(|input| input == b"st_bill_s3\nproject-secret\n")
+    );
+    let debug = executor
+        .request_debug
+        .lock()
+        .expect("request debug")
+        .join("\n");
+    assert!(debug.contains("MC_HOST_stackctl"));
+    assert!(!debug.contains("root-secret"));
+    assert!(!debug.contains("project-secret"));
+}
+
+#[test]
+fn rustfs_project_provisioning_stays_closed_until_iam_is_proven() {
+    let (instance, project) = object_store_project("rustfs");
+    let container = owned_shared_container("rustfs-container", "sha256:rustfs-1");
+    let executor = RecordingObjectStoreExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(provision_object_store_project_resources(
+            &executor, &container, &instance, &project,
+        ))
+        .expect_err("unproven RustFS IAM");
+
+    assert!(
+        error
+            .to_string()
+            .contains("RustFS IAM provisioning is not proven")
+    );
+    assert!(
+        executor
+            .requests
+            .lock()
+            .expect("object-store requests")
+            .is_empty()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn minio_reconciliation_persists_policy_before_instance_and_logical_resources() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-minio-reconcile-{}",
+        std::process::id()
+    ));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale MinIO fixture");
+    }
+    let (instance, project) = object_store_project_at("minio", &root);
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_object_store_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect("reconcile MinIO project resources");
+
+    assert_eq!(result.action(), SharedServiceReconcileAction::Created);
+    assert_eq!(
+        std::fs::read_to_string(root.join("stackctl-bill-s3.json")).expect("stored MinIO policy"),
+        project.definition().policy_json()
+    );
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("MinIO commands")
+            .len(),
+        4
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove MinIO fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn minio_reconciliation_rejects_policy_mount_drift_before_writes() {
+    let root =
+        std::env::temp_dir().join(format!("stackctl-v8-minio-reject-{}", std::process::id()));
+    if root.exists() {
+        std::fs::remove_dir_all(&root).expect("remove stale MinIO fixture");
+    }
+    let (instance, project) = object_store_project_at("minio", &root.join("wrong"));
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_object_store_project_resources(
+            &mut engine,
+            &instance,
+            &project,
+            &root,
+            "install-1",
+            8,
+        ))
+        .expect_err("policy mount drift");
+
+    assert!(error.to_string().contains("policy mount"));
+    assert!(!root.exists());
+    assert!(engine.operations.is_empty());
 }
 
 #[test]
@@ -2738,6 +3018,60 @@ struct RecordingPostgresExecutor {
     request_debug: Arc<Mutex<String>>,
 }
 
+#[derive(Default)]
+struct RecordingObjectStoreExecutor {
+    inputs: Arc<Mutex<Vec<Vec<u8>>>>,
+    requests: Arc<Mutex<Vec<Vec<String>>>>,
+    request_debug: Arc<Mutex<Vec<String>>>,
+}
+
+impl CommandExecutor for RecordingObjectStoreExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        let inputs = Arc::clone(&self.inputs);
+        self.requests
+            .lock()
+            .expect("object-store request lock")
+            .push(request.arguments().to_vec());
+        self.request_debug
+            .lock()
+            .expect("object-store debug lock")
+            .push(format!("{request:?}"));
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(16 * 1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read object-store stdin");
+                inputs.lock().expect("object-store input lock").push(bytes);
+            });
+            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("object-store-exec"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(0)) })
+    }
+}
+
 struct RecordingOutputExecutor {
     outputs: Arc<Mutex<VecDeque<Vec<u8>>>>,
     requests: Arc<Mutex<Vec<Vec<String>>>>,
@@ -2915,6 +3249,63 @@ fn mailpit_profile(major_version: &str) -> CompatibilityProfile {
         platform_architecture: Some("linux/amd64".to_owned()),
     })
     .expect("Mailpit compatibility profile")
+}
+
+fn object_store_profile(implementation: &str, major_version: &str) -> CompatibilityProfile {
+    CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: implementation.to_owned(),
+        major_version: major_version.to_owned(),
+        image_digest: format!("{implementation}@sha256:{}", "f".repeat(64)),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::BucketAndPolicy,
+        platform_architecture: Some("linux/arm64".to_owned()),
+    })
+    .expect("valid object-store compatibility profile")
+}
+
+fn object_store_project(
+    implementation: &str,
+) -> (ObjectStoreSharedInstancePlan, ObjectStoreProjectResources) {
+    object_store_project_at(
+        implementation,
+        std::path::Path::new("/private/object-store/policies"),
+    )
+}
+
+fn object_store_project_at(
+    implementation: &str,
+    policy_directory: &std::path::Path,
+) -> (ObjectStoreSharedInstancePlan, ObjectStoreProjectResources) {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "s3",
+        object_store_profile(implementation, "1"),
+    )])
+    .pop()
+    .expect("shared object-store plan");
+    let instance = ObjectStoreSharedInstancePlan::new(
+        &shared,
+        ObjectStoreSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:object-store-v1".to_owned(),
+            policy_directory: policy_directory.to_path_buf(),
+            root_secret: CredentialSecret::new("root-secret".to_owned()),
+        },
+    )
+    .expect("object-store instance");
+    let project = plan_object_store_project_resources(
+        "bill",
+        "s3",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("object-store project resources");
+
+    (instance, project)
 }
 
 fn mongodb_profile(major_version: &str) -> CompatibilityProfile {
