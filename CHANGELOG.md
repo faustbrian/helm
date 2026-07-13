@@ -94,6 +94,8 @@ All notable changes to this project are documented in this file.
   traffic is never proxied in plaintext while HTTPS remains the only upstream path.
 - Added an explicit non-shell gateway health check that validates the mounted
   Caddy configuration without relying on curl, a shell, or image defaults.
+- Added a non-mutating gateway port preflight that checks both loopback families,
+  reports every known owner, and never falls back to random public ports.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

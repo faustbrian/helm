@@ -1,11 +1,13 @@
 use super::{
     CaddyGatewayProvider, GatewayConfiguration, GatewayDocumentLoader, GatewayError, GatewayFuture,
-    GatewayRoute, GatewaySnapshot, LocalhostResolver, render_caddy_document, store_caddy_bootstrap,
-    verify_stackctl_localhost_resolution,
+    GatewayPortAvailability, GatewayPortProbe, GatewayRoute, GatewaySnapshot, LocalhostResolver,
+    SystemGatewayPortProbe, render_caddy_document, store_caddy_bootstrap,
+    verify_gateway_ports_available, verify_stackctl_localhost_resolution,
 };
 use serde_json::Value;
 use std::cell::RefCell;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::collections::BTreeMap;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::Path;
 
 #[cfg(unix)]
@@ -103,6 +105,54 @@ fn stackctl_localhost_preflight_rejects_non_loopback_answers() {
     assert_eq!(
         error.to_string(),
         "stackctl-probe.stackctl.localhost resolved to non-loopback address 192.0.2.10"
+    );
+}
+
+#[test]
+fn gateway_port_preflight_reports_every_owner_and_never_selects_fallback_ports() {
+    let probe = RecordingGatewayPortProbe::with_results([
+        (
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 80)),
+            GatewayPortAvailability::Occupied {
+                owner: Some("container 'legacy-proxy'".to_owned()),
+            },
+        ),
+        (
+            SocketAddr::from((Ipv6Addr::LOCALHOST, 443)),
+            GatewayPortAvailability::Occupied { owner: None },
+        ),
+    ]);
+
+    let error = verify_gateway_ports_available(&probe).expect_err("occupied gateway ports");
+
+    assert_eq!(
+        error.to_string(),
+        "gateway cannot bind required loopback ports:\n\
+- 127.0.0.1:80 is occupied by container 'legacy-proxy'\n\
+- [::1]:443 is occupied by an unknown host process or Engine binding\n\
+stop or reconfigure each owner; Stackctl will not choose alternate ports"
+    );
+    assert_eq!(
+        probe.addresses.borrow().as_slice(),
+        &[
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 80)),
+            SocketAddr::from((Ipv6Addr::LOCALHOST, 80)),
+            SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
+            SocketAddr::from((Ipv6Addr::LOCALHOST, 443)),
+        ]
+    );
+}
+
+#[test]
+fn system_gateway_port_probe_detects_a_loopback_listener_without_binding() {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind loopback listener");
+    let address = listener.local_addr().expect("listener address");
+
+    assert_eq!(
+        SystemGatewayPortProbe
+            .probe(address)
+            .expect("probe listener"),
+        GatewayPortAvailability::Occupied { owner: None }
     );
 }
 
@@ -435,5 +485,33 @@ impl LocalhostResolver for RecordingLocalhostResolver {
         self.hosts.borrow_mut().push(host.to_owned());
 
         Ok(self.addresses.clone())
+    }
+}
+
+struct RecordingGatewayPortProbe {
+    addresses: RefCell<Vec<SocketAddr>>,
+    results: BTreeMap<SocketAddr, GatewayPortAvailability>,
+}
+
+impl RecordingGatewayPortProbe {
+    fn with_results(
+        results: impl IntoIterator<Item = (SocketAddr, GatewayPortAvailability)>,
+    ) -> Self {
+        Self {
+            addresses: RefCell::default(),
+            results: results.into_iter().collect(),
+        }
+    }
+}
+
+impl GatewayPortProbe for RecordingGatewayPortProbe {
+    fn probe(&self, address: SocketAddr) -> Result<GatewayPortAvailability, GatewayError> {
+        self.addresses.borrow_mut().push(address);
+
+        Ok(self
+            .results
+            .get(&address)
+            .cloned()
+            .unwrap_or(GatewayPortAvailability::Available))
     }
 }
