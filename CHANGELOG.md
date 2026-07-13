@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
   IDs, cancellation, strict decoding, and a user-only Unix socket listener.
 - Added a v8 multi-project application boundary that plans the complete
   discovered registry before atomically persisting any project ownership.
+- Added the v8 Engine capability boundary with mandatory installation ownership
+  metadata and replaceable container lifecycle strategies.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.
