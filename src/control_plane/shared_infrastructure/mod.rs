@@ -25,7 +25,8 @@ pub(crate) use postgres::{
 pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
     RabbitMqProjectResources, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
-    StoredRabbitMqPaths, plan_rabbitmq_project_resources, store_rabbitmq_definitions,
+    StoredRabbitMqPaths, plan_rabbitmq_project_resources, reload_rabbitmq_definitions,
+    store_rabbitmq_definitions,
 };
 pub(crate) use redis::{
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,

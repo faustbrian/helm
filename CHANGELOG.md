@@ -134,6 +134,9 @@ All notable changes to this project are documented in this file.
 - Added RabbitMQ project composition with deterministic virtual-host users,
   durable credentials, and complete managed AMQP connection environments for
   project applications sharing a compatible broker.
+- Added bounded live RabbitMQ core-definition imports through the broker's
+  built-in CLI so project vhosts and users converge without management plugins,
+  host tools, credentials, or shared-container restarts.
 - Added deterministic v8 shared-service compatibility fingerprints covering
   implementation, major, digest, extensions, settings, persistence, isolation,
   and platform architecture.

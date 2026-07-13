@@ -9,7 +9,8 @@ use super::{
     SharedServiceRequest, generate_credential_secret, plan_mysql_project_resources,
     plan_postgres_project_resources, plan_rabbitmq_project_resources, plan_redis_project_resources,
     plan_shared_instances, provision_mysql_logical_resource, provision_postgres_logical_resource,
-    reload_redis_acl, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reload_rabbitmq_definitions, reload_redis_acl, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
@@ -395,6 +396,51 @@ fn rabbitmq_project_resources_compose_vhost_credential_and_environment() {
         ])
     );
     assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[test]
+fn rabbitmq_live_definitions_import_is_bounded_and_credential_free() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "broker",
+        rabbitmq_profile("4"),
+    )])
+    .pop()
+    .expect("shared RabbitMQ plan");
+    let instance = RabbitMqSharedInstancePlan::new(
+        &shared,
+        RabbitMqSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:rabbitmq-v1".to_owned(),
+            definitions_directory: "/private/rabbitmq/mounted".into(),
+        },
+    )
+    .expect("RabbitMQ instance");
+    let container = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(reload_rabbitmq_definitions(
+            &executor, &container, &instance,
+        ))
+        .expect("reload RabbitMQ definitions");
+    runtime.block_on(tokio::task::yield_now());
+
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(request_debug.contains("argument_count: 3"));
+    assert!(request_debug.contains("environment_keys: []"));
+    assert!(executor.stdin.lock().expect("recorded stdin").is_empty());
 }
 
 #[test]

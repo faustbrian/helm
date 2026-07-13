@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 const CONFIG_MOUNT_TARGET: &str = "/etc/stackctl/rabbitmq";
 const CONFIG_FILE: &str = "/etc/stackctl/rabbitmq/rabbitmq.conf";
+const DEFINITIONS_FILE: &str = "/etc/stackctl/rabbitmq/definitions.json";
 const DATA_MOUNT_TARGET: &str = "/var/lib/rabbitmq";
 const NODE_NAME: &str = "rabbit@localhost";
 
@@ -118,6 +119,10 @@ impl RabbitMqSharedInstancePlan {
 
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
+    }
+
+    pub(crate) const fn definitions_file(&self) -> &'static str {
+        DEFINITIONS_FILE
     }
 
     pub(crate) const fn node_name(&self) -> &'static str {
