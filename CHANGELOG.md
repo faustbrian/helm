@@ -102,6 +102,8 @@ All notable changes to this project are documented in this file.
   exact containers without invoking Docker, Podman, lsof, or netstat CLIs.
 - Added idempotent gateway reconciliation that creates missing containers,
   restarts stopped owned containers, and leaves healthy owned state untouched.
+- Added atomic route-revision reconciliation that skips matching state and
+  verifies the desired revision after every gateway configuration load.
 - Extended the singleton gateway container plan with an immutable bootstrap config,
   a private writable admin-socket mount, and an explicit in-container Caddy command.
 - Added atomic user-private persistence for immutable gateway bootstrap JSON and

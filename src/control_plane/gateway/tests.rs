@@ -1,9 +1,10 @@
 use super::{
-    CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayDocumentLoader,
-    GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe, GatewayReconcileAction,
-    GatewayReconcileOptions, GatewayRoute, GatewaySnapshot, LocalhostResolver,
-    SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway, render_caddy_document,
-    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    CaddyGatewayProvider, EngineGatewayPortProbe, GatewayConfiguration, GatewayConfigurationAction,
+    GatewayDocumentLoader, GatewayError, GatewayFuture, GatewayPortAvailability, GatewayPortProbe,
+    GatewayReconcileAction, GatewayReconcileOptions, GatewayRoute, GatewaySnapshot,
+    LocalhostResolver, SystemGatewayPortProbe, preflight_gateway_ports, reconcile_gateway,
+    reconcile_gateway_configuration, render_caddy_document, store_caddy_bootstrap,
+    verify_gateway_ports_available, verify_stackctl_localhost_resolution,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
@@ -580,6 +581,66 @@ fn gateway_configuration_is_an_object_safe_atomic_strategy() {
 }
 
 #[test]
+fn gateway_configuration_reconciliation_skips_the_active_revision() {
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let mut provider = RecordingGatewayProvider {
+        active_revision: Some(snapshot.revision().to_owned()),
+        ..RecordingGatewayProvider::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let action = runtime
+        .block_on(reconcile_gateway_configuration(&mut provider, &snapshot))
+        .expect("reconcile active snapshot");
+
+    assert_eq!(action, GatewayConfigurationAction::Unchanged);
+    assert!(provider.applied.is_empty());
+}
+
+#[test]
+fn gateway_configuration_reconciliation_applies_and_verifies_the_desired_revision() {
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let mut provider = RecordingGatewayProvider::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let action = runtime
+        .block_on(reconcile_gateway_configuration(&mut provider, &snapshot))
+        .expect("apply desired snapshot");
+
+    assert_eq!(action, GatewayConfigurationAction::Applied);
+    assert_eq!(provider.applied, vec![snapshot.clone()]);
+    assert_eq!(
+        provider.active_revision.as_deref(),
+        Some(snapshot.revision())
+    );
+}
+
+#[test]
+fn gateway_configuration_reconciliation_fails_when_revision_cannot_be_verified() {
+    let snapshot = GatewaySnapshot::new("sha256:routes-v1", Vec::new()).expect("snapshot");
+    let mut provider = RecordingGatewayProvider {
+        reported_revision_after_apply: Some("sha256:stale".to_owned()),
+        ..RecordingGatewayProvider::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_gateway_configuration(&mut provider, &snapshot))
+        .expect_err("stale active revision");
+
+    assert_eq!(
+        error.to_string(),
+        "gateway applied revision 'sha256:routes-v1' but reported active revision 'sha256:stale'"
+    );
+}
+
+#[test]
 fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
     let snapshot = GatewaySnapshot::new(
         "sha256:routes-v1",
@@ -822,6 +883,8 @@ fn apply_through_strategy<'operation>(
 #[derive(Default)]
 struct RecordingGatewayProvider {
     applied: Vec<GatewaySnapshot>,
+    active_revision: Option<String>,
+    reported_revision_after_apply: Option<String>,
 }
 
 #[derive(Default)]
@@ -855,13 +918,20 @@ impl GatewayConfiguration for RecordingGatewayProvider {
     ) -> GatewayFuture<'operation, ()> {
         Box::pin(async move {
             self.applied.push(snapshot.clone());
+            self.active_revision = Some(
+                self.reported_revision_after_apply
+                    .clone()
+                    .unwrap_or_else(|| snapshot.revision().to_owned()),
+            );
 
             Ok(())
         })
     }
 
     fn active_revision(&self) -> GatewayFuture<'_, Option<String>> {
-        Box::pin(async { Ok(None) })
+        let active_revision = self.active_revision.clone();
+
+        Box::pin(async move { Ok(active_revision) })
     }
 }
 
