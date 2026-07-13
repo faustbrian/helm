@@ -5,9 +5,9 @@ use super::{
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcPayload, IpcProjectCommand,
-    IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse,
-    IpcResult,
+    IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationStatus, IpcPayload,
+    IpcProjectCommand, IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle,
+    IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -161,6 +161,22 @@ where
                 Err(message) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new("project_status_failed", message, false)],
+                ),
+            }
+        }
+        IpcPayload::ProjectMigrations { canonical_path } => {
+            match project_migrations(control_plane, canonical_path) {
+                Ok(migrations) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::ProjectMigrations { migrations },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_migrations_failed",
+                        message,
+                        false,
+                    )],
                 ),
             }
         }
@@ -630,6 +646,45 @@ where
         environment.revision().to_owned(),
         environment.values().clone(),
     ))
+}
+
+fn project_migrations<Store>(
+    control_plane: &ControlPlane<Store>,
+    canonical_path: &std::path::Path,
+) -> Result<Vec<IpcMigrationStatus>, String>
+where
+    Store: StateStore,
+{
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let migrations = control_plane
+        .migrations()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|migration| migration.project_id() == project.project_name())
+        .map(|migration| {
+            IpcMigrationStatus::new(
+                migration.migration_id().to_owned(),
+                migration.phase().label().to_owned(),
+                migration.backup_reference().is_some()
+                    && migration.backup_artifact_sha256().is_some()
+                    && migration.backup_artifact_size_bytes().is_some(),
+                migration.phase() == crate::control_plane::state::MigrationPhase::Cutover,
+                migration.updated_at_unix_seconds(),
+            )
+        })
+        .collect();
+
+    Ok(migrations)
 }
 
 fn project_status<Store>(

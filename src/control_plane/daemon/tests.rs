@@ -12,9 +12,9 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
-    IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcOutputStream, IpcPayload,
-    IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle,
-    IpcResourceStatus, IpcResponse, IpcResult,
+    IpcEventKind, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus, IpcOutputStream,
+    IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
 };
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
@@ -22,8 +22,9 @@ use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
+    SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -1981,6 +1982,102 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove adoption fixture");
+}
+
+#[test]
+fn daemon_reports_only_the_exact_projects_durable_migrations() {
+    let root = temporary_directory("ipc-project-migrations");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    store
+        .replace_project(&ProjectRecord::new(
+            project_path.clone(),
+            "bill".to_owned(),
+            Vec::new(),
+        ))
+        .expect("register project");
+    for (migration_id, project_id) in [
+        ("migration-bill-postgres", "bill"),
+        ("migration-other-postgres", "other"),
+    ] {
+        for phase in [
+            MigrationPhase::Inventoried,
+            MigrationPhase::BackupVerified,
+            MigrationPhase::TargetProvisioned,
+            MigrationPhase::DataRestored,
+            MigrationPhase::TargetVerified,
+            MigrationPhase::Cutover,
+        ] {
+            store
+                .record_migration(
+                    &MigrationRecord::new(MigrationRecordOptions {
+                        migration_id: migration_id.to_owned(),
+                        project_id: project_id.to_owned(),
+                        source_revision: "sha256:v7".to_owned(),
+                        target_revision: "sha256:v8".to_owned(),
+                        source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
+                        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+                        phase,
+                        backup_reference: (phase >= MigrationPhase::BackupVerified)
+                            .then(|| "/private/recovery-point".to_owned()),
+                        backup_artifact_sha256: (phase >= MigrationPhase::BackupVerified)
+                            .then(|| "sha256:backup".to_owned()),
+                        backup_artifact_size_bytes: (phase >= MigrationPhase::BackupVerified)
+                            .then_some(1_024),
+                        target_resource_id: (phase >= MigrationPhase::TargetProvisioned)
+                            .then(|| format!("postgres-{project_id}")),
+                        rollback_reference: Some("v7:retained-source".to_owned()),
+                        updated_at_unix_seconds: 12_345,
+                    })
+                    .expect("migration checkpoint"),
+                )
+                .expect("record migration");
+        }
+    }
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "migration-status-42",
+        IpcPayload::ProjectMigrations {
+            canonical_path: project_path,
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        image_reference_resolution: None,
+        now_unix_seconds: 20_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "migration-status-42",
+            IpcResult::ProjectMigrations {
+                migrations: vec![IpcMigrationStatus::new(
+                    "migration-bill-postgres".to_owned(),
+                    "cutover".to_owned(),
+                    true,
+                    true,
+                    12_345,
+                )],
+            },
+        )
+    );
+    assert!(!format!("{response:?}").contains("/private/recovery-point"));
+    assert!(!format!("{response:?}").contains("v7:retained-source"));
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove migration fixture");
 }
 
 #[test]

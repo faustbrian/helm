@@ -1,4 +1,7 @@
-use super::{IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcProjectStatus};
+use super::{
+    IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
+    IpcProjectStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -25,6 +28,8 @@ pub(crate) enum IpcResult {
     ProjectAdopted { project_id: String },
     /// Returns one project status derived from authoritative daemon state.
     ProjectStatus { project: IpcProjectStatus },
+    /// Returns stable migration checkpoints without credentials or recovery paths.
+    ProjectMigrations { migrations: Vec<IpcMigrationStatus> },
     /// Returns explicitly requested managed values over the user-only channel.
     ProjectEnvironment { environment: IpcManagedEnvironment },
     /// Returns one bounded ordered page without persisting application logs.

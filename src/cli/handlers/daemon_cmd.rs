@@ -5,7 +5,10 @@
 mod service;
 mod trust;
 
-use crate::cli::args::{DaemonAdoptArgs, DaemonArgs, DaemonCommands, DaemonWatchArgs};
+use crate::cli::args::{
+    DaemonAdoptArgs, DaemonArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,
+    DaemonMigrationStatusArgs, DaemonWatchArgs,
+};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
 use std::path::Path;
@@ -18,8 +21,67 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Status => handle_daemon_status(),
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
         DaemonCommands::Adopt(adopt) => handle_daemon_adopt(adopt),
+        DaemonCommands::Migration(migration) => handle_daemon_migration(migration),
         DaemonCommands::Trust(trust_args) => trust::handle_daemon_trust(trust_args),
     }
+}
+
+fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
+    match &args.command {
+        DaemonMigrationCommands::Status(status) => handle_daemon_migration_status(status),
+    }
+}
+
+#[cfg(unix)]
+fn handle_daemon_migration_status(args: &DaemonMigrationStatusArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let canonical_path = std::fs::canonicalize(&args.path)?;
+    let response = send_singleton_request(IpcPayload::ProjectMigrations { canonical_path })?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::ProjectMigrations { migrations },
+        } => {
+            if migrations.is_empty() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    "No durable migrations exist for this project",
+                    Persistence::Persistent,
+                );
+            }
+            for migration in migrations {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "{}: phase={}, backup_verified={}, awaiting_confirmation={}, updated_at={}",
+                        migration.migration_id(),
+                        migration.phase(),
+                        migration.backup_verified(),
+                        migration.awaiting_confirmation(),
+                        migration.updated_at_unix_seconds(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
+            Ok(())
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let diagnostic = diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("migration status failed: {diagnostic}")
+        }
+        outcome => anyhow::bail!("unexpected migration status response: {outcome:?}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_migration_status(_args: &DaemonMigrationStatusArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 #[cfg(unix)]

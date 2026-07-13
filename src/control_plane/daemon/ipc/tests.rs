@@ -1,7 +1,7 @@
 use super::{
     IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,
-    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcProjectCommand,
+    IpcRequest, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
     decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
@@ -34,6 +34,38 @@ fn project_adoption_requests_round_trip_with_the_exact_target_path() {
     let decoded = decode_request_frame(&frame).expect("decode adoption request");
 
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn migration_status_round_trips_without_exposing_rollback_material() {
+    let request = IpcRequest::new(
+        "migration-status-42",
+        IpcPayload::ProjectMigrations {
+            canonical_path: PathBuf::from("/work/bill"),
+        },
+    );
+    let response = IpcResponse::success(
+        "migration-status-42",
+        IpcResult::ProjectMigrations {
+            migrations: vec![IpcMigrationStatus::new(
+                "migration-bill-postgres".to_owned(),
+                "cutover".to_owned(),
+                true,
+                true,
+                12_345,
+            )],
+        },
+    );
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    let decoded = decode_response_frame(&encode_frame(&response).expect("encode response"))
+        .expect("decode response");
+    assert_eq!(decoded, response);
+    assert!(!format!("{decoded:?}").contains("recovery-point-secret"));
 }
 
 #[test]

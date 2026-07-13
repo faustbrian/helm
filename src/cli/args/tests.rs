@@ -890,6 +890,17 @@ fn daemon_command_variants_parse() {
     } else {
         panic!("expected daemon command");
     }
+
+    let migration = Cli::parse_from(["stackctl", "daemon", "migration", "status", "/work/bill"]);
+    if let commands::Commands::Daemon(args) = migration.command {
+        let commands::DaemonCommands::Migration(args) = args.command else {
+            panic!("expected daemon migration command");
+        };
+        let commands::DaemonMigrationCommands::Status(args) = args.command;
+        assert_eq!(args.path, PathBuf::from("/work/bill"));
+    } else {
+        panic!("expected daemon command");
+    }
 }
 
 #[test]

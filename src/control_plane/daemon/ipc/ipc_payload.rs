@@ -20,6 +20,8 @@ pub(crate) enum IpcPayload {
     AdoptProject { canonical_path: PathBuf },
     /// Reads secret-free durable status for one exact registered project path.
     ProjectStatus { canonical_path: PathBuf },
+    /// Reads durable migration checkpoints for one exact registered project.
+    ProjectMigrations { canonical_path: PathBuf },
     /// Explicitly exports daemon-owned values for one exact registered project.
     ProjectEnvironment { canonical_path: PathBuf },
     /// Opens one ownership-scoped, bounded in-memory container log session.

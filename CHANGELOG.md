@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `stackctl daemon migration status` over typed singleton IPC so users
+  can inspect exact project-scoped durable migration phases, verified-backup
+  state, and confirmation requirements without exposing recovery paths,
+  credentials, or retained v7 rollback material.
 - Added typed operation-scoped browser execution for Dusk and Selenium with
   durable `--browser` intent, immutable artifacts, official Grid readiness,
   private-network endpoint injection, no host ports, Engine-native 2 GiB shared
