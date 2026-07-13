@@ -1,12 +1,12 @@
 use super::{
-    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
-    StateStore, StateStoreError,
+    EngineProvider, InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 2;
+const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -97,6 +97,20 @@ impl SqliteStateStore {
             )?;
         }
 
+        if found < 3 {
+            transaction.execute_batch(
+                "CREATE TABLE installation (\n\
+                     singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),\n\
+                     installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),\n\
+                     engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),\n\
+                     engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0)\n\
+                 ) STRICT;\n\
+                 CREATE TABLE watched_roots (\n\
+                     canonical_path TEXT PRIMARY KEY NOT NULL\n\
+                 ) STRICT;",
+            )?;
+        }
+
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
@@ -105,6 +119,76 @@ impl SqliteStateStore {
 }
 
 impl StateStore for SqliteStateStore {
+    fn initialize_installation(
+        &mut self,
+        installation: &InstallationRecord,
+    ) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let existing = load_installation(&transaction)?;
+
+        if let Some(existing) = existing {
+            if existing != *installation {
+                return Err(StateStoreError::InstallationAlreadyInitialized {
+                    existing_installation_id: existing.installation_id().to_owned(),
+                });
+            }
+        } else {
+            transaction.execute(
+                "INSERT INTO installation (\n\
+                     singleton, installation_id, engine_provider, engine_endpoint\n\
+                 ) VALUES (1, ?1, ?2, ?3)",
+                params![
+                    installation.installation_id(),
+                    installation.engine_provider().label(),
+                    installation.engine_endpoint(),
+                ],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn installation(&self) -> Result<Option<InstallationRecord>, StateStoreError> {
+        load_installation(&self.connection)
+    }
+
+    fn replace_watched_roots(&mut self, roots: &[PathBuf]) -> Result<(), StateStoreError> {
+        let roots = roots
+            .iter()
+            .map(|root| exact_path(root))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        transaction.execute("DELETE FROM watched_roots", [])?;
+        for root in roots {
+            transaction.execute(
+                "INSERT INTO watched_roots (canonical_path) VALUES (?1)",
+                [root],
+            )?;
+        }
+
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn watched_roots(&self) -> Result<Vec<PathBuf>, StateStoreError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT canonical_path FROM watched_roots ORDER BY canonical_path")?;
+        let roots = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(roots.into_iter().map(PathBuf::from).collect())
+    }
+
     fn replace_projects(&mut self, projects: &[ProjectRecord]) -> Result<(), StateStoreError> {
         let exact_projects = projects
             .iter()
@@ -350,6 +434,39 @@ impl StateStore for SqliteStateStore {
             )
             .collect()
     }
+}
+
+fn load_installation(
+    connection: &Connection,
+) -> Result<Option<InstallationRecord>, StateStoreError> {
+    let persisted = connection
+        .query_row(
+            "SELECT installation_id, engine_provider, engine_endpoint\n\
+             FROM installation WHERE singleton = 1",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((installation_id, engine_provider, engine_endpoint)) = persisted else {
+        return Ok(None);
+    };
+    let engine_provider = EngineProvider::from_label(&engine_provider).ok_or_else(|| {
+        StateStoreError::CorruptState {
+            detail: format!("installation has unknown Engine provider '{engine_provider}'"),
+        }
+    })?;
+
+    Ok(Some(InstallationRecord::new(
+        installation_id,
+        engine_provider,
+        engine_endpoint,
+    )))
 }
 
 fn exact_path(path: &Path) -> Result<&str, StateStoreError> {

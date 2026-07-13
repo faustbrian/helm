@@ -1,7 +1,23 @@
-use super::{ProjectRecord, ResourceRecord, StateStoreError};
+use super::{InstallationRecord, ProjectRecord, ResourceRecord, StateStoreError};
+use std::path::{Path, PathBuf};
 
 /// Durable control-plane state needed independently of any runtime backend.
 pub(crate) trait StateStore {
+    /// Initializes immutable installation identity, or verifies an exact replay.
+    fn initialize_installation(
+        &mut self,
+        installation: &InstallationRecord,
+    ) -> Result<(), StateStoreError>;
+
+    /// Loads the selected installation and Engine endpoint when initialized.
+    fn installation(&self) -> Result<Option<InstallationRecord>, StateStoreError>;
+
+    /// Atomically replaces the complete set of canonical watched roots.
+    fn replace_watched_roots(&mut self, roots: &[PathBuf]) -> Result<(), StateStoreError>;
+
+    /// Loads canonical watched roots in stable path order.
+    fn watched_roots(&self) -> Result<Vec<PathBuf>, StateStoreError>;
+
     /// Atomically replaces one project and its complete route ownership set.
     fn replace_project(&mut self, project: &ProjectRecord) -> Result<(), StateStoreError> {
         self.replace_projects(std::slice::from_ref(project))
@@ -16,7 +32,7 @@ pub(crate) trait StateStore {
     /// Atomically unregisters a project and orphans its project-owned resources.
     fn orphan_project(
         &mut self,
-        canonical_path: &std::path::Path,
+        canonical_path: &Path,
         orphaned_at_unix_seconds: i64,
     ) -> Result<(), StateStoreError>;
 

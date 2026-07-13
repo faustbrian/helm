@@ -1,6 +1,6 @@
 use super::{
-    ProjectRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
-    SqliteStateStore, StateStore,
+    EngineProvider, InstallationRecord, ProjectRecord, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,8 +11,84 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 2);
+    assert_eq!(store.schema_version().expect("schema version"), 3);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn installation_and_watched_roots_survive_store_restart() {
+    let database_path = temporary_database_path("installation");
+    let installation = InstallationRecord::new(
+        "install-1",
+        EngineProvider::Docker,
+        "unix:///var/run/docker.sock",
+    );
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        store
+            .initialize_installation(&installation)
+            .expect("initialize installation");
+        store
+            .replace_watched_roots(&[
+                PathBuf::from("/work/zeta"),
+                PathBuf::from("/work/alpha"),
+                PathBuf::from("/work/alpha"),
+            ])
+            .expect("persist watched roots");
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+
+    assert_eq!(
+        store.installation().expect("load installation"),
+        Some(installation)
+    );
+    assert_eq!(
+        store.watched_roots().expect("load watched roots"),
+        vec![PathBuf::from("/work/alpha"), PathBuf::from("/work/zeta")]
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn installation_selection_is_idempotent_but_cannot_silently_change() {
+    let database_path = temporary_database_path("installation-conflict");
+    let installation = InstallationRecord::new(
+        "install-1",
+        EngineProvider::Docker,
+        "unix:///var/run/docker.sock",
+    );
+    let replacement = InstallationRecord::new(
+        "install-2",
+        EngineProvider::Docker,
+        "unix:///Users/example/.docker/run/docker.sock",
+    );
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+
+    store
+        .initialize_installation(&installation)
+        .expect("initialize installation");
+    store
+        .initialize_installation(&installation)
+        .expect("replay installation");
+    let error = store
+        .initialize_installation(&replacement)
+        .expect_err("reject replacement installation");
+
+    assert_eq!(
+        error.to_string(),
+        "Stackctl installation is already initialized as 'install-1'; explicit migration is required"
+    );
+    assert_eq!(
+        store.installation().expect("load installation"),
+        Some(installation)
+    );
 
     drop(store);
     remove_database(&database_path);
@@ -199,7 +275,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 2);
+    assert_eq!(store.schema_version().expect("schema version"), 3);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(

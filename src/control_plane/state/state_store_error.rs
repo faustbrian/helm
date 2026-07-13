@@ -18,6 +18,8 @@ pub(crate) enum StateStoreError {
         existing_path: PathBuf,
         requested_path: PathBuf,
     },
+    /// Installation identity or Engine selection differs from durable state.
+    InstallationAlreadyInitialized { existing_installation_id: String },
     /// Persisted state contains a value outside the supported typed model.
     CorruptState { detail: String },
 }
@@ -45,6 +47,12 @@ impl Display for StateStoreError {
                 existing_path.display(),
                 requested_path.display()
             ),
+            Self::InstallationAlreadyInitialized {
+                existing_installation_id,
+            } => write!(
+                formatter,
+                "Stackctl installation is already initialized as '{existing_installation_id}'; explicit migration is required"
+            ),
             Self::CorruptState { detail } => {
                 write!(formatter, "state database contains invalid data: {detail}")
             }
@@ -59,6 +67,7 @@ impl Error for StateStoreError {
             Self::UnsupportedSchema { .. }
             | Self::NonUtf8Path { .. }
             | Self::RouteOwnershipConflict { .. }
+            | Self::InstallationAlreadyInitialized { .. }
             | Self::CorruptState { .. } => None,
         }
     }

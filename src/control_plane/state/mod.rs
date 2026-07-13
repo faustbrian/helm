@@ -1,3 +1,5 @@
+mod engine_provider;
+mod installation_record;
 mod project_record;
 mod resource_lifecycle;
 mod resource_record;
@@ -7,6 +9,8 @@ mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
 
+pub(crate) use engine_provider::EngineProvider;
+pub(crate) use installation_record::InstallationRecord;
 pub(crate) use project_record::ProjectRecord;
 pub(crate) use resource_lifecycle::ResourceLifecycle;
 pub(crate) use resource_record::ResourceRecord;
