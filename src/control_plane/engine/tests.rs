@@ -74,6 +74,20 @@ fn managed_metadata_generates_complete_reserved_ownership_labels() {
 }
 
 #[test]
+fn observed_project_process_ownership_requires_a_stable_resource_identity() {
+    let labels = project_metadata(ResourceKind::ProjectProcess).labels();
+
+    let ownership = classify_observed_resource(&labels, "install-1", 8);
+
+    assert_eq!(
+        ownership,
+        ObservedResourceOwnership::Malformed {
+            detail: "managed resource label 'dev.stackctl.resource' is missing".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn container_lifecycle_is_an_object_safe_replaceable_strategy() {
     let metadata = project_metadata(ResourceKind::ProjectApplication);
     let options = ContainerCreateOptions::new(

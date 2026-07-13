@@ -313,7 +313,9 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
         desired_revision: "sha256:desired-v1".to_owned(),
         retention: RetentionClass::Disposable,
     })
-    .expect("worker metadata");
+    .expect("worker metadata")
+    .with_resource_id("queue-worker")
+    .expect("worker resource identity");
 
     let request = project_process_request(ProjectProcessRequestOptions {
         plan,
@@ -326,6 +328,10 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
     assert_eq!(
         request.metadata().labels()["dev.stackctl.kind"],
         "project_process"
+    );
+    assert_eq!(
+        request.metadata().labels()["dev.stackctl.resource"],
+        "queue-worker"
     );
     assert_eq!(request.platform(), Some("linux/arm64"));
     assert_eq!(request.network(), Some("stackctl-private"));

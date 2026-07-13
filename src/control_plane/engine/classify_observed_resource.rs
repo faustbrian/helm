@@ -1,6 +1,6 @@
 use super::managed_resource_metadata::{
     DESIRED_LABEL, FINGERPRINT_LABEL, INSTALLATION_LABEL, KIND_LABEL, MANAGED_LABEL, PROJECT_LABEL,
-    RETENTION_LABEL, SCHEMA_LABEL,
+    RESOURCE_LABEL, RETENTION_LABEL, SCHEMA_LABEL,
 };
 use super::{
     ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedResourceOwnership,
@@ -57,8 +57,22 @@ pub(crate) fn classify_observed_resource(
         Ok(value) => value,
         Err(ownership) => return ownership,
     };
+    let resource_id = match labels.get(RESOURCE_LABEL) {
+        Some(value) if !value.is_empty() => Some(value.clone()),
+        Some(_) => {
+            return ObservedResourceOwnership::Malformed {
+                detail: format!("managed resource label '{RESOURCE_LABEL}' is missing"),
+            };
+        }
+        None if kind == ResourceKind::ProjectProcess => {
+            return ObservedResourceOwnership::Malformed {
+                detail: format!("managed resource label '{RESOURCE_LABEL}' is missing"),
+            };
+        }
+        None => None,
+    };
 
-    match ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: installation_id.to_owned(),
         kind,
         project_id: labels.get(PROJECT_LABEL).cloned(),
@@ -66,7 +80,13 @@ pub(crate) fn classify_observed_resource(
         schema_version,
         desired_revision,
         retention,
-    }) {
+    })
+    .and_then(|metadata| match resource_id {
+        Some(resource_id) => metadata.with_resource_id(resource_id),
+        None => Ok(metadata),
+    });
+
+    match metadata {
         Ok(metadata) => ObservedResourceOwnership::Owned(metadata),
         Err(error) => ObservedResourceOwnership::Malformed {
             detail: error.to_string(),

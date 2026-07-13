@@ -12,6 +12,7 @@ pub(crate) fn project_process_request(
 ) -> Result<ContainerCreateOptions, EngineError> {
     if options.metadata.kind() != ResourceKind::ProjectProcess
         || options.metadata.project_id() != Some(options.plan.project_id())
+        || options.metadata.resource_id() != Some(options.plan.service_id())
         || options.metadata.retention() != RetentionClass::Disposable
     {
         return Err(EngineError::InvalidRequest {
