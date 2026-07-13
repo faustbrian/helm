@@ -32,7 +32,7 @@ pub(crate) use rabbitmq::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError, RabbitMqProjectDefinition,
     RabbitMqProjectResources, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
     StoredRabbitMqPaths, plan_rabbitmq_project_resources, reload_rabbitmq_definitions,
-    store_rabbitmq_definitions,
+    revoke_rabbitmq_project_access, store_rabbitmq_definitions,
 };
 pub(crate) use redis::{
     RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError, RedisProjectResources,

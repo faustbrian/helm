@@ -7,6 +7,7 @@ pub(crate) use rabbitmq_project_resources::RabbitMqProjectResources;
 pub(crate) use rabbitmq_shared_instance_plan::RabbitMqSharedInstancePlan;
 pub(crate) use rabbitmq_shared_instance_plan_options::RabbitMqSharedInstancePlanOptions;
 pub(crate) use reload_rabbitmq_definitions::reload_rabbitmq_definitions;
+pub(crate) use revoke_rabbitmq_project_access::revoke_rabbitmq_project_access;
 pub(crate) use store_rabbitmq_definitions::store_rabbitmq_definitions;
 pub(crate) use stored_rabbitmq_paths::StoredRabbitMqPaths;
 
@@ -19,5 +20,6 @@ mod rabbitmq_project_resources;
 mod rabbitmq_shared_instance_plan;
 mod rabbitmq_shared_instance_plan_options;
 mod reload_rabbitmq_definitions;
+mod revoke_rabbitmq_project_access;
 mod store_rabbitmq_definitions;
 mod stored_rabbitmq_paths;

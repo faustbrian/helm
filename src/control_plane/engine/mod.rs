@@ -112,7 +112,7 @@ pub(crate) use reconstruct_owned_volume::reconstruct_owned_volume;
 pub(crate) use resource_kind::ResourceKind;
 pub(crate) use resource_metrics::ResourceMetrics;
 pub(crate) use retention_class::RetentionClass;
-pub(crate) use run_attached_command::run_attached_command;
+pub(crate) use run_attached_command::{run_attached_command, run_attached_command_capture};
 pub(crate) use volume_create_options::VolumeCreateOptions;
 pub(crate) use volume_discovery::VolumeDiscovery;
 pub(crate) use volume_manager::VolumeManager;

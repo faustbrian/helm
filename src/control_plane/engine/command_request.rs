@@ -68,7 +68,7 @@ impl CommandRequest {
         })
     }
 
-    pub(super) fn arguments(&self) -> &[String] {
+    pub(crate) fn arguments(&self) -> &[String] {
         &self.arguments
     }
 

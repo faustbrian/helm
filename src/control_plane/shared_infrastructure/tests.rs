@@ -11,16 +11,16 @@ use super::{
     plan_mysql_project_resources, plan_postgres_project_resources, plan_rabbitmq_project_resources,
     plan_redis_project_resources, plan_shared_instances, provision_mongodb_logical_resource,
     provision_mysql_logical_resource, provision_postgres_logical_resource,
-    reload_rabbitmq_definitions, reload_redis_acl, store_credential_secret,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reload_rabbitmq_definitions, reload_redis_acl, revoke_rabbitmq_project_access,
+    store_credential_secret, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
-    ContainerId, ContainerLogStream, EngineFuture, ObservedContainer, OwnedContainer,
+    ContainerId, ContainerLogStream, EngineFuture, LogChunk, ObservedContainer, OwnedContainer,
     reconstruct_owned_container,
 };
 use futures_util::stream;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
 
@@ -623,6 +623,117 @@ fn rabbitmq_live_definitions_import_is_bounded_and_credential_free() {
     assert!(request_debug.contains("argument_count: 3"));
     assert!(request_debug.contains("environment_keys: []"));
     assert!(executor.stdin.lock().expect("recorded stdin").is_empty());
+}
+
+#[test]
+fn rabbitmq_project_removal_revokes_existing_users_without_deleting_vhost_data() {
+    let definition = RabbitMqProjectDefinition::new(
+        "bill",
+        "broker",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("RabbitMQ definition");
+    let container = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
+    let executor = RecordingOutputExecutor::new(vec![b"st_bill_broker\n".to_vec(), Vec::new()]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(revoke_rabbitmq_project_access(
+            &executor,
+            &container,
+            &definition,
+        ))
+        .expect("revoke RabbitMQ access");
+
+    assert_eq!(
+        *executor.requests.lock().expect("recorded requests"),
+        vec![
+            vec![
+                "rabbitmqctl".to_owned(),
+                "list_users".to_owned(),
+                "name".to_owned(),
+                "--no-table-headers".to_owned(),
+            ],
+            vec![
+                "rabbitmqctl".to_owned(),
+                "delete_user".to_owned(),
+                "st_bill_broker".to_owned(),
+            ],
+        ]
+    );
+    assert!(
+        executor
+            .requests
+            .lock()
+            .expect("recorded requests")
+            .iter()
+            .flatten()
+            .all(|argument| argument != "stackctl_bill_broker")
+    );
+}
+
+#[test]
+fn rabbitmq_project_access_revocation_is_idempotent_when_user_is_absent() {
+    let definition = RabbitMqProjectDefinition::new(
+        "bill",
+        "broker",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("RabbitMQ definition");
+    let container = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
+    let executor = RecordingOutputExecutor::new(vec![b"guest\n".to_vec()]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(revoke_rabbitmq_project_access(
+            &executor,
+            &container,
+            &definition,
+        ))
+        .expect("already revoked RabbitMQ access");
+
+    assert_eq!(
+        executor.requests.lock().expect("recorded requests").len(),
+        1
+    );
+}
+
+#[test]
+fn rabbitmq_project_access_revocation_bounds_broker_output() {
+    let definition = RabbitMqProjectDefinition::new(
+        "bill",
+        "broker",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("RabbitMQ definition");
+    let container = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
+    let executor = RecordingOutputExecutor::new(vec![vec![b'x'; 1024 * 1024 + 1]]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(revoke_rabbitmq_project_access(
+            &executor,
+            &container,
+            &definition,
+        ))
+        .expect_err("oversized RabbitMQ output");
+
+    assert_eq!(
+        error.to_string(),
+        "list RabbitMQ users before access revocation output exceeds 1048576 bytes"
+    );
 }
 
 #[test]
@@ -1305,6 +1416,69 @@ impl CredentialEntropy for SequentialEntropy {
 struct RecordingPostgresExecutor {
     stdin: Arc<Mutex<Vec<u8>>>,
     request_debug: Arc<Mutex<String>>,
+}
+
+struct RecordingOutputExecutor {
+    outputs: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    requests: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+impl RecordingOutputExecutor {
+    fn new(outputs: Vec<Vec<u8>>) -> Self {
+        Self {
+            outputs: Arc::new(Mutex::new(outputs.into())),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl CommandExecutor for RecordingOutputExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.requests
+            .lock()
+            .expect("request lock")
+            .push(request.arguments().to_vec());
+        let output = self
+            .outputs
+            .lock()
+            .expect("output lock")
+            .pop_front()
+            .expect("configured command output");
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read command stdin");
+                assert!(bytes.is_empty());
+            });
+            let output: ContainerLogStream<'static> =
+                Box::pin(stream::iter(vec![Ok(LogChunk::stdout(output))]));
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new("exec-output"),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async { Ok(CommandStatus::Exited(0)) })
+    }
 }
 
 impl CommandExecutor for RecordingPostgresExecutor {

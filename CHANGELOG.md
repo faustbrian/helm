@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
   intent and verified backup evidence.
 - Bound persistent prune authorization to checksum-verified backup bytes and
   the exact installation, resource, and compatibility fingerprint being deleted.
+- Added idempotent RabbitMQ project-user revocation that retains orphaned vhost
+  data and uses bounded, credential-free direct Engine exec output.
 - Added atomic v8 project unregistration that releases route ownership while
   preserving project-owned resources as timestamped orphans for reconciliation.
 - Added v8 SQLite persistence for immutable installation identity, the selected
