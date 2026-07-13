@@ -1,4 +1,5 @@
 mod attached_command_options;
+mod attached_command_output;
 mod bind_mount;
 mod bollard_engine_adapter;
 mod bounded_engine_operation;
@@ -125,6 +126,7 @@ pub(crate) use reconstruct_owned_volume::reconstruct_owned_volume;
 pub(crate) use resource_kind::ResourceKind;
 pub(crate) use resource_metrics::ResourceMetrics;
 pub(crate) use retention_class::RetentionClass;
+pub(crate) use run_attached_command::run_attached_command_output;
 pub(crate) use run_attached_command::{run_attached_command, run_attached_command_capture};
 pub(crate) use run_streaming_command::run_streaming_command;
 pub(crate) use streaming_command_options::StreamingCommandOptions;
@@ -138,3 +140,4 @@ mod streaming_command_tests;
 #[cfg(test)]
 mod tests;
 pub(crate) use attached_command_options::AttachedCommandOptions;
+pub(crate) use attached_command_output::AttachedCommandOutput;

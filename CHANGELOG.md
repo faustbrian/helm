@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added bounded lossless stdout and stderr capture for in-container project
+  commands so singleton IPC clients can receive command output without host
+  shell execution.
 - Added a bounded monotonic SQLite-backed singleton event journal with
   restart-safe resumable cursor polling, explicit stale-cursor diagnostics,
   and accepted, completed, or failed lifecycle events for reconciliation and

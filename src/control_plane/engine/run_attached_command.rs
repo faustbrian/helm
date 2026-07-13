@@ -1,4 +1,7 @@
-use super::{AttachedCommandOptions, CommandExecutor, CommandStatus, EngineError, OwnedContainer};
+use super::{
+    AttachedCommandOptions, AttachedCommandOutput, CommandExecutor, CommandStatus, EngineError,
+    OwnedContainer,
+};
 use futures_util::StreamExt;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -12,7 +15,7 @@ pub(crate) async fn run_attached_command(
     container: &OwnedContainer,
     options: &AttachedCommandOptions,
 ) -> Result<(), EngineError> {
-    run_attached_command_capture(executor, container, options)
+    run_attached_command_output(executor, container, options)
         .await
         .map(|_| ())
 }
@@ -23,6 +26,17 @@ pub(crate) async fn run_attached_command_capture(
     container: &OwnedContainer,
     options: &AttachedCommandOptions,
 ) -> Result<Vec<u8>, EngineError> {
+    run_attached_command_output(executor, container, options)
+        .await
+        .map(AttachedCommandOutput::into_stdout)
+}
+
+/// Returns bounded stdout and stderr without lossy decoding or host processes.
+pub(crate) async fn run_attached_command_output(
+    executor: &impl CommandExecutor,
+    container: &OwnedContainer,
+    options: &AttachedCommandOptions,
+) -> Result<AttachedCommandOutput, EngineError> {
     tokio::time::timeout(options.timeout(), execute(executor, container, options))
         .await
         .map_err(|_| EngineError::Timeout {
@@ -35,7 +49,7 @@ async fn execute(
     executor: &impl CommandExecutor,
     container: &OwnedContainer,
     options: &AttachedCommandOptions,
-) -> Result<Vec<u8>, EngineError> {
+) -> Result<AttachedCommandOutput, EngineError> {
     let session = executor.start_command(container, options.request()).await?;
     let (execution_id, container_id, mut input, mut output) = session.into_parts();
 
@@ -53,21 +67,23 @@ async fn execute(
         })?;
     drop(input);
 
-    let mut captured = Vec::new();
+    let mut captured = AttachedCommandOutput::new();
     while let Some(chunk) = output.next().await {
         let chunk = chunk?;
-        if !chunk.is_stderr() {
-            let output_bytes = captured.len().saturating_add(chunk.bytes().len());
-            if output_bytes > MAX_CAPTURED_OUTPUT_BYTES {
-                return Err(EngineError::Backend {
-                    detail: format!(
-                        "{} output exceeds {} bytes",
-                        options.action(),
-                        MAX_CAPTURED_OUTPUT_BYTES
-                    ),
-                });
-            }
-            captured.extend_from_slice(chunk.bytes());
+        let output_bytes = captured.len().saturating_add(chunk.bytes().len());
+        if output_bytes > MAX_CAPTURED_OUTPUT_BYTES {
+            return Err(EngineError::Backend {
+                detail: format!(
+                    "{} output exceeds {} bytes",
+                    options.action(),
+                    MAX_CAPTURED_OUTPUT_BYTES
+                ),
+            });
+        }
+        if chunk.is_stderr() {
+            captured.extend_stderr(chunk.bytes());
+        } else {
+            captured.extend_stdout(chunk.bytes());
         }
     }
 

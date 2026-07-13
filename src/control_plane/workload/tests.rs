@@ -14,7 +14,7 @@ use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
     ContainerLogStream, ContainerRestartPolicy, ContainerState, EngineError, EngineFuture,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ManagedResourceMetadata,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, LogChunk, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
     RetentionClass, reconstruct_owned_container,
 };
@@ -400,9 +400,12 @@ fn project_commands_execute_through_attached_engine_sessions() {
         .build()
         .expect("test runtime");
 
-    runtime
+    let output = runtime
         .block_on(run_project_command(&executor, &container, &plan))
         .expect("attached project command");
+
+    assert_eq!(output.stdout(), b"compiled\n");
+    assert_eq!(output.stderr(), b"warning\n");
 
     assert_eq!(
         executor
@@ -1155,7 +1158,13 @@ impl CommandExecutor for RecordingProjectCommandExecutor {
         let container_id = container.id().clone();
         Box::pin(async move {
             let (writer, _reader) = tokio::io::duplex(1024);
-            let output: ContainerLogStream<'static> = Box::pin(futures_util::stream::empty());
+            let output: ContainerLogStream<'static> = Box::pin(futures_util::stream::iter([
+                Ok(LogChunk::stdout(b"compiled\n".to_vec())),
+                Ok(LogChunk::new(
+                    crate::control_plane::engine::LogStreamKind::Stderr,
+                    b"warning\n".to_vec(),
+                )),
+            ]));
 
             Ok(CommandSession::new(
                 CommandExecutionId::new("project-command"),

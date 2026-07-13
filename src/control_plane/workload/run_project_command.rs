@@ -1,7 +1,7 @@
 use super::ProjectCommandPlan;
 use crate::control_plane::engine::{
-    CommandExecutor, EngineError, OwnedContainer, ResourceKind, RetentionClass,
-    run_attached_command,
+    AttachedCommandOutput, CommandExecutor, EngineError, OwnedContainer, ResourceKind,
+    RetentionClass, run_attached_command_output,
 };
 
 /// Executes one project tool or hook only inside its owned application runtime.
@@ -9,7 +9,7 @@ pub(crate) async fn run_project_command(
     executor: &impl CommandExecutor,
     container: &OwnedContainer,
     plan: &ProjectCommandPlan,
-) -> Result<(), EngineError> {
+) -> Result<AttachedCommandOutput, EngineError> {
     let metadata = container.metadata();
     if metadata.kind() != ResourceKind::ProjectApplication
         || metadata.retention() != RetentionClass::Disposable
@@ -24,5 +24,5 @@ pub(crate) async fn run_project_command(
         });
     }
 
-    run_attached_command(executor, container, plan.attached()).await
+    run_attached_command_output(executor, container, plan.attached()).await
 }
