@@ -1,11 +1,12 @@
 use super::{
     MigrationBackup, MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture,
-    MigrationOperations, confirm_migration, execute_migration, rollback_migration,
+    MigrationOperations, MigrationRollbackPlan, confirm_migration, execute_migration,
+    rollback_migration,
 };
 use crate::control_plane::state::{
-    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, SqliteStateStore,
-    StateStore,
+    EnvironmentLifecycle, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    MigrationRecordOptions, ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -219,6 +220,20 @@ fn explicit_rollback_retains_proof_and_becomes_terminal() {
         assert_eq!(record.phase(), MigrationPhase::RolledBack);
         assert_eq!(record.backup_reference(), Some("backup:bill/database"));
         assert_eq!(record.target_resource_id(), Some("postgres-v8-bill"));
+        assert_eq!(
+            store.projects().expect("rolled-back project"),
+            vec![original_project()]
+        );
+        assert_eq!(
+            store
+                .managed_environments()
+                .expect("rolled-back environment"),
+            vec![original_environment()]
+        );
+        assert_eq!(
+            store.logical_resources().expect("retained target"),
+            vec![retained_target_logical_resource()]
+        );
 
         drop(store);
         remove_database(&database_path);
@@ -284,6 +299,28 @@ fn cutover_environment() -> ManagedEnvironmentRecord {
     })
 }
 
+fn active_target_logical_resource() -> LogicalResourceRecord {
+    target_logical_resource(ResourceLifecycle::Active)
+}
+
+fn retained_target_logical_resource() -> LogicalResourceRecord {
+    target_logical_resource(ResourceLifecycle::Retained)
+}
+
+fn target_logical_resource(lifecycle: ResourceLifecycle) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "postgres-shared-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:v8".to_owned(),
+        lifecycle,
+        orphaned_at_unix_seconds: None,
+    })
+}
+
 fn migration_store(database_path: &Path) -> SqliteStateStore {
     let mut store = SqliteStateStore::open(database_path).expect("open state");
     store
@@ -292,6 +329,9 @@ fn migration_store(database_path: &Path) -> SqliteStateStore {
     store
         .replace_managed_environment(&original_environment())
         .expect("persist original environment");
+    store
+        .upsert_logical_resources(&[active_target_logical_resource()])
+        .expect("persist active target logical resource");
 
     store
 }
@@ -379,13 +419,19 @@ impl MigrationOperations for RecordingMigrationOperations {
         })
     }
 
-    fn rollback<'operation>(
+    fn plan_rollback<'operation>(
         &'operation mut self,
         _inventory: &'operation MigrationRecord,
         _checkpoint: &'operation MigrationRecord,
-    ) -> MigrationFuture<'operation, ()> {
+    ) -> MigrationFuture<'operation, MigrationRollbackPlan> {
         self.calls.push("rollback");
-        Box::pin(async { Ok(()) })
+        Box::pin(async {
+            MigrationRollbackPlan::new(
+                original_project(),
+                original_environment(),
+                vec![retained_target_logical_resource()],
+            )
+        })
     }
 
     fn retire_source<'operation>(

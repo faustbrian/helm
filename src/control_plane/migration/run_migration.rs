@@ -195,18 +195,21 @@ pub(crate) async fn rollback_migration(
         });
     }
 
-    operations
-        .rollback(inventory, &checkpoint)
+    let rollback = operations
+        .plan_rollback(inventory, &checkpoint)
         .await
         .map_err(|source| operation_error("rollback", source))?;
-    persist(
-        store,
-        next_options(
-            inventory,
-            &checkpoint,
-            MigrationPhase::RolledBack,
-            updated_at_unix_seconds,
-        ),
+    let rollback_checkpoint = checkpoint_from_options(next_options(
+        inventory,
+        &checkpoint,
+        MigrationPhase::RolledBack,
+        updated_at_unix_seconds,
+    ))?;
+    store.record_migration_rollback(
+        rollback.project(),
+        rollback.environment(),
+        rollback.retained_targets(),
+        &rollback_checkpoint,
     )?;
 
     Ok(MigrationExecutionResult::RolledBack)

@@ -1,4 +1,6 @@
-use super::{MigrationBackup, MigrationCutoverPlan, MigrationOperationError};
+use super::{
+    MigrationBackup, MigrationCutoverPlan, MigrationOperationError, MigrationRollbackPlan,
+};
 use crate::control_plane::state::MigrationRecord;
 use std::future::Future;
 use std::pin::Pin;
@@ -39,11 +41,12 @@ pub(crate) trait MigrationOperations {
         rollback_reference: &'operation str,
     ) -> MigrationFuture<'operation, MigrationCutoverPlan>;
 
-    fn rollback<'operation>(
+    /// Produces retained desired state for an atomic, replay-safe rollback.
+    fn plan_rollback<'operation>(
         &'operation mut self,
         inventory: &'operation MigrationRecord,
         checkpoint: &'operation MigrationRecord,
-    ) -> MigrationFuture<'operation, ()>;
+    ) -> MigrationFuture<'operation, MigrationRollbackPlan>;
 
     /// Retires the source only after explicit migration confirmation.
     fn retire_source<'operation>(

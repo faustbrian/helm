@@ -297,6 +297,97 @@ fn rejected_migration_cutover_leaves_all_desired_state_unchanged() {
 }
 
 #[test]
+fn rejected_migration_rollback_leaves_cutover_state_and_target_active() {
+    let database_path = temporary_database_path("migration-rollback-transaction");
+    let cutover_project = project_record(
+        "/work/bill",
+        "bill",
+        &[
+            "bill-app.stackctl.localhost",
+            "bill-mailpit.stackctl.localhost",
+        ],
+    );
+    let cutover_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:environment-v8".to_owned(),
+        values: BTreeMap::from([(
+            "DB_DATABASE".to_owned(),
+            "stackctl_bill_database".to_owned(),
+        )]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let rollback_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let rollback_environment = managed_environment(BTreeMap::from([(
+        "DB_DATABASE".to_owned(),
+        "legacy_bill".to_owned(),
+    )]));
+    let active_target = logical_resource_record("bill/database", "bill", "database");
+    let retained_target = logical_resource_record_with_lifecycle(
+        "bill/database",
+        "bill",
+        "database",
+        ResourceLifecycle::Retained,
+    );
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_project(&cutover_project)
+        .expect("persist cutover project");
+    store
+        .replace_managed_environment(&cutover_environment)
+        .expect("persist cutover environment");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&active_target))
+        .expect("persist active target");
+    for (phase, updated_at) in [
+        (MigrationPhase::Inventoried, 10),
+        (MigrationPhase::BackupVerified, 11),
+        (MigrationPhase::TargetProvisioned, 12),
+        (MigrationPhase::DataRestored, 13),
+        (MigrationPhase::TargetVerified, 14),
+        (MigrationPhase::Cutover, 15),
+    ] {
+        store
+            .record_migration(&migration_record(phase, updated_at))
+            .expect("advance migration through cutover");
+    }
+
+    let error = store
+        .record_migration_rollback(
+            &rollback_project,
+            &rollback_environment,
+            &[retained_target],
+            &migration_record(MigrationPhase::RolledBack, 14),
+        )
+        .expect_err("reject rollback checkpoint time regression");
+
+    assert_eq!(
+        error.to_string(),
+        "migration 'migration-bill' update time predates durable state"
+    );
+    assert_eq!(
+        store.projects().expect("load cutover project"),
+        vec![cutover_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load cutover environment"),
+        vec![cutover_environment]
+    );
+    assert_eq!(
+        store.logical_resources().expect("load active target"),
+        vec![active_target]
+    );
+    assert_eq!(
+        store.migrations().expect("load migration")[0].phase(),
+        MigrationPhase::Cutover
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn installation_and_watched_roots_survive_store_restart() {
     let database_path = temporary_database_path("installation");
     let installation = InstallationRecord::new(
@@ -1178,6 +1269,20 @@ fn logical_resource_record(
     project_id: &str,
     service_id: &str,
 ) -> LogicalResourceRecord {
+    logical_resource_record_with_lifecycle(
+        logical_resource_id,
+        project_id,
+        service_id,
+        ResourceLifecycle::Active,
+    )
+}
+
+fn logical_resource_record_with_lifecycle(
+    logical_resource_id: &str,
+    project_id: &str,
+    service_id: &str,
+    lifecycle: ResourceLifecycle,
+) -> LogicalResourceRecord {
     LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: logical_resource_id.to_owned(),
         shared_resource_id: "postgres-shared-17".to_owned(),
@@ -1186,7 +1291,7 @@ fn logical_resource_record(
         kind: "postgres_database_and_role".to_owned(),
         compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         desired_revision: "sha256:desired-v1".to_owned(),
-        lifecycle: ResourceLifecycle::Active,
+        lifecycle,
         orphaned_at_unix_seconds: None,
     })
 }

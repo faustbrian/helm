@@ -99,6 +99,15 @@ pub(crate) trait StateStore {
         migration: &MigrationRecord,
     ) -> Result<(), StateStoreError>;
 
+    /// Atomically restores project state, retains targets, and journals rollback.
+    fn record_migration_rollback(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        retained_targets: &[LogicalResourceRecord],
+        migration: &MigrationRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Loads migration checkpoints in stable identity order.
     fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
 }

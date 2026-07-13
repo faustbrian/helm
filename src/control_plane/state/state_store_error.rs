@@ -46,6 +46,8 @@ pub(crate) enum StateStoreError {
     MigrationTimeRegression { migration_id: String },
     /// A cutover plan does not describe one exact active project transition.
     InvalidMigrationCutover { detail: String },
+    /// A rollback plan does not restore one exact project and retain its targets.
+    InvalidMigrationRollback { detail: String },
     /// The requested adoption target is not the registered project path.
     ProjectAdoptionTargetMissing { project_id: String, path: PathBuf },
     /// Durable project state does not exactly match the adoption plan.
@@ -131,6 +133,9 @@ impl Display for StateStoreError {
             Self::InvalidMigrationCutover { detail } => {
                 write!(formatter, "invalid migration cutover: {detail}")
             }
+            Self::InvalidMigrationRollback { detail } => {
+                write!(formatter, "invalid migration rollback: {detail}")
+            }
             Self::ProjectAdoptionTargetMissing { project_id, path } => write!(
                 formatter,
                 "project '{project_id}' cannot be adopted at '{}' because that exact target is not registered",
@@ -166,6 +171,7 @@ impl Error for StateStoreError {
             | Self::InvalidMigrationTransition { .. }
             | Self::MigrationTimeRegression { .. }
             | Self::InvalidMigrationCutover { .. }
+            | Self::InvalidMigrationRollback { .. }
             | Self::ProjectAdoptionTargetMissing { .. }
             | Self::ProjectAdoptionStateMismatch { .. }
             | Self::CorruptState { .. } => None,

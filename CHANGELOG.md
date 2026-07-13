@@ -60,6 +60,9 @@ All notable changes to this project are documented in this file.
 - Changed migration operations to return validated cutover desired state so
   the coordinator, rather than resource adapters, owns its atomic persistence
   and resumes directly from the committed checkpoint after a daemon restart.
+- Added symmetric atomic rollback planning that restores retained project
+  routes and environment state, marks v8 logical targets as retained, and
+  preserves recovery evidence with the terminal rollback checkpoint.
 - Added deterministic disposable provisioning jobs with ownership preflight,
   bounded completion, stale-job recovery, and safe post-exit cleanup.
 - Added compatibility-keyed MinIO instances with persistent shared data,

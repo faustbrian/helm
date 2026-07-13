@@ -4,6 +4,7 @@ mod credential_record_options;
 mod engine_provider;
 mod environment_lifecycle;
 mod installation_record;
+mod logical_resource_persistence;
 mod logical_resource_record;
 mod logical_resource_record_options;
 mod managed_environment_record;
