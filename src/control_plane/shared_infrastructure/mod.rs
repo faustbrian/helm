@@ -60,7 +60,9 @@ pub(crate) use redis::{
     plan_redis_project_resources, reconcile_redis_acl_snapshot, reload_redis_acl,
     store_redis_acl_snapshot,
 };
+pub(crate) use resolve_execution_shared_instances::resolve_execution_shared_instances;
 pub(crate) use run_provisioning_job::run_provisioning_job;
+pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_service_reconcile_action::SharedServiceReconcileAction;
@@ -103,7 +105,9 @@ mod rabbitmq;
 mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
+mod resolve_execution_shared_instances;
 mod run_provisioning_job;
+mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;
 mod shared_service_reconcile_action;

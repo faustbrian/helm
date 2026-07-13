@@ -26,21 +26,40 @@ use super::{
     reconcile_postgres_project_resources, reconcile_rabbitmq_definitions,
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
-    revoke_rabbitmq_project_access, run_provisioning_job, store_credential_secret,
-    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
+use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerId, ContainerLogStream, EngineFuture, LogChunk, ObservedContainer, OwnedContainer,
     reconstruct_owned_container,
 };
+use crate::control_plane::resolve_execution_plan;
 use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+
+fn shared_postgres_source(
+    directory: &str,
+    project: &str,
+    version: &str,
+    image: &str,
+) -> ProjectSource {
+    ProjectSource::new(
+        PathBuf::from(directory),
+        PathBuf::from(format!("{directory}/.stackctl.yaml")),
+        format!(
+            "schema_version: 8\nproject: {project}\nservices:\n  db:\n    preset: postgres\n    version: \"{version}\"\n    image: {image}\n"
+        ),
+    )
+}
 
 #[test]
 fn equivalent_postgres_profiles_share_one_fingerprint() {
@@ -50,6 +69,54 @@ fn equivalent_postgres_profiles_share_one_fingerprint() {
     assert_eq!(first, second);
     assert_eq!(first.as_str().len(), 71);
     assert!(first.as_str().starts_with("sha256:"));
+}
+
+#[test]
+fn exact_postgres_demands_share_one_execution_instance() {
+    let image = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[
+        shared_postgres_source("/work/bill", "bill", "17", image),
+        shared_postgres_source("/work/shop", "shop", "17", image),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+
+    assert_eq!(shared.len(), 1);
+    assert_eq!(shared[0].profile().implementation(), "postgresql");
+    assert_eq!(shared[0].profile().major_version(), "17");
+    assert_eq!(shared[0].consumers().len(), 2);
+    assert_eq!(shared[0].consumers()[0].project_id(), "bill");
+    assert_eq!(shared[0].consumers()[1].project_id(), "shop");
+}
+
+#[test]
+fn postgres_version_or_image_differences_never_share_an_instance() {
+    let first = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let second = concat!(
+        "postgres@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    let registry = plan_project_registry(&[
+        shared_postgres_source("/work/bill", "bill", "17", first),
+        shared_postgres_source("/work/shop", "shop", "18", first),
+        shared_postgres_source("/work/portal", "portal", "17", second),
+    ])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+
+    assert_eq!(shared.len(), 3);
 }
 
 #[test]

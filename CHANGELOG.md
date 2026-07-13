@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added execution-plan resolution for PostgreSQL compatibility demand so exact
+  version, digest, platform, persistence, and isolation matches share one
+  physical instance while any material difference produces a separate group.
 - Connected complete immutable-application Engine plans to the singleton daemon,
   reconciling every workload before atomically publishing its content-derived
   route snapshot through the containerized gateway's private admin socket.
