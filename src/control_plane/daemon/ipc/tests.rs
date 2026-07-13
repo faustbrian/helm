@@ -1,6 +1,6 @@
 use super::{
-    IPC_PROTOCOL_VERSION, IpcPayload, IpcRequest, IpcResponse, IpcResult, decode_request_frame,
-    decode_response_frame, encode_frame,
+    IPC_PROTOCOL_VERSION, IpcEventJournal, IpcEventKind, IpcPayload, IpcRequest, IpcResponse,
+    IpcResult, decode_request_frame, decode_response_frame, encode_frame,
 };
 use std::path::PathBuf;
 
@@ -71,6 +71,56 @@ fn event_subscriptions_can_resume_after_a_sequence() {
     let decoded = decode_request_frame(&frame).expect("decode subscription");
 
     assert_eq!(decoded, request);
+}
+
+#[test]
+fn event_journal_retention_fails_loudly_for_expired_cursors() {
+    let mut journal = IpcEventJournal::new(2).expect("event journal");
+    journal
+        .append("operation-1", IpcEventKind::Accepted)
+        .expect("accepted event");
+    journal
+        .append("operation-1", IpcEventKind::Completed)
+        .expect("completed event");
+    journal
+        .append(
+            "operation-2",
+            IpcEventKind::Failed {
+                code: "operation_failed".to_owned(),
+                message: "bounded failure".to_owned(),
+            },
+        )
+        .expect("failed event");
+
+    let resumed = journal.events_after(Some(1)).expect("resumed events");
+    assert_eq!(
+        resumed
+            .iter()
+            .map(|event| event.sequence())
+            .collect::<Vec<_>>(),
+        vec![2, 3]
+    );
+    assert_eq!(journal.latest_sequence(), 3);
+    let error = journal
+        .events_after(Some(0))
+        .expect_err("expired cursor must not skip events");
+    assert_eq!(
+        error.to_string(),
+        "event cursor 0 is no longer retained; oldest available sequence is 2"
+    );
+
+    let response = IpcResponse::success(
+        "events-42",
+        IpcResult::Events {
+            events: resumed,
+            latest_sequence: journal.latest_sequence(),
+        },
+    );
+    let frame = encode_frame(&response).expect("encode event response");
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode event response"),
+        response
+    );
 }
 
 #[test]

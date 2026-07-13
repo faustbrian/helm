@@ -1,3 +1,4 @@
+use super::IpcEvent;
 use serde::{Deserialize, Serialize};
 
 /// A typed successful daemon operation result.
@@ -17,4 +18,9 @@ pub(crate) enum IpcResult {
     },
     /// Confirms exact retained state was atomically reactivated.
     ProjectAdopted { project_id: String },
+    /// Returns the retained ordered daemon events after one optional cursor.
+    Events {
+        events: Vec<IpcEvent>,
+        latest_sequence: u64,
+    },
 }

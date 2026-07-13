@@ -1,10 +1,11 @@
 use super::{
-    BollardUnixEngineConnector, DaemonIterationResult, DiscoveryScheduler, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
-    FilesystemEventWatcher, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
-    requires_followup_reconciliation, validate_project_workload_adoption,
+    BollardUnixEngineConnector, DaemonIterationResult, DaemonRequestDispatchOptions,
+    DiscoveryScheduler, EngineConnectionOutcome, EngineConnectionSupervisor,
+    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
+    IpcEventJournal, RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -47,6 +48,7 @@ pub(crate) struct UnixDaemonRuntime {
     runtime_directory: PathBuf,
     global_network_request: NetworkCreateOptions,
     engine_reconciliation: EngineReconciliationSchedule,
+    event_journal: IpcEventJournal,
     control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
     options: UnixDaemonRuntimeOptions,
@@ -101,6 +103,7 @@ impl UnixDaemonRuntime {
             runtime_directory,
             global_network_request,
             engine_reconciliation: EngineReconciliationSchedule::default(),
+            event_journal: IpcEventJournal::default(),
             control_plane: ControlPlane::new(store),
             scheduler,
             options,
@@ -131,12 +134,13 @@ impl UnixDaemonRuntime {
             })
             .transpose()?;
         let request = self.listener.try_serve_next(|request| {
-            dispatch_daemon_request(
-                &mut self.control_plane,
-                self.options.discovery_options,
+            dispatch_daemon_request(DaemonRequestDispatchOptions {
+                control_plane: &mut self.control_plane,
+                discovery_options: self.options.discovery_options,
                 request,
+                event_journal: &mut self.event_journal,
                 now_unix_seconds,
-            )
+            })
         })?;
         if request
             .as_ref()

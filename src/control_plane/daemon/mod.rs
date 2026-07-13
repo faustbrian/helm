@@ -1,6 +1,7 @@
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
 mod daemon_iteration_result;
+mod daemon_request_dispatch_options;
 #[cfg(unix)]
 mod default_unix_daemon_runtime_directory;
 mod discover_project_sources;
@@ -57,6 +58,7 @@ mod tests;
 #[cfg(unix)]
 pub(crate) use bollard_unix_engine_connector::BollardUnixEngineConnector;
 pub(crate) use daemon_iteration_result::DaemonIterationResult;
+pub(crate) use daemon_request_dispatch_options::DaemonRequestDispatchOptions;
 #[cfg(unix)]
 pub(crate) use default_unix_daemon_runtime_directory::default_unix_daemon_runtime_directory;
 pub(crate) use discover_project_sources::discover_project_sources;
@@ -81,7 +83,7 @@ pub(crate) use initialize_default_installation::initialize_default_installation;
 pub(crate) use installation_initialization_error::InstallationInitializationError;
 #[cfg(unix)]
 pub(crate) use ipc::{
-    IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,
+    IpcEventJournal, IpcOutcome, IpcPayload, IpcRequest, IpcResponse, IpcResult, send_unix_request,
 };
 pub(crate) use plan_engine_reconciliation::plan_engine_reconciliation;
 pub(crate) use project_discovery_error::ProjectDiscoveryError;

@@ -1,12 +1,15 @@
 use super::{
-    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector,
-    EngineReconciliationPlanOptions, ProjectDiscoveryOptions, RetryBackoff, RetryBackoffOptions,
-    SingletonLease, discover_project_sources, dispatch_daemon_request, plan_engine_reconciliation,
+    DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
+    DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
+    EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions, IpcEventJournal,
+    ProjectDiscoveryOptions, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    discover_project_sources, dispatch_daemon_request, plan_engine_reconciliation,
     reconcile_watched_roots, requires_followup_reconciliation,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
-use crate::control_plane::daemon::ipc::{IpcPayload, IpcRequest, IpcResponse, IpcResult};
+use crate::control_plane::daemon::ipc::{
+    IpcEventKind, IpcPayload, IpcRequest, IpcResponse, IpcResult,
+};
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
@@ -772,13 +775,15 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         .expect("persist watched root");
     let mut control_plane = ControlPlane::new(store);
     let request = IpcRequest::new("reconcile-42", IpcPayload::Reconcile);
+    let mut event_journal = IpcEventJournal::default();
 
-    let response = dispatch_daemon_request(
-        &mut control_plane,
-        ProjectDiscoveryOptions::bounded_defaults(),
-        &request,
-        10_000,
-    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        now_unix_seconds: 10_000,
+    });
 
     assert_eq!(
         response,
@@ -791,6 +796,37 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
             },
         )
     );
+
+    let subscription = IpcRequest::new(
+        "events-42",
+        IpcPayload::SubscribeEvents {
+            after_sequence: Some(0),
+        },
+    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &subscription,
+        event_journal: &mut event_journal,
+        now_unix_seconds: 10_001,
+    });
+    let crate::control_plane::daemon::ipc::IpcOutcome::Success {
+        result: IpcResult::Events {
+            events,
+            latest_sequence,
+        },
+    } = response.outcome()
+    else {
+        panic!("event subscription should succeed");
+    };
+    assert_eq!(*latest_sequence, 2);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].sequence(), 1);
+    assert_eq!(events[0].operation_id(), "reconcile-42");
+    assert_eq!(events[0].kind(), &IpcEventKind::Accepted);
+    assert_eq!(events[1].sequence(), 2);
+    assert_eq!(events[1].operation_id(), "reconcile-42");
+    assert_eq!(events[1].kind(), &IpcEventKind::Completed);
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
@@ -831,13 +867,15 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
             canonical_path: project_path,
         },
     );
+    let mut event_journal = IpcEventJournal::default();
 
-    let response = dispatch_daemon_request(
-        &mut control_plane,
-        ProjectDiscoveryOptions::bounded_defaults(),
-        &request,
-        20_000,
-    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        now_unix_seconds: 20_000,
+    });
 
     assert_eq!(
         response,
