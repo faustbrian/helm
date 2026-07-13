@@ -21,4 +21,16 @@ impl ResourceKind {
             Self::Build => "build",
         }
     }
+
+    pub(super) fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "project_application" => Some(Self::ProjectApplication),
+            "shared_service" => Some(Self::SharedService),
+            "gateway" => Some(Self::Gateway),
+            "network" => Some(Self::Network),
+            "volume" => Some(Self::Volume),
+            "build" => Some(Self::Build),
+            _ => None,
+        }
+    }
 }

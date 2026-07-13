@@ -1,6 +1,7 @@
 use super::{
     ContainerCreateOptions, ContainerId, ContainerLifecycle, ContainerState, EngineFuture,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedResourceOwnership,
+    ResourceKind, RetentionClass, classify_observed_resource,
 };
 use std::collections::BTreeMap;
 
@@ -120,6 +121,66 @@ fn empty_desired_revision_is_rejected_before_resource_creation() {
     assert_eq!(
         error.to_string(),
         "managed resource desired revision must not be empty"
+    );
+}
+
+#[test]
+fn complete_current_installation_labels_reconstruct_owned_metadata() {
+    let metadata = project_metadata(ResourceKind::ProjectApplication);
+
+    let ownership = classify_observed_resource(&metadata.labels(), "install-1", 8);
+
+    assert_eq!(ownership, ObservedResourceOwnership::Owned(metadata));
+}
+
+#[test]
+fn unlabelled_resources_are_never_adopted() {
+    let ownership = classify_observed_resource(&BTreeMap::new(), "install-1", 8);
+
+    assert_eq!(ownership, ObservedResourceOwnership::Unmanaged);
+}
+
+#[test]
+fn foreign_installation_resources_are_never_adopted() {
+    let labels = project_metadata(ResourceKind::ProjectApplication).labels();
+
+    let ownership = classify_observed_resource(&labels, "install-2", 8);
+
+    assert_eq!(
+        ownership,
+        ObservedResourceOwnership::ForeignInstallation {
+            installation_id: "install-1".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn incomplete_managed_labels_are_not_treated_as_owned() {
+    let mut labels = project_metadata(ResourceKind::ProjectApplication).labels();
+    labels.remove("dev.stackctl.desired");
+
+    let ownership = classify_observed_resource(&labels, "install-1", 8);
+
+    assert_eq!(
+        ownership,
+        ObservedResourceOwnership::Malformed {
+            detail: "managed resource label 'dev.stackctl.desired' is missing".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn unsupported_resource_schema_is_not_treated_as_owned() {
+    let labels = project_metadata(ResourceKind::ProjectApplication).labels();
+
+    let ownership = classify_observed_resource(&labels, "install-1", 9);
+
+    assert_eq!(
+        ownership,
+        ObservedResourceOwnership::UnsupportedSchema {
+            found: 8,
+            supported: 9,
+        }
     );
 }
 

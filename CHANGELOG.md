@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added v8 observed-resource ownership classification that reconstructs complete
+  labels while isolating unmanaged, foreign, incompatible, and malformed objects.
 - Added strict v8 project, service, and route identities that preserve valid
   input exactly and reject normalization or overlong route labels.
 - Added all-at-once v8 route registry validation so repeated discovery of one

@@ -1,14 +1,14 @@
 use super::{EngineError, ManagedResourceMetadataOptions, ResourceKind, RetentionClass};
 use std::collections::BTreeMap;
 
-const MANAGED_LABEL: &str = "dev.stackctl.managed";
-const INSTALLATION_LABEL: &str = "dev.stackctl.installation";
-const KIND_LABEL: &str = "dev.stackctl.kind";
-const PROJECT_LABEL: &str = "dev.stackctl.project";
-const FINGERPRINT_LABEL: &str = "dev.stackctl.fingerprint";
-const SCHEMA_LABEL: &str = "dev.stackctl.schema";
-const DESIRED_LABEL: &str = "dev.stackctl.desired";
-const RETENTION_LABEL: &str = "dev.stackctl.retention";
+pub(super) const MANAGED_LABEL: &str = "dev.stackctl.managed";
+pub(super) const INSTALLATION_LABEL: &str = "dev.stackctl.installation";
+pub(super) const KIND_LABEL: &str = "dev.stackctl.kind";
+pub(super) const PROJECT_LABEL: &str = "dev.stackctl.project";
+pub(super) const FINGERPRINT_LABEL: &str = "dev.stackctl.fingerprint";
+pub(super) const SCHEMA_LABEL: &str = "dev.stackctl.schema";
+pub(super) const DESIRED_LABEL: &str = "dev.stackctl.desired";
+pub(super) const RETENTION_LABEL: &str = "dev.stackctl.retention";
 
 /// Mandatory ownership metadata attached to every v8 Engine resource.
 #[derive(Clone, Debug, Eq, PartialEq)]
