@@ -32,4 +32,9 @@ impl ResourceHealthRegistry {
     pub(crate) fn observation(&self, resource_id: &str) -> Option<(ContainerHealth, i64)> {
         self.observations.get(resource_id).copied()
     }
+
+    /// Invalidates every observation when the selected Engine adapter is lost.
+    pub(crate) fn clear(&mut self) {
+        self.observations.clear();
+    }
 }

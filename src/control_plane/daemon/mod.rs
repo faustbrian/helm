@@ -28,6 +28,7 @@ mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
 mod initialize_default_installation;
 mod installation_initialization_error;
+mod invalidate_engine_connection;
 mod ipc;
 mod persisted_project_command;
 mod plan_engine_reconciliation;
@@ -109,6 +110,7 @@ pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
 pub(crate) use initialize_default_installation::initialize_default_installation;
 pub(crate) use installation_initialization_error::InstallationInitializationError;
+pub(crate) use invalidate_engine_connection::invalidate_engine_connection;
 #[cfg(unix)]
 pub(crate) use ipc::{
     IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind, IpcLogChunk, IpcLogSessionState,

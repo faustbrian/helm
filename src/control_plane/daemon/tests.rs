@@ -6,8 +6,8 @@ use super::{
     ProjectLogSessionRegistry, ProjectLogTarget, QueuedProjectCommand, ResourceHealthRegistry,
     RetryBackoff, RetryBackoffOptions, SingletonLease, discover_project_sources,
     dispatch_daemon_request, execute_project_logs, execute_queued_project_command,
-    plan_engine_reconciliation, publish_project_command_result, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_project_command_operations,
+    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -424,8 +424,14 @@ fn engine_connection_retries_only_after_backoff_and_recovers() {
     assert!(supervisor.is_connected());
 
     let disconnected_at = started_at + retry.duration();
-    let reconnect = supervisor.invalidate(disconnected_at);
+    let mut resource_health = ResourceHealthRegistry::default();
+    resource_health
+        .record("container-app", ContainerHealth::Healthy, 10_000)
+        .expect("valid health observation");
+    let reconnect =
+        invalidate_engine_connection(&mut supervisor, &mut resource_health, disconnected_at);
     assert!(!supervisor.is_connected());
+    assert_eq!(resource_health.observation("container-app"), None);
     assert!(matches!(
         runtime.block_on(supervisor.poll(disconnected_at + reconnect.duration() / 2)),
         EngineConnectionOutcome::BackingOff { .. }

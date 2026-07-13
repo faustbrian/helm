@@ -5,8 +5,8 @@ use super::{
     EngineReconciliationSchedule, FilesystemEventWatcher, IpcEventJournal, ProjectCommandQueue,
     ProjectLogSessionRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
     SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, plan_engine_reconciliation, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_project_command_operations,
+    initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_project_command_operations,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -347,7 +347,11 @@ impl UnixDaemonRuntime {
         let network = match result {
             Ok(result) => result,
             Err(GlobalNetworkReconcileError::EngineUnavailable { action, detail }) => {
-                let retry = self.engine_connection.invalidate(now);
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
                 tracing::debug!(
                     attempt = retry.attempt(),
                     retry_milliseconds = retry.duration().as_millis(),
@@ -392,7 +396,11 @@ impl UnixDaemonRuntime {
             let logical = match logical {
                 Ok(logical) => logical,
                 Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
-                    let retry = self.engine_connection.invalidate(now);
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
                     tracing::debug!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
@@ -501,7 +509,11 @@ impl UnixDaemonRuntime {
             }
             Ok(_) => {}
             Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
-                let retry = self.engine_connection.invalidate(now);
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
                 tracing::debug!(
                     attempt = retry.attempt(),
                     retry_milliseconds = retry.duration().as_millis(),
@@ -535,7 +547,11 @@ impl UnixDaemonRuntime {
             }
             Ok(_) => {}
             Err(error @ WorkloadReconcileError::Engine { .. }) => {
-                let retry = self.engine_connection.invalidate(now);
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
                 tracing::debug!(
                     attempt = retry.attempt(),
                     retry_milliseconds = retry.duration().as_millis(),
@@ -592,7 +608,11 @@ impl UnixDaemonRuntime {
                     );
                 }
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
-                    let retry = self.engine_connection.invalidate(now);
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
                     tracing::debug!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
@@ -641,7 +661,11 @@ impl UnixDaemonRuntime {
                     );
                 }
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
-                    let retry = self.engine_connection.invalidate(now);
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
                     tracing::debug!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),

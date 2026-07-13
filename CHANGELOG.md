@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Changed v8 Engine invalidation to atomically discard all in-memory health
+  observations before reconnect backoff, preventing disconnected resources from
+  retaining a recently healthy projection.
 - Added timestamped, non-durable Engine health snapshots to strict v8 project
   status for exact project workloads and shared logical services. Stale
   observations become unknown, and `open` now requires typed ready state rather
