@@ -10,7 +10,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 8;
+const CURRENT_SCHEMA_VERSION: u32 = 9;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -209,6 +209,11 @@ impl SqliteStateStore {
                  ) STRICT;
                  CREATE INDEX migrations_project_idx ON migrations(project_id);",
             )?;
+        }
+
+        if found < 9 {
+            transaction
+                .execute_batch("ALTER TABLE migrations ADD COLUMN backup_reference TEXT;")?;
         }
 
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
@@ -943,7 +948,8 @@ impl StateStore for SqliteStateStore {
                 "SELECT migration_id, project_id, source_revision, target_revision,
                         source_compatibility_fingerprint,
                         target_compatibility_fingerprint, phase,
-                        backup_artifact_sha256, backup_artifact_size_bytes,
+                        backup_reference, backup_artifact_sha256,
+                        backup_artifact_size_bytes,
                         target_resource_id, rollback_reference,
                         updated_at_unix_seconds
                  FROM migrations WHERE migration_id = ?1",
@@ -957,11 +963,12 @@ impl StateStore for SqliteStateStore {
                         source_compatibility_fingerprint: row.get(4)?,
                         target_compatibility_fingerprint: row.get(5)?,
                         phase: row.get(6)?,
-                        backup_artifact_sha256: row.get(7)?,
-                        backup_artifact_size_bytes: row.get(8)?,
-                        target_resource_id: row.get(9)?,
-                        rollback_reference: row.get(10)?,
-                        updated_at_unix_seconds: row.get(11)?,
+                        backup_reference: row.get(7)?,
+                        backup_artifact_sha256: row.get(8)?,
+                        backup_artifact_size_bytes: row.get(9)?,
+                        target_resource_id: row.get(10)?,
+                        rollback_reference: row.get(11)?,
+                        updated_at_unix_seconds: row.get(12)?,
                     })
                 },
             )
@@ -1000,14 +1007,16 @@ impl StateStore for SqliteStateStore {
             transaction.execute(
                 "UPDATE migrations SET
                      phase = ?1,
-                     backup_artifact_sha256 = ?2,
-                     backup_artifact_size_bytes = ?3,
-                     target_resource_id = ?4,
-                     rollback_reference = ?5,
-                     updated_at_unix_seconds = ?6
-                 WHERE migration_id = ?7",
+                     backup_reference = ?2,
+                     backup_artifact_sha256 = ?3,
+                     backup_artifact_size_bytes = ?4,
+                     target_resource_id = ?5,
+                     rollback_reference = ?6,
+                     updated_at_unix_seconds = ?7
+                 WHERE migration_id = ?8",
                 params![
                     migration.phase().label(),
+                    migration.backup_reference(),
                     migration.backup_artifact_sha256(),
                     migration
                         .backup_artifact_size_bytes()
@@ -1031,10 +1040,12 @@ impl StateStore for SqliteStateStore {
                      migration_id, project_id, source_revision, target_revision,
                      source_compatibility_fingerprint,
                      target_compatibility_fingerprint, phase,
-                     backup_artifact_sha256, backup_artifact_size_bytes,
-                     target_resource_id, rollback_reference,
-                     updated_at_unix_seconds
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                     backup_reference, backup_artifact_sha256,
+                     backup_artifact_size_bytes, target_resource_id,
+                     rollback_reference, updated_at_unix_seconds
+                 ) VALUES (
+                     ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+                 )",
                 params![
                     migration.migration_id(),
                     migration.project_id(),
@@ -1043,6 +1054,7 @@ impl StateStore for SqliteStateStore {
                     migration.source_compatibility_fingerprint(),
                     migration.target_compatibility_fingerprint(),
                     migration.phase().label(),
+                    migration.backup_reference(),
                     migration.backup_artifact_sha256(),
                     migration
                         .backup_artifact_size_bytes()
@@ -1064,7 +1076,8 @@ impl StateStore for SqliteStateStore {
             "SELECT migration_id, project_id, source_revision, target_revision,
                     source_compatibility_fingerprint,
                     target_compatibility_fingerprint, phase,
-                    backup_artifact_sha256, backup_artifact_size_bytes,
+                    backup_reference, backup_artifact_sha256,
+                    backup_artifact_size_bytes,
                     target_resource_id, rollback_reference,
                     updated_at_unix_seconds
              FROM migrations ORDER BY migration_id",
@@ -1079,11 +1092,12 @@ impl StateStore for SqliteStateStore {
                     source_compatibility_fingerprint: row.get(4)?,
                     target_compatibility_fingerprint: row.get(5)?,
                     phase: row.get(6)?,
-                    backup_artifact_sha256: row.get(7)?,
-                    backup_artifact_size_bytes: row.get(8)?,
-                    target_resource_id: row.get(9)?,
-                    rollback_reference: row.get(10)?,
-                    updated_at_unix_seconds: row.get(11)?,
+                    backup_reference: row.get(7)?,
+                    backup_artifact_sha256: row.get(8)?,
+                    backup_artifact_size_bytes: row.get(9)?,
+                    target_resource_id: row.get(10)?,
+                    rollback_reference: row.get(11)?,
+                    updated_at_unix_seconds: row.get(12)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

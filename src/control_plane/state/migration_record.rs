@@ -68,6 +68,10 @@ impl MigrationRecord {
         self.options.backup_artifact_sha256.as_deref()
     }
 
+    pub(crate) fn backup_reference(&self) -> Option<&str> {
+        self.options.backup_reference.as_deref()
+    }
+
     pub(crate) const fn backup_artifact_size_bytes(&self) -> Option<u64> {
         self.options.backup_artifact_size_bytes
     }
@@ -94,13 +98,16 @@ impl MigrationRecord {
     }
 
     pub(crate) fn preserves_evidence_from(&self, previous: &Self) -> bool {
-        preserves_optional(
-            previous.backup_artifact_sha256(),
-            self.backup_artifact_sha256(),
-        ) && preserves_optional(
-            previous.backup_artifact_size_bytes(),
-            self.backup_artifact_size_bytes(),
-        ) && preserves_optional(previous.target_resource_id(), self.target_resource_id())
+        preserves_optional(previous.backup_reference(), self.backup_reference())
+            && preserves_optional(
+                previous.backup_artifact_sha256(),
+                self.backup_artifact_sha256(),
+            )
+            && preserves_optional(
+                previous.backup_artifact_size_bytes(),
+                self.backup_artifact_size_bytes(),
+            )
+            && preserves_optional(previous.target_resource_id(), self.target_resource_id())
             && preserves_optional(previous.rollback_reference(), self.rollback_reference())
     }
 }
@@ -121,9 +128,13 @@ fn validate_phase_evidence(options: &MigrationRecordOptions) -> Result<(), Migra
     );
     if requires_backup
         && (options
-            .backup_artifact_sha256
+            .backup_reference
             .as_ref()
             .is_none_or(String::is_empty)
+            || options
+                .backup_artifact_sha256
+                .as_ref()
+                .is_none_or(String::is_empty)
             || options.backup_artifact_size_bytes.is_none())
     {
         return Err(MigrationRecordError::MissingBackupEvidence {

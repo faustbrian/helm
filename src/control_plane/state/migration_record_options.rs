@@ -10,6 +10,7 @@ pub(crate) struct MigrationRecordOptions {
     pub(crate) source_compatibility_fingerprint: String,
     pub(crate) target_compatibility_fingerprint: String,
     pub(crate) phase: MigrationPhase,
+    pub(crate) backup_reference: Option<String>,
     pub(crate) backup_artifact_sha256: Option<String>,
     pub(crate) backup_artifact_size_bytes: Option<u64>,
     pub(crate) target_resource_id: Option<String>,

@@ -37,8 +37,9 @@ All notable changes to this project are documented in this file.
   checksum-tracked isolated staging, target-native validation, atomic cutover,
   and mandatory rollback after every post-staging failure.
 - Added a durable monotonic migration journal that requires verified backup,
-  target, readiness, and rollback evidence before reversible cutover and rejects
-  skipped phases, identity drift, proof replacement, and terminal-state changes.
+  artifact reference, target, readiness, and rollback evidence before reversible
+  cutover and rejects skipped phases, identity drift, proof replacement, and
+  terminal-state changes.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

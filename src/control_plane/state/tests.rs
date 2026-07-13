@@ -16,7 +16,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 8);
+    assert_eq!(store.schema_version().expect("schema version"), 9);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -951,7 +951,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 8);
+    assert_eq!(store.schema_version().expect("schema version"), 9);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -992,7 +992,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 8);
+    assert_eq!(store.schema_version().expect("schema version"), 9);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -1084,6 +1084,8 @@ fn migration_options(
         source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase,
+        backup_reference: (phase >= MigrationPhase::BackupVerified)
+            .then(|| "backup:resource-1/40000".to_owned()),
         backup_artifact_sha256: (phase >= MigrationPhase::BackupVerified)
             .then(|| "sha256:backup".to_owned()),
         backup_artifact_size_bytes: (phase >= MigrationPhase::BackupVerified).then_some(1_024),
