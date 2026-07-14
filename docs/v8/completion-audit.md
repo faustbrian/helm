@@ -64,7 +64,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | `scripts/audit-v8-host-dependencies.sh` and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable v7, Engine baseline, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,402 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,420 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 
