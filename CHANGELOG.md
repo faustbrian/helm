@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a resumable v7 adapter preparation coordinator behind a common
+  strategy registry. It preflights the complete adapter set, verifies every
+  required recovery artifact before provisioning targets, journals each
+  completed step, and resumes after failure without repeating durable work.
 - Added a schema-18 project-wide v7 adapter execution journal. Accepted
   evidence and its deterministic adapter-plan revision now bind an immutable
   service, volume, route, trust, and environment checkpoint set. Recovery and

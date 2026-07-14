@@ -1,12 +1,13 @@
 use super::{
     V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
-    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterSelectionOptions,
+    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
+    V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget, V7MigrationExecutionJournal,
     V7MigrationExecutionPlanOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
     V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
     V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
     V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
     inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
-    read_v7_generated_environment_rollback, select_v7_migration_adapters,
+    prepare_v7_migration, read_v7_generated_environment_rollback, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -15,9 +16,16 @@ use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerId, EngineFuture, LegacyContainerDiscovery, ObservedContainer, ObservedContainerMount,
 };
-use crate::control_plane::state::V7MigrationExecutionPhase;
+use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
+use crate::control_plane::state::{
+    StateStoreError, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
+    V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
+};
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn v7_adapter_selection_is_complete_deterministic_and_does_not_archive_logical_storage() {
@@ -143,6 +151,109 @@ fn v7_adapter_selection_is_complete_deterministic_and_does_not_archive_logical_s
             "checkpoint {adapter_id}"
         );
     }
+}
+
+#[test]
+fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
+    run_test(async {
+        let planned = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .to_owned(),
+            adapter_plan_revision:
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned(),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: vec![
+                V7MigrationAdapterCheckpoint::pending(
+                    "service/database",
+                    "postgres-logical-database",
+                    true,
+                    10,
+                )
+                .expect("database checkpoint"),
+                V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+                    .expect("route checkpoint"),
+            ],
+            updated_at_unix_seconds: 10,
+        })
+        .expect("planned execution");
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let fail_database_target = Arc::new(AtomicBool::new(true));
+        let database_executor: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
+            calls: Arc::clone(&calls),
+            target_reference: Some("postgres-v8-bill"),
+            fail_target_once: Arc::clone(&fail_database_target),
+        });
+        let route_executor: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
+            calls: Arc::clone(&calls),
+            target_reference: None,
+            fail_target_once: Arc::new(AtomicBool::new(false)),
+        });
+        let mut executors = BTreeMap::from([
+            ("postgres-logical-database".to_owned(), database_executor),
+            ("no-routes".to_owned(), route_executor),
+        ]);
+        let mut journal = RecordingV7Journal::default();
+
+        let error = prepare_v7_migration(&mut journal, &planned, &mut executors, 20)
+            .await
+            .expect_err("first target preparation fails");
+        assert_eq!(
+            error.to_string(),
+            "v7 migration adapter 'service/database' target preparation failed: target unavailable"
+        );
+        assert_eq!(
+            journal
+                .current
+                .as_ref()
+                .map(V7MigrationExecutionRecord::phase),
+            Some(V7MigrationExecutionPhase::Preparing)
+        );
+        assert_eq!(
+            journal
+                .current
+                .as_ref()
+                .expect("recovery checkpoint")
+                .checkpoints()[1]
+                .recovery_reference(),
+            Some("backup:service/database")
+        );
+
+        let prepared = prepare_v7_migration(&mut journal, &planned, &mut executors, 21)
+            .await
+            .expect("resume preparation");
+        assert_eq!(prepared.phase(), V7MigrationExecutionPhase::Prepared);
+        assert_eq!(
+            calls.lock().expect("calls").as_slice(),
+            [
+                "recovery:service/database",
+                "target:service/database",
+                "target:service/database",
+                "target:route",
+            ]
+        );
+        assert_eq!(
+            journal
+                .writes
+                .iter()
+                .map(V7MigrationExecutionRecord::phase)
+                .collect::<Vec<_>>(),
+            [
+                V7MigrationExecutionPhase::Planned,
+                V7MigrationExecutionPhase::Preparing,
+                V7MigrationExecutionPhase::Preparing,
+                V7MigrationExecutionPhase::Preparing,
+                V7MigrationExecutionPhase::Prepared,
+            ]
+        );
+
+        let replay = prepare_v7_migration(&mut journal, &planned, &mut executors, 22)
+            .await
+            .expect("prepared replay");
+        assert_eq!(replay, prepared);
+        assert_eq!(calls.lock().expect("replay calls").len(), 4);
+    });
 }
 
 #[test]
@@ -837,4 +948,86 @@ fn service(name: &str, kind: Kind, driver: Driver, image: &str) -> ServiceConfig
         container_name: Some(format!("bill-{name}")),
         resolved_container_name: None,
     }
+}
+
+#[derive(Default)]
+struct RecordingV7Journal {
+    current: Option<V7MigrationExecutionRecord>,
+    writes: Vec<V7MigrationExecutionRecord>,
+}
+
+impl V7MigrationExecutionJournal for RecordingV7Journal {
+    fn load_v7_execution(
+        &self,
+        _canonical_project_path: &Path,
+        _evidence_revision: &str,
+    ) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError> {
+        Ok(self.current.clone())
+    }
+
+    fn persist_v7_execution(
+        &mut self,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        self.current = Some(execution.clone());
+        self.writes.push(execution.clone());
+
+        Ok(())
+    }
+}
+
+struct RecordingV7Adapter {
+    calls: Arc<Mutex<Vec<String>>>,
+    target_reference: Option<&'static str>,
+    fail_target_once: Arc<AtomicBool>,
+}
+
+impl V7MigrationAdapterExecutor for RecordingV7Adapter {
+    fn prepare_recovery<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, MigrationBackup> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("recovery:{}", checkpoint.adapter_id()));
+        let reference = format!("backup:{}", checkpoint.adapter_id());
+        Box::pin(async move {
+            MigrationBackup::new(
+                reference,
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                100,
+            )
+        })
+    }
+
+    fn prepare_target<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, V7MigrationAdapterTarget> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("target:{}", checkpoint.adapter_id()));
+        let fail = self.fail_target_once.swap(false, Ordering::SeqCst);
+        let target_reference = self.target_reference;
+        Box::pin(async move {
+            if fail {
+                return Err(MigrationOperationError::new("target unavailable"));
+            }
+            match target_reference {
+                Some(reference) => V7MigrationAdapterTarget::resource(reference)
+                    .map_err(MigrationOperationError::new),
+                None => Ok(V7MigrationAdapterTarget::NoExternalTarget),
+            }
+        })
+    }
+}
+
+fn run_test(test: impl Future<Output = ()>) {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime")
+        .block_on(test);
 }

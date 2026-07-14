@@ -270,6 +270,12 @@ application cutover is admitted from a partially prepared set. Checkpoint
 identity, recovery evidence, target identity, plan revision, and timestamps
 cannot be replaced or regressed across daemon restarts. Confirmation is
 terminal, while any pre-confirmation phase retains an explicit rollback path.
+The preparation coordinator resolves every checkpoint through a common
+adapter-strategy registry before writing its initial record. It completes and
+journals all required recovery artifacts before target work, prioritizes those
+recoverable targets, and stops at the last successful checkpoint on any
+adapter error. Reconciliation resumes from that exact checkpoint rather than
+repeating a verified backup or trusting unrecorded in-memory progress.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an

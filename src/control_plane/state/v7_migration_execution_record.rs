@@ -68,6 +68,55 @@ impl V7MigrationExecutionRecord {
         self.options.updated_at_unix_seconds
     }
 
+    pub(crate) fn with_checkpoint(
+        &self,
+        replacement: V7MigrationAdapterCheckpoint,
+        phase: V7MigrationExecutionPhase,
+        updated_at_unix_seconds: i64,
+    ) -> Result<Self, String> {
+        let Some(previous) = self
+            .checkpoints()
+            .iter()
+            .find(|checkpoint| checkpoint.adapter_id() == replacement.adapter_id())
+        else {
+            return Err(format!(
+                "v7 migration execution has no adapter '{}'",
+                replacement.adapter_id()
+            ));
+        };
+        if !replacement.has_same_identity(previous)
+            || !replacement.can_advance_from(previous)
+            || !replacement.preserves_evidence_from(previous)
+            || replacement.updated_at_unix_seconds() < previous.updated_at_unix_seconds()
+        {
+            return Err(format!(
+                "v7 migration adapter '{}' replacement is not a monotonic checkpoint",
+                replacement.adapter_id()
+            ));
+        }
+        let checkpoints = self
+            .checkpoints()
+            .iter()
+            .map(|checkpoint| {
+                if checkpoint.adapter_id() == replacement.adapter_id() {
+                    replacement.clone()
+                } else {
+                    checkpoint.clone()
+                }
+            })
+            .collect();
+
+        self.with_options(phase, checkpoints, updated_at_unix_seconds)
+    }
+
+    pub(crate) fn with_phase(
+        &self,
+        phase: V7MigrationExecutionPhase,
+        updated_at_unix_seconds: i64,
+    ) -> Result<Self, String> {
+        self.with_options(phase, self.checkpoints().to_vec(), updated_at_unix_seconds)
+    }
+
     pub(super) fn has_same_identity(&self, other: &Self) -> bool {
         self.project_id() == other.project_id()
             && self.canonical_project_path() == other.canonical_project_path()
@@ -78,6 +127,26 @@ impl V7MigrationExecutionRecord {
     pub(super) fn checkpoints_json(&self) -> Result<String, String> {
         serde_json::to_string(self.checkpoints())
             .map_err(|error| format!("serialize v7 migration checkpoints: {error}"))
+    }
+
+    fn with_options(
+        &self,
+        phase: V7MigrationExecutionPhase,
+        checkpoints: Vec<V7MigrationAdapterCheckpoint>,
+        updated_at_unix_seconds: i64,
+    ) -> Result<Self, String> {
+        if updated_at_unix_seconds < self.updated_at_unix_seconds() {
+            return Err("v7 migration execution update time predates durable state".to_owned());
+        }
+        Self::new(V7MigrationExecutionRecordOptions {
+            project_id: self.project_id().to_owned(),
+            canonical_project_path: self.canonical_project_path().to_path_buf(),
+            evidence_revision: self.evidence_revision().to_owned(),
+            adapter_plan_revision: self.adapter_plan_revision().to_owned(),
+            phase,
+            checkpoints,
+            updated_at_unix_seconds,
+        })
     }
 }
 

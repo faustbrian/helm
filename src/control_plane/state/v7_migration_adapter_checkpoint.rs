@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Last durable preparation or cutover step for one selected adapter.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum V7MigrationAdapterCheckpointPhase {
+pub(crate) enum V7MigrationAdapterCheckpointPhase {
     Pending,
     RecoveryVerified,
     TargetVerified,
@@ -175,7 +175,7 @@ impl V7MigrationAdapterCheckpoint {
         self.target_reference.as_deref()
     }
 
-    pub(super) const fn phase(&self) -> V7MigrationAdapterCheckpointPhase {
+    pub(crate) const fn phase(&self) -> V7MigrationAdapterCheckpointPhase {
         self.phase
     }
 

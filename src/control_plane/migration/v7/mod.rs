@@ -5,6 +5,7 @@ mod capture_v7_generated_environment_rollback;
 mod inventory_v7_host_artifacts;
 mod inventory_v7_project;
 mod plan_v7_migration_execution;
+mod prepare_v7_migration;
 mod read_v7_generated_environment_rollback;
 mod select_v7_migration_adapters;
 mod v7_generated_environment_artifact;
@@ -16,9 +17,13 @@ mod v7_inventory_blocker;
 mod v7_inventory_error;
 mod v7_logical_data_inventory;
 mod v7_migration_adapter;
+mod v7_migration_adapter_executor;
 mod v7_migration_adapter_plan;
 mod v7_migration_adapter_selection_error;
 mod v7_migration_adapter_selection_options;
+mod v7_migration_adapter_target;
+mod v7_migration_execution_error;
+mod v7_migration_execution_journal;
 mod v7_migration_execution_plan_options;
 mod v7_project_inventory;
 mod v7_project_inventory_options;
@@ -35,6 +40,7 @@ pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_e
 pub(crate) use inventory_v7_host_artifacts::inventory_v7_host_artifacts;
 pub(crate) use inventory_v7_project::inventory_v7_project;
 pub(crate) use plan_v7_migration_execution::plan_v7_migration_execution;
+pub(crate) use prepare_v7_migration::prepare_v7_migration;
 pub(crate) use read_v7_generated_environment_rollback::read_v7_generated_environment_rollback;
 pub(crate) use select_v7_migration_adapters::select_v7_migration_adapters;
 pub(crate) use v7_generated_environment_artifact::V7GeneratedEnvironmentArtifact;
@@ -49,11 +55,15 @@ pub(crate) use v7_migration_adapter::{
     V7EnvironmentMigrationAdapter, V7MigrationServiceAdapter, V7RouteMigrationAdapter,
     V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
 };
+pub(crate) use v7_migration_adapter_executor::V7MigrationAdapterExecutor;
 pub(crate) use v7_migration_adapter_plan::{V7MigrationAdapterPlan, V7MigrationServiceSelection};
 pub(crate) use v7_migration_adapter_selection_error::V7MigrationAdapterSelectionError;
 pub(crate) use v7_migration_adapter_selection_options::{
     V7MigrationAdapterSelectionOptions, V7MigrationRouteSource, V7MigrationServiceSource,
 };
+pub(crate) use v7_migration_adapter_target::V7MigrationAdapterTarget;
+pub(crate) use v7_migration_execution_error::V7MigrationExecutionError;
+pub(crate) use v7_migration_execution_journal::V7MigrationExecutionJournal;
 pub(crate) use v7_migration_execution_plan_options::V7MigrationExecutionPlanOptions;
 pub(crate) use v7_project_inventory::V7ProjectInventory;
 pub(crate) use v7_project_inventory_options::V7ProjectInventoryOptions;

@@ -81,8 +81,9 @@ pub(crate) use resource_retention::ResourceRetention;
 pub(crate) use sqlite_state_store::SqliteStateStore;
 pub(crate) use state_store::StateStore;
 pub(crate) use state_store_error::StateStoreError;
-pub(crate) use v7_migration_adapter_checkpoint::V7MigrationAdapterCheckpoint;
-use v7_migration_adapter_checkpoint::V7MigrationAdapterCheckpointPhase;
+pub(crate) use v7_migration_adapter_checkpoint::{
+    V7MigrationAdapterCheckpoint, V7MigrationAdapterCheckpointPhase,
+};
 pub(crate) use v7_migration_execution_phase::V7MigrationExecutionPhase;
 pub(crate) use v7_migration_execution_record::V7MigrationExecutionRecord;
 pub(crate) use v7_migration_execution_record_options::V7MigrationExecutionRecordOptions;
