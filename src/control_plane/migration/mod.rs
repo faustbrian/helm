@@ -25,7 +25,9 @@ pub(crate) use migration_operation_error::MigrationOperationError;
 pub(crate) use migration_operations::{MigrationFuture, MigrationOperations};
 pub(crate) use migration_rollback_plan::MigrationRollbackPlan;
 pub(crate) use migration_target_plan::MigrationTargetPlan;
-pub(crate) use mongodb::{MongoDbBackupOptions, backup_mongodb_database};
+pub(crate) use mongodb::{
+    MongoDbBackupOptions, MongoDbRestoreOptions, backup_mongodb_database, restore_mongodb_database,
+};
 pub(crate) use mysql::{
     MySqlBackupOptions, MySqlMigrationOperations, MySqlMigrationOperationsOptions,
     MySqlRestoreOptions, backup_mysql_database, restore_mysql_database,

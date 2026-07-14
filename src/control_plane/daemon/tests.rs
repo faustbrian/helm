@@ -27,7 +27,8 @@ use crate::control_plane::daemon::ipc::{
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
-    MigrationExecutionResult, MySqlRestoreOptions, restore_mysql_database,
+    MigrationExecutionResult, MongoDbRestoreOptions, MySqlRestoreOptions, restore_mongodb_database,
+    restore_mysql_database,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -1135,12 +1136,19 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
 
     let backup_root = temporary_directory("queued-mongodb-backup");
     let fingerprint = format!("sha256:{}", "c".repeat(64));
-    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
-        "mongodb-container",
+    let observed =
+        observed_shared_service("mongodb-container", "install-1", "mongodb-8", &fingerprint);
+    let target = observed_migration_target(
+        "mongodb-target",
         "install-1",
-        "mongodb-8",
+        "bill",
+        "restore-mongodb",
         &fingerprint,
-    )]);
+    );
+    let container =
+        crate::control_plane::engine::reconstruct_owned_container(&target, "install-1", 8)
+            .expect("owned MongoDB target");
+    let engine = RecordingProjectCommandEngine::new(vec![observed]);
     let operation = QueuedProjectBackup::new(
         "backup-mongodb".to_owned(),
         "bill".to_owned(),
@@ -1178,8 +1186,8 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
         engine.clone(),
         ProjectBackupExecutionOptions {
             operation,
-            logical_resource: Ok(logical_resource),
-            credential: Ok(credential),
+            logical_resource: Ok(logical_resource.clone()),
+            credential: Ok(credential.clone()),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1202,6 +1210,58 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
     let recovery_point = Path::new(backup.reference());
     assert!(recovery_point.join("artifact.bin").is_file());
     assert!(recovery_point.join("manifest.json").is_file());
+
+    let checkpoint = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "restore-mongodb".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:desired".to_owned(),
+        target_revision: "sha256:target".to_owned(),
+        source_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::TargetProvisioned,
+        backup_reference: Some(backup.reference().to_owned()),
+        backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+        backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+        target_resource_id: Some("stackctl_bill_database".to_owned()),
+        rollback_reference: Some("mongodb-8".to_owned()),
+        updated_at_unix_seconds: 41_001,
+    })
+    .expect("MongoDB restore checkpoint");
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "migration/restore-mongodb/mongodb-bootstrap".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "mongodb".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "root secret:/?#[]@".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+
+    runtime
+        .block_on(restore_mongodb_database(
+            &engine,
+            &container,
+            &MongoDbRestoreOptions {
+                checkpoint: &checkpoint,
+                source_logical_resource: &logical_resource,
+                administrator: &administrator,
+                installation_id: "install-1",
+                target_database_name: "stackctl_bill_database",
+                verified_at_unix_seconds: 41_002,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("verified MongoDB restore");
+
+    assert_eq!(engine.command_arguments()[1][0], "sh");
+    assert!(engine.command_arguments()[1][2].contains("mongorestore"));
+    assert!(!format!("{:?}", engine.command_arguments()).contains("root secret"));
+    assert_eq!(engine.command_inputs()[1], b"installed\n");
+    let restore_environments = engine.command_environments();
+    let restore_uri = restore_environments[1]
+        .get("STACKCTL_MONGODB_URI")
+        .expect("runtime-only administrator URI");
+    assert!(restore_uri.contains("authSource=admin"));
+    assert!(!restore_uri.contains("root secret"));
 
     std::fs::remove_dir_all(backup_root).expect("remove MongoDB backup fixture");
 }
@@ -5470,6 +5530,34 @@ fn observed_shared_service(
     .expect("shared-service metadata")
     .with_resource_id(resource_id)
     .expect("shared-service identity");
+
+    crate::control_plane::engine::ObservedContainer::new(
+        crate::control_plane::engine::ContainerId::new(container_id),
+        metadata.labels(),
+    )
+}
+
+fn observed_migration_target(
+    container_id: &str,
+    installation_id: &str,
+    project_id: &str,
+    migration_id: &str,
+    compatibility_fingerprint: &str,
+) -> crate::control_plane::engine::ObservedContainer {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::ProjectService,
+            project_id: Some(project_id.to_owned()),
+            compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:target".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("migration target metadata")
+    .with_resource_id(migration_id)
+    .expect("migration target identity");
 
     crate::control_plane::engine::ObservedContainer::new(
         crate::control_plane::engine::ContainerId::new(container_id),

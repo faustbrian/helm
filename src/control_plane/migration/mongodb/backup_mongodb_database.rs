@@ -30,6 +30,7 @@ pub(crate) async fn backup_mongodb_database(
                     options.credential.username(),
                     options.credential.secret(),
                     options.database_name,
+                    options.database_name,
                 ),
             ),
             (

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a bounded MongoDB restore adapter that re-verifies immutable recovery
+  evidence and exact retained-target ownership before streaming an archive with
+  an RFC 3986-encoded, runtime-only administrator URI.
 - Added separately owned, persistent MongoDB migration target plans and
   convergence with deterministic private bootstrap-secret files, durable
   administrator replay, exact compatibility reuse, and healthy Engine proof.
