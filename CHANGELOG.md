@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an installation-scoped Engine cleanup operation that reconstructs
+  exact ownership, refuses ambiguous same-installation labels before mutation,
+  ignores foreign installations, and removes containers, volumes, then networks.
 - Added a secret-free daemon IPC response for complete installation-deletion
   preflight, including stable ordered per-tenant intents and one whole-plan
   confirmation token that changes when any protected state changes.

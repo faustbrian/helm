@@ -3,14 +3,15 @@ use super::{
     ContainerDiscovery, ContainerEvent, ContainerEventAction, ContainerEventCursor,
     ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerHealthCheck, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
-    ContainerResourceMetrics, ContainerState, EngineFuture, GatewayContainerRequestOptions,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
-    ImageResolver, ImmutableImageReference, LogChunk, LogSource, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
-    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
-    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
+    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
+    ImageReferenceResolver, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
+    PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceKind,
+    ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    VolumeMount, classify_observed_resource, delete_owned_installation_resources,
     gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
     reconstruct_owned_volume,
 };
@@ -1521,6 +1522,84 @@ fn older_engine_api_versions_fail_before_reconciliation() {
 }
 
 #[test]
+fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order() {
+    let container_metadata = global_metadata(ResourceKind::Gateway);
+    let volume_metadata = global_metadata(ResourceKind::Volume);
+    let network_metadata = global_metadata(ResourceKind::Network);
+    let mut foreign_labels = container_metadata.labels();
+    foreign_labels.insert(
+        "dev.stackctl.installation".to_owned(),
+        "install-2".to_owned(),
+    );
+    let mut backend = RecordingContainerBackend {
+        observed: vec![
+            ObservedContainer::new(
+                ContainerId::new("owned-container"),
+                container_metadata.labels(),
+            ),
+            ObservedContainer::new(ContainerId::new("foreign-container"), foreign_labels),
+        ],
+        observed_volumes: vec![ObservedVolume::new(
+            "owned-volume",
+            volume_metadata.labels(),
+        )],
+        observed_networks: vec![ObservedNetwork::new(
+            NetworkId::new("owned-network"),
+            network_metadata.labels(),
+        )],
+        ..RecordingContainerBackend::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(delete_owned_installation_resources(
+            &mut backend,
+            "install-1",
+            8,
+        ))
+        .expect("owned installation cleanup");
+
+    assert_eq!(
+        backend.removals,
+        [
+            "stop:owned-container",
+            "container:owned-container",
+            "volume:owned-volume",
+            "network:owned-network",
+        ]
+    );
+}
+
+#[test]
+fn installation_cleanup_refuses_ambiguous_owned_labels_before_mutation() {
+    let mut labels = global_metadata(ResourceKind::Gateway).labels();
+    labels.insert("dev.stackctl.schema".to_owned(), "7".to_owned());
+    let mut backend = RecordingContainerBackend {
+        observed: vec![ObservedContainer::new(
+            ContainerId::new("ambiguous-container"),
+            labels,
+        )],
+        ..RecordingContainerBackend::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(delete_owned_installation_resources(
+            &mut backend,
+            "install-1",
+            8,
+        ))
+        .expect_err("ambiguous ownership must fail closed");
+
+    assert!(error.to_string().contains("UnsupportedSchema"));
+    assert!(backend.removals.is_empty());
+}
+
+#[test]
 fn engine_operation_deadlines_return_structured_timeouts() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
@@ -1531,13 +1610,13 @@ fn engine_operation_deadlines_return_structured_timeouts() {
         .block_on(bounded_engine_operation(
             "inspect container",
             Duration::from_millis(1),
-            pending::<Result<(), super::EngineError>>(),
+            pending::<Result<(), EngineError>>(),
         ))
         .expect_err("operation deadline");
 
     assert_eq!(
         error,
-        super::EngineError::Timeout {
+        EngineError::Timeout {
             action: "inspect container".to_owned(),
             timeout_milliseconds: 1,
         }
@@ -1767,6 +1846,9 @@ impl NetworkManager for RecordingNetworkBackend {
 struct RecordingContainerBackend {
     created: Vec<ContainerCreateOptions>,
     observed: Vec<ObservedContainer>,
+    observed_networks: Vec<ObservedNetwork>,
+    observed_volumes: Vec<ObservedVolume>,
+    removals: Vec<String>,
 }
 
 impl ContainerDiscovery for RecordingContainerBackend {
@@ -1798,16 +1880,24 @@ impl ContainerLifecycle for RecordingContainerBackend {
 
     fn stop<'operation>(
         &'operation mut self,
-        _container: &'operation OwnedContainer,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.removals
+                .push(format!("stop:{}", container.id().as_str()));
+            Ok(())
+        })
     }
 
     fn remove<'operation>(
         &'operation mut self,
-        _container: &'operation OwnedContainer,
+        container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ()> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            self.removals
+                .push(format!("container:{}", container.id().as_str()));
+            Ok(())
+        })
     }
 
     fn inspect<'operation>(
@@ -1815,5 +1905,64 @@ impl ContainerLifecycle for RecordingContainerBackend {
         _container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerState> {
         Box::pin(async { Ok(ContainerState::Running) })
+    }
+}
+
+impl VolumeDiscovery for RecordingContainerBackend {
+    fn discover_managed_volumes(&self) -> EngineFuture<'_, Vec<ObservedVolume>> {
+        Box::pin(async { Ok(self.observed_volumes.clone()) })
+    }
+}
+
+impl VolumeManager for RecordingContainerBackend {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        _options: &'operation VolumeCreateOptions,
+    ) -> EngineFuture<'operation, OwnedVolume> {
+        Box::pin(async {
+            Err(EngineError::Backend {
+                detail: "unexpected volume creation".to_owned(),
+            })
+        })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        volume: &'operation OwnedVolume,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removals.push(format!("volume:{}", volume.name()));
+            Ok(())
+        })
+    }
+}
+
+impl NetworkDiscovery for RecordingContainerBackend {
+    fn discover_managed_networks(&self) -> EngineFuture<'_, Vec<ObservedNetwork>> {
+        Box::pin(async { Ok(self.observed_networks.clone()) })
+    }
+}
+
+impl NetworkManager for RecordingContainerBackend {
+    fn create_network<'operation>(
+        &'operation mut self,
+        _options: &'operation NetworkCreateOptions,
+    ) -> EngineFuture<'operation, OwnedNetwork> {
+        Box::pin(async {
+            Err(EngineError::Backend {
+                detail: "unexpected network creation".to_owned(),
+            })
+        })
+    }
+
+    fn remove_network<'operation>(
+        &'operation mut self,
+        network: &'operation OwnedNetwork,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removals
+                .push(format!("network:{}", network.id().as_str()));
+            Ok(())
+        })
     }
 }
