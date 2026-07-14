@@ -3,6 +3,7 @@ use super::{
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::gateway::GatewaySnapshot;
+use crate::control_plane::project_infrastructure::ProjectServicePreparationStrategy;
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
@@ -70,12 +71,8 @@ pub(crate) fn plan_engine_reconciliation(
                 prepared.project_id() == service.project().as_str()
                     && prepared.service_id() == service.service().as_str()
             });
-            let requires_preparation = service.strategy()
-                == ServiceDeploymentStrategy::DedicatedRoutableProject
-                || matches!(
-                    service.desired().preset(),
-                    Some("meilisearch" | "opensearch" | "typesense")
-                );
+            let requires_preparation =
+                ProjectServicePreparationStrategy::requires_preparation(service);
             if requires_preparation && prepared.is_none() {
                 return Err(invalid(format!(
                     "managed project service '{}-{}' was not prepared",
