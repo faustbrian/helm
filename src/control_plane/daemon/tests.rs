@@ -2606,6 +2606,148 @@ fn queued_logical_prune_dispatches_rabbitmq_adapter_and_retires_exact_state() {
 }
 
 #[test]
+fn queued_logical_prune_dispatches_redis_adapter_and_retires_exact_state() {
+    use crate::control_plane::retention::{LogicalPrunePlan, LogicalPrunePlanOptions};
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-redis-prune");
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/cache/redis".to_owned(),
+        shared_resource_id: "redis-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        kind: "redis_acl_prefix".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/cache/redis".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "st_bill_cache".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/redis-bootstrap", "a".repeat(64)),
+        project_id: None,
+        service_id: "redis".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-redis".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: root.join("backups/backup-redis").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    let plan = LogicalPrunePlan::new(LogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "cache",
+        recovery_point_id: "backup-redis",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery_point),
+    })
+    .expect("Redis prune plan");
+    let operation = QueuedPostgresPrune::new(
+        "prune-redis".to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued Redis prune");
+    drop(store);
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "redis-container",
+        "install-1",
+        "redis-8",
+        &fingerprint,
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_postgres_prune(
+        engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation,
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(()));
+    let calls = engine.command_arguments();
+    assert_eq!(&calls[0][4..], ["ACL", "DELUSER", "st_bill_cache"]);
+    assert_eq!(calls[1][4], "EVAL");
+    assert!(calls[1][5].contains("UNLINK"));
+    assert_eq!(calls[1].last(), Some(&"stackctl:bill:cache:".to_owned()));
+    assert_eq!(
+        engine.command_environments()[0]["REDISCLI_AUTH"],
+        "administrator-secret"
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert_eq!(
+        store.credentials().expect("administrator retained"),
+        vec![administrator]
+    );
+    assert_eq!(
+        store.recovery_points("bill").expect("recovery retained"),
+        vec![recovery_point]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove prune fixture");
+}
+
+#[test]
 fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let root = temporary_directory("queued-postgres-restore");
     let project_path = root.join("bill");
@@ -6897,13 +7039,26 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
                 )
                 .into_bytes()
             });
+        let redis_prune_output = request
+            .arguments()
+            .iter()
+            .any(|argument| argument == "DELUSER")
+            .then(|| b"1\n".to_vec())
+            .or_else(|| {
+                request
+                    .arguments()
+                    .iter()
+                    .any(|argument| argument.contains("redis.call('UNLINK'"))
+                    .then(|| b"2\n".to_vec())
+            });
         let verification_output = postgres_verification_output
             .or(mysql_verification_output)
             .or(mongodb_verification_output)
             .or(sql_server_verification_output)
             .or(rabbitmq_list_output)
             .or(minio_version_output)
-            .or(redis_snapshot_output);
+            .or(redis_snapshot_output)
+            .or(redis_prune_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

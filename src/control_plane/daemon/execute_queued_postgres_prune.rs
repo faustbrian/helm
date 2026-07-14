@@ -5,12 +5,12 @@ use crate::control_plane::engine::{
 use crate::control_plane::retention::{
     DataLifecycleStrategy, MinioLogicalPruneOptions, MongoDbLogicalPruneOptions,
     MySqlLogicalPruneOptions, PostgresLogicalPruneOptions, PostgresLogicalPrunePlan,
-    PostgresLogicalPrunePlanOptions, RabbitMqLogicalPruneOptions, SqlServerLogicalPruneOptions,
-    prune_minio_logical_resource, prune_mongodb_logical_resource, prune_mysql_logical_resource,
-    prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
-    prune_sql_server_logical_resource,
+    PostgresLogicalPrunePlanOptions, RabbitMqLogicalPruneOptions, RedisLogicalPruneOptions,
+    SqlServerLogicalPruneOptions, prune_minio_logical_resource, prune_mongodb_logical_resource,
+    prune_mysql_logical_resource, prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
+    prune_redis_logical_resource, prune_sql_server_logical_resource,
 };
-use crate::control_plane::shared_infrastructure::MySqlFlavor;
+use crate::control_plane::shared_infrastructure::{MySqlFlavor, RedisFlavor};
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, LogicalResourceRecord, SqliteStateStore, StateStore,
 };
@@ -190,10 +190,21 @@ where
             .await
             .map_err(|error| error.to_string())?;
         }
-        strategy => {
-            return Err(format!(
-                "logical prune strategy {strategy:?} has no destructive adapter"
-            ));
+        DataLifecycleStrategy::SharedKeyValueSnapshot => {
+            prune_redis_logical_resource(
+                engine,
+                RedisLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    flavor: redis_flavor(logical)?,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator: required_administrator(administrator)?,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
         }
     }
     store
@@ -248,12 +259,11 @@ fn exact_administrator<'state>(
         DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin", "bootstrap"),
         DataLifecycleStrategy::SqlServerNative => ("sqlserver", "sa", "bootstrap"),
         DataLifecycleStrategy::ObjectStoreBucketExport => ("minio", "stackctl_admin", "root"),
+        DataLifecycleStrategy::SharedKeyValueSnapshot => match redis_flavor(logical)? {
+            RedisFlavor::Redis => ("redis", "stackctl_admin", "bootstrap"),
+            RedisFlavor::Valkey => ("valkey", "stackctl_admin", "bootstrap"),
+        },
         DataLifecycleStrategy::RabbitMqDefinitions => return Ok(None),
-        strategy => {
-            return Err(format!(
-                "logical prune strategy {strategy:?} has no administrator model"
-            ));
-        }
     };
     let administrator_id = format!("shared/{fingerprint}/{implementation}-{suffix}");
     one(
@@ -284,6 +294,16 @@ fn mysql_flavor(logical: &LogicalResourceRecord) -> Result<MySqlFlavor, String> 
         "mariadb_database" => Ok(MySqlFlavor::MariaDb),
         kind => Err(format!(
             "logical resource kind '{kind}' is not a MySQL-family tenant"
+        )),
+    }
+}
+
+fn redis_flavor(logical: &LogicalResourceRecord) -> Result<RedisFlavor, String> {
+    match logical.kind() {
+        "redis_acl_prefix" => Ok(RedisFlavor::Redis),
+        "valkey_acl_prefix" => Ok(RedisFlavor::Valkey),
+        kind => Err(format!(
+            "logical resource kind '{kind}' is not a Redis-compatible tenant"
         )),
     }
 }

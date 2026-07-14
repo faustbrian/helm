@@ -123,6 +123,7 @@ fn one_logical<'state>(
             | DataLifecycleStrategy::SqlServerNative
             | DataLifecycleStrategy::RabbitMqDefinitions
             | DataLifecycleStrategy::ObjectStoreBucketExport
+            | DataLifecycleStrategy::SharedKeyValueSnapshot
     ) {
         return Err(format!(
             "logical resource kind '{}' has no implemented destructive prune adapter",

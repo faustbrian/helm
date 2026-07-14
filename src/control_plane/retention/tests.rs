@@ -3,9 +3,10 @@ use super::{
     DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
     MinioLogicalPruneOptions, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
     PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, PruneAuthorization,
-    RabbitMqLogicalPruneOptions, RestoreTarget, RestoreTargetError, SqlServerLogicalPruneOptions,
-    evaluate_deletion, open_stored_backup_artifact, prune_minio_logical_resource,
-    prune_mongodb_logical_resource, prune_mysql_logical_resource, prune_rabbitmq_logical_resource,
+    RabbitMqLogicalPruneOptions, RedisLogicalPruneOptions, RestoreTarget, RestoreTargetError,
+    SqlServerLogicalPruneOptions, evaluate_deletion, open_stored_backup_artifact,
+    prune_minio_logical_resource, prune_mongodb_logical_resource, prune_mysql_logical_resource,
+    prune_rabbitmq_logical_resource, prune_redis_logical_resource,
     prune_sql_server_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
     store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
@@ -41,8 +42,6 @@ fn logical_data_kinds_select_explicit_lifecycle_strategies() {
             Ok(expected),
         );
     }
-    assert!(DataLifecycleStrategy::SharedKeyValueSnapshot.requires_shared_instance_scope());
-    assert!(!DataLifecycleStrategy::PostgreSqlLogical.requires_shared_instance_scope());
 }
 
 #[test]
@@ -622,6 +621,109 @@ fn minio_logical_prune_deletes_only_exact_bucket_identity_and_policy() {
         ))
         .expect("replay missing MinIO tenant prune");
     assert_eq!(replay.argument_calls().len(), 3);
+}
+
+#[test]
+fn redis_logical_prune_revokes_the_user_then_deletes_only_the_exact_prefix() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use crate::control_plane::shared_infrastructure::RedisFlavor;
+    use std::time::Duration;
+
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: fingerprint.clone(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("Redis metadata");
+    let observed = ObservedContainer::new(ContainerId::new("redis-1"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned Redis container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/cache/redis".to_owned(),
+        shared_resource_id: "redis-1".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        kind: "redis_acl_prefix".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/cache/redis".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "st_bill_cache".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/redis-bootstrap", "a".repeat(64)),
+        project_id: None,
+        service_id: "redis".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPruneExecutor::with_outputs(vec![b"1\n".to_vec(), b"2\n".to_vec()]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_redis_logical_resource(
+            &executor,
+            RedisLogicalPruneOptions {
+                installation_id: "install-1",
+                flavor: RedisFlavor::Redis,
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("prune Redis tenant");
+
+    let calls = executor.argument_calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0][0], "redis-cli");
+    assert_eq!(&calls[0][4..], ["ACL", "DELUSER", "st_bill_cache"]);
+    assert_eq!(calls[1][4], "EVAL");
+    assert!(calls[1][5].contains("SCAN"));
+    assert!(calls[1][5].contains("UNLINK"));
+    assert_eq!(calls[1].last(), Some(&"stackctl:bill:cache:".to_owned()));
+    assert_eq!(
+        executor.environment()["REDISCLI_AUTH"],
+        "administrator-secret"
+    );
+    assert!(!format!("{calls:?}").contains("project-secret"));
+
+    let replay = RecordingPruneExecutor::with_outputs(vec![b"0\n".to_vec(), b"0\n".to_vec()]);
+    runtime
+        .block_on(prune_redis_logical_resource(
+            &replay,
+            RedisLogicalPruneOptions {
+                installation_id: "install-1",
+                flavor: RedisFlavor::Redis,
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("replay already deleted Redis tenant");
+    assert_eq!(replay.argument_calls().len(), 2);
 }
 
 #[test]

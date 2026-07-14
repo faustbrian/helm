@@ -25,9 +25,4 @@ impl DataLifecycleStrategy {
             Self::SharedKeyValueSnapshot => "shared_key_value_snapshot",
         }
     }
-
-    /// Reports whether one recovery point necessarily covers every tenant.
-    pub(crate) const fn requires_shared_instance_scope(self) -> bool {
-        matches!(self, Self::SharedKeyValueSnapshot)
-    }
 }

@@ -1237,9 +1237,6 @@ where
             .filter(|resource| resource.project_id() == project.project_name())
             .map(|resource| {
                 let data_lifecycle = match crate::control_plane::retention::resolve_data_lifecycle_strategy(&resource) {
-                    Ok(strategy) if strategy.requires_shared_instance_scope() => {
-                        IpcDataLifecycle::SharedInstance
-                    }
                     Ok(_) => IpcDataLifecycle::LogicalResource,
                     Err(crate::control_plane::retention::DataLifecycleStrategyError::NonAuthoritative { .. }) => {
                         IpcDataLifecycle::None

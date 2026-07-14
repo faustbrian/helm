@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reported Redis and Valkey tenant prefixes as logical data-lifecycle
+  resources even though their compatible server container is shared.
 - Denied Redis and Valkey tenant credentials access to `SCAN`, `KEYS`, and
   `RANDOMKEY`, preventing cross-project key-name enumeration while preserving
   key-prefix enforcement for ordinary application commands and scripts.
@@ -14,6 +16,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Extended recovery-bound logical prune execution to Redis and Valkey with
+  administrator-authenticated ACL revocation, atomic exact-prefix deletion,
+  idempotent crash replay, and shared-instance preservation.
 - Integrated Redis and Valkey prefix backups into the daemon's bounded project
   backup queue with secret-free durable intents, exact shared-administrator
   resolution, deterministic tenant prefixes, and verified recovery points.
