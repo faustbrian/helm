@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed the disconnected generic runtime builder and reconciler that existed
+  only in tests and implied unsupported Composer, JavaScript, system-package,
+  and installer-artifact behavior alongside the daemon's PHP extension path.
 - Changed the package and changelog identity to 8.0.0 so clean-slate builds no
   longer identify themselves as the previous major release.
 - Connected declared PHP extensions to daemon reconciliation through
