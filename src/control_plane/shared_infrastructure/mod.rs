@@ -52,6 +52,7 @@ pub(crate) use object_store::{
     reconcile_object_store_project_resources, reconcile_prepared_object_store_instance,
     store_object_store_policy,
 };
+pub(crate) use orphaned_rabbitmq_access_options::OrphanedRabbitMqAccessOptions;
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
@@ -88,6 +89,7 @@ pub(crate) use redis::{
     reconcile_redis_acl_snapshot, reload_redis_acl, store_redis_acl_snapshot,
 };
 pub(crate) use resolve_execution_shared_instances::resolve_execution_shared_instances;
+pub(crate) use revoke_orphaned_rabbitmq_access::revoke_orphaned_rabbitmq_access;
 pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
@@ -132,6 +134,7 @@ mod managed_secret_store_error;
 mod mongodb;
 mod mysql;
 mod object_store;
+mod orphaned_rabbitmq_access_options;
 mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
@@ -145,6 +148,7 @@ mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
 mod resolve_execution_shared_instances;
+mod revoke_orphaned_rabbitmq_access;
 mod run_provisioning_job;
 mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;

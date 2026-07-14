@@ -13,7 +13,7 @@ pub(crate) async fn revoke_rabbitmq_project_access(
     executor: &impl CommandExecutor,
     container: &OwnedContainer,
     definition: &RabbitMqProjectDefinition,
-) -> Result<(), EngineError> {
+) -> Result<bool, EngineError> {
     let list = command_options(
         vec![
             "rabbitmqctl".to_owned(),
@@ -32,7 +32,7 @@ pub(crate) async fn revoke_rabbitmq_project_access(
         .map(str::trim)
         .any(|username| username == definition.username())
     {
-        return Ok(());
+        return Ok(false);
     }
 
     let delete = command_options(
@@ -43,7 +43,9 @@ pub(crate) async fn revoke_rabbitmq_project_access(
         ],
         "revoke RabbitMQ project access",
     )?;
-    run_attached_command(executor, container, &delete).await
+    run_attached_command(executor, container, &delete).await?;
+
+    Ok(true)
 }
 
 fn command_options(

@@ -8,15 +8,15 @@ use super::{
     MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlMigrationInstancePlanOptions,
     MySqlMigrationPreparationOptions, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions,
     ObjectStoreFlavor, ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
-    ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
-    PostgresMigrationInstancePlanOptions, PostgresMigrationPreparationOptions,
-    PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
-    PreparedPostgresSharedInstance, ProvisioningJobOptions, RabbitMqDefinitions,
-    RabbitMqPasswordHash, RabbitMqProjectDefinition, RabbitMqSharedInstancePlan,
-    RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
-    RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
-    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    ObjectStoreSharedInstancePlanOptions, OrphanedRabbitMqAccessOptions, PersistenceMode,
+    PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
+    PostgresMigrationPreparationOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
+    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
+    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
+    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
+    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
+    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
     SqlServerMigrationInstancePlanOptions, SqlServerMigrationPreparationOptions,
     SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
     UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
@@ -37,9 +37,9 @@ use super::{
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
-    revoke_rabbitmq_project_access, run_provisioning_job, stop_unreferenced_shared_services,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    revoke_orphaned_rabbitmq_access, revoke_rabbitmq_project_access, run_provisioning_job,
+    stop_unreferenced_shared_services, store_credential_secret, store_mailpit_authentication,
+    store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -49,8 +49,9 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::state::{
-    LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, SqliteStateStore, StateStore,
 };
 use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -3100,6 +3101,86 @@ fn rabbitmq_project_access_revocation_bounds_broker_output() {
 }
 
 #[test]
+fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
+    let owned = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
+    let observed = ObservedContainer::new(owned.id().clone(), owned.metadata().labels());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: owned.id().as_str().to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: "sha256:rabbitmq-4".to_owned(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/broker/rabbitmq".to_owned(),
+        shared_resource_id: "rabbitmq-data".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "broker".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: "sha256:rabbitmq-4".to_owned(),
+        desired_revision: "sha256:logical-v1".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: logical.logical_resource_id().to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "broker".to_owned(),
+        username: "st_bill_broker".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let mut engine = RecordingOrphanAccessEngine {
+        observed: vec![observed],
+        state: crate::control_plane::engine::ContainerState::Stopped,
+        started: Vec::new(),
+        commands: RecordingOutputExecutor::new(vec![b"st_bill_broker\n".to_vec(), Vec::new()]),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let revoked = runtime
+        .block_on(revoke_orphaned_rabbitmq_access(
+            &mut engine,
+            OrphanedRabbitMqAccessOptions {
+                resources: &[resource],
+                logical_resources: &[logical],
+                credentials: &[credential],
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("revoke orphaned RabbitMQ access");
+
+    assert_eq!(revoked, 1);
+    assert_eq!(engine.started, [owned]);
+    assert_eq!(
+        *engine.commands.requests.lock().expect("recorded requests"),
+        vec![
+            vec![
+                "rabbitmqctl".to_owned(),
+                "list_users".to_owned(),
+                "name".to_owned(),
+                "--no-table-headers".to_owned(),
+            ],
+            vec![
+                "rabbitmqctl".to_owned(),
+                "delete_user".to_owned(),
+                "st_bill_broker".to_owned(),
+            ],
+        ]
+    );
+}
+
+#[test]
 fn mailpit_authentication_is_deterministic_attributed_and_secret_free() {
     let snapshot = MailpitAuthenticationSnapshot::new(vec![
         MailpitProjectDefinition::new(
@@ -4348,16 +4429,14 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
     let container =
         reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle");
     let executor = RecordingPostgresExecutor::default();
-    let administrator = crate::control_plane::state::CredentialRecord::new(
-        crate::control_plane::state::CredentialRecordOptions {
-            credential_id: "shared/postgres/bootstrap".to_owned(),
-            project_id: None,
-            service_id: "postgresql".to_owned(),
-            username: "stackctl_admin".to_owned(),
-            secret: "root-secret".to_owned(),
-            lifecycle: crate::control_plane::state::CredentialLifecycle::Active,
-        },
-    );
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/postgres/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "postgresql".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "root-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
@@ -5239,6 +5318,81 @@ impl CommandExecutor for RecordingObjectStoreExecutor {
 struct RecordingOutputExecutor {
     outputs: Arc<Mutex<VecDeque<Vec<u8>>>>,
     requests: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+struct RecordingOrphanAccessEngine {
+    observed: Vec<ObservedContainer>,
+    state: crate::control_plane::engine::ContainerState,
+    started: Vec<OwnedContainer>,
+    commands: RecordingOutputExecutor,
+}
+
+impl crate::control_plane::engine::ContainerDiscovery for RecordingOrphanAccessEngine {
+    fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerLifecycle for RecordingOrphanAccessEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        _options: &'operation crate::control_plane::engine::ContainerCreateOptions,
+    ) -> EngineFuture<'operation, OwnedContainer> {
+        Box::pin(async {
+            Err(crate::control_plane::engine::EngineError::Backend {
+                detail: "unexpected container creation".to_owned(),
+            })
+        })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.started.push(container.clone());
+            Ok(())
+        })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ContainerState> {
+        Box::pin(async { Ok(self.state) })
+    }
+}
+
+impl CommandExecutor for RecordingOrphanAccessEngine {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.commands.start_command(container, request)
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        execution_id: &'operation CommandExecutionId,
+        container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        self.commands.command_status(execution_id, container_id)
+    }
 }
 
 impl RecordingOutputExecutor {

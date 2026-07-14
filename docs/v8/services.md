@@ -89,3 +89,8 @@ Removing a project disables credentials where safe and orphans logical data. It
 never deletes shared volumes or project data automatically. Deleting the last
 reference may stop a shared container, but retained data requires explicit
 pruning after backup policy is satisfied.
+
+For RabbitMQ, the daemon deletes only the exact ownership-proven disabled user
+before it idles an unreferenced broker. The vhost, queues, and messages remain
+retained. A stopped retained broker is started when revocation still needs to
+converge, and the vhost is never deleted implicitly.

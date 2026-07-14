@@ -118,6 +118,10 @@ active -> orphaned -> stopped/credential-disabled -> retained
        -> adopted | restored | explicitly pruned
 ```
 
+For RabbitMQ, daemon reconciliation removes the exact disabled project user
+before an otherwise unreferenced broker is stopped. The vhost and queued
+messages remain retained for explicit restore, adoption, or prune.
+
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.
 Databases, buckets, queues, volumes, and backups are never implicitly deleted.

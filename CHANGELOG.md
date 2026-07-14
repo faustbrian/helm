@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Connected orphaned RabbitMQ credential revocation to singleton-daemon
+  reconciliation before unreferenced shared brokers idle. The daemon now
+  starts a retained stopped broker when needed, deletes only the exact
+  ownership-proven project user, and retains its vhost and messages.
 - Replaced network-dependent PHP extension installation during derived project
   builds with offline enablement and runtime verification from a
   Stackctl-owned, catalog-validated PHP image. Unsupported extension names now
