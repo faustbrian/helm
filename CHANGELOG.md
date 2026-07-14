@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned MinIO bucket backups with runtime-only tenant credentials,
+  machine-readable versioning checks, fail-closed rejection of version history,
+  streamed current-object archives, and immutable checksum verification.
 - Added daemon-owned RabbitMQ topology backups using exact vhost ownership,
   a fail-closed zero-message policy, scoped broker definition export, immutable
   artifact storage, and checksum verification without exposing credentials.

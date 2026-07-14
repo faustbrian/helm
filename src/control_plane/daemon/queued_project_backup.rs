@@ -90,6 +90,7 @@ impl QueuedProjectBackup {
                 | "mongodb_database"
                 | "sqlserver_database"
                 | "rabbitmq_vhost_user"
+                | "minio_bucket_policy"
         ) {
             return Err(format!(
                 "project backup kind '{}' is not implemented",

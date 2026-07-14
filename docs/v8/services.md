@@ -21,7 +21,7 @@ logical resources reconcile independently and idempotently.
 | Valkey | Shared by major/module profile | ACL user/password and key prefix; global commands denied | Persistence and supported logical export | Commands cannot be safely ACL-scoped |
 | Dragonfly | Shared only after parity is proven | Project credential and prefix where supported | Engine snapshot/restore | Isolation is weaker than requested |
 | Memcached | Dedicated by default | Prefix is convention, not security isolation | No authoritative persistent backup | Unless weak sharing is explicitly accepted |
-| MinIO | Shared by compatible profile | Bucket, key/secret, bucket policy | Bucket export; new instance for storage-format boundary | Global config or policy differs |
+| MinIO | Shared by compatible profile | Bucket, key/secret, bucket policy | Current-object export for unversioned buckets; version history fails closed | Global config or policy differs |
 | RustFS | Dedicated until the external admin-client lifecycle is proven | Whole project instance | Bucket export; new instance for storage-format boundary | Default; share after bucket, identity, policy, and recovery acceptance tests pass |
 | Garage | Shared only after policy behavior is proven | Bucket and scoped key where supported | Bucket export plus metadata backup | Isolation cannot be proven |
 | LocalStack | Dedicated by default | Whole emulated account/container | Explicit export where supported | Default; share only after complete namespacing |

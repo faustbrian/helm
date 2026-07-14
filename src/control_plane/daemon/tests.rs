@@ -1176,6 +1176,80 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
 }
 
 #[test]
+fn queued_minio_backup_streams_an_unversioned_project_bucket() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-minio-backup");
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "minio-container",
+        "install-1",
+        "minio-1",
+        &fingerprint,
+    )]);
+    let operation = QueuedProjectBackup::new(
+        "backup-minio".to_owned(),
+        "bill".to_owned(),
+        "files".to_owned(),
+        "bill/files/object-store".to_owned(),
+        "minio_bucket_policy".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid MinIO backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/files/object-store".to_owned(),
+        shared_resource_id: "minio-1".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "files".to_owned(),
+        kind: "minio_bucket_policy".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/files/object-store".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "files".to_owned(),
+        username: "st_bill_files".to_owned(),
+        secret: "minio-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified MinIO backup");
+    let calls = engine.command_arguments();
+    assert_eq!(calls.len(), 2);
+    assert!(calls[0][2].contains("version info"));
+    assert!(calls[1][2].contains(" mirror "));
+    assert!(calls[1][2].contains("tar -C"));
+    assert!(!format!("{calls:?}").contains("minio-secret"));
+    assert_eq!(backup.artifact_size_bytes(), 10);
+
+    std::fs::remove_dir_all(backup_root).expect("remove MinIO backup fixture");
+}
+
+#[test]
 fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
@@ -6682,11 +6756,17 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             ),
             _ => None,
         };
+        let minio_version_output = request
+            .arguments()
+            .get(2)
+            .is_some_and(|script| script.contains("version info"))
+            .then(|| b"{\"status\":\"success\",\"versioning\":{}}\n".to_vec());
         let verification_output = postgres_verification_output
             .or(mysql_verification_output)
             .or(mongodb_verification_output)
             .or(sql_server_verification_output)
-            .or(rabbitmq_list_output);
+            .or(rabbitmq_list_output)
+            .or(minio_version_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

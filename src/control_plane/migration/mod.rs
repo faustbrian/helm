@@ -12,6 +12,7 @@ mod migration_rollback_plan;
 mod migration_target_plan;
 mod mongodb;
 mod mysql;
+mod object_store;
 mod postgres;
 mod rabbitmq;
 mod recovery_point_restore_options;
@@ -36,6 +37,7 @@ pub(crate) use mysql::{
     MySqlBackupOptions, MySqlMigrationOperations, MySqlMigrationOperationsOptions,
     MySqlRestoreOptions, backup_mysql_database, restore_mysql_database,
 };
+pub(crate) use object_store::{MinioBackupOptions, backup_minio_bucket};
 pub(crate) use postgres::{
     EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
