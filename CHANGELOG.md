@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made Debian-family trust refreshes transactional around the privileged
+  managed-root file. A failed install refresh removes the partial root and
+  refreshes cleanly; a failed removal refresh restores the exact root. Both
+  paths report rollback failures with the original OS integration error.
 - Made first-time CA trust installation transactional through post-install
   verification and active certificate-generation selection. If either final
   step fails, newly introduced OS trust is removed and verified absent;

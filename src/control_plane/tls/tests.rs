@@ -653,6 +653,100 @@ fn debian_trust_store_installs_and_removes_through_the_os_mechanism() {
     );
 }
 
+#[test]
+fn failed_debian_trust_refresh_removes_the_partial_managed_root() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(""),
+        HostCommandOutput::failure("refresh failed"),
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+    ]);
+    let store = DebianCertificateTrustStore::with_local_ca_directory(
+        runner.clone(),
+        PathBuf::from("/usr/local/share/ca-certificates"),
+    );
+    let managed_path = store.managed_certificate_path(&identity);
+
+    let error = store
+        .install(&identity, &certificate_path)
+        .expect_err("failed Debian refresh");
+
+    assert!(error.to_string().contains("refresh failed"));
+    assert_eq!(
+        runner.commands(),
+        vec![
+            HostCommand::new(
+                "sudo",
+                [
+                    "install",
+                    "-m",
+                    "0644",
+                    certificate_path.to_str().expect("UTF-8 source path"),
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates"]),
+            HostCommand::new(
+                "sudo",
+                [
+                    "rm",
+                    "-f",
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates", "--fresh"]),
+        ]
+    );
+}
+
+#[test]
+fn failed_debian_trust_removal_refresh_restores_the_managed_root() {
+    let (identity, certificate_path) = trust_fixture();
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(""),
+        HostCommandOutput::failure("removal refresh failed"),
+        HostCommandOutput::success(""),
+        HostCommandOutput::success(""),
+    ]);
+    let store = DebianCertificateTrustStore::with_local_ca_directory(
+        runner.clone(),
+        PathBuf::from("/usr/local/share/ca-certificates"),
+    );
+    let managed_path = store.managed_certificate_path(&identity);
+
+    let error = store
+        .remove(&identity, &certificate_path)
+        .expect_err("failed Debian removal refresh");
+
+    assert!(error.to_string().contains("removal refresh failed"));
+    assert_eq!(
+        runner.commands(),
+        vec![
+            HostCommand::new(
+                "sudo",
+                [
+                    "rm",
+                    "-f",
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates", "--fresh"]),
+            HostCommand::new(
+                "sudo",
+                [
+                    "install",
+                    "-m",
+                    "0644",
+                    certificate_path.to_str().expect("UTF-8 source path"),
+                    managed_path.to_str().expect("UTF-8 managed path"),
+                ]
+            ),
+            HostCommand::new("sudo", ["update-ca-certificates"]),
+        ]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn certificate_bundles_persist_as_atomic_user_private_directories() {

@@ -36,6 +36,39 @@ impl<E> DebianCertificateTrustStore<E> {
     }
 }
 
+impl<E: HostCommandExecutor> DebianCertificateTrustStore<E> {
+    fn install_managed_certificate(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Result<(), TrustStoreError> {
+        let output = self.executor.execute(&HostCommand::new(
+            "sudo",
+            ["install", "-m", "0644", source, target],
+        ))?;
+        require_host_command_success("copy Stackctl CA into Debian local roots", &output)
+    }
+
+    fn remove_managed_certificate(&self, target: &str) -> Result<(), TrustStoreError> {
+        let output = self
+            .executor
+            .execute(&HostCommand::new("sudo", ["rm", "-f", target]))?;
+        require_host_command_success("remove Stackctl CA from Debian local roots", &output)
+    }
+
+    fn refresh_system_trust(&self, fresh: bool) -> Result<(), TrustStoreError> {
+        let arguments = if fresh {
+            vec!["update-ca-certificates", "--fresh"]
+        } else {
+            vec!["update-ca-certificates"]
+        };
+        let output = self
+            .executor
+            .execute(&HostCommand::new("sudo", arguments))?;
+        require_host_command_success("update Debian system CA certificates", &output)
+    }
+}
+
 impl<E: HostCommandExecutor> CertificateTrustStore for DebianCertificateTrustStore<E> {
     fn contains(
         &self,
@@ -79,35 +112,46 @@ impl<E: HostCommandExecutor> CertificateTrustStore for DebianCertificateTrustSto
         let source = utf8_path("Debian CA source", certificate_path)?;
         let managed_path = self.managed_certificate_path(identity);
         let target = utf8_path("managed Debian CA", &managed_path)?;
-        let install = self.executor.execute(&HostCommand::new(
-            "sudo",
-            ["install", "-m", "0644", source, target],
-        ))?;
-        require_host_command_success("copy Stackctl CA into Debian local roots", &install)?;
+        self.install_managed_certificate(source, target)?;
+        if let Err(failure) = self.refresh_system_trust(false) {
+            let rollback = self
+                .remove_managed_certificate(target)
+                .and_then(|()| self.refresh_system_trust(true));
+            if let Err(rollback) = rollback {
+                return Err(TrustStoreError::new(format!(
+                    "{failure}; failed to roll back managed Debian CA: {rollback}"
+                )));
+            }
 
-        let update = self
-            .executor
-            .execute(&HostCommand::new("sudo", ["update-ca-certificates"]))?;
-        require_host_command_success("update Debian system CA certificates", &update)
+            return Err(failure);
+        }
+
+        Ok(())
     }
 
     fn remove(
         &self,
         identity: &LocalCaIdentity,
-        _certificate_path: &Path,
+        certificate_path: &Path,
     ) -> Result<(), TrustStoreError> {
+        let source = utf8_path("Debian CA source", certificate_path)?;
         let managed_path = self.managed_certificate_path(identity);
         let target = utf8_path("managed Debian CA", &managed_path)?;
-        let remove = self
-            .executor
-            .execute(&HostCommand::new("sudo", ["rm", "-f", target]))?;
-        require_host_command_success("remove Stackctl CA from Debian local roots", &remove)?;
+        self.remove_managed_certificate(target)?;
+        if let Err(failure) = self.refresh_system_trust(true) {
+            let rollback = self
+                .install_managed_certificate(source, target)
+                .and_then(|()| self.refresh_system_trust(false));
+            if let Err(rollback) = rollback {
+                return Err(TrustStoreError::new(format!(
+                    "{failure}; failed to restore managed Debian CA: {rollback}"
+                )));
+            }
 
-        let update = self.executor.execute(&HostCommand::new(
-            "sudo",
-            ["update-ca-certificates", "--fresh"],
-        ))?;
-        require_host_command_success("refresh Debian system CA certificates", &update)
+            return Err(failure);
+        }
+
+        Ok(())
     }
 }
 

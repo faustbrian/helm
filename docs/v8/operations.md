@@ -148,6 +148,12 @@ OS trust is added removes that exact identity and verifies it absent. Existing
 trust is never removed by this rollback, and rollback failure is reported with
 the original finalization error.
 
+On Debian-family hosts, the privileged managed-root file and the
+`update-ca-certificates` refresh are one transaction. Failed installation
+refreshes remove the partial root and refresh again; failed removal refreshes
+restore the exact root and refresh again. Partial privileged state is never
+reported as a completed trust transition.
+
 `stackctl daemon service status` checks the selected service manager in
 addition to the definition file. A stale launchd plist or systemd user unit is
 reported as installed but not running, with an explicit reinstall command; it
