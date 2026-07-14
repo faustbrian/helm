@@ -7995,6 +7995,58 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
 
 #[cfg(unix)]
 #[test]
+fn singleton_unix_runtime_exits_before_work_when_shutdown_is_requested() {
+    use super::{DaemonShutdownSignal, UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+
+    struct RequestedShutdown;
+
+    impl DaemonShutdownSignal for RequestedShutdown {
+        fn is_requested(&self) -> bool {
+            true
+        }
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "s8x-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("shutdown runtime root");
+    let socket_path = root.join("daemon.sock");
+    let options = UnixDaemonRuntimeOptions {
+        state_database_path: root.join("state.sqlite3"),
+        lease_path: root.join("daemon.lock"),
+        socket_path: socket_path.clone(),
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        scheduler_options: DiscoverySchedulerOptions::new(
+            Duration::from_millis(25),
+            Duration::from_millis(250),
+            Duration::from_secs(60),
+        )
+        .expect("scheduler options"),
+        idle_poll_interval: Duration::from_millis(5),
+    };
+    let mut runtime = UnixDaemonRuntime::new(options, Instant::now()).expect("singleton runtime");
+
+    runtime.run_until_shutdown(&RequestedShutdown);
+
+    assert!(
+        socket_path.exists(),
+        "runtime remains owned until it is dropped"
+    );
+    drop(runtime);
+    assert!(
+        !socket_path.exists(),
+        "graceful drop removes the IPC socket"
+    );
+    std::fs::remove_dir_all(root).expect("remove shutdown fixture");
+}
+
+#[cfg(unix)]
+#[test]
 fn daemon_watch_rejects_broken_localhost_resolution_before_writing_state() {
     use super::{UnixDaemonWatchOptions, run_unix_daemon_watch_with_resolver};
     use crate::control_plane::gateway::{GatewayError, LocalhostResolver};

@@ -34,6 +34,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     EngineConfiguration(EngineError),
     HostPreflight(GatewayError),
     AsyncRuntime(std::io::Error),
+    ShutdownSignal(std::io::Error),
     EngineSupervisor(EngineConnectionSupervisorError),
     Reconciliation(DiscoveryReconciliationError),
     Scheduler(DiscoverySchedulerError),
@@ -69,6 +70,12 @@ impl Display for UnixDaemonRuntimeError {
             Self::AsyncRuntime(error) => {
                 write!(formatter, "failed to create Engine async runtime: {error}")
             }
+            Self::ShutdownSignal(error) => {
+                write!(
+                    formatter,
+                    "failed to install Unix daemon shutdown signals: {error}"
+                )
+            }
             Self::EngineSupervisor(error) => Display::fmt(error, formatter),
             Self::Reconciliation(error) => Display::fmt(error, formatter),
             Self::Scheduler(error) => Display::fmt(error, formatter),
@@ -92,6 +99,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::EngineConfiguration(error) => Some(error),
             Self::HostPreflight(error) => Some(error),
             Self::AsyncRuntime(error) => Some(error),
+            Self::ShutdownSignal(error) => Some(error),
             Self::EngineSupervisor(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
             Self::Scheduler(error) => Some(error),

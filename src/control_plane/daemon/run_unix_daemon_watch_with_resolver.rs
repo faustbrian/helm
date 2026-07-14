@@ -43,7 +43,7 @@ pub(crate) fn run_unix_daemon_watch_with_resolver(
             .map(|result| result.reconciliation().cloned());
     }
 
-    runtime.run_forever();
+    runtime.run_forever()?;
     Ok(None)
 }
 

@@ -10,6 +10,7 @@ mod bollard_unix_engine_connector;
 mod collect_benchmark_snapshot;
 mod daemon_iteration_result;
 mod daemon_request_dispatch_options;
+mod daemon_shutdown_signal;
 #[cfg(unix)]
 mod default_unix_daemon_runtime_directory;
 mod discover_project_sources;
@@ -133,6 +134,8 @@ mod unix_daemon_runtime_error;
 #[cfg(unix)]
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
+mod unix_daemon_shutdown_signal;
+#[cfg(unix)]
 mod unix_daemon_watch_options;
 mod validate_project_workload_adoption;
 
@@ -153,6 +156,7 @@ pub(crate) use bollard_unix_engine_connector::BollardUnixEngineConnector;
 pub(crate) use collect_benchmark_snapshot::collect_benchmark_snapshot;
 pub(crate) use daemon_iteration_result::DaemonIterationResult;
 pub(crate) use daemon_request_dispatch_options::DaemonRequestDispatchOptions;
+pub(crate) use daemon_shutdown_signal::DaemonShutdownSignal;
 #[cfg(unix)]
 pub(crate) use default_unix_daemon_runtime_directory::default_unix_daemon_runtime_directory;
 pub(crate) use discover_project_sources::discover_project_sources;
@@ -267,6 +271,8 @@ pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
 pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
+#[cfg(unix)]
+pub(crate) use unix_daemon_shutdown_signal::UnixDaemonShutdownSignal;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;

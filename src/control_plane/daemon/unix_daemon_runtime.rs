@@ -1,17 +1,17 @@
 use super::{
     ActiveMigrationDecision, ActivePostgresPrune, ActiveProjectBackup, ActiveProjectCommand,
     ActiveProjectLogSession, ActiveProjectRestore, BollardUnixEngineConnector,
-    DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
+    DaemonIterationResult, DaemonRequestDispatchOptions, DaemonShutdownSignal, DiscoveryScheduler,
     EngineBenchmarkSnapshotProvider, EngineConnectionOutcome, EngineConnectionSupervisor,
     EngineEventObservation, EngineEventSubscription, EngineImageReferenceResolution,
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
     ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
     ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
-    validate_project_workload_adoption,
+    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, UnixDaemonShutdownSignal,
+    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
+    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
+    restore_daemon_operation_queues, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -252,13 +252,17 @@ impl UnixDaemonRuntime {
         self.scheduler.record_filesystem_event(now);
     }
 
-    /// Runs until the process is stopped by the per-user service manager.
-    #[expect(
-        clippy::infinite_loop,
-        reason = "the singleton daemon is a login-lifetime service"
-    )]
-    pub(crate) fn run_forever(&mut self) {
-        loop {
+    /// Runs until SIGINT or SIGTERM requests orderly ownership release.
+    pub(crate) fn run_forever(&mut self) -> Result<(), UnixDaemonRuntimeError> {
+        let shutdown =
+            UnixDaemonShutdownSignal::install().map_err(UnixDaemonRuntimeError::ShutdownSignal)?;
+        self.run_until_shutdown(&shutdown);
+
+        Ok(())
+    }
+
+    pub(crate) fn run_until_shutdown(&mut self, shutdown: &impl DaemonShutdownSignal) {
+        while !shutdown.is_requested() {
             let now = Instant::now();
             let now_unix_seconds = unix_time_seconds();
             match self.run_iteration(now, now_unix_seconds) {
@@ -301,6 +305,7 @@ impl UnixDaemonRuntime {
                 .saturating_duration_since(now);
             std::thread::sleep(self.options.idle_poll_interval.min(until_scan));
         }
+        tracing::info!("singleton daemon shutdown requested");
     }
 
     fn drive_engine_events(&mut self, now: Instant) {
