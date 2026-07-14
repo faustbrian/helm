@@ -1,3 +1,4 @@
+mod accepted_v7_advance_report;
 mod accepted_v7_logical_data_input;
 mod accepted_v7_migration_action;
 mod active_migration_decision;
@@ -8,6 +9,8 @@ mod active_project_log_session;
 mod active_project_restore;
 mod advance_accepted_v7_migration;
 mod advance_accepted_v7_migration_options;
+mod advance_pending_accepted_v7_migrations;
+mod advance_pending_accepted_v7_migrations_options;
 mod benchmark_snapshot_provider;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
@@ -156,6 +159,7 @@ mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
 mod verify_accepted_v7_environment_rollback;
 
+pub(crate) use accepted_v7_advance_report::AcceptedV7AdvanceReport;
 pub(crate) use accepted_v7_logical_data_input::AcceptedV7LogicalDataInput;
 pub(crate) use accepted_v7_migration_action::AcceptedV7MigrationAction;
 pub(crate) use active_migration_decision::ActiveMigrationDecision;
@@ -166,6 +170,8 @@ pub(crate) use active_project_log_session::ActiveProjectLogSession;
 pub(crate) use active_project_restore::ActiveProjectRestore;
 pub(crate) use advance_accepted_v7_migration::advance_accepted_v7_migration;
 pub(crate) use advance_accepted_v7_migration_options::AdvanceAcceptedV7MigrationOptions;
+pub(crate) use advance_pending_accepted_v7_migrations::advance_pending_accepted_v7_migrations;
+pub(crate) use advance_pending_accepted_v7_migrations_options::AdvancePendingAcceptedV7MigrationsOptions;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 

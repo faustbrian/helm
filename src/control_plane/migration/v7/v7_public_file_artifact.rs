@@ -9,7 +9,7 @@ pub(crate) struct V7PublicFileArtifact {
 }
 
 impl V7PublicFileArtifact {
-    pub(super) fn new(path: PathBuf, revision: String, size_bytes: u64) -> Self {
+    pub(crate) fn new(path: PathBuf, revision: String, size_bytes: u64) -> Self {
         Self {
             path,
             revision,

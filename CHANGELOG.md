@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Wired pending accepted-v7 plans into normal Engine reconciliation after exact
+  target convergence and before final singleton gateway publication.
+- Added reconciliation-owned advancement for every pending accepted-v7 project,
+  with exact Engine target discovery and per-project failure isolation.
 - Added a single automatic accepted-v7 advance operation that composes the
   complete strategy set before preparation and atomic project-wide cutover.
 - Composed every selected v7 checkpoint through one exact adapter-set boundary
