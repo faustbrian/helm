@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made every login-service installation validate and canonicalize its distinct
+  watched roots before writing a launchd or systemd definition. Missing files,
+  non-directories, and duplicate canonical roots now fail without invoking the
+  service manager, including through the lower-level administrative command.
 - Added a single `stackctl setup --dir <DIR>...` transaction for initial v8
   host setup. It validates and canonicalizes every watched root, verifies
   `.localhost` loopback resolution, installs the singleton CA trust, and starts

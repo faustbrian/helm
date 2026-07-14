@@ -1,11 +1,14 @@
 //! User-service definitions for login-time daemon watch startup.
 
+mod canonical_watch_dirs;
 mod launchd;
 mod service_install_snapshot;
 mod store_definition;
 mod systemd;
 
 use service_install_snapshot::ServiceInstallSnapshot;
+
+pub(crate) use canonical_watch_dirs::canonical_watch_dirs;
 
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -60,7 +63,11 @@ pub(crate) struct DaemonServiceStatus {
 pub(crate) fn install_service(
     options: &DaemonServiceInstallOptions,
 ) -> Result<DaemonServiceStatus> {
-    let definition = service_definition(options)?;
+    let options = DaemonServiceInstallOptions {
+        watch_dirs: canonical_watch_dirs(&options.watch_dirs)?,
+        interval_secs: options.interval_secs,
+    };
+    let definition = service_definition(&options)?;
     if let Some(parent) = definition.path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
@@ -537,7 +544,7 @@ mod tests {
 
     fn service_options() -> DaemonServiceInstallOptions {
         DaemonServiceInstallOptions {
-            watch_dirs: vec![std::path::PathBuf::from("/tmp/projects")],
+            watch_dirs: vec![std::env::temp_dir()],
             interval_secs: 45,
         }
     }
@@ -605,7 +612,8 @@ mod tests {
         assert!(status.running);
         assert!(plist.contains("/tmp/stackctl"));
         assert!(plist.contains("<string>--dir</string>"));
-        assert!(plist.contains("<string>/tmp/projects</string>"));
+        let watched_root = fs::canonicalize(std::env::temp_dir()).expect("watched root");
+        assert!(plist.contains(&format!("<string>{}</string>", watched_root.display())));
 
         let commands = take_test_service_commands();
         assert_eq!(commands.len(), 3);
@@ -648,6 +656,30 @@ mod tests {
             commands[2],
             "systemctl --user is-active --quiet stackctl-daemon-watch.service"
         );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn install_service_rejects_missing_watch_roots_before_host_mutation() {
+        let home = temp_home("missing-watch-root");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let options = DaemonServiceInstallOptions {
+            watch_dirs: vec![home.join("missing")],
+            interval_secs: 45,
+        };
+        let definition = print_service(&options).expect("service definition");
+
+        let error = install_service(&options).expect_err("missing watch root");
+
+        assert!(error.to_string().contains("watched root"));
+        assert!(!definition.path.exists());
+        assert!(take_test_service_commands().is_empty());
 
         clear_test_service_binary();
         clear_test_service_home();

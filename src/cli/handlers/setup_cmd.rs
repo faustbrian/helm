@@ -1,18 +1,15 @@
 //! One-time v8 control-plane setup.
 
-mod watched_roots;
-
 use crate::cli::args::SetupArgs;
 use crate::control_plane::{
     CertificateTrustStore, FilesystemCertificateStore, ProcessHostCommandExecutor,
     SystemLocalhostResolver, TrustChange, install_current_ca_trust, remove_current_ca_trust,
     verify_stackctl_localhost_resolution,
 };
-use crate::daemon::DaemonServiceInstallOptions;
+use crate::daemon::{DaemonServiceInstallOptions, canonical_watch_dirs};
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Result, bail};
 use time::OffsetDateTime;
-use watched_roots::canonical_watched_roots;
 
 pub(crate) fn handle_setup(args: &SetupArgs) -> Result<()> {
     let runtime_directory = crate::control_plane::default_unix_daemon_runtime_directory()?;
@@ -101,7 +98,7 @@ where
     Store: CertificateTrustStore,
 {
     fn preflight(&mut self) -> Result<()> {
-        self.watched_roots = Some(canonical_watched_roots(&self.args.dir)?);
+        self.watched_roots = Some(canonical_watch_dirs(&self.args.dir)?);
         verify_stackctl_localhost_resolution(&SystemLocalhostResolver).map_err(Into::into)
     }
 
@@ -136,7 +133,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{SetupOperations, canonical_watched_roots, execute_setup};
+    use super::{SetupOperations, canonical_watch_dirs, execute_setup};
     use crate::control_plane::TrustChange;
     use anyhow::{Result, bail};
     use std::path::PathBuf;
@@ -206,7 +203,7 @@ mod tests {
                 .as_nanos()
         ));
 
-        let error = canonical_watched_roots(&[missing.clone()]).expect_err("missing root");
+        let error = canonical_watch_dirs(&[missing.clone()]).expect_err("missing root");
 
         assert!(error.to_string().contains("watched root"));
         assert!(error.to_string().contains(&missing.display().to_string()));

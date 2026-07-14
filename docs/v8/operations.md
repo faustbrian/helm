@@ -153,6 +153,9 @@ a fresh install removes its partial definition and manager state. An update
 restores and reactivates the exact previous definition when it had been
 running. Failure to complete that rollback is reported together with the
 original activation error instead of leaving an apparently successful setup.
+Every installation path canonicalizes its watched roots first. Missing paths,
+non-directories, and duplicate canonical roots fail before the definition or
+service manager is changed.
 
 ## Retention, backup, and deletion
 
