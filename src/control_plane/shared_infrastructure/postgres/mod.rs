@@ -1,4 +1,5 @@
 mod plan_postgres_project_resources;
+mod postgres_access_revocation_options;
 mod postgres_logical_resource_plan;
 mod postgres_migration_instance_plan_options;
 mod postgres_migration_preparation_options;
@@ -17,10 +18,12 @@ mod provision_postgres_logical_resource;
 mod reconcile_postgres_migration_target;
 mod reconcile_postgres_project_resources;
 mod reconcile_prepared_postgres_instance;
+mod revoke_postgres_project_access;
 
 pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 
 pub(crate) use plan_postgres_project_resources::plan_postgres_project_resources;
+pub(crate) use postgres_access_revocation_options::PostgresAccessRevocationOptions;
 pub(crate) use postgres_logical_resource_plan::PostgresLogicalResourcePlan;
 pub(crate) use postgres_migration_instance_plan_options::PostgresMigrationInstancePlanOptions;
 pub(crate) use postgres_migration_preparation_options::PostgresMigrationPreparationOptions;
@@ -39,3 +42,4 @@ pub(crate) use provision_postgres_logical_resource::provision_postgres_logical_r
 pub(crate) use reconcile_postgres_migration_target::reconcile_postgres_migration_target;
 pub(crate) use reconcile_postgres_project_resources::reconcile_postgres_project_resources;
 pub(crate) use reconcile_prepared_postgres_instance::reconcile_prepared_postgres_instance;
+pub(crate) use revoke_postgres_project_access::revoke_postgres_project_access;

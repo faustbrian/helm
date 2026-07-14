@@ -3272,6 +3272,85 @@ fn orphaned_redis_credentials_are_revoked_without_deleting_prefixed_data() {
 }
 
 #[test]
+fn orphaned_postgres_roles_receive_nologin_without_dropping_the_database() {
+    let fingerprint = format!("sha256:{}", "b".repeat(64));
+    let owned = owned_shared_container("postgres-container", &fingerprint);
+    let observed = ObservedContainer::new(owned.id().clone(), owned.metadata().labels());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: owned.id().as_str().to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_db".to_owned(),
+        shared_resource_id: "postgres-data".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "db".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:logical-v1".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/db/postgresql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "db".to_owned(),
+        username: "stackctl_bill_db_role".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/postgresql-bootstrap", "b".repeat(64)),
+        project_id: None,
+        service_id: "postgresql".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let mut engine = RecordingOrphanAccessEngine {
+        observed: vec![observed],
+        state: crate::control_plane::engine::ContainerState::Running,
+        started: Vec::new(),
+        commands: RecordingOutputExecutor::new(vec![b"true\n".to_vec()]),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let revoked = runtime
+        .block_on(revoke_orphaned_shared_access(
+            &mut engine,
+            OrphanedSharedAccessOptions {
+                resources: &[resource],
+                logical_resources: &[logical],
+                credentials: &[credential, administrator],
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(15),
+            },
+        ))
+        .expect("revoke orphaned PostgreSQL access");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(revoked, 1);
+    let stdin = engine.commands.stdin.lock().expect("recorded stdin");
+    let sql = std::str::from_utf8(&stdin[0]).expect("UTF-8 SQL");
+    assert!(sql.contains("ALTER ROLE stackctl_bill_db_role NOLOGIN;"));
+    assert!(!sql.contains("DROP DATABASE"));
+    assert!(!sql.contains("DROP ROLE"));
+}
+
+#[test]
 fn mailpit_authentication_is_deterministic_attributed_and_secret_free() {
     let snapshot = MailpitAuthenticationSnapshot::new(vec![
         MailpitProjectDefinition::new(
@@ -5409,6 +5488,7 @@ impl CommandExecutor for RecordingObjectStoreExecutor {
 struct RecordingOutputExecutor {
     outputs: Arc<Mutex<VecDeque<Vec<u8>>>>,
     requests: Arc<Mutex<Vec<Vec<String>>>>,
+    stdin: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
 struct RecordingOrphanAccessEngine {
@@ -5491,6 +5571,7 @@ impl RecordingOutputExecutor {
         Self {
             outputs: Arc::new(Mutex::new(outputs.into())),
             requests: Arc::new(Mutex::new(Vec::new())),
+            stdin: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -5512,6 +5593,7 @@ impl CommandExecutor for RecordingOutputExecutor {
             .pop_front()
             .expect("configured command output");
         let container_id = container.id().clone();
+        let stdin = Arc::clone(&self.stdin);
 
         Box::pin(async move {
             let (writer, mut reader) = tokio::io::duplex(1024);
@@ -5521,7 +5603,7 @@ impl CommandExecutor for RecordingOutputExecutor {
                     .read_to_end(&mut bytes)
                     .await
                     .expect("read command stdin");
-                assert!(bytes.is_empty());
+                stdin.lock().expect("recorded stdin").push(bytes);
             });
             let output: ContainerLogStream<'static> =
                 Box::pin(stream::iter(vec![Ok(LogChunk::stdout(output))]));

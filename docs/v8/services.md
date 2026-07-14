@@ -99,3 +99,8 @@ Redis and Valkey use the same shared-access strategy boundary to delete only
 the disabled project ACL user. The administrator secret is supplied through the
 Engine command environment, never arguments, while the tenant key prefix and
 all matching values remain retained.
+
+PostgreSQL applies `NOLOGIN` to the exact ownership-proven disabled project role
+through that boundary. It retains the database and role so explicit adoption,
+restore, or prune remains possible, and keeps the administrator secret out of
+command arguments.

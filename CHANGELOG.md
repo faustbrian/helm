@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added ownership-proven PostgreSQL role revocation to orphaned shared-service
+  reconciliation. Removed projects receive `NOLOGIN` without dropping their
+  retained database or exposing the administrator secret in command arguments.
 - Generalized orphaned shared-service access reconciliation behind one
   ownership-verifying strategy boundary and added Redis/Valkey `ACL DELUSER`
   handling. Removed cache projects lose access without deleting any retained

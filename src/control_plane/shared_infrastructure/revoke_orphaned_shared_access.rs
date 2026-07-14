@@ -1,6 +1,7 @@
 use super::{
-    CredentialSecret, OrphanedSharedAccessOptions, RabbitMqProjectDefinition,
-    RedisAccessRevocationOptions, RedisFlavor, SharedInfrastructureReconcileError,
+    CredentialSecret, OrphanedSharedAccessOptions, PostgresAccessRevocationOptions,
+    RabbitMqProjectDefinition, RedisAccessRevocationOptions, RedisFlavor,
+    SharedInfrastructureReconcileError, revoke_postgres_project_access,
     revoke_rabbitmq_project_access, revoke_redis_project_access,
 };
 use crate::control_plane::engine::{
@@ -15,6 +16,7 @@ use crate::control_plane::state::{
 
 #[derive(Clone, Copy)]
 enum AccessStrategy {
+    Postgres,
     RabbitMq,
     Redis(RedisFlavor),
 }
@@ -66,7 +68,7 @@ where
         let Some(strategy) = access_strategy(logical.kind()) else {
             continue;
         };
-        let credential = exact_project_credential(logical, options.credentials)?;
+        let credential = exact_project_credential(logical, strategy, options.credentials)?;
         let candidates = shared
             .iter()
             .filter(|container| {
@@ -107,6 +109,22 @@ where
         }
 
         let changed = match strategy {
+            AccessStrategy::Postgres => {
+                let administrator = postgres_administrator(logical, options.credentials)?;
+                revoke_postgres_project_access(
+                    engine,
+                    PostgresAccessRevocationOptions {
+                        installation_id: options.installation_id,
+                        container,
+                        logical_resource: logical,
+                        credential,
+                        administrator,
+                        timeout: options.timeout,
+                    },
+                )
+                .await
+                .map_err(|error| engine_error("revoke orphaned PostgreSQL access", error))?
+            }
             AccessStrategy::RabbitMq => {
                 let definition = RabbitMqProjectDefinition::new(
                     logical.project_id(),
@@ -152,6 +170,7 @@ where
 
 fn access_strategy(kind: &str) -> Option<AccessStrategy> {
     match kind {
+        "postgres_database_and_role" => Some(AccessStrategy::Postgres),
         "rabbitmq_vhost_user" => Some(AccessStrategy::RabbitMq),
         "redis_acl_prefix" => Some(AccessStrategy::Redis(RedisFlavor::Redis)),
         "valkey_acl_prefix" => Some(AccessStrategy::Redis(RedisFlavor::Valkey)),
@@ -161,11 +180,22 @@ fn access_strategy(kind: &str) -> Option<AccessStrategy> {
 
 fn exact_project_credential<'credential>(
     logical: &LogicalResourceRecord,
+    strategy: AccessStrategy,
     credentials: &'credential [CredentialRecord],
 ) -> Result<&'credential CredentialRecord, SharedInfrastructureReconcileError> {
+    let credential_id = match strategy {
+        AccessStrategy::Postgres => format!(
+            "{}/{}/postgresql",
+            logical.project_id(),
+            logical.service_id()
+        ),
+        AccessStrategy::RabbitMq | AccessStrategy::Redis(_) => {
+            logical.logical_resource_id().to_owned()
+        }
+    };
     let credential = credentials
         .iter()
-        .find(|credential| credential.credential_id() == logical.logical_resource_id())
+        .find(|credential| credential.credential_id() == credential_id)
         .ok_or_else(|| {
             conflict(format!(
                 "orphaned shared tenant '{}' has no retained credential",
@@ -183,6 +213,26 @@ fn exact_project_credential<'credential>(
     }
 
     Ok(credential)
+}
+
+fn postgres_administrator<'credential>(
+    logical: &LogicalResourceRecord,
+    credentials: &'credential [CredentialRecord],
+) -> Result<&'credential CredentialRecord, SharedInfrastructureReconcileError> {
+    let fingerprint = logical
+        .compatibility_fingerprint()
+        .strip_prefix("sha256:")
+        .unwrap_or_default();
+    let credential_id = format!("shared/{fingerprint}/postgresql-bootstrap");
+    credentials
+        .iter()
+        .find(|credential| credential.credential_id() == credential_id)
+        .ok_or_else(|| {
+            conflict(format!(
+                "orphaned PostgreSQL tenant '{}' has no retained administrator credential",
+                logical.logical_resource_id()
+            ))
+        })
 }
 
 fn redis_administrator<'credential>(
