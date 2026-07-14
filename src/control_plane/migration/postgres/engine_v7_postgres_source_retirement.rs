@@ -6,11 +6,11 @@ use crate::control_plane::migration::{
 
 /// Engine-backed confirmation cleanup for one accepted v7 PostgreSQL source.
 pub(crate) struct EngineV7PostgresSourceRetirement<'operation, E> {
-    engine: &'operation mut E,
+    engine: &'operation E,
 }
 
 impl<'operation, E> EngineV7PostgresSourceRetirement<'operation, E> {
-    pub(crate) const fn new(engine: &'operation mut E) -> Self {
+    pub(crate) const fn new(engine: &'operation E) -> Self {
         Self { engine }
     }
 }

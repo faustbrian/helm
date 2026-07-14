@@ -229,7 +229,7 @@ struct RecordingContainerRetirement {
 
 impl V7ContainerRetirement for RecordingContainerRetirement {
     fn retire_v7_container<'operation>(
-        &'operation mut self,
+        &'operation self,
         target: &'operation V7ContainerRetirementTarget,
     ) -> EngineFuture<'operation, ()> {
         *self.target.lock().expect("retirement target") = Some(target.clone());

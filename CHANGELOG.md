@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed unnecessary exclusive Engine borrowing from accepted-v7 source
+  retirement, allowing every execution-scoped migration provider to share the
+  same typed Engine connection while retaining exact confirmation-time
+  authorization.
 - Corrected the v8 completion audit to distinguish tested v7 migration
   provider components from daemon-composed end-to-end migration, and to keep
   incomplete persistent recovery and deletion coverage marked partial.

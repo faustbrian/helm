@@ -800,7 +800,7 @@ struct RecordingV7ContainerRetirement {
 
 impl V7ContainerRetirement for RecordingV7ContainerRetirement {
     fn retire_v7_container<'operation>(
-        &'operation mut self,
+        &'operation self,
         target: &'operation V7ContainerRetirementTarget,
     ) -> EngineFuture<'operation, ()> {
         *self.target.lock().expect("record retirement target") = Some(target.clone());

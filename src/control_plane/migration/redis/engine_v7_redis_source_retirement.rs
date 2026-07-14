@@ -5,11 +5,11 @@ use crate::control_plane::migration::{
 };
 
 pub(crate) struct EngineV7RedisSourceRetirement<'operation, E> {
-    engine: &'operation mut E,
+    engine: &'operation E,
 }
 
 impl<'operation, E> EngineV7RedisSourceRetirement<'operation, E> {
-    pub(crate) const fn new(engine: &'operation mut E) -> Self {
+    pub(crate) const fn new(engine: &'operation E) -> Self {
         Self { engine }
     }
 }

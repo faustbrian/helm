@@ -6,11 +6,11 @@ use crate::control_plane::migration::{
 
 /// Engine-backed confirmation cleanup for an accepted v7 SQL Server source.
 pub(crate) struct EngineV7SqlServerSourceRetirement<'operation, E> {
-    engine: &'operation mut E,
+    engine: &'operation E,
 }
 
 impl<'operation, E> EngineV7SqlServerSourceRetirement<'operation, E> {
-    pub(crate) const fn new(engine: &'operation mut E) -> Self {
+    pub(crate) const fn new(engine: &'operation E) -> Self {
         Self { engine }
     }
 }
