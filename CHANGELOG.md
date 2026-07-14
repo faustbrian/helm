@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
   Redis/Valkey ACL, RabbitMQ definition, Mailpit authentication, and object-store
   policy writes no longer accumulate abandoned host files. Gateway bootstrap
   and active-certificate publication use the same crash-recoverable pattern.
+  The delete-data terminal marker now recovers its stable pending file and
+  syncs its directory before authorizing final runtime removal.
 - Bounded routine TLS renewal storage. After the gateway confirms the active
   leaf certificate, Stackctl removes inactive generations signed by that same
   CA while retaining different-CA generations required for rotation rollback.

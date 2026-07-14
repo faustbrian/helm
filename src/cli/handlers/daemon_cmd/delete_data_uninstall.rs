@@ -182,18 +182,25 @@ fn deletion_diagnostics(diagnostics: &[crate::control_plane::IpcDiagnostic]) -> 
 }
 
 fn write_deletion_complete_marker(runtime_directory: &Path) -> Result<()> {
-    if deletion_complete_marker_exists(runtime_directory)? {
+    let marker = runtime_directory.join(DELETION_COMPLETE_MARKER);
+    let temporary = runtime_directory.join(".installation-deleted.tmp");
+    let marker_exists = deletion_complete_marker_exists(runtime_directory)?;
+    match std::fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to remove interrupted terminal deletion marker {}",
+                    temporary.display()
+                )
+            });
+        }
+    }
+    if marker_exists {
+        std::fs::File::open(runtime_directory)?.sync_all()?;
         return Ok(());
     }
-    let marker = runtime_directory.join(DELETION_COMPLETE_MARKER);
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let temporary = runtime_directory.join(format!(
-        ".installation-deleted.{}-{unique}.tmp",
-        std::process::id()
-    ));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -212,6 +219,7 @@ fn write_deletion_complete_marker(runtime_directory: &Path) -> Result<()> {
             marker.display()
         )
     })?;
+    std::fs::File::open(runtime_directory)?.sync_all()?;
 
     Ok(())
 }
@@ -297,7 +305,10 @@ mod tests {
         let error = remove_deleted_runtime_directory(&root)
             .expect_err("unmarked runtime directory must be preserved");
         assert!(error.to_string().contains("terminal deletion marker"));
+        let interrupted = root.join(".installation-deleted.tmp");
+        std::fs::write(&interrupted, "partial marker").expect("interrupted marker write");
         write_deletion_complete_marker(&root).expect("write terminal marker");
+        assert!(!interrupted.exists());
         std::fs::write(root.join("state.sqlite3"), b"state").expect("state fixture");
         remove_deleted_runtime_directory(&root).expect("remove marked runtime directory");
         assert!(!root.exists());
