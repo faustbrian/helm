@@ -10,18 +10,19 @@ use super::{
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
     RegisterAcceptedV7LogicalDataAdaptersOptions, RegisterAcceptedV7NamedVolumeAdaptersOptions,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
-    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
-    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
+    RegisterAcceptedV7ProjectWideAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
+    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     register_accepted_v7_logical_data_adapters, register_accepted_v7_named_volume_adapters,
-    register_accepted_v7_recreated_adapters, requires_followup_reconciliation,
-    resolve_accepted_v7_logical_data_inputs, resolve_accepted_v7_named_volume_sources,
-    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
-    select_accepted_v7_migration_adapters,
+    register_accepted_v7_project_wide_adapters, register_accepted_v7_recreated_adapters,
+    requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
+    resolve_accepted_v7_named_volume_sources, restore_daemon_operation_queues,
+    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -57,6 +58,59 @@ use crate::control_plane::state::{
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn accepted_v7_project_wide_registration_requires_complete_gateway_snapshots() {
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: source_revision.clone(),
+        inventory_json: serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": "/work/bill",
+            "source_revision": source_revision,
+            "blockers": [],
+            "services": []
+        })
+        .to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+    let execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: vec![
+            V7MigrationAdapterCheckpoint::pending("route", "gateway-snapshot-cutover", true, 10)
+                .expect("route checkpoint"),
+        ],
+        updated_at_unix_seconds: 10,
+    })
+    .expect("migration execution");
+
+    let error = register_accepted_v7_project_wide_adapters(
+        &mut V7MigrationAdapterRegistry::default(),
+        &execution,
+        RegisterAcceptedV7ProjectWideAdaptersOptions {
+            accepted: &accepted,
+            gateway: None,
+            trust: None,
+            managed_environments: &[],
+            verified_at_unix_seconds: 11,
+            maximum_environment_bytes: 1024,
+        },
+    )
+    .expect_err("selected route migration must require both gateway snapshots");
+
+    assert_eq!(
+        error,
+        "accepted v7 route migration has no complete gateway snapshots"
+    );
+}
 
 #[test]
 fn project_logs_stream_from_exact_live_owned_containers() {

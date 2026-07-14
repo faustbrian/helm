@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Composed selected gateway, installation trust, and protected generated
+  environment checkpoints with exact accepted identity and target cardinality.
 - Composed accepted-v7 named-volume providers only when one exact retained
   reconciliation plan, owned container, and owned volume agree on identity.
 - Added a live recovery-first named-volume provider that binds verified v7
