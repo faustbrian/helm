@@ -1,17 +1,270 @@
 use super::{
-    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions, V7InventoryBlocker,
-    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RuntimeFeature,
+    V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
+    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterSelectionOptions,
+    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
+    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
     V7VolumeSource, capture_v7_generated_environment_rollback, inventory_v7_host_artifacts,
-    inventory_v7_project, read_v7_generated_environment_rollback,
+    inventory_v7_project, read_v7_generated_environment_rollback, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
 };
+use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerId, EngineFuture, LegacyContainerDiscovery, ObservedContainer, ObservedContainerMount,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+
+#[test]
+fn v7_adapter_selection_is_complete_deterministic_and_does_not_archive_logical_storage() {
+    let services = vec![
+        migration_source("app", "frankenphp", &["bill-app-data"]),
+        migration_source("database", "postgres", &["bill-database-data"]),
+        migration_source("cache", "redis", &["bill-cache-data"]),
+        migration_source("cloud", "localstack", &["bill-cloud-data"]),
+        migration_source("browser", "dusk", &[]),
+    ];
+    let routes = vec![V7MigrationRouteSource {
+        service_id: "app",
+        domain: "bill-app.stackctl.localhost",
+        scheme: "https",
+        host_port: 8443,
+    }];
+    let options = V7MigrationAdapterSelectionOptions {
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services: &services,
+        routes: &routes,
+        requires_legacy_ca_capture: true,
+        captured_ca_certificates: 1,
+        generated_environment_present: true,
+        protected_generated_environment: true,
+    };
+
+    let first = select_v7_migration_adapters(options).expect("adapter plan");
+    let mut reversed_services = services.clone();
+    reversed_services.reverse();
+    let second = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+        services: &reversed_services,
+        ..options
+    })
+    .expect("stable adapter plan");
+
+    assert_eq!(first, second);
+    assert_eq!(first.evidence_revision(), options.evidence_revision);
+    assert_eq!(first.plan_revision().len(), 64);
+    assert_eq!(
+        first
+            .services()
+            .iter()
+            .map(|selection| (selection.service_id(), selection.adapter()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("app", &V7MigrationServiceAdapter::RecreateProjectWorkload),
+            ("browser", &V7MigrationServiceAdapter::RecreateEphemeral),
+            ("cache", &V7MigrationServiceAdapter::RedisTenantPrefix),
+            ("cloud", &V7MigrationServiceAdapter::RecreateStateless),
+            (
+                "database",
+                &V7MigrationServiceAdapter::PostgresLogicalDatabase,
+            ),
+        ]
+    );
+    assert_eq!(first.services()[0].named_volumes(), ["bill-app-data"]);
+    assert_eq!(
+        first.services()[0].volume_adapter(),
+        V7VolumeMigrationAdapter::NamedVolumeArchive
+    );
+    assert_eq!(
+        first.services()[0].deployment_strategy(),
+        ServiceDeploymentStrategy::ProjectApplication
+    );
+    assert_eq!(
+        first.services()[2].deployment_strategy(),
+        ServiceDeploymentStrategy::SharedByCompatibility
+    );
+    assert_eq!(
+        first.services()[3].deployment_strategy(),
+        ServiceDeploymentStrategy::DedicatedProject
+    );
+    assert_eq!(
+        first.services()[3].volume_adapter(),
+        V7VolumeMigrationAdapter::NamedVolumeArchive
+    );
+    assert!(first.services()[4].named_volumes().is_empty());
+    assert_eq!(
+        first.services()[4].volume_adapter(),
+        V7VolumeMigrationAdapter::LogicalDataOwnsStorage
+    );
+    assert_eq!(
+        first.route_adapter(),
+        V7RouteMigrationAdapter::GatewaySnapshotCutover
+    );
+    assert_eq!(
+        first.trust_adapter(),
+        V7TrustMigrationAdapter::InstallationLegacyCaddyCaTransition
+    );
+    assert_eq!(
+        first.environment_adapter(),
+        V7EnvironmentMigrationAdapter::ProtectedGeneratedEnvironment
+    );
+}
+
+#[test]
+fn v7_adapter_selection_covers_every_legacy_driver_without_fallback() {
+    use V7MigrationServiceAdapter as Adapter;
+
+    let cases = [
+        ("mongodb", Adapter::MongoDbLogicalDatabase),
+        ("memcached", Adapter::RecreateStateless),
+        ("postgres", Adapter::PostgresLogicalDatabase),
+        ("mysql", Adapter::MySqlLogicalDatabase),
+        ("sqlserver", Adapter::SqlServerLogicalDatabase),
+        ("redis", Adapter::RedisTenantPrefix),
+        ("valkey", Adapter::ValkeyTenantPrefix),
+        ("dragonfly", Adapter::RecreateStateless),
+        ("minio", Adapter::MinioBucket),
+        ("garage", Adapter::RecreateStateless),
+        ("rustfs", Adapter::RecreateStateless),
+        ("localstack", Adapter::RecreateStateless),
+        ("opensearch", Adapter::RecreateStateless),
+        ("elasticsearch", Adapter::RecreateStateless),
+        ("meilisearch", Adapter::RecreateStateless),
+        ("typesense", Adapter::RecreateStateless),
+        ("frankenphp", Adapter::RecreateProjectWorkload),
+        ("reverb", Adapter::RecreateProjectWorkload),
+        ("horizon", Adapter::RecreateProjectWorkload),
+        ("scheduler", Adapter::RecreateProjectWorkload),
+        ("dusk", Adapter::RecreateEphemeral),
+        ("gotenberg", Adapter::RecreateStateless),
+        ("mailhog", Adapter::RecreateStateless),
+        ("rabbitmq", Adapter::RabbitMqVhost),
+        ("soketi", Adapter::RecreateStateless),
+    ];
+
+    for (driver, expected) in cases {
+        let services = vec![migration_source("service", driver, &[])];
+        let plan = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+            evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            services: &services,
+            routes: &[],
+            requires_legacy_ca_capture: false,
+            captured_ca_certificates: 0,
+            generated_environment_present: false,
+            protected_generated_environment: false,
+        })
+        .unwrap_or_else(|error| panic!("driver '{driver}' must select exactly: {error}"));
+
+        assert_eq!(plan.services()[0].adapter(), &expected, "driver {driver}");
+    }
+}
+
+#[test]
+fn v7_adapter_selection_fails_closed_for_unknown_drivers_and_route_drift() {
+    let unknown = vec![migration_source("database", "invented", &[])];
+    let error = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services: &unknown,
+        routes: &[],
+        requires_legacy_ca_capture: false,
+        captured_ca_certificates: 0,
+        generated_environment_present: false,
+        protected_generated_environment: false,
+    })
+    .expect_err("unknown driver must block");
+    assert_eq!(
+        error.to_string(),
+        "v7 service 'database' driver 'invented' has no migration adapter"
+    );
+
+    let services = vec![migration_source("app", "frankenphp", &[])];
+    let routes = vec![V7MigrationRouteSource {
+        service_id: "missing",
+        domain: "bill-app.stackctl.localhost",
+        scheme: "https",
+        host_port: 8443,
+    }];
+    let error = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services: &services,
+        routes: &routes,
+        requires_legacy_ca_capture: false,
+        captured_ca_certificates: 0,
+        generated_environment_present: false,
+        protected_generated_environment: false,
+    })
+    .expect_err("route drift must block");
+    assert_eq!(
+        error.to_string(),
+        "v7 route 'bill-app.stackctl.localhost' references unknown service 'missing'"
+    );
+
+    let services = vec![migration_source("database", "postgres", &[])];
+    let routes = vec![V7MigrationRouteSource {
+        service_id: "database",
+        domain: "bill-database.stackctl.localhost",
+        scheme: "https",
+        host_port: 5432,
+    }];
+    let error = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services: &services,
+        routes: &routes,
+        requires_legacy_ca_capture: false,
+        captured_ca_certificates: 0,
+        generated_environment_present: false,
+        protected_generated_environment: false,
+    })
+    .expect_err("unroutable target must block");
+    assert_eq!(
+        error.to_string(),
+        "v7 route 'bill-database.stackctl.localhost' service 'database' cannot claim a v8 gateway route with deployment strategy 'shared-by-compatibility'"
+    );
+}
+
+#[test]
+fn v7_adapter_selection_requires_protected_environment_and_captured_trust() {
+    let services = vec![migration_source("app", "frankenphp", &[])];
+    let base = V7MigrationAdapterSelectionOptions {
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        services: &services,
+        routes: &[],
+        requires_legacy_ca_capture: true,
+        captured_ca_certificates: 0,
+        generated_environment_present: false,
+        protected_generated_environment: false,
+    };
+    assert_eq!(
+        select_v7_migration_adapters(base)
+            .expect_err("missing CA must block")
+            .to_string(),
+        "v7 migration requires legacy Caddy CA capture but accepted evidence contains no certificate"
+    );
+
+    let error = select_v7_migration_adapters(V7MigrationAdapterSelectionOptions {
+        requires_legacy_ca_capture: false,
+        generated_environment_present: true,
+        ..base
+    })
+    .expect_err("unprotected environment must block");
+    assert_eq!(
+        error.to_string(),
+        "v7 migration requires protected generated-environment rollback before adapter selection"
+    );
+}
+
+fn migration_source<'source>(
+    service_id: &'source str,
+    driver: &'source str,
+    named_volumes: &'source [&'source str],
+) -> V7MigrationServiceSource<'source> {
+    V7MigrationServiceSource {
+        service_id,
+        driver,
+        named_volumes,
+    }
+}
 
 #[test]
 fn v7_host_artifacts_capture_routes_trust_and_secret_free_environment_metadata() {

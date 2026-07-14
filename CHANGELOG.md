@@ -35,6 +35,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added deterministic, evidence-revision-bound v7 migration adapter plans.
+  Every accepted legacy service now resolves to an explicit v8 deployment
+  strategy and logical-data, named-volume, stateless, workload, or ephemeral
+  migration adapter. Routes, installation-scoped legacy Caddy trust, and
+  generated environments also receive explicit adapters; unknown drivers,
+  route drift, unsupported mounts, missing CA evidence, and unprotected
+  environments fail before any mutation instead of receiving a fallback.
 - Captured exact legacy generated-environment bytes into randomized private
   rollback envelopes during accepted v7 inventory. Acceptance now revalidates
   stable source metadata, atomically records verified artifact evidence in

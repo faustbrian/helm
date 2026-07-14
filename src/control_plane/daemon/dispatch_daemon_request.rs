@@ -5,7 +5,7 @@ use super::{
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
     ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
     reconcile_watched_roots, retry_failed_installation_deletion_prune,
-    verify_accepted_v7_environment_rollback,
+    select_accepted_v7_migration_adapters, verify_accepted_v7_environment_rollback,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -408,6 +408,16 @@ where
                         )],
                     );
                 }
+                if let Err(message) = select_accepted_v7_migration_adapters(&existing) {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_migration_adapter_selection_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
 
                 return IpcResponse::success(
                     request.request_id(),
@@ -487,6 +497,16 @@ where
                     vec![IpcDiagnostic::new(
                         "v7_inventory_acceptance_failed",
                         "legacy inventory evidence revision changed during acceptance",
+                        false,
+                    )],
+                );
+            }
+            if let Err(message) = select_accepted_v7_migration_adapters(&record) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_migration_adapter_selection_failed",
+                        message,
                         false,
                     )],
                 );

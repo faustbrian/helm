@@ -17,7 +17,7 @@ use super::{
     plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune,
+    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -40,11 +40,12 @@ use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
 };
 use crate::control_plane::state::{
-    DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
-    DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
-    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, DaemonOperationRecord,
+    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, RecoveryPointRecord,
+    RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -6362,6 +6363,10 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         .expect("durable accepted inventory");
     assert_eq!(accepted.accepted_at_unix_seconds(), 10_001);
     assert_eq!(provider.rollback_captures, 1);
+    let adapter_plan =
+        select_accepted_v7_migration_adapters(&accepted).expect("accepted adapter plan");
+    assert_eq!(adapter_plan.evidence_revision(), evidence_revision);
+    assert!(adapter_plan.services().is_empty());
 
     let replay_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -6473,6 +6478,88 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove acceptance fixture");
+}
+
+#[test]
+fn accepted_v7_adapter_selection_rejects_unprotected_environment_and_unsupported_mounts() {
+    let project_path = PathBuf::from("/work/bill");
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let mut inventory = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": project_path,
+        "source_revision": source_revision,
+        "schema_version": 7,
+        "services": [],
+        "routes": [],
+        "blockers": [],
+        "requires_legacy_ca_capture": false,
+        "host_artifacts": {
+            "generated_environment": {
+                "path": "/work/bill/.env",
+                "size_bytes": 20,
+                "modified_at_unix_seconds": 10,
+                "keys": ["APP_URL"]
+            },
+            "hosts_path": "/etc/hosts",
+            "hosts_domains": [],
+            "caddy_state_path": "/work/caddy/sites.toml",
+            "caddy_routes": {},
+            "caddy_ca_certificates": []
+        }
+    });
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: format!("sha256:{}", "a".repeat(64)),
+        inventory_json: inventory.to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("legacy schema accepted record");
+
+    assert_eq!(
+        select_accepted_v7_migration_adapters(&accepted)
+            .expect_err("unprotected accepted environment must block")
+            .to_string(),
+        "v7 migration requires protected generated-environment rollback before adapter selection"
+    );
+
+    inventory["host_artifacts"]["generated_environment"] = serde_json::Value::Null;
+    inventory["services"] = serde_json::json!([{
+        "service_id": "app",
+        "kind": "app",
+        "driver": "frankenphp",
+        "configured_image": "ghcr.io/stackctl/php:8.4",
+        "observed_image": "sha256:app",
+        "container_name": "bill-app",
+        "observed_container_id": "container-app",
+        "configured_mounts": [{
+            "source_kind": "host_bind",
+            "source": "./app",
+            "target": "/app",
+            "read_only": false
+        }],
+        "observed_mounts": [],
+        "logical_data": {},
+        "credential_fields": [],
+        "environment_keys": [],
+        "environment_mapping": {},
+        "runtime_features": []
+    }]);
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: format!("sha256:{}", "a".repeat(64)),
+        inventory_json: inventory.to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("malformed historical accepted record");
+    assert_eq!(
+        select_accepted_v7_migration_adapters(&accepted)
+            .expect_err("unsupported accepted mount must block"),
+        "accepted v7 service 'app' mount './app:/app' has unsupported source kind 'host_bind'"
+    );
 }
 
 struct RecordingLegacyContainerDiscovery {

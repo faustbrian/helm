@@ -5,6 +5,7 @@ mod capture_v7_generated_environment_rollback;
 mod inventory_v7_host_artifacts;
 mod inventory_v7_project;
 mod read_v7_generated_environment_rollback;
+mod select_v7_migration_adapters;
 mod v7_generated_environment_artifact;
 mod v7_generated_environment_rollback_material;
 mod v7_generated_environment_rollback_options;
@@ -13,6 +14,10 @@ mod v7_host_artifact_inventory;
 mod v7_inventory_blocker;
 mod v7_inventory_error;
 mod v7_logical_data_inventory;
+mod v7_migration_adapter;
+mod v7_migration_adapter_plan;
+mod v7_migration_adapter_selection_error;
+mod v7_migration_adapter_selection_options;
 mod v7_project_inventory;
 mod v7_project_inventory_options;
 mod v7_project_inventory_request;
@@ -28,6 +33,7 @@ pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_e
 pub(crate) use inventory_v7_host_artifacts::inventory_v7_host_artifacts;
 pub(crate) use inventory_v7_project::inventory_v7_project;
 pub(crate) use read_v7_generated_environment_rollback::read_v7_generated_environment_rollback;
+pub(crate) use select_v7_migration_adapters::select_v7_migration_adapters;
 pub(crate) use v7_generated_environment_artifact::V7GeneratedEnvironmentArtifact;
 pub(crate) use v7_generated_environment_rollback_material::V7GeneratedEnvironmentRollbackMaterial;
 pub(crate) use v7_generated_environment_rollback_options::V7GeneratedEnvironmentRollbackOptions;
@@ -36,6 +42,15 @@ pub(crate) use v7_host_artifact_inventory::V7HostArtifactInventory;
 pub(crate) use v7_inventory_blocker::V7InventoryBlocker;
 use v7_inventory_error::V7InventoryError;
 use v7_logical_data_inventory::V7LogicalDataInventory;
+pub(crate) use v7_migration_adapter::{
+    V7EnvironmentMigrationAdapter, V7MigrationServiceAdapter, V7RouteMigrationAdapter,
+    V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+};
+pub(crate) use v7_migration_adapter_plan::{V7MigrationAdapterPlan, V7MigrationServiceSelection};
+pub(crate) use v7_migration_adapter_selection_error::V7MigrationAdapterSelectionError;
+pub(crate) use v7_migration_adapter_selection_options::{
+    V7MigrationAdapterSelectionOptions, V7MigrationRouteSource, V7MigrationServiceSource,
+};
 pub(crate) use v7_project_inventory::V7ProjectInventory;
 pub(crate) use v7_project_inventory_options::V7ProjectInventoryOptions;
 pub(crate) use v7_project_inventory_request::V7ProjectInventoryRequest;

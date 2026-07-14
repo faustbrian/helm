@@ -240,8 +240,24 @@ acceptance re-verifies the existing artifact instead of silently replacing
 append-only evidence. Schema-16 records remain readable after upgrade; if one
 predates protected capture, acceptance permits only a one-way enrichment of
 its empty rollback fields while retaining its original inventory and acceptance
-time. Resource-specific adapter selection and live cutover remain separate
-later phases.
+time.
+
+Adapter selection consumes only that immutable accepted record. It assigns
+each service both its normal v8 deployment strategy and exactly one migration
+adapter: a logical database, tenant prefix, bucket, vhost, named-volume
+archive, project-workload recreation, stateless recreation, or ephemeral
+recreation. Named volumes are archived only when no logical adapter owns the
+data transition. The same plan explicitly selects gateway snapshot/cutover,
+an installation-scoped legacy Caddy CA transition, and protected
+generated-environment handling. The trust adapter must retain the legacy CA
+while any accepted project still depends on its rollback path; project
+migration never removes shared host trust independently.
+Its deterministic revision includes the accepted evidence revision, every
+service and volume decision, and every exact route. Unknown drivers,
+unsupported mounts, duplicate identities, routes without a routable target,
+missing required public CA evidence, and accepted environments without a
+protected rollback artifact fail closed before execution. Live cutover remains
+a separate later phase.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an

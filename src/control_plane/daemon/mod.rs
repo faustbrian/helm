@@ -108,6 +108,7 @@ mod retry_delay;
 mod retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 mod run_unix_daemon_watch;
+mod select_accepted_v7_migration_adapters;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
@@ -258,6 +259,7 @@ pub(crate) use retry_delay::RetryDelay;
 pub(crate) use retry_failed_installation_deletion_prune::retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
+pub(crate) use select_accepted_v7_migration_adapters::select_accepted_v7_migration_adapters;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
 #[cfg(unix)]
