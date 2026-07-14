@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 1,426 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 1,428 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -44,7 +44,7 @@ identified below.
 | AC-15 | Incompatible profiles split with an exact explanation | Implemented | compatibility fingerprint and shared resolver tests | Live mixed-version/profile artifact |
 | AC-16 | Logical resources and credentials converge idempotently | Implemented | PostgreSQL, MySQL/MariaDB, MongoDB, Redis/Valkey, object-store, RabbitMQ, Mailpit, and SQL Server preparation/reconciliation tests | Live authenticated readiness and drift records per advertised service |
 | AC-17 | Credentials remain stable across daemon and Engine restarts | Implemented | SQLite insert-if-absent, redaction, restart, and shared bootstrap credential tests | Live restart artifact |
-| AC-18 | Persistent resources are never pruned implicitly | Implemented | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL and MySQL/MariaDB prune execution; keep-data-default uninstall and pre-mutation delete-data refusal | Complete recovery/deletion coverage and uninstall delete-data execution remain incomplete |
+| AC-18 | Persistent resources are never pruned implicitly | Implemented | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL, MySQL/MariaDB, and MongoDB prune execution; keep-data-default uninstall and pre-mutation delete-data refusal | Complete recovery/deletion coverage and uninstall delete-data execution remain incomplete |
 
 ## Engine, daemon recovery, and lifecycle
 
@@ -53,7 +53,7 @@ identified below.
 | AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, strict legacy guard | Live Engine compatibility negotiation record |
 | AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | event supervisor, bounded backoff, health invalidation, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
 | AC-21 | Daemon restart, login, reboot, service crash, sleep, and wake recover | Partial | queue/state restore, idempotent reconciliation, restart, and crash tests | Login, reboot, sleep/wake, and service-crash platform artifacts |
-| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, and MongoDB backup, disposable GC, crash-replayable PostgreSQL and MySQL/MariaDB prune, reversible PostgreSQL, MySQL/MariaDB, and MongoDB restore/cutover/confirm/rollback, and explicit safe uninstall-mode tests | MongoDB prune, remaining persistent-service adapters, delete-data uninstall execution, and live rename/remove/restore acceptance |
+| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, and MongoDB backup and crash-replayable prune, disposable GC, reversible PostgreSQL, MySQL/MariaDB, and MongoDB restore/cutover/confirm/rollback, and explicit safe uninstall-mode tests | Remaining persistent-service adapters, delete-data uninstall execution, and live rename/remove/restore acceptance |
 | AC-23 | Existing v7 projects have tested migration and rollback | Partial | TOML-to-YAML semantic migration; reversible PostgreSQL, MySQL/MariaDB, and MongoDB backup/restore/cutover/confirm/rollback tests | Complete v7 inventory and adapters for remaining data services, routes, trust, app runtimes, volumes, and generated environment |
 
 ## Supply chain, platforms, and efficiency
@@ -64,7 +64,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | `scripts/audit-v8-host-dependencies.sh` and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable v7, Engine baseline, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,426 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,428 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 

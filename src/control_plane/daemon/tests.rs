@@ -1657,6 +1657,152 @@ fn queued_logical_prune_dispatches_mysql_adapter_and_retires_exact_state() {
 }
 
 #[test]
+fn queued_logical_prune_dispatches_mongodb_adapter_and_retires_exact_state() {
+    use crate::control_plane::retention::{LogicalPrunePlan, LogicalPrunePlanOptions};
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-mongodb-prune");
+    let fingerprint = format!("sha256:{}", "c".repeat(64));
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mongodb-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mongodb_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mongodb".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/mongodb-bootstrap", "c".repeat(64)),
+        project_id: None,
+        service_id: "mongodb".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-mongodb".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        resource_kind: "mongodb_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: root
+            .join("backups/backup-mongodb.archive")
+            .display()
+            .to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    let plan = LogicalPrunePlan::new(LogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-mongodb",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery_point),
+    })
+    .expect("MongoDB prune plan");
+    let operation = QueuedPostgresPrune::new(
+        "prune-mongodb".to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued MongoDB prune");
+    drop(store);
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "mongodb-container",
+        "install-1",
+        "mongodb-8",
+        &fingerprint,
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_postgres_prune(
+        engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation,
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(()));
+    assert_eq!(
+        engine.command_arguments()[0],
+        ["mongosh", "--quiet", "--nodb"]
+    );
+    assert!(engine.command_environments()[0].is_empty());
+    let script = String::from_utf8(engine.command_inputs()[0].clone()).expect("prune script");
+    assert!(script.contains("dropUser(\"st_bill_database\")"));
+    assert!(script.contains("dropDatabase()"));
+    assert!(script.contains("administrator-secret"));
+    assert!(!script.contains("project-secret"));
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert_eq!(
+        store.credentials().expect("administrator retained"),
+        vec![administrator]
+    );
+    assert_eq!(
+        store.recovery_points("bill").expect("recovery retained"),
+        vec![recovery_point]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove prune fixture");
+}
+
+#[test]
 fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let root = temporary_directory("queued-postgres-restore");
     let project_path = root.join("bill");

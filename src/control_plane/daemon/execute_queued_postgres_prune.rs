@@ -3,9 +3,9 @@ use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::retention::{
-    DataLifecycleStrategy, MySqlLogicalPruneOptions, PostgresLogicalPruneOptions,
-    PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, prune_mysql_logical_resource,
-    prune_postgres_logical_resource,
+    DataLifecycleStrategy, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
+    PostgresLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+    prune_mongodb_logical_resource, prune_mysql_logical_resource, prune_postgres_logical_resource,
 };
 use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{
@@ -128,6 +128,21 @@ where
             .await
             .map_err(|error| error.to_string())?;
         }
+        DataLifecycleStrategy::MongoDbLogical => {
+            prune_mongodb_logical_resource(
+                engine,
+                MongoDbLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no destructive adapter"
@@ -183,6 +198,7 @@ fn exact_administrator<'state>(
             MySqlFlavor::MySql => ("mysql", "root"),
             MySqlFlavor::MariaDb => ("mariadb", "root"),
         },
+        DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin"),
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no administrator model"

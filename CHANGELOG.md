@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Extended common token-bound logical prune execution to MongoDB with exact
+  orphan, credential, recovery-point, installation, and compatibility checks,
+  idempotent in-container tenant deletion, and atomic state retirement.
 - Added daemon-owned reversible MongoDB recovery execution with exact catalog
   selection, isolated persistent targets, tenant-authenticated verification,
   atomic environment cutover, explicit confirmation with source retirement,

@@ -117,7 +117,9 @@ fn one_logical<'state>(
     let strategy = resolve_data_lifecycle_strategy(logical).map_err(|error| error.to_string())?;
     if !matches!(
         strategy,
-        DataLifecycleStrategy::PostgreSqlLogical | DataLifecycleStrategy::MySqlLogical
+        DataLifecycleStrategy::PostgreSqlLogical
+            | DataLifecycleStrategy::MySqlLogical
+            | DataLifecycleStrategy::MongoDbLogical
     ) {
         return Err(format!(
             "logical resource kind '{}' has no implemented destructive prune adapter",

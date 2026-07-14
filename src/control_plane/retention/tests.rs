@@ -1,10 +1,11 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
     DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
-    MySqlLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
-    PruneAuthorization, RestoreTarget, RestoreTargetError, evaluate_deletion,
-    open_stored_backup_artifact, prune_mysql_logical_resource, resolve_data_lifecycle_strategy,
-    restore_verified_backup, store_backup_artifact, store_backup_artifact_for_identity,
+    MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions, PostgresLogicalPrunePlan,
+    PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget, RestoreTargetError,
+    evaluate_deletion, open_stored_backup_artifact, prune_mongodb_logical_resource,
+    prune_mysql_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
+    store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
 };
@@ -215,6 +216,84 @@ fn mysql_logical_prune_uses_exact_idempotent_schema_and_user_deletion() {
     assert!(sql.contains("DROP DATABASE IF EXISTS `stackctl_bill_database`"));
     assert!(sql.contains("DROP USER IF EXISTS 'st_bill_database'@'%'"));
     assert!(!sql.contains("project-secret"));
+}
+
+#[test]
+fn mongodb_logical_prune_uses_exact_idempotent_database_and_user_deletion() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use std::time::Duration;
+
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: "sha256:mongodb-8".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("MongoDB metadata");
+    let observed = ObservedContainer::new(ContainerId::new("mongodb-8"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned MongoDB container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "mongodb-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mongodb_database".to_owned(),
+        compatibility_fingerprint: "sha256:mongodb-8".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mongodb".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/mongodb-8/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "mongodb".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPruneExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_mongodb_logical_resource(
+            &executor,
+            MongoDbLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("prune MongoDB tenant");
+
+    assert_eq!(executor.arguments(), ["mongosh", "--quiet", "--nodb"]);
+    assert!(executor.environment().is_empty());
+    let script = String::from_utf8(executor.stdin()).expect("MongoDB prune script");
+    assert!(script.contains("getUser(\"st_bill_database\")"));
+    assert!(script.contains("dropUser(\"st_bill_database\")"));
+    assert!(script.contains("dropDatabase()"));
+    assert!(script.contains("administrator-secret"));
+    assert!(!script.contains("project-secret"));
 }
 
 #[test]
