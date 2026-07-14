@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made the singleton control plane the durable journal boundary for atomic v7
+  execution, cutover, and rollback publication.
 - Added a daemon-owned accepted-v7 phase dispatcher that resumes preparation,
   atomically cuts over, and gates confirmation or rollback by durable phase.
 - Exposed durable project-wide v7 execution barriers through project migration
