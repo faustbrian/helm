@@ -20,6 +20,10 @@ All notable changes to this project are documented in this file.
 - Made thin-CLI project resolution reject symbolic-link and non-file
   `.stackctl.yaml` paths before parsing. Interactive commands now enforce the
   same trusted configuration boundary as unattended daemon discovery.
+- Serialized gateway-bootstrap publication on its private directory and
+  refused symbolic-link or non-file bootstrap targets before verification or
+  permission changes. A matching external file can no longer be accepted and
+  mounted through a managed gateway path.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish

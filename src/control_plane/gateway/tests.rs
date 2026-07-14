@@ -1089,6 +1089,53 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
     std::fs::remove_dir_all(root).expect("remove bootstrap directory");
 }
 
+#[cfg(unix)]
+#[test]
+fn caddy_bootstrap_refuses_a_symbolic_link_without_touching_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-gateway-bootstrap-symlink-{}-{}",
+        std::process::id(),
+        unique_test_value()
+    ));
+    let config_directory = root.join("config");
+    std::fs::create_dir_all(&config_directory).expect("create config directory");
+    let config_path = config_directory.join("config.json");
+    let snapshot = GatewaySnapshot::new(Vec::new()).expect("empty gateway snapshot");
+    let document = render_caddy_document(
+        &snapshot,
+        Path::new("/etc/stackctl/tls/leaf.pem"),
+        Path::new("/etc/stackctl/tls/leaf-key.pem"),
+        "localhost:2019",
+    )
+    .expect("gateway document");
+    let victim = root.join("victim.json");
+    std::fs::write(&victim, document.bytes()).expect("write victim");
+    std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o640))
+        .expect("set victim permissions");
+    symlink(&victim, &config_path).expect("create config symlink");
+
+    let error = store_caddy_bootstrap(&document, &config_path)
+        .expect_err("gateway bootstrap symlink must fail closed");
+
+    assert!(error.to_string().contains("symbolic link"));
+    assert_eq!(
+        std::fs::read(&victim).expect("read victim"),
+        document.bytes()
+    );
+    assert_eq!(
+        std::fs::metadata(&victim)
+            .expect("victim metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+
+    std::fs::remove_dir_all(root).expect("remove bootstrap directory");
+}
+
 #[test]
 fn caddy_provider_advances_revision_only_after_atomic_load_succeeds() {
     let snapshot = GatewaySnapshot::new(vec![

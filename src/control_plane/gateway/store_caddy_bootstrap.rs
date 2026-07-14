@@ -24,6 +24,11 @@ pub(crate) fn store_caddy_bootstrap(
         .map_err(|error| io_error("create gateway directory", config_directory, error))?;
     fs::set_permissions(config_directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict gateway directory", config_directory, error))?;
+    let directory_lock = File::open(config_directory)
+        .map_err(|error| io_error("open gateway directory", config_directory, error))?;
+    directory_lock
+        .lock()
+        .map_err(|error| io_error("lock gateway directory", config_directory, error))?;
 
     let temporary_path = config_directory.join(".config.tmp");
     match fs::remove_file(&temporary_path) {
@@ -38,7 +43,34 @@ pub(crate) fn store_caddy_bootstrap(
         }
     }
 
-    if config_path.exists() {
+    let existing = match fs::symlink_metadata(config_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(GatewayError::Provider {
+                detail: format!(
+                    "refusing symbolic link gateway bootstrap '{}'",
+                    config_path.display()
+                ),
+            });
+        }
+        Ok(metadata) if metadata.is_file() => true,
+        Ok(_) => {
+            return Err(GatewayError::Provider {
+                detail: format!(
+                    "gateway bootstrap '{}' is not a regular file",
+                    config_path.display()
+                ),
+            });
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(io_error(
+                "inspect existing gateway bootstrap",
+                config_path,
+                error,
+            ));
+        }
+    };
+    if existing {
         verify_existing(config_path, document.bytes())?;
         fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
             .map_err(|error| io_error("restrict gateway bootstrap", config_path, error))?;
