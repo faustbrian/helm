@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integrated Redis and Valkey prefix backups into the daemon's bounded project
+  backup queue with secret-free durable intents, exact shared-administrator
+  resolution, deterministic tenant prefixes, and verified recovery points.
 - Added a Redis/Valkey logical backup adapter that uses the shared
   administrator for one atomic prefix-only Lua snapshot, preserves binary keys,
   opaque `DUMP` values, and TTL metadata, and rejects cross-prefix artifacts.

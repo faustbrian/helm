@@ -84,6 +84,7 @@ impl UnixDaemonRuntime {
             .expect("durably claimed project backup remains queued");
         let logical_resource = self.project_backup_logical_resource(&operation);
         let credential = self.project_backup_credential(&operation);
+        let administrator = self.project_backup_administrator(&operation);
         let installation_id = self
             .global_network_request
             .metadata()
@@ -96,6 +97,7 @@ impl UnixDaemonRuntime {
                 operation,
                 logical_resource,
                 credential,
+                administrator,
                 installation_id,
                 schema_version,
                 backup_root: self.runtime_directory.join("backups"),
@@ -156,6 +158,44 @@ impl UnixDaemonRuntime {
             [] => Err(invalid("project backup has no exact active credential")),
             _ => Err(invalid(
                 "project backup matched multiple active credentials",
+            )),
+        }
+    }
+
+    fn project_backup_administrator(
+        &self,
+        operation: &super::QueuedProjectBackup,
+    ) -> Result<Option<crate::control_plane::state::CredentialRecord>, EngineError> {
+        let implementation = match operation.kind() {
+            "redis_acl_prefix" => "redis",
+            "valkey_acl_prefix" => "valkey",
+            _ => return Ok(None),
+        };
+        let fingerprint = operation
+            .compatibility_fingerprint()
+            .strip_prefix("sha256:")
+            .ok_or_else(|| invalid("project backup compatibility fingerprint is malformed"))?;
+        let credential_id = format!("shared/{fingerprint}/{implementation}-bootstrap");
+        let matches = self
+            .control_plane
+            .credentials()
+            .map_err(invalid)?
+            .into_iter()
+            .filter(|credential| {
+                credential.credential_id() == credential_id
+                    && credential.project_id().is_none()
+                    && credential.service_id() == implementation
+                    && credential.username() == "stackctl_admin"
+                    && credential.lifecycle() == CredentialLifecycle::Active
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [administrator] => Ok(Some(administrator.clone())),
+            [] => Err(invalid(
+                "project backup has no exact active shared administrator",
+            )),
+            _ => Err(invalid(
+                "project backup matched multiple active shared administrators",
             )),
         }
     }

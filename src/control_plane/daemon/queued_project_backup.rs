@@ -89,6 +89,8 @@ impl QueuedProjectBackup {
                 | "mariadb_database"
                 | "mongodb_database"
                 | "sqlserver_database"
+                | "redis_acl_prefix"
+                | "valkey_acl_prefix"
                 | "rabbitmq_vhost_user"
                 | "minio_bucket_policy"
         ) {

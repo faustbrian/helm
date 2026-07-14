@@ -4,11 +4,11 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::{
     MinioBackupOptions, MongoDbBackupOptions, MySqlBackupOptions, PostgresBackupOptions,
-    RabbitMqBackupOptions, SqlServerBackupOptions, backup_minio_bucket, backup_mongodb_database,
-    backup_mysql_database, backup_postgres_database, backup_rabbitmq_vhost,
-    backup_sql_server_database,
+    RabbitMqBackupOptions, RedisBackupOptions, SqlServerBackupOptions, backup_minio_bucket,
+    backup_mongodb_database, backup_mysql_database, backup_postgres_database,
+    backup_rabbitmq_vhost, backup_redis_prefix, backup_sql_server_database,
 };
-use crate::control_plane::shared_infrastructure::MySqlFlavor;
+use crate::control_plane::shared_infrastructure::{MySqlFlavor, RedisFlavor};
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 
 /// Resolves exact live ownership and creates one verified logical recovery point.
@@ -68,6 +68,11 @@ where
             options.operation.compatibility_fingerprint()
         ));
     }
+    let redis_prefix = format!(
+        "stackctl:{}:{}:",
+        logical.project_id(),
+        logical.service_id()
+    );
     match logical.kind() {
         "postgres_database_and_role" => backup_postgres_database(
             engine,
@@ -158,7 +163,41 @@ where
         )
         .await
         .map_err(|error| error.to_string()),
+        "redis_acl_prefix" | "valkey_acl_prefix" => backup_redis_prefix(
+            engine,
+            &container,
+            &RedisBackupOptions {
+                flavor: redis_flavor(logical.kind())?,
+                logical_resource: logical,
+                credential,
+                administrator: options
+                    .administrator
+                    .as_ref()
+                    .map_err(ToString::to_string)?
+                    .as_ref()
+                    .ok_or_else(|| {
+                        "Redis-compatible backup requires a shared administrator".to_owned()
+                    })?,
+                prefix: &redis_prefix,
+                installation_id: &options.installation_id,
+                created_at_unix_seconds: options.created_at_unix_seconds,
+                backup_root: &options.backup_root,
+                timeout: options.timeout,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string()),
         kind => Err(format!("project backup kind '{kind}' is not implemented")),
+    }
+}
+
+fn redis_flavor(kind: &str) -> Result<RedisFlavor, String> {
+    match kind {
+        "redis_acl_prefix" => Ok(RedisFlavor::Redis),
+        "valkey_acl_prefix" => Ok(RedisFlavor::Valkey),
+        _ => Err(format!(
+            "logical resource kind '{kind}' is not Redis-compatible"
+        )),
     }
 }
 

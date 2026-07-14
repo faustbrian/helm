@@ -9,6 +9,7 @@ pub(crate) struct ProjectBackupExecutionOptions {
     pub(crate) operation: QueuedProjectBackup,
     pub(crate) logical_resource: Result<LogicalResourceRecord, EngineError>,
     pub(crate) credential: Result<CredentialRecord, EngineError>,
+    pub(crate) administrator: Result<Option<CredentialRecord>, EngineError>,
     pub(crate) installation_id: String,
     pub(crate) schema_version: u32,
     pub(crate) backup_root: PathBuf,

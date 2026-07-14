@@ -986,6 +986,7 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
             operation,
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1062,6 +1063,7 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
             operation,
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1158,6 +1160,7 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
             operation,
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1233,6 +1236,7 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
             operation,
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1255,6 +1259,91 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
     assert_eq!(backup.artifact_size_bytes(), 10);
 
     std::fs::remove_dir_all(backup_root).expect("remove MinIO backup fixture");
+}
+
+#[test]
+fn queued_redis_backup_uses_the_shared_administrator_and_exact_prefix() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-redis-backup");
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "redis-container",
+        "install-1",
+        "redis-8",
+        &fingerprint,
+    )]);
+    let operation = QueuedProjectBackup::new(
+        "backup-redis".to_owned(),
+        "bill".to_owned(),
+        "cache".to_owned(),
+        "bill/cache/redis".to_owned(),
+        "redis_acl_prefix".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid Redis backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/cache/redis".to_owned(),
+        shared_resource_id: "redis-8".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        kind: "redis_acl_prefix".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/cache/redis".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "st_bill_cache".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/redis-bootstrap", "a".repeat(64)),
+        project_id: None,
+        service_id: "redis".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "admin-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            administrator: Ok(Some(administrator)),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified Redis backup");
+    let arguments = &engine.command_arguments()[0];
+    assert_eq!(arguments[0], "redis-cli");
+    assert!(arguments.contains(&"stackctl:bill:cache:".to_owned()));
+    assert_eq!(
+        engine.command_environments()[0]["REDISCLI_AUTH"],
+        "admin-secret"
+    );
+    assert!(!format!("{arguments:?}").contains("admin-secret"));
+    assert!(Path::new(backup.reference()).join("artifact.bin").is_file());
+
+    std::fs::remove_dir_all(backup_root).expect("remove Redis backup fixture");
 }
 
 #[test]
@@ -1310,6 +1399,7 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
             operation,
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1439,6 +1529,7 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
             operation,
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1611,6 +1702,7 @@ fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
             operation,
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
+            administrator: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -2620,6 +2712,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 .expect("backup intent"),
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
+                administrator: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -2920,6 +3013,7 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                 .expect("backup intent"),
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
+                administrator: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3220,6 +3314,7 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
                 .expect("backup intent"),
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
+                administrator: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3515,6 +3610,7 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
                 .expect("backup intent"),
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
+                administrator: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3732,6 +3828,21 @@ fn project_backup_queue_is_bounded_and_rejects_duplicate_operations() {
         .expect_err("duplicate operation must fail");
 
     assert!(duplicate.to_string().contains("already queued"));
+}
+
+#[test]
+fn project_backup_queue_accepts_redis_and_valkey_prefixes() {
+    for kind in ["redis_acl_prefix", "valkey_acl_prefix"] {
+        QueuedProjectBackup::new(
+            format!("backup-{kind}"),
+            "bill".to_owned(),
+            "cache".to_owned(),
+            format!("bill/cache/{}", kind.trim_end_matches("_acl_prefix")),
+            kind.to_owned(),
+            format!("sha256:{}", "a".repeat(64)),
+        )
+        .expect("Redis-compatible backup intent");
+    }
 }
 
 #[test]
@@ -6769,12 +6880,30 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .get(2)
             .is_some_and(|script| script.contains("version info"))
             .then(|| b"{\"status\":\"success\",\"versioning\":{}}\n".to_vec());
+        let redis_snapshot_output = request
+            .arguments()
+            .iter()
+            .any(|argument| argument.contains("redis.call('DUMP'"))
+            .then(|| {
+                let arguments = request.arguments();
+                let prefix = arguments
+                    .get(arguments.len().saturating_sub(2))
+                    .expect("Redis snapshot prefix");
+                let created_at = arguments.last().expect("Redis snapshot timestamp");
+                format!(
+                    "{{\"format\":1,\"created_at_unix_seconds\":{created_at},\
+                     \"prefix_hex\":\"{}\",\"records\":{{}}}}\n",
+                    hex::encode(prefix)
+                )
+                .into_bytes()
+            });
         let verification_output = postgres_verification_output
             .or(mysql_verification_output)
             .or(mongodb_verification_output)
             .or(sql_server_verification_output)
             .or(rabbitmq_list_output)
-            .or(minio_version_output);
+            .or(minio_version_output)
+            .or(redis_snapshot_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {
