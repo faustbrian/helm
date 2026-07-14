@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refused symbolic-link and non-file daemon lease paths before locking,
+  permission changes, truncation, or PID publication. Singleton acquisition can
+  no longer overwrite an external host file through the managed lease path.
 - Refused symbolic-link certificate roots and lock files before changing
   permissions or acquiring store and CA-rotation locks. TLS coordination now
   uses one shared private real-file opener and cannot adopt external host state.

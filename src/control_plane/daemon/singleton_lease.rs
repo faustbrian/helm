@@ -1,6 +1,6 @@
 use super::SingletonLeaseError;
-use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{Seek, SeekFrom, Write};
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::{Error, ErrorKind, Seek, SeekFrom, Write};
 use std::path::Path;
 
 /// A held OS lock proving this process is the per-user v8 daemon.
@@ -44,8 +44,27 @@ impl SingletonLease {
 }
 
 fn open_lock_file(lock_path: &Path) -> Result<File, SingletonLeaseError> {
+    let file = match fs::symlink_metadata(lock_path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            OpenOptions::new().read(true).write(true).open(lock_path)
+        }
+        Ok(_) => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("'{}' must be a real file", lock_path.display()),
+        )),
+        Err(error) if error.kind() == ErrorKind::NotFound => create_lock_file(lock_path),
+        Err(error) => Err(error),
+    };
+
+    file.map_err(|source| SingletonLeaseError::Io {
+        path: lock_path.to_path_buf(),
+        source,
+    })
+}
+
+fn create_lock_file(lock_path: &Path) -> Result<File, Error> {
     let mut options = OpenOptions::new();
-    options.create(true).read(true).write(true);
+    options.create_new(true).read(true).write(true);
 
     #[cfg(unix)]
     {
@@ -53,19 +72,14 @@ fn open_lock_file(lock_path: &Path) -> Result<File, SingletonLeaseError> {
         options.mode(0o600);
     }
 
-    options
-        .open(lock_path)
-        .map_err(|source| SingletonLeaseError::Io {
-            path: lock_path.to_path_buf(),
-            source,
-        })
+    options.open(lock_path)
 }
 
 #[cfg(unix)]
 fn restrict_permissions(file: &File, lock_path: &Path) -> Result<(), SingletonLeaseError> {
     use std::os::unix::fs::PermissionsExt;
 
-    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+    file.set_permissions(fs::Permissions::from_mode(0o600))
         .map_err(|source| SingletonLeaseError::Io {
             path: lock_path.to_path_buf(),
             source,

@@ -5887,6 +5887,27 @@ fn daemon_lease_is_readable_and_writable_only_by_the_user() {
     remove_lock(&lock_path);
 }
 
+#[cfg(unix)]
+#[test]
+fn daemon_lease_refuses_a_symbolic_link_without_mutating_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let lock_path = temporary_lock_path("symbolic-link");
+    let victim = lock_path.with_extension("victim");
+    std::fs::write(&victim, "external lease data\n").expect("write lease victim");
+    symlink(&victim, &lock_path).expect("link daemon lease");
+
+    let error = SingletonLease::acquire(&lock_path).expect_err("linked lease must fail closed");
+
+    assert!(error.to_string().contains("real file"));
+    assert_eq!(
+        std::fs::read_to_string(&victim).expect("read lease victim"),
+        "external lease data\n"
+    );
+    std::fs::remove_file(lock_path).expect("remove lease link");
+    std::fs::remove_file(victim).expect("remove lease victim");
+}
+
 #[test]
 fn watched_root_scan_discovers_nested_yaml_in_canonical_order() {
     let root = temporary_directory("discovery");
