@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integrated empty-vhost RabbitMQ recovery points into the daemon restore queue
+  with exact compatibility selection, a verified topology safety backup,
+  idempotent in-place replacement, post-import verification, and replay that
+  reuses operation-bound safety evidence without replacing the shared broker.
 - Integrated unversioned MinIO recovery points into the daemon restore queue
   with exact compatibility selection, a verified current-object safety backup,
   in-place bucket replacement, and replay that reuses the operation-bound safety

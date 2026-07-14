@@ -162,6 +162,14 @@ target. Other logical service kinds fail closed until they have service-specific
 backup, restore, and deletion adapters; Stackctl does not reinterpret container
 removal as data deletion.
 
+RabbitMQ vhost recovery exports and restores exact definitions only after both
+the selected recovery point and the current safety snapshot prove the vhost has
+no queued messages. Restore deletes only the exact vhost, imports its verified
+definitions, and confirms that the vhost exists before reporting success.
+Non-empty vhosts fail closed because RabbitMQ requires an offline node-data
+backup to preserve messages; Stackctl does not drain and republish messages as
+if that were an equivalent snapshot.
+
 `stackctl daemon service uninstall` defaults to keep-data behavior. The
 equivalent explicit form is `stackctl daemon service uninstall --keep-data`.
 Both stop and remove only the login service definition; SQLite state, verified

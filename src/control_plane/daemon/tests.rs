@@ -4315,6 +4315,187 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
     std::fs::remove_dir_all(root).expect("remove MinIO restore fixture");
 }
 
+#[test]
+fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-rabbitmq-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "rabbitmq@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path,
+        root.join("bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: rabbitmq\n    version: \"4\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("RabbitMQ instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let container_name = format!(
+        "stackctl-shared-{}",
+        fingerprint.strip_prefix("sha256:").expect("fingerprint")
+    );
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &container_name,
+        "install-1",
+        "rabbitmq-source",
+        &fingerprint,
+    )]);
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/rabbitmq".to_owned(),
+        shared_resource_id: container_name,
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: logical.logical_resource_id().to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "rabbit-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let backup_root = root.join("backups");
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let selected_definitions = b"{\"vhosts\":[{\"name\":\"stackctl_bill_database\"}]}";
+    let stored =
+        store_backup_artifact_for_identity(&identity, selected_definitions, 60_000, &backup_root)
+            .expect("stored RabbitMQ definitions");
+    let evidence = verify_stored_backup_artifact(&stored, 60_001).expect("verified definitions");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-rabbitmq".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: evidence.artifact_sha256().to_owned(),
+        artifact_size_bytes: evidence.artifact_size_bytes(),
+        created_at_unix_seconds: 60_000,
+        verified_at_unix_seconds: 60_001,
+    })
+    .expect("RabbitMQ recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical ownership");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .record_recovery_point(&recovery)
+        .expect("recovery point");
+    drop(store);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let execute = || {
+        runtime.block_on(execute_queued_project_restore(
+            engine.clone(),
+            FixedRestoreEntropy(0xcc),
+            ProjectRestoreExecutionOptions {
+                operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                    operation_id: "restore-rabbitmq".to_owned(),
+                    recovery_point_id: "backup-rabbitmq".to_owned(),
+                    project_id: "bill".to_owned(),
+                    service_id: "database".to_owned(),
+                    logical_resource_id: logical.logical_resource_id().to_owned(),
+                    kind: logical.kind().to_owned(),
+                    compatibility_fingerprint: fingerprint.clone(),
+                })
+                .expect("restore intent"),
+                shared: shared.clone(),
+                installation_id: "install-1".to_owned(),
+                network_name: "stackctl".to_owned(),
+                schema_version: 8,
+                state_database_path: database_path.clone(),
+                backup_root: backup_root.clone(),
+                updated_at_unix_seconds: 60_002,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+    };
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let first_calls = engine.command_arguments();
+    assert_eq!(first_calls.len(), 5);
+    assert_eq!(first_calls[0][1], "list_queues");
+    assert!(first_calls[1][2].contains("export_definitions"));
+    assert_eq!(first_calls[2][1], "list_vhosts");
+    assert!(first_calls[3][2].contains("delete_vhost"));
+    assert!(first_calls[3][2].contains("import_definitions"));
+    assert_eq!(first_calls[4][1], "list_vhosts");
+    assert!(!format!("{first_calls:?}").contains("rabbit-secret"));
+    assert!(
+        engine
+            .command_inputs()
+            .iter()
+            .any(|input| input == selected_definitions)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    let points = store.recovery_points("bill").expect("recovery catalog");
+    assert_eq!(points.len(), 2);
+    assert!(
+        points
+            .iter()
+            .any(|point| point.recovery_point_id() == "restore-rabbitmq-pre-restore")
+    );
+    drop(store);
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    assert_eq!(engine.command_arguments().len(), 8);
+    assert_eq!(
+        engine
+            .command_arguments()
+            .iter()
+            .filter(|arguments| arguments.get(1).is_some_and(|value| value == "list_queues"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        SqliteStateStore::open(&database_path)
+            .expect("reopen replayed state")
+            .recovery_points("bill")
+            .expect("replayed recovery catalog")
+            .len(),
+        2
+    );
+    assert!(engine.created().is_empty());
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    std::fs::remove_dir_all(root).expect("remove RabbitMQ restore fixture");
+}
+
 struct FixedRestoreEntropy(u8);
 
 impl CredentialEntropy for FixedRestoreEntropy {
@@ -4389,6 +4570,20 @@ fn project_restore_queue_accepts_minio_buckets() {
         compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
     })
     .expect("MinIO restore intent");
+}
+
+#[test]
+fn project_restore_queue_accepts_rabbitmq_vhosts() {
+    QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "restore-rabbitmq".to_owned(),
+        recovery_point_id: "backup-rabbitmq".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "queue".to_owned(),
+        logical_resource_id: "bill/queue/rabbitmq".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+    })
+    .expect("RabbitMQ restore intent");
 }
 
 #[test]

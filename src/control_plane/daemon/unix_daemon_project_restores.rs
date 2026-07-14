@@ -135,6 +135,7 @@ impl UnixDaemonRuntime {
             "redis_acl_prefix" => "redis",
             "valkey_acl_prefix" => "valkey",
             "minio_bucket_policy" => "minio",
+            "rabbitmq_vhost_user" => "rabbitmq",
             kind => {
                 return Some(Err(format!(
                     "recovery point '{}' has unsupported resource kind '{kind}'",

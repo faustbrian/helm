@@ -45,7 +45,9 @@ pub(crate) use postgres::{
     EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
 };
-pub(crate) use rabbitmq::{RabbitMqBackupOptions, backup_rabbitmq_vhost};
+pub(crate) use rabbitmq::{
+    RabbitMqBackupOptions, RabbitMqRestoreOptions, backup_rabbitmq_vhost, restore_rabbitmq_vhost,
+};
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use redis::{
     RedisBackupOptions, RedisRestoreOptions, backup_redis_prefix, restore_redis_prefix,

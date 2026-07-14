@@ -37,7 +37,7 @@ logical resources reconcile independently and idempotently.
 | Gotenberg | Shared by exact image/config | Stateless HTTP | No service data | Fonts, policy, or config differs |
 | Mailpit | Shared | Authenticated SMTP username tag and deterministic route | Optional message export | Attribution or access isolation differs |
 | MailHog | Dedicated until attribution is proven | Whole project instance | Optional message export | Default; no equivalent authenticated attribution contract is proven |
-| RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Scoped definitions for empty vhosts; non-empty queues fail closed until message backup exists | Plugins, policies, topology, or isolation differs |
+| RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Scoped backup and safety-backed topology restore for empty vhosts; non-empty queues fail closed until message backup exists | Plugins, policies, topology, or isolation differs |
 | Soketi | Shared only after credential isolation is proven | Project app ID/key/secret | Configuration export | Global settings or isolation differs |
 
 Every strategy also requires authenticated readiness, not merely a running
