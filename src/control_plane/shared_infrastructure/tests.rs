@@ -3500,8 +3500,8 @@ fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
         snapshot.contents(),
         "user default off resetpass resetkeys resetchannels -@all\n\
          user stackctl_admin on resetpass #16175223c8ddce5ace0493c948569c211b03c4c6bb3d3e484434999448cffe01 resetkeys ~* resetchannels &* +@all\n\
-         user st_bill_cache on resetpass #fdb34f0710b2f482f4eb9dded04a6777f64c7388e42b0553ad43b26e126b029c resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous\n\
-         user st_shop_cache on resetpass #3c655a3878fd8e4145a5facca30188ce74792ddff5d57aaf2203bbe74a940cb5 resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous\n"
+         user st_bill_cache on resetpass #fdb34f0710b2f482f4eb9dded04a6777f64c7388e42b0553ad43b26e126b029c resetkeys ~stackctl:bill:cache:* resetchannels &stackctl:bill:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous -scan -keys -randomkey\n\
+         user st_shop_cache on resetpass #3c655a3878fd8e4145a5facca30188ce74792ddff5d57aaf2203bbe74a940cb5 resetkeys ~stackctl:shop:cache:* resetchannels &stackctl:shop:cache:* -@all +@read +@write +@connection +@transaction +@pubsub +@scripting -@admin -@dangerous -scan -keys -randomkey\n"
     );
     assert!(!snapshot.contents().contains("secret"));
     assert_eq!(
@@ -3509,6 +3509,28 @@ fn redis_acl_snapshots_are_complete_deterministic_and_redacted() {
         "RedisAclSnapshot { user_count: 3 }"
     );
     assert!(!format!("{snapshot:?}").contains("secret"));
+}
+
+#[test]
+fn redis_tenant_acls_deny_cross_tenant_key_enumeration() {
+    let project = RedisAclProject::new(
+        "bill",
+        "cache",
+        CredentialSecret::new("bill-secret".to_owned()),
+    )
+    .expect("bill ACL");
+    let snapshot = RedisAclSnapshot::new(
+        CredentialSecret::new("admin-secret".to_owned()),
+        vec![project],
+    )
+    .expect("ACL snapshot");
+
+    for command in ["scan", "keys", "randomkey"] {
+        assert!(
+            snapshot.contents().contains(&format!("-{command}")),
+            "tenant ACL must deny {command}"
+        );
+    }
 }
 
 #[test]

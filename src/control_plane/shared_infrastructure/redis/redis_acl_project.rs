@@ -54,7 +54,7 @@ impl RedisAclProject {
         format!(
             "user {} on resetpass #{} resetkeys ~{} resetchannels &{} -@all \
              +@read +@write +@connection +@transaction +@pubsub +@scripting \
-             -@admin -@dangerous",
+             -@admin -@dangerous -scan -keys -randomkey",
             self.username,
             password_hash(self.secret.expose()),
             self.key_pattern,

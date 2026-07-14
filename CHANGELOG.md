@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Denied Redis and Valkey tenant credentials access to `SCAN`, `KEYS`, and
+  `RANDOMKEY`, preventing cross-project key-name enumeration while preserving
+  key-prefix enforcement for ordinary application commands and scripts.
 - Scoped RabbitMQ and MinIO in-container backup staging paths by deterministic
   tenant identity as well as timestamp to prevent concurrent project overlap.
 
