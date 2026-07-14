@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refused symbolic-link certificate roots and lock files before changing
+  permissions or acquiring store and CA-rotation locks. TLS coordination now
+  uses one shared private real-file opener and cannot adopt external host state.
 - Confined persistent host logs to a real private log directory and real
   private daily files. Logging now fails closed for linked paths instead of
   appending Stackctl output through a symbolic link outside managed storage.

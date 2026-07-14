@@ -919,6 +919,70 @@ fn certificate_store_lock_serializes_generation_transactions() {
 
 #[cfg(unix)]
 #[test]
+fn certificate_locks_refuse_a_symbolic_link_root() {
+    use std::os::unix::fs::symlink;
+
+    let root = temporary_certificate_root();
+    let victim = root.with_extension("victim");
+    std::fs::create_dir(&victim).expect("create victim directory");
+    symlink(&victim, &root).expect("link certificate root");
+    let store = FilesystemCertificateStore::new(root.clone());
+
+    let store_error = match store.lock() {
+        Ok(_) => panic!("linked store root must fail closed"),
+        Err(error) => error,
+    };
+    let rotation_error = match store.lock_rotation() {
+        Ok(_) => panic!("linked rotation root must fail closed"),
+        Err(error) => error,
+    };
+
+    assert!(store_error.to_string().contains("real directory"));
+    assert!(rotation_error.to_string().contains("real directory"));
+    assert_eq!(
+        std::fs::read_dir(&victim)
+            .expect("read victim directory")
+            .count(),
+        0
+    );
+    std::fs::remove_file(root).expect("remove certificate root link");
+    std::fs::remove_dir(victim).expect("remove victim directory");
+}
+
+#[cfg(unix)]
+#[test]
+fn certificate_locks_refuse_symbolic_link_lock_files() {
+    use std::os::unix::fs::symlink;
+
+    let root = temporary_certificate_root();
+    let victim = root.with_extension("victim");
+    std::fs::create_dir(&root).expect("create certificate root");
+    std::fs::write(&victim, "external lock data\n").expect("write victim");
+    symlink(&victim, root.join(".store.lock")).expect("link store lock");
+    symlink(&victim, root.join(".rotation.lock")).expect("link rotation lock");
+    let store = FilesystemCertificateStore::new(root.clone());
+
+    let store_error = match store.lock() {
+        Ok(_) => panic!("linked store lock must fail closed"),
+        Err(error) => error,
+    };
+    let rotation_error = match store.lock_rotation() {
+        Ok(_) => panic!("linked rotation lock must fail closed"),
+        Err(error) => error,
+    };
+
+    assert!(store_error.to_string().contains("real file"));
+    assert!(rotation_error.to_string().contains("real file"));
+    assert_eq!(
+        std::fs::read_to_string(&victim).expect("read victim"),
+        "external lock data\n"
+    );
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+    std::fs::remove_file(victim).expect("remove victim");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_store_recovers_the_latest_verified_bundle_after_restart() {
     let root = temporary_certificate_root();
     let initial =

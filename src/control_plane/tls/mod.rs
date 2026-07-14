@@ -24,6 +24,7 @@ mod local_certificate_error;
 mod local_certificate_reconcile_action;
 mod local_certificate_reconcile_result;
 mod mac_os_certificate_trust_store;
+mod open_certificate_lock_file;
 mod process_host_command_executor;
 mod prune_inactive_leaf_certificate_generations;
 mod reconcile_local_certificates;

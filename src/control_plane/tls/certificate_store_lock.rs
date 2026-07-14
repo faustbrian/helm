@@ -1,5 +1,5 @@
-use super::LocalCertificateError;
-use std::fs::{self, File, OpenOptions};
+use super::{LocalCertificateError, open_certificate_lock_file::open_certificate_lock_file};
+use std::fs::File;
 use std::path::Path;
 
 pub(super) const CERTIFICATE_STORE_LOCK_FILE: &str = ".store.lock";
@@ -12,37 +12,11 @@ pub(crate) struct CertificateStoreLock {
 impl CertificateStoreLock {
     #[cfg(unix)]
     pub(super) fn acquire(root: &Path) -> Result<Self, LocalCertificateError> {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-        fs::create_dir_all(root).map_err(|error| {
-            LocalCertificateError::new(format!(
-                "failed to create certificate root '{}': {error}",
-                root.display()
-            ))
-        })?;
-        fs::set_permissions(root, fs::Permissions::from_mode(0o700)).map_err(|error| {
-            LocalCertificateError::new(format!(
-                "failed to restrict certificate root '{}': {error}",
-                root.display()
-            ))
-        })?;
-        let path = root.join(CERTIFICATE_STORE_LOCK_FILE);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .mode(0o600)
-            .open(&path)
-            .map_err(|error| {
-                LocalCertificateError::new(format!(
-                    "failed to open certificate store lock '{}': {error}",
-                    path.display()
-                ))
-            })?;
+        let file = open_certificate_lock_file(root, CERTIFICATE_STORE_LOCK_FILE)?;
         file.lock().map_err(|error| {
             LocalCertificateError::new(format!(
-                "failed to acquire certificate store lock '{}': {error}",
-                path.display()
+                "failed to acquire certificate store lock under '{}': {error}",
+                root.display()
             ))
         })?;
 
