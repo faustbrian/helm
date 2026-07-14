@@ -210,7 +210,7 @@ impl UnixDaemonRuntime {
         }
     }
 
-    fn publish_finished_migration_decision(&mut self, now_unix_seconds: i64) {
+    pub(super) fn publish_finished_migration_decision(&mut self, now_unix_seconds: i64) {
         if !self
             .active_migration_decision
             .as_ref()

@@ -7995,8 +7995,12 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
 
 #[cfg(unix)]
 #[test]
-fn singleton_unix_runtime_exits_before_work_when_shutdown_is_requested() {
-    use super::{DaemonShutdownSignal, UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+fn singleton_unix_runtime_drains_active_work_when_shutdown_is_requested() {
+    use super::{
+        ActiveProjectCommand, ActiveProjectLogSession, DaemonShutdownSignal,
+        ProjectCommandExecutionResult, UnixDaemonRuntime, UnixDaemonRuntimeOptions,
+    };
+    use crate::control_plane::engine::EngineError;
 
     struct RequestedShutdown;
 
@@ -8030,9 +8034,34 @@ fn singleton_unix_runtime_exits_before_work_when_shutdown_is_requested() {
         idle_poll_interval: Duration::from_millis(5),
     };
     let mut runtime = UnixDaemonRuntime::new(options, Instant::now()).expect("singleton runtime");
+    let command = runtime.engine_runtime.spawn(async {
+        tokio::task::yield_now().await;
+        ProjectCommandExecutionResult::new(
+            "shutdown-command".to_owned(),
+            Err(EngineError::Backend {
+                detail: "expected shutdown test failure".to_owned(),
+            }),
+        )
+    });
+    runtime.active_project_command = Some(ActiveProjectCommand::new(
+        "shutdown-command".to_owned(),
+        command,
+    ));
+    let (_log_sender, log_receiver) = tokio::sync::mpsc::channel(1);
+    let log_task = runtime.engine_runtime.spawn(async {
+        std::future::pending::<()>().await;
+
+        Ok(())
+    });
+    runtime.active_project_logs.insert(
+        "shutdown-logs".to_owned(),
+        ActiveProjectLogSession::new(log_receiver, log_task),
+    );
 
     runtime.run_until_shutdown(&RequestedShutdown);
 
+    assert!(runtime.active_project_command.is_none());
+    assert!(runtime.active_project_logs.is_empty());
     assert!(
         socket_path.exists(),
         "runtime remains owned until it is dropped"

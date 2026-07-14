@@ -8,10 +8,11 @@ All notable changes to this project are documented in this file.
 
 - Added orderly singleton-daemon shutdown on Unix SIGINT and SIGTERM. The
   daemon observes an atomic signal at iteration boundaries, exits without
-  starting another reconciliation, and releases its IPC socket and singleton
-  lease through normal ownership teardown. A repeated termination signal exits
-  immediately if shutdown itself is stuck, with handlers kept armed through
-  process teardown.
+  starting another reconciliation or queued operation, aborts read-only log
+  streams, drains already-running mutation tasks before ownership teardown, and
+  releases its IPC socket and singleton lease normally. A repeated termination
+  signal exits immediately if shutdown itself is stuck, with handlers kept
+  armed through process teardown.
 - Kept both local CA identities trusted during certificate rotation until the
   singleton gateway reports the replacement generation healthy and active.
   Rotation now coordinates CLI trust operations separately from gateway asset

@@ -244,7 +244,7 @@ impl UnixDaemonRuntime {
         }
     }
 
-    fn publish_finished_project_restore(&mut self, now_unix_seconds: i64) {
+    pub(super) fn publish_finished_project_restore(&mut self, now_unix_seconds: i64) {
         if !self
             .active_project_restore
             .as_ref()

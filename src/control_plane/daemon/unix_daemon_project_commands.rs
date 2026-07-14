@@ -175,7 +175,7 @@ impl UnixDaemonRuntime {
         })())
     }
 
-    fn publish_finished_project_command(&mut self, now_unix_seconds: i64) {
+    pub(super) fn publish_finished_project_command(&mut self, now_unix_seconds: i64) {
         if !self
             .active_project_command
             .as_ref()

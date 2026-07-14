@@ -114,7 +114,7 @@ impl UnixDaemonRuntime {
         self.engine_runtime.block_on(tokio::task::yield_now());
     }
 
-    fn publish_finished_postgres_prune(&mut self, now_unix_seconds: i64) {
+    pub(super) fn publish_finished_postgres_prune(&mut self, now_unix_seconds: i64) {
         if !self
             .active_postgres_prune
             .as_ref()

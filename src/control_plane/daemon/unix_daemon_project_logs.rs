@@ -7,6 +7,14 @@ use super::{
 const LOG_CHANNEL_CAPACITY: usize = 64;
 
 impl UnixDaemonRuntime {
+    pub(super) fn stop_project_logs_for_shutdown(&mut self) {
+        for active in self.active_project_logs.values() {
+            active.abort();
+        }
+        self.active_project_logs.clear();
+        self.engine_runtime.block_on(tokio::task::yield_now());
+    }
+
     /// Advances concurrent read-only Engine log sessions without durable output.
     pub(super) fn drive_project_logs(&mut self, now: Instant) {
         for session_id in self.project_logs.expire_idle(now) {

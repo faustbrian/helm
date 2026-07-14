@@ -305,7 +305,9 @@ impl UnixDaemonRuntime {
                 .saturating_duration_since(now);
             std::thread::sleep(self.options.idle_poll_interval.min(until_scan));
         }
-        tracing::info!("singleton daemon shutdown requested");
+        tracing::info!("singleton daemon shutdown requested; draining active operations");
+        self.drain_active_operations_for_shutdown();
+        tracing::info!("singleton daemon active operations drained");
     }
 
     fn drive_engine_events(&mut self, now: Instant) {
@@ -1263,7 +1265,7 @@ pub(super) fn merge_prepared_environments(
         .collect()
 }
 
-fn unix_time_seconds() -> i64 {
+pub(super) fn unix_time_seconds() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()

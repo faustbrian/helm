@@ -10,6 +10,7 @@ removed rather than retained as a disabled compatibility runtime.
 The remaining `src/daemon/` module contains only macOS launchd and Linux
 systemd user-service integration for the v8 singleton. SIGINT and SIGTERM are
 observed atomically at daemon iteration boundaries so service-manager shutdown
+stops new work, aborts read-only log streams, drains active mutation tasks, and
 releases the Unix socket and singleton lease through normal ownership teardown.
 Workload orchestration lives under `src/control_plane/` and reaches containers
 only through typed Engine capabilities.

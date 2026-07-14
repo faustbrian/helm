@@ -134,6 +134,8 @@ mod unix_daemon_runtime_error;
 #[cfg(unix)]
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
+mod unix_daemon_shutdown_drain;
+#[cfg(unix)]
 mod unix_daemon_shutdown_signal;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
