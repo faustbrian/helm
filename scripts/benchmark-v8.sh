@@ -9,6 +9,9 @@ usage() {
     "usage: $0 <scenario> <new-output-directory> [sample-count] [interval-seconds]" \
     "" \
     "scenarios:" \
+    "  baseline-engine-idle" \
+    "  baseline-one" \
+    "  baseline-forty" \
     "  v8-one" \
     "  v8-forty-compatible" \
     "  v8-forty-split" \
@@ -20,7 +23,9 @@ usage() {
     "  STACKCTL_BENCHMARK_ENGINE_BACKEND    VM/backend identity" \
     "  STACKCTL_BENCHMARK_ENGINE_LIMITS     CPU and memory limits" \
     "  STACKCTL_BENCHMARK_FILESYSTEM        sharing/filesystem mode" \
-    "  STACKCTL_BENCHMARK_HOST_METRICS_FILE required external host/VM samples"
+    "  STACKCTL_BENCHMARK_HOST_METRICS_FILE required external host/VM samples" \
+    "  STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" \
+    "                                        required for baseline scenarios"
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -35,13 +40,23 @@ fi
 
 readonly SCENARIO="$1"
 readonly OUTPUT_DIRECTORY="$2"
-readonly SAMPLE_COUNT="${3:-12}"
-readonly INTERVAL_SECONDS="${4:-5}"
 readonly STACKCTL_BIN="${STACKCTL_BIN:-target/release/stackctl}"
 
 case "$SCENARIO" in
+  baseline-engine-idle|baseline-one|baseline-forty)
+    if (( $# != 2 )); then
+      printf 'baseline scenarios do not accept daemon sample arguments\n' >&2
+      exit 64
+    fi
+    readonly SCENARIO_MODE="baseline"
+    readonly SAMPLE_COUNT=0
+    readonly INTERVAL_SECONDS=0
+    ;;
   v8-one|v8-forty-compatible|v8-forty-split)
+    readonly SCENARIO_MODE="v8"
     readonly EVIDENCE_SCENARIO="$SCENARIO"
+    readonly SAMPLE_COUNT="${3:-12}"
+    readonly INTERVAL_SECONDS="${4:-5}"
     ;;
   *)
     printf 'unsupported benchmark scenario: %s\n' "$SCENARIO" >&2
@@ -50,7 +65,7 @@ case "$SCENARIO" in
     ;;
 esac
 
-if [[ ! "$SAMPLE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+if [[ "$SCENARIO_MODE" == "v8" && ! "$SAMPLE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
   printf 'sample count must be a positive integer\n' >&2
   exit 64
 fi
@@ -62,9 +77,22 @@ if [[ -e "$OUTPUT_DIRECTORY" ]]; then
   printf 'benchmark output already exists: %s\n' "$OUTPUT_DIRECTORY" >&2
   exit 73
 fi
-if [[ ! -x "$STACKCTL_BIN" ]]; then
+if [[ "$SCENARIO_MODE" == "v8" && ! -x "$STACKCTL_BIN" ]]; then
   printf 'stackctl benchmark executable is not runnable: %s\n' "$STACKCTL_BIN" >&2
   exit 69
+fi
+if [[ "$SCENARIO_MODE" == "baseline" ]]; then
+  if [[ -z "${STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE:-}" ]]; then
+    printf '%s\n' \
+      'required benchmark environment is missing: STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE' \
+      >&2
+    exit 64
+  fi
+  if [[ ! -f "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" ]]; then
+    printf 'external inventory file does not exist: %s\n' \
+      "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" >&2
+    exit 66
+  fi
 fi
 
 required_environment=(
@@ -94,7 +122,11 @@ metadata="$OUTPUT_DIRECTORY/metadata.txt"
   printf 'scenario=%s\n' "$SCENARIO"
   printf 'started_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf 'stackctl_revision=%s\n' "$(git rev-parse HEAD)"
-  printf 'stackctl_version=%s\n' "$("$STACKCTL_BIN" --version)"
+  if [[ "$SCENARIO_MODE" == "v8" ]]; then
+    printf 'stackctl_version=%s\n' "$("$STACKCTL_BIN" --version)"
+  else
+    printf 'stackctl_version=not-applicable\n'
+  fi
   printf 'host=%s\n' "$(uname -a)"
   printf 'engine=%s\n' "$STACKCTL_BENCHMARK_ENGINE"
   printf 'engine_version=%s\n' "$STACKCTL_BENCHMARK_ENGINE_VERSION"
@@ -106,6 +138,15 @@ metadata="$OUTPUT_DIRECTORY/metadata.txt"
 } > "$metadata"
 
 cp "$STACKCTL_BENCHMARK_HOST_METRICS_FILE" "$OUTPUT_DIRECTORY/host-metrics.txt"
+
+if [[ "$SCENARIO_MODE" == "baseline" ]]; then
+  cp "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" \
+    "$OUTPUT_DIRECTORY/external-runtime-inventory.txt"
+  printf 'completed_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    >> "$metadata"
+  printf 'wrote immutable raw baseline evidence to %s\n' "$OUTPUT_DIRECTORY"
+  exit 0
+fi
 
 for ((sample = 1; sample <= SAMPLE_COUNT; sample++)); do
   file="$(printf '%s/samples/%03d.json' "$OUTPUT_DIRECTORY" "$sample")"

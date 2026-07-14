@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added explicit Engine-idle, one-project, and forty-project baseline modes to
+  the v8 benchmark harness. Baselines now require and preserve independently
+  captured host/VM metrics plus exact external runtime inventory instead of
+  treating foreign resources as zero or leaving half the protocol uncaptured.
 - Made runtime-image publication retain a revision-specific tag and verify the
   signed digest, Linux amd64/arm64 manifest entries, SBOM, and provenance before
   uploading one raw evidence bundle. A publication run now produces the

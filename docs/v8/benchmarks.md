@@ -66,6 +66,27 @@ STACKCTL_BENCHMARK_HOST_METRICS_FILE='external-host-metrics.txt' \
   docs/v8/benchmarks/<platform>-<revision>-v8-forty-compatible
 ```
 
+Capture each non-v8 baseline with the same independent host/Engine collector
+and include its exact runtime inventory:
+
+```sh
+STACKCTL_BENCHMARK_ENGINE='Docker Desktop' \
+STACKCTL_BENCHMARK_ENGINE_VERSION='exact-version' \
+STACKCTL_BENCHMARK_ENGINE_BACKEND='Linux VM identity' \
+STACKCTL_BENCHMARK_ENGINE_LIMITS='cpu=...,memory=...' \
+STACKCTL_BENCHMARK_FILESYSTEM='exact sharing mode' \
+STACKCTL_BENCHMARK_HOST_METRICS_FILE='external-host-metrics.txt' \
+STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE='external-runtime-inventory.txt' \
+./scripts/benchmark-v8.sh baseline-forty \
+  docs/v8/benchmarks/<platform>-<revision>-baseline-forty
+```
+
+Baseline modes are `baseline-engine-idle`, `baseline-one`, and
+`baseline-forty`. They never invoke Stackctl or infer zero usage from an empty
+owned-resource view. They copy the independently collected metrics and exact
+runtime inventory into a new immutable evidence directory with the same Engine,
+VM-limit, filesystem, revision, and host metadata used by v8 scenarios.
+
 `stackctl daemon benchmark` requests each sample from the authoritative daemon.
 The harness passes a typed evidence scenario into every request. Before
 emitting JSON, Stackctl verifies that the authoritative registered project-ID
@@ -97,9 +118,9 @@ The harness never invokes or parses `docker` or `podman`. Host and Engine-VM
 baseline metrics are outside the container API and must be captured by a
 platform-appropriate independent tool, then supplied through
 `STACKCTL_BENCHMARK_HOST_METRICS_FILE`; the harness rejects a missing artifact.
-The Engine-only and per-project-stack scenarios must be captured with that same
-independent collector because the v8 daemon correctly refuses to claim
-ownership of foreign containers. Never interpret their absence from a v8
+The Engine-only and per-project-stack scenarios must use the baseline modes and
+that same independent collector because the v8 daemon correctly refuses to
+claim ownership of foreign containers. Never interpret their absence from a v8
 snapshot as zero resource use.
 
 The harness refuses to overwrite a result directory. Commit raw samples,
