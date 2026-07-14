@@ -27,8 +27,8 @@ use crate::control_plane::daemon::ipc::{
 use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
-    MigrationExecutionResult, MongoDbRestoreOptions, MySqlRestoreOptions, restore_mongodb_database,
-    restore_mysql_database,
+    MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
+    MySqlRestoreOptions, restore_mongodb_database, restore_mysql_database, verify_mongodb_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -1262,6 +1262,45 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
         .expect("runtime-only administrator URI");
     assert!(restore_uri.contains("authSource=admin"));
     assert!(!restore_uri.contains("root secret"));
+
+    let restored_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: checkpoint.migration_id().to_owned(),
+        project_id: checkpoint.project_id().to_owned(),
+        source_revision: checkpoint.source_revision().to_owned(),
+        target_revision: checkpoint.target_revision().to_owned(),
+        source_compatibility_fingerprint: checkpoint.source_compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: checkpoint.target_compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::DataRestored,
+        backup_reference: checkpoint.backup_reference().map(str::to_owned),
+        backup_artifact_sha256: checkpoint.backup_artifact_sha256().map(str::to_owned),
+        backup_artifact_size_bytes: checkpoint.backup_artifact_size_bytes(),
+        target_resource_id: checkpoint.target_resource_id().map(str::to_owned),
+        rollback_reference: checkpoint.rollback_reference().map(str::to_owned),
+        updated_at_unix_seconds: 41_003,
+    })
+    .expect("restored MongoDB checkpoint");
+
+    runtime
+        .block_on(verify_mongodb_target(
+            &engine,
+            &container,
+            &MongoDbVerifyTargetOptions {
+                checkpoint: &restored_checkpoint,
+                credential: &credential,
+                installation_id: "install-1",
+                target_database_name: "stackctl_bill_database",
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("tenant-authenticated MongoDB target verification");
+
+    assert!(engine.command_arguments()[2][2].contains("mongosh"));
+    let verification_environments = engine.command_environments();
+    let verification_uri = verification_environments[2]
+        .get("STACKCTL_MONGODB_URI")
+        .expect("runtime-only tenant URI");
+    assert!(verification_uri.contains("authSource=stackctl_bill_database"));
+    assert!(!verification_uri.contains("mongo secret"));
 
     std::fs::remove_dir_all(backup_root).expect("remove MongoDB backup fixture");
 }
@@ -5229,7 +5268,21 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
 
                 format!("{database}\t{user}@%\n").into_bytes()
             });
-        let verification_output = postgres_verification_output.or(mysql_verification_output);
+        let mongodb_verification_output = request
+            .arguments()
+            .iter()
+            .any(|argument| argument.contains("db.getName()"))
+            .then(|| {
+                let database = request
+                    .environment()
+                    .get("STACKCTL_MONGODB_DATABASE")
+                    .expect("MongoDB verification database");
+
+                format!("{database}\n1\n").into_bytes()
+            });
+        let verification_output = postgres_verification_output
+            .or(mysql_verification_output)
+            .or(mongodb_verification_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

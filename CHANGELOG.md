@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added exact MongoDB target verification through the restored tenant identity,
+  requiring byte-exact database and ping evidence while keeping its encoded
+  connection URI confined to the in-container command environment.
 - Added a bounded MongoDB restore adapter that re-verifies immutable recovery
   evidence and exact retained-target ownership before streaming an archive with
   an RFC 3986-encoded, runtime-only administrator URI.
