@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Expanded the host-dependency audit from selected source directories to every
+  Rust source file. The native launchd/systemd service boundary is now an
+  explicit exception instead of an unexamined gap in the audit.
 - Moved watched-root replacement behind singleton lease acquisition. A
   competing daemon invocation can no longer change the authoritative daemon's
   project scope before failing ownership acquisition, and proposed roots are
