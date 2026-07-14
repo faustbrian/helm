@@ -40,6 +40,10 @@ mod resource_retention;
 mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
+mod v7_migration_adapter_checkpoint;
+mod v7_migration_execution_phase;
+mod v7_migration_execution_record;
+mod v7_migration_execution_record_options;
 
 pub(crate) use accepted_v7_environment_rollback::AcceptedV7EnvironmentRollback;
 pub(crate) use accepted_v7_inventory_record::AcceptedV7InventoryRecord;
@@ -77,6 +81,11 @@ pub(crate) use resource_retention::ResourceRetention;
 pub(crate) use sqlite_state_store::SqliteStateStore;
 pub(crate) use state_store::StateStore;
 pub(crate) use state_store_error::StateStoreError;
+pub(crate) use v7_migration_adapter_checkpoint::V7MigrationAdapterCheckpoint;
+use v7_migration_adapter_checkpoint::V7MigrationAdapterCheckpointPhase;
+pub(crate) use v7_migration_execution_phase::V7MigrationExecutionPhase;
+pub(crate) use v7_migration_execution_record::V7MigrationExecutionRecord;
+pub(crate) use v7_migration_execution_record_options::V7MigrationExecutionRecordOptions;
 
 #[cfg(test)]
 mod tests;

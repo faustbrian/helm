@@ -259,6 +259,18 @@ missing required public CA evidence, and accepted environments without a
 protected rollback artifact fail closed before execution. Live cutover remains
 a separate later phase.
 
+Before an adapter performs work, Stackctl persists a schema-18 execution
+record keyed by the canonical project path and accepted evidence revision. Its
+immutable checkpoint set contains every selected service and volume adapter
+plus the route, installation-trust, and generated-environment adapters. Each
+checkpoint states whether it requires a recovery artifact and advances only
+through verified recovery and target evidence. The project can enter
+`prepared` only when every target is verified; no route, environment, or
+application cutover is admitted from a partially prepared set. Checkpoint
+identity, recovery evidence, target identity, plan revision, and timestamps
+cannot be replaced or regressed across daemon restarts. Confirmation is
+terminal, while any pre-confirmation phase retains an explicit rollback path.
+
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an
 absolute project path below one of its authoritative watched roots, reads an

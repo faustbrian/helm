@@ -1,11 +1,12 @@
 use super::{
     V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
     V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterSelectionOptions,
-    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
-    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
-    V7VolumeSource, capture_v7_generated_environment_rollback, inventory_v7_host_artifacts,
-    inventory_v7_project, read_v7_generated_environment_rollback, select_v7_migration_adapters,
+    V7MigrationExecutionPlanOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
+    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
+    V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
+    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
+    inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
+    read_v7_generated_environment_rollback, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -14,6 +15,7 @@ use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerId, EngineFuture, LegacyContainerDiscovery, ObservedContainer, ObservedContainerMount,
 };
+use crate::control_plane::state::V7MigrationExecutionPhase;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
@@ -109,6 +111,38 @@ fn v7_adapter_selection_is_complete_deterministic_and_does_not_archive_logical_s
         first.environment_adapter(),
         V7EnvironmentMigrationAdapter::ProtectedGeneratedEnvironment
     );
+
+    let execution = plan_v7_migration_execution(V7MigrationExecutionPlanOptions {
+        project_id: "bill",
+        canonical_project_path: Path::new("/work/bill"),
+        adapter_plan: &first,
+        planned_at_unix_seconds: 20,
+    })
+    .expect("durable adapter execution plan");
+    assert_eq!(execution.phase(), V7MigrationExecutionPhase::Planned);
+    assert_eq!(execution.checkpoints().len(), 13);
+    assert_eq!(execution.evidence_revision(), first.evidence_revision());
+    assert_eq!(execution.adapter_plan_revision(), first.plan_revision());
+    for (adapter_id, requires_recovery) in [
+        ("environment", true),
+        ("route", true),
+        ("service/app", false),
+        ("service/database", true),
+        ("trust", true),
+        ("volume/app", true),
+        ("volume/database", false),
+    ] {
+        let checkpoint = execution
+            .checkpoints()
+            .iter()
+            .find(|checkpoint| checkpoint.adapter_id() == adapter_id)
+            .unwrap_or_else(|| panic!("checkpoint '{adapter_id}'"));
+        assert_eq!(
+            checkpoint.requires_recovery(),
+            requires_recovery,
+            "checkpoint {adapter_id}"
+        );
+    }
 }
 
 #[test]

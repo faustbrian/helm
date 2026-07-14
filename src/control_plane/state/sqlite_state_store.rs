@@ -16,13 +16,14 @@ use super::{
     ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
     ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
-    StateStoreError,
+    StateStoreError, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
+    V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 17;
+const CURRENT_SCHEMA_VERSION: u32 = 18;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -371,6 +372,32 @@ impl SqliteStateStore {
             )?;
         }
 
+        if found < 18 {
+            transaction.execute_batch(
+                "CREATE TABLE v7_migration_executions (
+                     canonical_project_path TEXT NOT NULL,
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                     evidence_revision TEXT NOT NULL CHECK(length(evidence_revision) = 64),
+                     adapter_plan_revision TEXT NOT NULL
+                         CHECK(length(adapter_plan_revision) = 64),
+                     phase TEXT NOT NULL CHECK(phase IN (
+                         'planned', 'preparing', 'prepared', 'cutover',
+                         'confirmed', 'rolled_back'
+                     )),
+                     checkpoints_json TEXT NOT NULL CHECK(length(checkpoints_json) > 0),
+                     updated_at_unix_seconds INTEGER NOT NULL
+                         CHECK(updated_at_unix_seconds >= 0),
+                     PRIMARY KEY(canonical_project_path, evidence_revision),
+                     FOREIGN KEY(canonical_project_path, evidence_revision)
+                         REFERENCES accepted_v7_inventories(
+                             canonical_project_path, evidence_revision
+                         ) ON DELETE RESTRICT
+                 ) STRICT;
+                 CREATE INDEX v7_migration_executions_project_idx
+                     ON v7_migration_executions(project_id, phase);",
+            )?;
+        }
+
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
@@ -506,6 +533,7 @@ impl StateStore for SqliteStateStore {
         transaction.execute("DELETE FROM credentials", [])?;
         transaction.execute("DELETE FROM managed_environments", [])?;
         transaction.execute("DELETE FROM migrations", [])?;
+        transaction.execute("DELETE FROM v7_migration_executions", [])?;
         transaction.execute("DELETE FROM accepted_v7_inventories", [])?;
         transaction.execute("DELETE FROM recovery_points", [])?;
         transaction.execute(
@@ -1765,6 +1793,78 @@ impl StateStore for SqliteStateStore {
         load_latest_accepted_v7_inventory(&self.connection, exact_path(canonical_project_path)?)
     }
 
+    fn record_v7_migration_execution(
+        &mut self,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        let canonical_path = exact_path(execution.canonical_project_path())?;
+        let checkpoints_json = execution.checkpoints_json().map_err(|detail| {
+            StateStoreError::InvalidV7MigrationExecution {
+                path: execution.canonical_project_path().to_path_buf(),
+                detail,
+            }
+        })?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let accepted_project = transaction
+            .query_row(
+                "SELECT project_id FROM accepted_v7_inventories
+                 WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
+                params![canonical_path, execution.evidence_revision()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if accepted_project.as_deref() != Some(execution.project_id()) {
+            return Err(StateStoreError::InvalidV7MigrationExecution {
+                path: execution.canonical_project_path().to_path_buf(),
+                detail: "has no matching accepted v7 source evidence".to_owned(),
+            });
+        }
+        if let Some(previous) = load_v7_migration_execution(
+            &transaction,
+            canonical_path,
+            execution.evidence_revision(),
+        )? {
+            validate_v7_migration_execution_transition(&previous, execution)?;
+        }
+        transaction.execute(
+            "INSERT INTO v7_migration_executions (
+                 canonical_project_path, project_id, evidence_revision,
+                 adapter_plan_revision, phase, checkpoints_json,
+                 updated_at_unix_seconds
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(canonical_project_path, evidence_revision) DO UPDATE SET
+                 phase = excluded.phase,
+                 checkpoints_json = excluded.checkpoints_json,
+                 updated_at_unix_seconds = excluded.updated_at_unix_seconds",
+            params![
+                canonical_path,
+                execution.project_id(),
+                execution.evidence_revision(),
+                execution.adapter_plan_revision(),
+                execution.phase().label(),
+                checkpoints_json,
+                execution.updated_at_unix_seconds(),
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn v7_migration_execution(
+        &self,
+        canonical_project_path: &Path,
+        evidence_revision: &str,
+    ) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError> {
+        load_v7_migration_execution(
+            &self.connection,
+            exact_path(canonical_project_path)?,
+            evidence_revision,
+        )
+    }
+
     fn record_recovery_point(
         &mut self,
         recovery_point: &RecoveryPointRecord,
@@ -2576,6 +2676,119 @@ fn exact_path(path: &Path) -> Result<&str, StateStoreError> {
     path.to_str().ok_or_else(|| StateStoreError::NonUtf8Path {
         path: path.to_path_buf(),
     })
+}
+
+fn validate_v7_migration_execution_transition(
+    previous: &V7MigrationExecutionRecord,
+    next: &V7MigrationExecutionRecord,
+) -> Result<(), StateStoreError> {
+    let path = next.canonical_project_path().to_path_buf();
+    let invalid = |detail| StateStoreError::InvalidV7MigrationExecution {
+        path: path.clone(),
+        detail,
+    };
+    if !next.has_same_identity(previous) {
+        return Err(invalid(
+            "immutable project, evidence, or adapter-plan identity changed".to_owned(),
+        ));
+    }
+    if !previous.phase().can_advance_to(next.phase()) {
+        return Err(invalid(format!(
+            "cannot advance from '{}' to '{}'",
+            previous.phase().label(),
+            next.phase().label()
+        )));
+    }
+    if next.updated_at_unix_seconds() < previous.updated_at_unix_seconds() {
+        return Err(invalid("update time predates durable state".to_owned()));
+    }
+    if previous.checkpoints().len() != next.checkpoints().len() {
+        return Err(invalid("adapter checkpoint set changed".to_owned()));
+    }
+    for (previous, next) in previous.checkpoints().iter().zip(next.checkpoints()) {
+        if !next.has_same_identity(previous) {
+            return Err(invalid(format!(
+                "adapter '{}' immutable identity changed",
+                next.adapter_id()
+            )));
+        }
+        if !next.can_advance_from(previous) {
+            return Err(invalid(format!(
+                "adapter '{}' skipped or regressed its checkpoint",
+                next.adapter_id()
+            )));
+        }
+        if !next.preserves_evidence_from(previous) {
+            return Err(invalid(format!(
+                "adapter '{}' recovery or target evidence changed",
+                next.adapter_id()
+            )));
+        }
+        if next.updated_at_unix_seconds() < previous.updated_at_unix_seconds() {
+            return Err(invalid(format!(
+                "adapter '{}' update time predates durable state",
+                next.adapter_id()
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn load_v7_migration_execution(
+    connection: &Connection,
+    canonical_project_path: &str,
+    evidence_revision: &str,
+) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError> {
+    let persisted = connection
+        .query_row(
+            "SELECT project_id, adapter_plan_revision, phase,
+                    checkpoints_json, updated_at_unix_seconds
+             FROM v7_migration_executions
+             WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
+            params![canonical_project_path, evidence_revision],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    persisted
+        .map(
+            |(project_id, adapter_plan_revision, phase, checkpoints_json, updated_at)| {
+                let phase = V7MigrationExecutionPhase::parse(&phase).ok_or_else(|| {
+                    StateStoreError::CorruptState {
+                        detail: format!(
+                            "v7 migration execution for '{canonical_project_path}' has invalid phase"
+                        ),
+                    }
+                })?;
+                let checkpoints = serde_json::from_str::<Vec<V7MigrationAdapterCheckpoint>>(
+                    &checkpoints_json,
+                )
+                .map_err(|error| StateStoreError::CorruptState {
+                    detail: format!(
+                        "v7 migration execution for '{canonical_project_path}' has invalid checkpoints: {error}"
+                    ),
+                })?;
+                V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+                    project_id,
+                    canonical_project_path: PathBuf::from(canonical_project_path),
+                    evidence_revision: evidence_revision.to_owned(),
+                    adapter_plan_revision,
+                    phase,
+                    checkpoints,
+                    updated_at_unix_seconds: updated_at,
+                })
+                .map_err(|detail| StateStoreError::CorruptState { detail })
+            },
+        )
+        .transpose()
 }
 
 fn load_accepted_v7_inventory(

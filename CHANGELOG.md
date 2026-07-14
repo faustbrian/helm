@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a schema-18 project-wide v7 adapter execution journal. Accepted
+  evidence and its deterministic adapter-plan revision now bind an immutable
+  service, volume, route, trust, and environment checkpoint set. Recovery and
+  target proof advance monotonically, and cutover is refused until every
+  selected adapter has reached the durable prepared barrier.
 - Added deterministic, evidence-revision-bound v7 migration adapter plans.
   Every accepted legacy service now resolves to an explicit v8 deployment
   strategy and logical-data, named-volume, stateless, workload, or ephemeral

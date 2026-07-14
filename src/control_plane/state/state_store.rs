@@ -3,6 +3,7 @@ use super::{
     DaemonOperationRetryOptions, DaemonOperationTransitionOptions, InstallationLifecycle,
     InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord,
     ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
+    V7MigrationExecutionRecord,
 };
 use std::path::{Path, PathBuf};
 
@@ -183,6 +184,19 @@ pub(crate) trait StateStore: Send {
         &self,
         canonical_project_path: &Path,
     ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError>;
+
+    /// Records one monotonic, project-wide v7 adapter execution barrier.
+    fn record_v7_migration_execution(
+        &mut self,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError>;
+
+    /// Loads exact execution state bound to one accepted evidence revision.
+    fn v7_migration_execution(
+        &self,
+        canonical_project_path: &Path,
+        evidence_revision: &str,
+    ) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError>;
 
     /// Inserts immutable verified recovery evidence, allowing exact replay only.
     fn record_recovery_point(

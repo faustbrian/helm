@@ -6,7 +6,8 @@ use super::{
     MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
     ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore,
+    StateStore, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
+    V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -19,7 +20,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 17);
+    assert_eq!(store.schema_version().expect("schema version"), 18);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -533,6 +534,154 @@ fn migration_records_require_proof_before_destructive_phases() {
         rollback_error.to_string(),
         "migration phase 'cutover' requires retained rollback material"
     );
+}
+
+#[test]
+fn v7_migration_execution_records_require_a_complete_verified_barrier() {
+    let mutating =
+        V7MigrationAdapterCheckpoint::pending("service/app", "recreate-project-workload", true, 10)
+            .expect("pending mutating adapter");
+    let no_op = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+        .expect("pending no-op adapter");
+    let error = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Prepared,
+        vec![mutating.clone(), no_op.clone()],
+        10,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ))
+    .expect_err("unverified prepared barrier");
+    assert_eq!(
+        error,
+        "v7 migration execution phase 'prepared' requires every adapter target to be verified"
+    );
+
+    let mutating = mutating
+        .with_recovery_verified(
+            "/backups/app",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            100,
+            11,
+        )
+        .expect("verified recovery")
+        .with_target_verified(Some("container-app"), 12)
+        .expect("verified target");
+    let no_op = no_op
+        .with_target_verified(None, 12)
+        .expect("verified no-op");
+    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Prepared,
+        vec![mutating, no_op],
+        12,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ))
+    .expect("complete prepared barrier");
+
+    assert_eq!(prepared.checkpoints().len(), 2);
+}
+
+#[test]
+fn v7_migration_execution_journal_is_atomic_monotonic_and_restart_safe() {
+    let database_path = temporary_database_path("v7-migration-execution");
+    let accepted = accepted_v7_inventory("a", 9);
+    let pending =
+        V7MigrationAdapterCheckpoint::pending("service/app", "recreate-project-workload", true, 10)
+            .expect("pending adapter");
+    let planned = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Planned,
+        vec![pending.clone()],
+        10,
+        accepted.evidence_revision(),
+    ))
+    .expect("planned execution");
+    let recovery = pending
+        .with_recovery_verified(
+            "/backups/app",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            100,
+            11,
+        )
+        .expect("verified recovery");
+    let preparing = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Preparing,
+        vec![recovery.clone()],
+        11,
+        accepted.evidence_revision(),
+    ))
+    .expect("preparing execution");
+    let target = recovery
+        .with_target_verified(Some("container-app"), 12)
+        .expect("verified target");
+    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Prepared,
+        vec![target],
+        12,
+        accepted.evidence_revision(),
+    ))
+    .expect("prepared execution");
+
+    {
+        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+        store
+            .record_accepted_v7_inventory(&accepted)
+            .expect("record accepted source");
+        store
+            .record_v7_migration_execution(&planned)
+            .expect("record planned execution");
+        store
+            .record_v7_migration_execution(&preparing)
+            .expect("record preparing execution");
+        let skipped = V7MigrationExecutionRecord::new(v7_execution_options(
+            V7MigrationExecutionPhase::Cutover,
+            vec![
+                prepared.checkpoints()[0]
+                    .clone()
+                    .with_cutover(13)
+                    .expect("cutover adapter"),
+            ],
+            13,
+            accepted.evidence_revision(),
+        ))
+        .expect("structurally valid cutover");
+        assert_eq!(
+            store
+                .record_v7_migration_execution(&skipped)
+                .expect_err("prepared barrier cannot be skipped")
+                .to_string(),
+            "v7 migration execution for '/work/bill' cannot advance from 'preparing' to 'cutover'"
+        );
+        store
+            .record_v7_migration_execution(&prepared)
+            .expect("record prepared execution");
+    }
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    assert_eq!(
+        store
+            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision(),)
+            .expect("load execution"),
+        Some(prepared)
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+fn v7_execution_options(
+    phase: V7MigrationExecutionPhase,
+    checkpoints: Vec<V7MigrationAdapterCheckpoint>,
+    updated_at_unix_seconds: i64,
+    evidence_revision: &str,
+) -> V7MigrationExecutionRecordOptions {
+    V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: evidence_revision.to_owned(),
+        adapter_plan_revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_owned(),
+        phase,
+        checkpoints,
+        updated_at_unix_seconds,
+    }
 }
 
 #[test]
@@ -2136,7 +2285,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 17);
+    assert_eq!(store.schema_version().expect("schema version"), 18);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -2192,7 +2341,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 17);
+    assert_eq!(store.schema_version().expect("schema version"), 18);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -2236,7 +2385,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 17);
+    assert_eq!(store.schema_version().expect("schema version"), 18);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);

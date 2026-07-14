@@ -53,6 +53,8 @@ pub(crate) enum StateStoreError {
         existing_path: PathBuf,
         requested_path: PathBuf,
     },
+    /// Composite v7 adapter execution violated immutable or monotonic state.
+    InvalidV7MigrationExecution { path: PathBuf, detail: String },
     /// Backup, target, or rollback evidence changed after being recorded.
     MigrationEvidenceConflict { migration_id: String },
     /// Verified recovery evidence cannot change after publication.
@@ -182,6 +184,11 @@ impl Display for StateStoreError {
                 requested_path.display(),
                 existing_path.display()
             ),
+            Self::InvalidV7MigrationExecution { path, detail } => write!(
+                formatter,
+                "v7 migration execution for '{}' {detail}",
+                path.display()
+            ),
             Self::MigrationEvidenceConflict { migration_id } => write!(
                 formatter,
                 "migration '{migration_id}' durable evidence cannot be replaced"
@@ -267,6 +274,7 @@ impl Error for StateStoreError {
             | Self::MigrationIdentityConflict { .. }
             | Self::AcceptedV7InventoryConflict { .. }
             | Self::AcceptedV7ProjectIdentityConflict { .. }
+            | Self::InvalidV7MigrationExecution { .. }
             | Self::MigrationEvidenceConflict { .. }
             | Self::RecoveryPointEvidenceConflict { .. }
             | Self::InvalidMigrationTransition { .. }
