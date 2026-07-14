@@ -4,12 +4,13 @@ use super::{
     DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
     EngineBenchmarkSnapshotProvider, EngineConnectionOutcome, EngineConnectionSupervisor,
     EngineImageReferenceResolution, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
-    FilesystemEventWatcher, ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue,
-    PostgresPruneQueue, ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry,
-    ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
-    initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
+    EngineV7ProjectInventoryProvider, FilesystemEventWatcher, ImageReferenceResolution,
+    IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue, ProjectBackupQueue,
+    ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -198,6 +199,11 @@ impl UnixDaemonRuntime {
                 self.global_network_request.metadata().schema_version(),
             )
         });
+        let mut v7_project_inventory = self
+            .engine_connection
+            .engine()
+            .cloned()
+            .map(|engine| EngineV7ProjectInventoryProvider::new(&self.engine_runtime, engine));
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
                 control_plane: &mut self.control_plane,
@@ -218,6 +224,10 @@ impl UnixDaemonRuntime {
                 image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
                     let resolver: &mut dyn ImageReferenceResolution = resolver;
                     resolver
+                }),
+                v7_project_inventory: v7_project_inventory.as_mut().map(|provider| {
+                    let provider: &mut dyn super::V7ProjectInventoryProvider = provider;
+                    provider
                 }),
                 now_unix_seconds,
             })

@@ -911,6 +911,24 @@ fn daemon_command_variants_parse() {
         panic!("expected daemon command");
     }
 
+    let inventory = Cli::parse_from([
+        "stackctl",
+        "daemon",
+        "migration",
+        "inventory",
+        "/work/legacy-bill",
+    ]);
+    let commands::Commands::Daemon(args) = inventory.command else {
+        panic!("expected daemon command");
+    };
+    let commands::DaemonCommands::Migration(args) = args.command else {
+        panic!("expected daemon migration command");
+    };
+    let commands::DaemonMigrationCommands::Inventory(args) = args.command else {
+        panic!("expected daemon migration inventory command");
+    };
+    assert_eq!(args.path, PathBuf::from("/work/legacy-bill"));
+
     for command in ["confirm", "rollback"] {
         let migration = Cli::parse_from([
             "stackctl",

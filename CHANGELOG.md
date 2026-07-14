@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `daemon migration inventory [PATH]` as an explicit read-only legacy
+  inspection path. The singleton limits requests to authoritative watched
+  roots, reads only a bounded regular `.stackctl.toml`, rejects source changes
+  during parsing, discovers legacy resources through the selected Engine, and
+  returns typed secret-free evidence and automatic-migration blockers over IPC.
 - Added a read-only v7 project inventory through a dedicated typed Engine
   capability. It deterministically binds legacy config to stopped or running
   legacy-labelled containers, observed image identities and mounts, routes,

@@ -84,6 +84,18 @@ impl V7ServiceInventory {
         &self.logical_data
     }
 
+    pub(crate) fn logical_database(&self) -> Option<&str> {
+        self.logical_data.database()
+    }
+
+    pub(crate) fn logical_bucket(&self) -> Option<&str> {
+        self.logical_data.bucket()
+    }
+
+    pub(crate) fn logical_region(&self) -> Option<&str> {
+        self.logical_data.region()
+    }
+
     pub(crate) fn credential_fields(&self) -> &[String] {
         &self.credential_fields
     }

@@ -24,6 +24,8 @@ pub(crate) enum IpcPayload {
     ProjectStatus { canonical_path: PathBuf },
     /// Reads durable migration checkpoints for one exact registered project.
     ProjectMigrations { canonical_path: PathBuf },
+    /// Inventories one exact legacy project without mutating source state.
+    InventoryV7Project { canonical_path: PathBuf },
     /// Queues one explicit decision for an exact reversible migration.
     DecideProjectMigration {
         canonical_path: PathBuf,

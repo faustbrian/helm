@@ -226,6 +226,16 @@ values are never copied into this diagnostic model; only key or field presence
 is recorded. Resource-specific adapter selection and live cutover remain
 separate later phases.
 
+`stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
+normal watched-root discovery still rejects TOML. The singleton accepts only an
+absolute project path below one of its authoritative watched roots, reads an
+exact regular non-symlink `.stackctl.toml` within the normal configuration-size
+limit, verifies that its bytes did not change during expansion, and uses only
+the installation-selected Engine. The command prints the source revision,
+configured and observed service identities, route count, CA-capture requirement,
+and every blocker. A blocked inventory exits unsuccessfully after reporting all
+issues and never changes the source project.
+
 An existing volume is never attached to an incompatible image or different
 engine as an implicit upgrade. Unsupported projects retain a precise diagnostic
 and v7 rollback path.

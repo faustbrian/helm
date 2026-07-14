@@ -49,6 +49,7 @@ where
         resource_health,
         benchmark_snapshot,
         image_reference_resolution,
+        mut v7_project_inventory,
         now_unix_seconds,
     } = options;
     match request.payload() {
@@ -227,6 +228,34 @@ where
                         message,
                         false,
                     )],
+                ),
+            }
+        }
+        IpcPayload::InventoryV7Project { canonical_path } => {
+            if let Err(message) = validate_v7_inventory_path(control_plane, canonical_path) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new("v7_inventory_failed", message, false)],
+                );
+            }
+            let Some(provider) = v7_project_inventory.as_mut() else {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_engine_unavailable",
+                        "the selected Engine is unavailable for legacy inventory",
+                        true,
+                    )],
+                );
+            };
+            match provider.inventory(canonical_path, discovery_options.maximum_config_bytes()) {
+                Ok(inventory) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::V7ProjectInventory { inventory },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new("v7_inventory_failed", message, false)],
                 ),
             }
         }
@@ -1298,6 +1327,52 @@ where
         .collect();
 
     Ok(migrations)
+}
+
+fn validate_v7_inventory_path<Store>(
+    control_plane: &ControlPlane<Store>,
+    canonical_path: &std::path::Path,
+) -> Result<(), String>
+where
+    Store: StateStore,
+{
+    if !canonical_path.is_absolute() {
+        return Err("legacy inventory requires an absolute canonical project path".to_owned());
+    }
+    let observed_path = std::fs::canonicalize(canonical_path).map_err(|error| {
+        format!(
+            "legacy project path '{}' cannot be canonicalized: {error}",
+            canonical_path.display()
+        )
+    })?;
+    if observed_path != canonical_path {
+        return Err(format!(
+            "legacy project path '{}' is not canonical; use '{}'",
+            canonical_path.display(),
+            observed_path.display()
+        ));
+    }
+    let roots = control_plane
+        .watched_roots()
+        .map_err(|error| error.to_string())?;
+    let mut inside_watched_root = false;
+    for root in roots {
+        let root = std::fs::canonicalize(&root).map_err(|error| {
+            format!(
+                "watched root '{}' cannot be canonicalized for legacy inventory: {error}",
+                root.display()
+            )
+        })?;
+        inside_watched_root |= observed_path.starts_with(root);
+    }
+    if !inside_watched_root {
+        return Err(format!(
+            "legacy project '{}' is outside every configured watched root",
+            canonical_path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn project_status<Store>(

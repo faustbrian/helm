@@ -33,6 +33,12 @@ mod ipc_resource_lifecycle;
 mod ipc_resource_status;
 mod ipc_response;
 mod ipc_result;
+mod ipc_v7_mount;
+mod ipc_v7_project_inventory;
+mod ipc_v7_project_inventory_options;
+mod ipc_v7_route;
+mod ipc_v7_service_inventory;
+mod ipc_v7_service_inventory_options;
 #[cfg(unix)]
 mod send_unix_request;
 #[cfg(unix)]
@@ -73,6 +79,12 @@ pub(crate) use ipc_resource_lifecycle::IpcResourceLifecycle;
 pub(crate) use ipc_resource_status::IpcResourceStatus;
 pub(crate) use ipc_response::{IpcDiagnostic, IpcOutcome, IpcResponse};
 pub(crate) use ipc_result::IpcResult;
+pub(crate) use ipc_v7_mount::IpcV7Mount;
+pub(crate) use ipc_v7_project_inventory::IpcV7ProjectInventory;
+pub(crate) use ipc_v7_project_inventory_options::IpcV7ProjectInventoryOptions;
+pub(crate) use ipc_v7_route::IpcV7Route;
+pub(crate) use ipc_v7_service_inventory::IpcV7ServiceInventory;
+pub(crate) use ipc_v7_service_inventory_options::IpcV7ServiceInventoryOptions;
 #[cfg(unix)]
 pub(crate) use send_unix_request::send_unix_request;
 #[cfg(unix)]

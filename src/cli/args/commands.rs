@@ -20,10 +20,10 @@ pub(crate) use app::{
 pub(crate) use daemon::{
     DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
-    DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs,
-    DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands,
-    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
-    DaemonTrustCommands, DaemonWatchArgs,
+    DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
+    DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs,
+    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+    DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
 };
 
 #[cfg(test)]

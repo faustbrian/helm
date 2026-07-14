@@ -19,7 +19,7 @@ pub(crate) use backup::DaemonBackupArgs;
 pub(crate) use backups::DaemonBackupsArgs;
 pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
-    DaemonMigrationStatusArgs,
+    DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs,
 };
 pub(crate) use prune::{
     DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,

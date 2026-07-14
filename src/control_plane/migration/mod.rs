@@ -62,7 +62,8 @@ pub(crate) use sql_server::{
 };
 pub(crate) use v7::{
     V7InventoryBlocker, V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7RuntimeFeature, V7VolumeSource, inventory_v7_project,
+    V7RouteInventory, V7RuntimeFeature, V7ServiceInventory, V7VolumeInventory, V7VolumeSource,
+    inventory_v7_project,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,

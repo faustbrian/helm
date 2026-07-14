@@ -30,6 +30,7 @@ mod engine_reconciliation_plan;
 mod engine_reconciliation_plan_error;
 mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
+mod engine_v7_project_inventory_provider;
 mod execute_minio_project_restore;
 mod execute_project_logs;
 mod execute_project_volume_restore;
@@ -130,6 +131,7 @@ mod unix_daemon_runtime_error;
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
+mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
 
 pub(crate) use active_migration_decision::ActiveMigrationDecision;
@@ -169,6 +171,7 @@ pub(crate) use engine_reconciliation_plan::EngineReconciliationPlan;
 pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
 pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
+pub(crate) use engine_v7_project_inventory_provider::EngineV7ProjectInventoryProvider;
 pub(crate) use execute_minio_project_restore::execute_minio_project_restore;
 pub(crate) use execute_project_logs::execute_project_logs;
 pub(crate) use execute_project_volume_restore::execute_project_volume_restore;
@@ -261,4 +264,5 @@ pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
+pub(crate) use v7_project_inventory_provider::V7ProjectInventoryProvider;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;

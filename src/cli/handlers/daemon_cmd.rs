@@ -13,7 +13,8 @@ mod trust;
 
 use crate::cli::args::{
     DaemonAdoptArgs, DaemonArgs, DaemonBackupsArgs, DaemonCommands, DaemonMigrationArgs,
-    DaemonMigrationCommands, DaemonMigrationStatusArgs, DaemonWatchArgs,
+    DaemonMigrationCommands, DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs,
+    DaemonWatchArgs,
 };
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
@@ -94,6 +95,9 @@ fn handle_daemon_backups(_args: &DaemonBackupsArgs) -> Result<()> {
 
 fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
     match &args.command {
+        DaemonMigrationCommands::Inventory(inventory) => {
+            handle_daemon_migration_inventory(inventory)
+        }
         DaemonMigrationCommands::Status(status) => handle_daemon_migration_status(status),
         DaemonMigrationCommands::Confirm(decision) => {
             migration_decision::handle_migration_decision(
@@ -108,6 +112,97 @@ fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
             )
         }
     }
+}
+
+#[cfg(unix)]
+fn handle_daemon_migration_inventory(args: &DaemonMigrationInventoryArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let canonical_path = std::fs::canonicalize(&args.path)?;
+    let response = send_singleton_request(IpcPayload::InventoryV7Project { canonical_path })?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::V7ProjectInventory { inventory },
+        } => {
+            output::event(
+                "daemon",
+                LogLevel::Info,
+                &format!(
+                    "Legacy project '{}': schema={}, source={}, services={}, routes={}, CA_capture={}",
+                    inventory.project_id(),
+                    inventory.schema_version(),
+                    inventory.source_revision(),
+                    inventory.services().len(),
+                    inventory.routes().len(),
+                    inventory.requires_legacy_ca_capture(),
+                ),
+                Persistence::Persistent,
+            );
+            for service in inventory.services() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "{}: kind={}, driver={}, container={} (observed={}), image={} (observed={}), mounts={}/{}",
+                        service.service_id(),
+                        service.kind(),
+                        service.driver(),
+                        service.container_name(),
+                        service.observed_container_id().unwrap_or("missing"),
+                        service.configured_image(),
+                        service.observed_image().unwrap_or("missing"),
+                        service.configured_mounts().len(),
+                        service.observed_mounts().len(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
+            for route in inventory.routes() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "route {}: {}://{} -> host port {}",
+                        route.service_id(),
+                        route.scheme(),
+                        route.domain(),
+                        route.host_port(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
+            if inventory.ready_for_automatic_migration() {
+                output::event(
+                    "daemon",
+                    LogLevel::Success,
+                    "Legacy inventory has no automatic-migration blockers",
+                    Persistence::Persistent,
+                );
+                return Ok(());
+            }
+            for blocker in inventory.blockers() {
+                output::event("daemon", LogLevel::Warn, blocker, Persistence::Persistent);
+            }
+            anyhow::bail!(
+                "legacy inventory has {} blocker(s); source state was not changed",
+                inventory.blockers().len()
+            )
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let diagnostic = diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("legacy inventory failed: {diagnostic}")
+        }
+        outcome => anyhow::bail!("unexpected legacy inventory response: {outcome:?}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_migration_inventory(_args: &DaemonMigrationInventoryArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 #[cfg(unix)]

@@ -1,7 +1,7 @@
 use super::{
     IpcBenchmarkSnapshot, IpcEvent, IpcInstallationDeletionPlan, IpcInstallationDeletionStatus,
     IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint,
+    IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint, IpcV7ProjectInventory,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -33,6 +33,8 @@ pub(crate) enum IpcResult {
     ProjectStatus { project: IpcProjectStatus },
     /// Returns stable migration checkpoints without credentials or recovery paths.
     ProjectMigrations { migrations: Vec<IpcMigrationStatus> },
+    /// Returns complete secret-free legacy migration source evidence.
+    V7ProjectInventory { inventory: IpcV7ProjectInventory },
     /// Returns immutable verified recovery evidence newest-first.
     ProjectRecoveryPoints {
         recovery_points: Vec<IpcRecoveryPoint>,
