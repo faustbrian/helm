@@ -9,18 +9,19 @@ use super::{
     ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    RegisterAcceptedV7LogicalDataAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
-    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
-    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
-    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result,
+    RegisterAcceptedV7LogicalDataAdaptersOptions, RegisterAcceptedV7NamedVolumeAdaptersOptions,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
+    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
+    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
+    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
+    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
+    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
-    register_accepted_v7_logical_data_adapters, register_accepted_v7_recreated_adapters,
-    requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
-    resolve_accepted_v7_named_volume_sources, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
+    register_accepted_v7_logical_data_adapters, register_accepted_v7_named_volume_adapters,
+    register_accepted_v7_recreated_adapters, requires_followup_reconciliation,
+    resolve_accepted_v7_logical_data_inputs, resolve_accepted_v7_named_volume_sources,
+    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
+    select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -7023,6 +7024,317 @@ fn accepted_v7_named_volume_sources_bind_exact_execution_checkpoints() {
         resolve_accepted_v7_named_volume_sources(&target_drifted, &target_drifted_execution)
             .expect_err("configured and observed mount-target drift must block");
     assert!(error.contains("configured and observed volumes differ"));
+}
+
+#[test]
+fn accepted_v7_named_volume_adapters_bind_one_exact_prepared_target() {
+    use crate::control_plane::engine::{
+        ContainerId, ObservedContainer, ObservedVolume, reconstruct_owned_container,
+        reconstruct_owned_volume,
+    };
+    use crate::control_plane::migration::{
+        V7NamedVolumeMigrationMount, V7NamedVolumeMigrationSource,
+    };
+
+    let image = concat!(
+        "localstack/localstack@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  aws:\n    preset: localstack\n    version: '4'\n    image: {image}\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let desired = resolve_execution_plan(&registry).expect("execution plan");
+    let reconciliation = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &desired,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("Engine plan");
+    let target_plan = &reconciliation.dedicated_services()[0];
+    let target_container = reconstruct_owned_container(
+        &ObservedContainer::new(
+            ContainerId::new("v8-aws"),
+            target_plan.request().metadata().labels(),
+        ),
+        "install-1",
+        8,
+    )
+    .expect("owned target container");
+    let desired_volume = target_plan.volume().expect("retained target volume");
+    let target_volume = reconstruct_owned_volume(
+        &ObservedVolume::new(desired_volume.name(), desired_volume.metadata().labels()),
+        "install-1",
+        8,
+    )
+    .expect("owned target volume");
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let inventory_json = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": "/work/bill",
+        "source_revision": source_revision,
+        "blockers": [],
+        "services": [{
+            "service_id": "aws",
+            "container_name": "bill-aws",
+            "kind": "localstack",
+            "observed_container_id": "legacy-aws",
+            "configured_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-aws-data",
+                "target": "/var/lib/localstack",
+                "read_only": false
+            }],
+            "observed_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-aws-data",
+                "target": "/var/lib/localstack",
+                "read_only": false
+            }]
+        }]
+    })
+    .to_string();
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision,
+        inventory_json,
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+    let execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: vec![
+            V7MigrationAdapterCheckpoint::pending("volume/aws", "named-volume-archive", true, 10)
+                .expect("volume checkpoint"),
+        ],
+        updated_at_unix_seconds: 10,
+    })
+    .expect("migration execution");
+    let sources = vec![
+        V7NamedVolumeMigrationSource::new(
+            "aws",
+            "legacy-aws",
+            "bill-aws",
+            "localstack",
+            vec![
+                V7NamedVolumeMigrationMount::new("bill-aws-data", "/var/lib/localstack")
+                    .expect("legacy mount"),
+            ],
+        )
+        .expect("volume source"),
+    ];
+    let engine = NamedVolumeCompositionEngine;
+    let root = temporary_directory("v7-volume-composition");
+    let containers = vec![target_container];
+    let volumes = vec![target_volume.clone()];
+    let mut migration_registry = V7MigrationAdapterRegistry::default();
+
+    assert_eq!(
+        register_accepted_v7_named_volume_adapters(
+            &mut migration_registry,
+            &execution,
+            RegisterAcceptedV7NamedVolumeAdaptersOptions {
+                accepted: &accepted,
+                sources: &sources,
+                reconciliation: &reconciliation,
+                target_containers: &containers,
+                target_volumes: &volumes,
+                engine: &engine,
+                backup_root: &root,
+                created_at_unix_seconds: 11,
+                verified_at_unix_seconds: 12,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .expect("register exact volume target"),
+        1
+    );
+    drop(migration_registry);
+
+    let ambiguous_volumes = vec![target_volume.clone(), target_volume];
+    let error = register_accepted_v7_named_volume_adapters(
+        &mut V7MigrationAdapterRegistry::default(),
+        &execution,
+        RegisterAcceptedV7NamedVolumeAdaptersOptions {
+            accepted: &accepted,
+            sources: &sources,
+            reconciliation: &reconciliation,
+            target_containers: &containers,
+            target_volumes: &ambiguous_volumes,
+            engine: &engine,
+            backup_root: &root,
+            created_at_unix_seconds: 11,
+            verified_at_unix_seconds: 12,
+            timeout: Duration::from_secs(30),
+        },
+    )
+    .expect_err("ambiguous owned volume must block");
+    assert!(error.contains("exact v8 owned volume is ambiguous"));
+}
+
+#[derive(Clone, Copy)]
+struct NamedVolumeCompositionEngine;
+
+impl crate::control_plane::engine::ContainerLifecycle for NamedVolumeCompositionEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        _options: &'operation crate::control_plane::engine::ContainerCreateOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::OwnedContainer,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::ContainerState,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerVolumeArchive for NamedVolumeCompositionEngine {
+    fn download_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn upload_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        _archive: &'operation Path,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::HealthObserver for NamedVolumeCompositionEngine {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::VolumeManager for NamedVolumeCompositionEngine {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        _options: &'operation crate::control_plane::engine::VolumeCreateOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::OwnedVolume,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::V7ContainerRetirement for NamedVolumeCompositionEngine {
+    fn retire_v7_container<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerRetirementTarget,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::V7ContainerVolumeArchive for NamedVolumeCompositionEngine {
+    fn inspect_v7_volume_container<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _mounts: &'operation [crate::control_plane::engine::VolumeMount],
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::ContainerState,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn start_v7_volume_container<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _mounts: &'operation [crate::control_plane::engine::VolumeMount],
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn stop_v7_volume_container<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _mounts: &'operation [crate::control_plane::engine::VolumeMount],
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn download_v7_volume_archive<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _mounts: &'operation [crate::control_plane::engine::VolumeMount],
+        _volume_name: &'operation str,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+fn named_volume_composition_engine_error() -> crate::control_plane::engine::EngineError {
+    crate::control_plane::engine::EngineError::Backend {
+        detail: "named-volume composition test must not execute Engine operations".to_owned(),
+    }
 }
 
 struct LogicalCompositionEngine;

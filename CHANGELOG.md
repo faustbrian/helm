@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Composed accepted-v7 named-volume providers only when one exact retained
+  reconciliation plan, owned container, and owned volume agree on identity.
 - Added a live recovery-first named-volume provider that binds verified v7
   artifacts to one exact compatible prepared-v8 target and confirmation-only
   source retirement.
