@@ -1,3 +1,4 @@
+use crate::control_plane::migration::MigrationCutoverPlan;
 use crate::control_plane::state::{StateStore, StateStoreError, V7MigrationExecutionRecord};
 use std::path::Path;
 
@@ -11,6 +12,12 @@ pub(crate) trait V7MigrationExecutionJournal {
 
     fn persist_v7_execution(
         &mut self,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError>;
+
+    fn persist_v7_cutover(
+        &mut self,
+        desired_state: &MigrationCutoverPlan,
         execution: &V7MigrationExecutionRecord,
     ) -> Result<(), StateStoreError>;
 }
@@ -32,5 +39,18 @@ where
         execution: &V7MigrationExecutionRecord,
     ) -> Result<(), StateStoreError> {
         StateStore::record_v7_migration_execution(self, execution)
+    }
+
+    fn persist_v7_cutover(
+        &mut self,
+        desired_state: &MigrationCutoverPlan,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        StateStore::record_v7_migration_cutover(
+            self,
+            desired_state.project(),
+            desired_state.environment(),
+            execution,
+        )
     }
 }

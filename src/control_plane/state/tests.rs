@@ -666,6 +666,126 @@ fn v7_migration_execution_journal_is_atomic_monotonic_and_restart_safe() {
     remove_database(&database_path);
 }
 
+#[test]
+fn v7_cutover_atomically_publishes_project_environment_and_execution() {
+    let database_path = temporary_database_path("v7-cutover-transaction");
+    let accepted = accepted_v7_inventory("a", 9);
+    let original_project =
+        project_record("/work/bill", "bill", &["bill-legacy.stackctl.localhost"]);
+    let cutover_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let original_environment = managed_environment(BTreeMap::from([(
+        "APP_STAGE".to_owned(),
+        "legacy".to_owned(),
+    )]));
+    let cutover_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:v8-environment".to_owned(),
+        values: BTreeMap::from([("APP_STAGE".to_owned(), "v8".to_owned())]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let pending = V7MigrationAdapterCheckpoint::pending(
+        "environment",
+        "protected-generated-environment",
+        false,
+        10,
+    )
+    .expect("pending adapter");
+    let target = pending
+        .clone()
+        .with_target_verified(Some("managed-environment:sha256:v8-environment"), 11)
+        .expect("verified target");
+    let planned = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Planned,
+        vec![pending],
+        10,
+        accepted.evidence_revision(),
+    ))
+    .expect("planned execution");
+    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Prepared,
+        vec![target.clone()],
+        11,
+        accepted.evidence_revision(),
+    ))
+    .expect("prepared execution");
+    let preparing = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Preparing,
+        vec![target.clone()],
+        11,
+        accepted.evidence_revision(),
+    ))
+    .expect("preparing execution");
+    let cutover = V7MigrationExecutionRecord::new(v7_execution_options(
+        V7MigrationExecutionPhase::Cutover,
+        vec![target.with_cutover(12).expect("cutover adapter")],
+        12,
+        accepted.evidence_revision(),
+    ))
+    .expect("cutover execution");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("record accepted source");
+    store
+        .replace_project(&original_project)
+        .expect("record original project");
+    store
+        .replace_managed_environment(&original_environment)
+        .expect("record original environment");
+    store
+        .record_v7_migration_execution(&planned)
+        .expect("record planned execution");
+
+    store
+        .record_v7_migration_cutover(&cutover_project, &cutover_environment, &cutover)
+        .expect_err("cannot skip prepared barrier");
+    assert_eq!(
+        store.projects().expect("load original project"),
+        vec![original_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load original environment"),
+        vec![original_environment]
+    );
+    assert_eq!(
+        store
+            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
+            .expect("load planned execution"),
+        Some(planned)
+    );
+
+    store
+        .record_v7_migration_execution(&preparing)
+        .expect("record preparing execution");
+    store
+        .record_v7_migration_execution(&prepared)
+        .expect("record prepared execution");
+    store
+        .record_v7_migration_cutover(&cutover_project, &cutover_environment, &cutover)
+        .expect("record atomic cutover");
+    assert_eq!(
+        store.projects().expect("load cutover project"),
+        vec![cutover_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load cutover environment"),
+        vec![cutover_environment]
+    );
+    assert_eq!(
+        store
+            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
+            .expect("load cutover execution"),
+        Some(cutover)
+    );
+
+    drop(store);
+    remove_database(&database_path);
+}
+
 fn v7_execution_options(
     phase: V7MigrationExecutionPhase,
     checkpoints: Vec<V7MigrationAdapterCheckpoint>,

@@ -27,6 +27,7 @@ mod v7_migration_adapter_registry;
 mod v7_migration_adapter_selection_error;
 mod v7_migration_adapter_selection_options;
 mod v7_migration_adapter_target;
+mod v7_migration_cutover_options;
 mod v7_migration_execution_error;
 mod v7_migration_execution_journal;
 mod v7_migration_execution_plan_options;
@@ -73,6 +74,7 @@ pub(crate) use v7_migration_adapter_selection_options::{
     V7MigrationAdapterSelectionOptions, V7MigrationRouteSource, V7MigrationServiceSource,
 };
 pub(crate) use v7_migration_adapter_target::V7MigrationAdapterTarget;
+pub(crate) use v7_migration_cutover_options::V7MigrationCutoverOptions;
 pub(crate) use v7_migration_execution_error::V7MigrationExecutionError;
 pub(crate) use v7_migration_execution_journal::V7MigrationExecutionJournal;
 pub(crate) use v7_migration_execution_plan_options::V7MigrationExecutionPlanOptions;

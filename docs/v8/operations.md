@@ -288,8 +288,13 @@ whose recovery is explicitly owned by a logical-data adapter. A no-op entry
 cannot satisfy a recovery-requiring checkpoint.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
-only after every idempotent operation succeeds; interrupted side effects are
-therefore replayed from `prepared`, never mistaken for a complete cutover.
+only after every idempotent operation succeeds. Route ownership, application
+project intent, the complete managed environment, and the project-wide
+cutover checkpoint are then committed in one SQLite transaction. A rejected
+or interrupted commit exposes none of those desired-state changes; external
+idempotent side effects are replayed from `prepared`, never mistaken for a
+complete cutover. Desired project identity and canonical path are checked
+against the immutable execution before any adapter side effect runs.
 Rollback invokes the reverse order so new routes are withdrawn first and then
 records one project-wide terminal rollback. Confirmation is accepted only
 from `cutover`; it retires retained sources through the same idempotent

@@ -1,23 +1,29 @@
 use super::prepare_v7_migration::same_plan;
-use super::{V7MigrationAdapterRegistry, V7MigrationExecutionError, V7MigrationExecutionJournal};
+use super::{V7MigrationCutoverOptions, V7MigrationExecutionError, V7MigrationExecutionJournal};
 use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutionRecord};
 
 /// Idempotently applies every prepared adapter and records one global cutover.
 pub(crate) async fn cutover_v7_migration(
-    journal: &mut dyn V7MigrationExecutionJournal,
-    plan: &V7MigrationExecutionRecord,
-    registry: &mut V7MigrationAdapterRegistry,
-    updated_at_unix_seconds: i64,
+    options: V7MigrationCutoverOptions<'_>,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
-    let execution = load_execution(journal, plan)?;
+    let execution = load_execution(options.journal, options.plan)?;
+    if options.desired_state.project().project_name() != execution.project_id()
+        || options.desired_state.environment().project_id() != execution.project_id()
+        || options.desired_state.project().canonical_path() != execution.canonical_project_path()
+    {
+        return Err(V7MigrationExecutionError::InvalidPlan {
+            detail: "desired project state does not match the immutable execution identity"
+                .to_owned(),
+        });
+    }
     if execution.phase() == V7MigrationExecutionPhase::Cutover {
         return Ok(execution);
     }
-    registry.validate(&execution)?;
+    options.registry.validate(&execution)?;
     validate_phase_and_time(
         &execution,
         V7MigrationExecutionPhase::Prepared,
-        updated_at_unix_seconds,
+        options.updated_at_unix_seconds,
         "cut over",
     )?;
 
@@ -25,7 +31,8 @@ pub(crate) async fn cutover_v7_migration(
     indexes.sort_by_key(|index| cutover_rank(execution.checkpoints()[*index].adapter_id()));
     for index in indexes {
         let checkpoint = &execution.checkpoints()[index];
-        registry
+        options
+            .registry
             .executor(checkpoint)?
             .as_mut()
             .cutover(checkpoint)
@@ -38,9 +45,14 @@ pub(crate) async fn cutover_v7_migration(
     }
 
     let cutover = execution
-        .transition_all(V7MigrationExecutionPhase::Cutover, updated_at_unix_seconds)
+        .transition_all(
+            V7MigrationExecutionPhase::Cutover,
+            options.updated_at_unix_seconds,
+        )
         .map_err(|detail| V7MigrationExecutionError::InvalidPlan { detail })?;
-    journal.persist_v7_execution(&cutover)?;
+    options
+        .journal
+        .persist_v7_cutover(options.desired_state, &cutover)?;
 
     Ok(cutover)
 }

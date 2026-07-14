@@ -6,6 +6,7 @@ use super::logical_resource_persistence::{
 };
 use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
+use super::persist_v7_migration_execution::persist_v7_migration_execution;
 use super::persisted_migration::PersistedMigration;
 use super::{
     AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
@@ -1798,56 +1799,52 @@ impl StateStore for SqliteStateStore {
         execution: &V7MigrationExecutionRecord,
     ) -> Result<(), StateStoreError> {
         let canonical_path = exact_path(execution.canonical_project_path())?;
-        let checkpoints_json = execution.checkpoints_json().map_err(|detail| {
-            StateStoreError::InvalidV7MigrationExecution {
-                path: execution.canonical_project_path().to_path_buf(),
-                detail,
-            }
-        })?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let accepted_project = transaction
+        persist_v7_migration_execution(&transaction, canonical_path, execution)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn record_v7_migration_cutover(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        if execution.phase() != V7MigrationExecutionPhase::Cutover
+            || execution.project_id() != project.project_name()
+            || execution.project_id() != environment.project_id()
+            || execution.canonical_project_path() != project.canonical_path()
+            || environment.lifecycle() != EnvironmentLifecycle::Active
+        {
+            return Err(StateStoreError::InvalidMigrationCutover {
+                detail: "v7 project, active environment, and cutover checkpoint must match"
+                    .to_owned(),
+            });
+        }
+        let canonical_path = exact_path(project.canonical_path())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered_project = transaction
             .query_row(
-                "SELECT project_id FROM accepted_v7_inventories
-                 WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
-                params![canonical_path, execution.evidence_revision()],
+                "SELECT project_name FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
                 |row| row.get::<_, String>(0),
             )
             .optional()?;
-        if accepted_project.as_deref() != Some(execution.project_id()) {
-            return Err(StateStoreError::InvalidV7MigrationExecution {
-                path: execution.canonical_project_path().to_path_buf(),
-                detail: "has no matching accepted v7 source evidence".to_owned(),
+        if registered_project.as_deref() != Some(execution.project_id()) {
+            return Err(StateStoreError::InvalidMigrationCutover {
+                detail: "the exact v7 migration project path is not registered".to_owned(),
             });
         }
-        if let Some(previous) = load_v7_migration_execution(
-            &transaction,
-            canonical_path,
-            execution.evidence_revision(),
-        )? {
-            validate_v7_migration_execution_transition(&previous, execution)?;
-        }
-        transaction.execute(
-            "INSERT INTO v7_migration_executions (
-                 canonical_project_path, project_id, evidence_revision,
-                 adapter_plan_revision, phase, checkpoints_json,
-                 updated_at_unix_seconds
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(canonical_project_path, evidence_revision) DO UPDATE SET
-                 phase = excluded.phase,
-                 checkpoints_json = excluded.checkpoints_json,
-                 updated_at_unix_seconds = excluded.updated_at_unix_seconds",
-            params![
-                canonical_path,
-                execution.project_id(),
-                execution.evidence_revision(),
-                execution.adapter_plan_revision(),
-                execution.phase().label(),
-                checkpoints_json,
-                execution.updated_at_unix_seconds(),
-            ],
-        )?;
+
+        replace_project_batch(&transaction, &[(project, canonical_path)])?;
+        persist_managed_environment(&transaction, environment)?;
+        persist_v7_migration_execution(&transaction, canonical_path, execution)?;
         transaction.commit()?;
 
         Ok(())
@@ -2672,13 +2669,13 @@ fn ensure_reconciliation_active(transaction: &Transaction<'_>) -> Result<(), Sta
     Ok(())
 }
 
-fn exact_path(path: &Path) -> Result<&str, StateStoreError> {
+pub(super) fn exact_path(path: &Path) -> Result<&str, StateStoreError> {
     path.to_str().ok_or_else(|| StateStoreError::NonUtf8Path {
         path: path.to_path_buf(),
     })
 }
 
-fn validate_v7_migration_execution_transition(
+pub(super) fn validate_v7_migration_execution_transition(
     previous: &V7MigrationExecutionRecord,
     next: &V7MigrationExecutionRecord,
 ) -> Result<(), StateStoreError> {
@@ -2735,7 +2732,7 @@ fn validate_v7_migration_execution_transition(
     Ok(())
 }
 
-fn load_v7_migration_execution(
+pub(super) fn load_v7_migration_execution(
     connection: &Connection,
     canonical_project_path: &str,
     evidence_revision: &str,

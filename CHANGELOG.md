@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an atomic v7 cutover commit for route ownership, application project
+  intent, the complete managed environment, and the project-wide execution
+  checkpoint. A rejected or skipped journal transition now rolls back every
+  desired-state write instead of leaving restart-visible split state.
 - Added concrete no-op v7 strategies for absent routes, trust, environments,
   and volumes, plus volume checkpoints whose data lifecycle is owned by a
   logical service adapter. They remain explicit lifecycle participants and

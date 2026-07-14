@@ -191,6 +191,14 @@ pub(crate) trait StateStore: Send {
         execution: &V7MigrationExecutionRecord,
     ) -> Result<(), StateStoreError>;
 
+    /// Atomically publishes v8 project intent, environment, and v7 cutover proof.
+    fn record_v7_migration_cutover(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Loads exact execution state bound to one accepted evidence revision.
     fn v7_migration_execution(
         &self,

@@ -2,13 +2,13 @@ use super::{
     V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
     V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
     V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
-    V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRouteSource,
-    V7MigrationServiceAdapter, V7MigrationServiceSource, V7ProjectInventory,
-    V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RouteMigrationAdapter,
-    V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter, V7VolumeSource,
-    capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
-    inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
-    prepare_v7_migration, read_v7_generated_environment_rollback,
+    V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
+    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
+    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
+    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
 };
 use crate::config::{
@@ -18,8 +18,11 @@ use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerId, EngineFuture, LegacyContainerDiscovery, ObservedContainer, ObservedContainerMount,
 };
-use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
+use crate::control_plane::migration::{
+    MigrationBackup, MigrationCutoverPlan, MigrationFuture, MigrationOperationError,
+};
 use crate::control_plane::state::{
+    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
     StateStoreError, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
     V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
 };
@@ -334,9 +337,16 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
             writes: Vec::new(),
         };
 
-        let error = cutover_v7_migration(&mut journal, &plan, &mut registry, 20)
-            .await
-            .expect_err("route cutover fails once");
+        let desired_state = v7_cutover_state();
+        let error = cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 20,
+        })
+        .await
+        .expect_err("route cutover fails once");
         assert_eq!(
             error.to_string(),
             "v7 migration adapter 'route' cutover failed: cutover unavailable"
@@ -348,9 +358,15 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
         );
 
         calls.lock().expect("clear calls").clear();
-        let cutover = cutover_v7_migration(&mut journal, &plan, &mut registry, 21)
-            .await
-            .expect("replayed cutover");
+        let cutover = cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 21,
+        })
+        .await
+        .expect("replayed cutover");
         assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
         assert_eq!(
             calls.lock().expect("replayed cutover calls").as_slice(),
@@ -377,6 +393,56 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
             calls.lock().expect("confirmation calls").as_slice(),
             ["confirm:route", "confirm:service/database"]
         );
+    });
+}
+
+#[test]
+fn v7_cutover_rejects_mismatched_desired_state_before_side_effects() {
+    run_test(async {
+        let route = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+            .expect("route checkpoint");
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, vec![route.clone()], 10);
+        let prepared = v7_execution_record(
+            V7MigrationExecutionPhase::Prepared,
+            vec![route.with_target_verified(None, 11).expect("route target")],
+            11,
+        );
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = V7MigrationAdapterRegistry::default();
+        registry
+            .register(
+                "route",
+                "no-routes",
+                Box::new(RecordingV7Adapter {
+                    calls: Arc::clone(&calls),
+                    target_reference: None,
+                    fail_target_once: Arc::new(AtomicBool::new(false)),
+                    fail_cutover_once: Arc::new(AtomicBool::new(false)),
+                }),
+            )
+            .expect("register route adapter");
+        let mut journal = RecordingV7Journal {
+            current: Some(prepared.clone()),
+            writes: Vec::new(),
+        };
+        let desired_state = v7_cutover_state_at("/work/other");
+
+        let error = cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 12,
+        })
+        .await
+        .expect_err("reject mismatched desired state");
+
+        assert_eq!(
+            error.to_string(),
+            "invalid v7 execution plan: desired project state does not match the immutable execution identity"
+        );
+        assert!(calls.lock().expect("side effects").is_empty());
+        assert_eq!(journal.current, Some(prepared));
     });
 }
 
@@ -415,9 +481,16 @@ fn explicit_v7_no_op_strategies_participate_in_the_complete_lifecycle() {
                 .iter()
                 .all(|checkpoint| checkpoint.target_reference().is_none())
         );
-        let cutover = cutover_v7_migration(&mut journal, &plan, &mut registry, 12)
-            .await
-            .expect("cut over no-op strategies");
+        let desired_state = v7_cutover_state();
+        let cutover = cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 12,
+        })
+        .await
+        .expect("cut over no-op strategies");
         assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
         let confirmed = confirm_v7_migration(&mut journal, &plan, &mut registry, 13)
             .await
@@ -1191,6 +1264,47 @@ impl V7MigrationExecutionJournal for RecordingV7Journal {
 
         Ok(())
     }
+
+    fn persist_v7_cutover(
+        &mut self,
+        desired_state: &MigrationCutoverPlan,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        assert_eq!(
+            desired_state.project().project_name(),
+            execution.project_id()
+        );
+        assert_eq!(
+            desired_state.project().canonical_path(),
+            execution.canonical_project_path()
+        );
+        assert_eq!(
+            desired_state.environment().project_id(),
+            execution.project_id()
+        );
+        self.persist_v7_execution(execution)
+    }
+}
+
+fn v7_cutover_state() -> MigrationCutoverPlan {
+    v7_cutover_state_at("/work/bill")
+}
+
+fn v7_cutover_state_at(canonical_path: &str) -> MigrationCutoverPlan {
+    MigrationCutoverPlan::new(
+        ProjectRecord::new(
+            canonical_path.into(),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        ),
+        ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+            project_id: "bill".to_owned(),
+            revision: "sha256:v8-environment".to_owned(),
+            values: BTreeMap::new(),
+            lifecycle: EnvironmentLifecycle::Active,
+        }),
+    )
+    .expect("v7 cutover state")
 }
 
 struct RecordingV7Adapter {
