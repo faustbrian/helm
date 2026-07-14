@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Moved watched-root replacement behind singleton lease acquisition. A
+  competing daemon invocation can no longer change the authoritative daemon's
+  project scope before failing ownership acquisition, and proposed roots are
+  watched successfully before their durable publication.
 - Collapsed the unreleased SQLite upgrade chain into one clean v8 schema.
   Stackctl now creates the complete schema atomically and rejects every older
   non-empty state database instead of carrying development-state migrations

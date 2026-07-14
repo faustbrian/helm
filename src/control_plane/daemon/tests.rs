@@ -8260,6 +8260,7 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
         state_database_path: database_path,
         lease_path: runtime_directory.join("daemon.lock"),
         socket_path: socket_path.clone(),
+        watched_roots: None,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         scheduler_options: DiscoverySchedulerOptions::new(
             Duration::from_millis(250),
@@ -8343,6 +8344,7 @@ fn singleton_unix_runtime_drains_active_work_when_shutdown_is_requested() {
         state_database_path: root.join("state.sqlite3"),
         lease_path: root.join("daemon.lock"),
         socket_path: socket_path.clone(),
+        watched_roots: None,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         scheduler_options: DiscoverySchedulerOptions::new(
             Duration::from_millis(25),
@@ -8429,6 +8431,56 @@ fn daemon_watch_rejects_broken_localhost_resolution_before_writing_state() {
     std::fs::remove_dir_all(root).expect("remove preflight fixture");
 }
 
+#[cfg(unix)]
+#[test]
+fn competing_daemon_watch_cannot_replace_authoritative_watched_roots() {
+    use super::{SingletonLease, UnixDaemonWatchOptions, run_unix_daemon_watch_with_resolver};
+    use crate::control_plane::gateway::{GatewayError, LocalhostResolver};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    struct LoopbackResolver;
+
+    impl LocalhostResolver for LoopbackResolver {
+        fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, GatewayError> {
+            Ok(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
+        }
+    }
+
+    let fixture = temporary_directory("competing-daemon-watch");
+    let runtime_directory = fixture.join("runtime");
+    let original_root = fixture.join("original");
+    let competing_root = fixture.join("competing");
+    std::fs::create_dir(&runtime_directory).expect("runtime directory");
+    std::fs::create_dir(&original_root).expect("original watched root");
+    std::fs::create_dir(&competing_root).expect("competing watched root");
+    let database_path = runtime_directory.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&original_root))
+        .expect("persist authoritative watched root");
+    drop(store);
+    let _lease = SingletonLease::acquire(&runtime_directory.join("daemon.lock"))
+        .expect("hold authoritative daemon lease");
+    let options = UnixDaemonWatchOptions {
+        runtime_directory: runtime_directory.clone(),
+        watched_roots: vec![competing_root],
+        once: true,
+        periodic_rescan: Duration::from_secs(30),
+    };
+
+    let error = run_unix_daemon_watch_with_resolver(&options, &LoopbackResolver)
+        .expect_err("competing daemon must fail");
+
+    assert!(error.to_string().contains("another Stackctl daemon owns"));
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    assert_eq!(
+        store.watched_roots().expect("authoritative watched roots"),
+        vec![original_root]
+    );
+
+    std::fs::remove_dir_all(fixture).expect("remove contention fixture");
+}
+
 #[test]
 fn managed_engine_events_are_polled_without_blocking_and_resume_after_close() {
     use super::{EngineEventObservation, EngineEventSubscription};
@@ -8502,6 +8554,7 @@ fn singleton_unix_runtime_reconciles_after_a_watched_root_change() {
         state_database_path: database_path.clone(),
         lease_path: runtime_directory.join("daemon.lock"),
         socket_path: runtime_directory.join("daemon.sock"),
+        watched_roots: None,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         scheduler_options: DiscoverySchedulerOptions::new(
             Duration::from_millis(25),
@@ -8575,6 +8628,7 @@ fn singleton_unix_runtime_never_deletes_a_non_socket_endpoint() {
         state_database_path: root.join("state.sqlite3"),
         lease_path: root.join("daemon.lock"),
         socket_path: socket_path.clone(),
+        watched_roots: None,
         discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
         scheduler_options: DiscoverySchedulerOptions::new(
             Duration::from_millis(250),

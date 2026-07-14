@@ -117,7 +117,14 @@ impl UnixDaemonRuntime {
         ) = restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
         let installation = initialize_default_installation(&mut store)?;
-        let filesystem_watcher = FilesystemEventWatcher::new(&store.watched_roots()?)?;
+        let watched_roots = options
+            .watched_roots
+            .clone()
+            .map_or_else(|| store.watched_roots(), Ok)?;
+        let filesystem_watcher = FilesystemEventWatcher::new(&watched_roots)?;
+        if options.watched_roots.is_some() {
+            store.replace_watched_roots(&watched_roots)?;
+        }
         let engine_runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

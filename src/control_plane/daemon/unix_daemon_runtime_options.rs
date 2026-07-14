@@ -8,6 +8,7 @@ pub(crate) struct UnixDaemonRuntimeOptions {
     pub(crate) state_database_path: PathBuf,
     pub(crate) lease_path: PathBuf,
     pub(crate) socket_path: PathBuf,
+    pub(crate) watched_roots: Option<Vec<PathBuf>>,
     pub(crate) discovery_options: ProjectDiscoveryOptions,
     pub(crate) scheduler_options: DiscoverySchedulerOptions,
     pub(crate) idle_poll_interval: Duration,
