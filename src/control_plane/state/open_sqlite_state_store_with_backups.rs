@@ -1,3 +1,4 @@
+use super::sqlite_state_store::CURRENT_SCHEMA_VERSION;
 use super::{SqliteStateStore, StateStoreError};
 use rusqlite::Connection;
 use std::fs;
@@ -6,7 +7,7 @@ use std::path::{Path, PathBuf};
 const RETAINED_STATE_BACKUPS: usize = 3;
 
 impl SqliteStateStore {
-    /// Verifies and snapshots existing state before migration or daemon mutation.
+    /// Verifies and snapshots current v8 state before daemon mutation.
     pub(crate) fn open_with_backups(
         database_path: &Path,
         backup_directory: &Path,
@@ -18,11 +19,27 @@ impl SqliteStateStore {
             });
         }
         if source_needs_backup(database_path)? {
+            verify_supported_schema(database_path)?;
             create_verified_backup(database_path, backup_directory, created_at_unix_seconds)?;
         }
 
         Self::open(database_path)
     }
+}
+
+fn verify_supported_schema(path: &Path) -> Result<(), StateStoreError> {
+    let connection = Connection::open(path)?;
+    verify_connection(&connection, "before schema validation")?;
+    let found = connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
+
+    if found != 0 && found != CURRENT_SCHEMA_VERSION {
+        return Err(StateStoreError::UnsupportedSchema {
+            found,
+            supported: CURRENT_SCHEMA_VERSION,
+        });
+    }
+
+    Ok(())
 }
 
 fn source_needs_backup(path: &Path) -> Result<bool, StateStoreError> {

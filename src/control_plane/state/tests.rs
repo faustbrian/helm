@@ -50,6 +50,34 @@ fn opening_a_store_rejects_a_non_v8_schema() {
 }
 
 #[test]
+fn recoverable_open_rejects_old_state_without_creating_a_backup() {
+    let database_path = temporary_database_path("unsupported-recoverable-schema");
+    let backup_directory = database_path.with_extension("backups");
+    let connection = rusqlite::Connection::open(&database_path).expect("open old state");
+    connection
+        .execute_batch("PRAGMA user_version = 14;")
+        .expect("mark old schema");
+    drop(connection);
+
+    let error = match SqliteStateStore::open_with_backups(&database_path, &backup_directory, 50_000)
+    {
+        Ok(_) => panic!("old state must be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        super::StateStoreError::UnsupportedSchema {
+            found: 14,
+            supported: 16
+        }
+    ));
+    assert!(!backup_directory.exists());
+
+    remove_database(&database_path);
+}
+
+#[test]
 fn beginning_installation_deletion_atomically_freezes_and_orphans_projects() {
     let database_path = temporary_database_path("installation-deletion");
     let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
@@ -1193,7 +1221,7 @@ fn recoverable_open_snapshots_valid_state_and_preserves_backups_on_corruption() 
     std::fs::write(&database_path, b"not a sqlite database").expect("corrupt primary state");
     let error = match SqliteStateStore::open_with_backups(&database_path, &backup_directory, 50_000)
     {
-        Ok(_) => panic!("corrupt state must fail before backup or migration"),
+        Ok(_) => panic!("corrupt state must fail before backup or initialization"),
         Err(error) => error,
     };
     assert!(error.to_string().contains("integrity check failed"));

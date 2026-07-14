@@ -11,7 +11,8 @@ All notable changes to this project are documented in this file.
   non-empty state database instead of carrying development-state migrations
   into the v8 release. The state milestone now requires atomic schema
   initialization rather than upgrade compatibility, and the completion audit
-  records that clean-state enforcement explicitly.
+  records that clean-state enforcement explicitly. Unsupported old state is
+  rejected before the daemon creates a recovery backup or backup directory.
 - Removed WSL from the v8 benchmark contract. Benchmark evidence now separates
   the supported macOS Engine VM or Linux Engine baseline from Stackctl workload
   consumption.
