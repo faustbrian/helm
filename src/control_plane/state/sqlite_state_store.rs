@@ -398,6 +398,19 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        match load_installation_lifecycle(&transaction)? {
+            Some(InstallationLifecycle::Deleted) => {
+                return Err(StateStoreError::CorruptState {
+                    detail: "installation is terminally deleted".to_owned(),
+                });
+            }
+            Some(InstallationLifecycle::Active | InstallationLifecycle::Deleting) => {}
+            None => {
+                return Err(StateStoreError::CorruptState {
+                    detail: "installation deletion requires initialized state".to_owned(),
+                });
+            }
+        }
         let updated = transaction.execute(
             "UPDATE installation SET lifecycle = 'deleting' WHERE singleton = 1",
             [],

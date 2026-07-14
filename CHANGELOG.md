@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Prevented a terminally deleted installation from being moved back into the
+  deleting lifecycle by replaying the teardown transition.
 - Reverified the exact stored backup manifest, identity, checksum, and size
   immediately before every destructive logical prune, so catalog evidence
   cannot authorize deletion after an artifact is missing or tampered with.
@@ -21,6 +23,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a confirmed installation-deletion transition that regenerates the
+  complete plan, rejects token drift without mutation, rereads every selected
+  backup artifact, and only then atomically freezes reconciliation.
 - Added a terminal `deleted` installation lifecycle that can only be committed
   after every logical tenant has been retired, atomically clearing residual
   physical ownership, credentials, environments, migrations, and recovery rows.

@@ -145,6 +145,14 @@ fn completing_installation_deletion_requires_all_logical_tenants_retired() {
     );
     assert!(store.resources().expect("resources cleared").is_empty());
     assert!(store.credentials().expect("credentials cleared").is_empty());
+    let error = store
+        .begin_installation_deletion(70_001)
+        .expect_err("deleted installation must not restart teardown");
+    assert!(error.to_string().contains("terminally deleted"));
+    assert_eq!(
+        store.installation_lifecycle().expect("terminal lifecycle"),
+        Some(super::InstallationLifecycle::Deleted)
+    );
 
     drop(store);
     remove_database(&database_path);

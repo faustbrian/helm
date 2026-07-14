@@ -22,6 +22,10 @@ fn repeated_discovery_of_one_canonical_project_is_planned_once() {
 
 #[test]
 fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity,
+    };
+
     let database_path = temporary_database_path();
     let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: "bill/database".to_owned(),
@@ -42,6 +46,14 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
         secret: "retained-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
+    let backup_root = database_path.with_extension("backups");
+    let backup = store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_logical(&logical, "install-1"),
+        b"backup data",
+        9_000,
+        &backup_root,
+    )
+    .expect("store backup artifact");
     let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
         recovery_point_id: "backup-42".to_owned(),
         project_id: "bill".to_owned(),
@@ -49,9 +61,10 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
         logical_resource_id: "bill/database".to_owned(),
         resource_kind: "postgres_database_and_role".to_owned(),
         compatibility_fingerprint: "sha256:postgres-17".to_owned(),
-        reference: "/backups/backup-42".to_owned(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 1_024,
+        reference: backup.recovery_point().display().to_string(),
+        artifact_sha256: "d9c38b4a49e99d9a64a34bfec2d42ee152283003487e13460a1d6de6fb853473"
+            .to_owned(),
+        artifact_size_bytes: 11,
         created_at_unix_seconds: 9_000,
         verified_at_unix_seconds: 9_001,
     })
@@ -73,7 +86,7 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
     store
         .record_recovery_point(&recovery)
         .expect("persist recovery point");
-    let control_plane = ControlPlane::new(store);
+    let mut control_plane = ControlPlane::new(store);
 
     let plan = control_plane
         .plan_installation_deletion()
@@ -81,7 +94,27 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
 
     assert_eq!(plan.logical_prunes().len(), 1);
     assert_eq!(plan.logical_prunes()[0].recovery_point_id(), "backup-42");
+    let error = control_plane
+        .begin_confirmed_installation_deletion(&"0".repeat(64), 10_000)
+        .expect_err("stale token must fail before freeze");
+    assert!(error.contains("confirmation token"));
+    assert_eq!(
+        control_plane
+            .installation_lifecycle()
+            .expect("active lifecycle"),
+        Some(crate::control_plane::state::InstallationLifecycle::Active)
+    );
+    control_plane
+        .begin_confirmed_installation_deletion(plan.confirmation_token(), 10_000)
+        .expect("confirmed deletion transition");
+    assert_eq!(
+        control_plane
+            .installation_lifecycle()
+            .expect("deleting lifecycle"),
+        Some(crate::control_plane::state::InstallationLifecycle::Deleting)
+    );
     remove_database(&database_path);
+    std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
 }
 
 #[test]
