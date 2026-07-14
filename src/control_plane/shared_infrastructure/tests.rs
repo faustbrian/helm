@@ -3,10 +3,11 @@ use super::{
     CredentialEntropy, CredentialGenerationError, CredentialSecret, GotenbergSharedInstancePlan,
     GotenbergSharedInstancePlanOptions, IsolationCapability, MailpitAuthenticationSnapshot,
     MailpitProjectDefinition, MailpitSharedInstancePlan, MailpitSharedInstancePlanOptions,
-    MongoDbLogicalResourcePlan, MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions,
-    MySqlFlavor, MySqlMigrationInstancePlanOptions, MySqlMigrationPreparationOptions,
-    MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions, ObjectStoreFlavor,
-    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
+    MongoDbLogicalResourcePlan, MongoDbMigrationInstancePlanOptions,
+    MongoDbMigrationPreparationOptions, MongoDbSharedInstancePlan,
+    MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlMigrationInstancePlanOptions,
+    MySqlMigrationPreparationOptions, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions,
+    ObjectStoreFlavor, ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
     ObjectStoreSharedInstancePlanOptions, PersistenceMode, PostgresLogicalResourcePlan,
     PostgresMigrationInstancePlanOptions, PostgresMigrationPreparationOptions,
     PostgresPreparationOptions, PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions,
@@ -21,20 +22,21 @@ use super::{
     plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
-    plan_sql_server_project_resources, prepare_mysql_migration_target,
-    prepare_postgres_migration_target, prepare_postgres_shared_instances, prepare_shared_instances,
+    plan_sql_server_project_resources, prepare_mongodb_migration_target,
+    prepare_mysql_migration_target, prepare_postgres_migration_target,
+    prepare_postgres_shared_instances, prepare_shared_instances,
     provision_mongodb_logical_resource, provision_mysql_logical_resource,
     provision_object_store_project_resources, provision_postgres_logical_resource,
     provision_sql_server_logical_resource, reconcile_mailpit_authentication,
-    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
-    reconcile_object_store_project_resources, reconcile_postgres_migration_target,
-    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
-    reconcile_prepared_shared_instance, reconcile_rabbitmq_definitions,
-    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
-    resolve_execution_shared_instances, revoke_rabbitmq_project_access, run_provisioning_job,
-    stop_unreferenced_shared_services, store_credential_secret, store_mailpit_authentication,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    reconcile_mongodb_migration_target, reconcile_mongodb_project_resources,
+    reconcile_mysql_project_resources, reconcile_object_store_project_resources,
+    reconcile_postgres_migration_target, reconcile_postgres_project_resources,
+    reconcile_prepared_postgres_instance, reconcile_prepared_shared_instance,
+    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
+    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
+    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
+    run_provisioning_job, stop_unreferenced_shared_services, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -2308,6 +2310,177 @@ fn mongodb_project_resources_compose_user_credential_and_environment() {
     );
     assert!(!format!("{project:?}").contains("project-secret"));
     assert!(!format!("{project:?}").contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_migration_target_is_separate_owned_retained_and_secret_file_backed() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mongodb", "8"),
+    )])
+    .pop()
+    .expect("shared MongoDB plan");
+    let target = MongoDbSharedInstancePlan::new_migration_target(
+        &shared,
+        MongoDbMigrationInstancePlanOptions {
+            migration_id: "restore-42".to_owned(),
+            project_id: "bill".to_owned(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mongodb-target".to_owned(),
+            bootstrap_secret: CredentialSecret::new("target-root".to_owned()),
+            bootstrap_secret_file: "/private/migrations/restore-42/root-password".into(),
+        },
+    )
+    .expect("MongoDB migration target");
+
+    assert_eq!(target.container().name(), "stackctl-migration-restore-42");
+    assert_eq!(target.container().metadata().project_id(), Some("bill"));
+    assert_eq!(
+        target.container().metadata().resource_id(),
+        Some("restore-42")
+    );
+    assert_eq!(
+        target.container().metadata().retention(),
+        crate::control_plane::engine::RetentionClass::Persistent
+    );
+    assert_eq!(
+        target.bootstrap_credential().credential_id(),
+        "migration/restore-42/mongodb-bootstrap"
+    );
+    assert_eq!(
+        target.bootstrap_secret_file(),
+        PathBuf::from("/private/migrations/restore-42/root-password")
+    );
+    assert!(target.volume().is_some());
+    let debug = format!("{:?}", target.container());
+    assert!(debug.contains("/private/migrations/restore-42/root-password"));
+    assert!(!debug.contains("target-root"));
+}
+
+#[test]
+fn mongodb_migration_target_reuses_durable_credential_and_secret_path() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mongodb-migration-target-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let database_path = root.join("state.sqlite3");
+    std::fs::create_dir_all(&root).expect("create MongoDB target state directory");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mongodb", "8"),
+    )])
+    .pop()
+    .expect("shared MongoDB plan");
+    let options = MongoDbMigrationPreparationOptions {
+        migration_id: "restore-42",
+        project_id: "bill",
+        installation_id: "install-1",
+        network_name: "stackctl",
+        schema_version: 8,
+        desired_revision: "sha256:mongodb-target",
+        state_directory: &root,
+    };
+
+    let first = prepare_mongodb_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        options,
+    )
+    .expect("first MongoDB target preparation");
+    let second = prepare_mongodb_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        options,
+    )
+    .expect("replayed MongoDB target preparation");
+
+    assert_eq!(first.container(), second.container());
+    assert_eq!(first.volume(), second.volume());
+    assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
+    assert_eq!(
+        first.bootstrap_secret_file(),
+        root.join("migrations/restore-42/mongodb-secrets/root-password")
+    );
+    assert_eq!(store.credentials().expect("credentials").len(), 1);
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove MongoDB target state");
+}
+
+#[test]
+fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_service() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mongodb-migration-reconcile-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create MongoDB reconciliation directory");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mongodb", "8"),
+    )])
+    .pop()
+    .expect("shared MongoDB plan");
+    let mut engine = RecordingSharedVolumeEngine {
+        health: crate::control_plane::engine::ContainerHealth::Healthy,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_mongodb_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x11),
+            MongoDbMigrationPreparationOptions {
+                migration_id: "restore-42",
+                project_id: "bill",
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                desired_revision: "sha256:mongodb-target",
+                state_directory: &root,
+            },
+        ))
+        .expect("MongoDB migration target reconciliation");
+
+    assert_eq!(
+        result.container().metadata().resource_id(),
+        Some("restore-42")
+    );
+    assert_eq!(result.volume().name(), "stackctl-migration-restore-42-data");
+    assert_eq!(
+        std::fs::read_to_string(result.bootstrap_secret_file()).expect("stored root secret"),
+        result.bootstrap_credential().secret()
+    );
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove MongoDB reconciliation state");
 }
 
 #[test]

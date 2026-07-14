@@ -25,11 +25,13 @@ pub(crate) use mailpit::{
 };
 pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
 pub(crate) use mongodb::{
-    MongoDbLogicalResourcePlan, MongoDbPlanError, MongoDbPreparationError,
-    MongoDbPreparationOptions, MongoDbProjectResources, MongoDbSharedInstancePlan,
-    MongoDbSharedInstancePlanOptions, PreparedMongoDbSharedInstance,
-    plan_mongodb_project_resources, prepare_mongodb_shared_instances,
-    provision_mongodb_logical_resource, reconcile_mongodb_project_resources,
+    MongoDbLogicalResourcePlan, MongoDbMigrationInstancePlanOptions,
+    MongoDbMigrationPreparationOptions, MongoDbMigrationTargetReconcileResult, MongoDbPlanError,
+    MongoDbPreparationError, MongoDbPreparationOptions, MongoDbProjectResources,
+    MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions, PreparedMongoDbSharedInstance,
+    plan_mongodb_project_resources, prepare_mongodb_migration_target,
+    prepare_mongodb_shared_instances, provision_mongodb_logical_resource,
+    reconcile_mongodb_migration_target, reconcile_mongodb_project_resources,
     reconcile_prepared_mongodb_instance,
 };
 pub(crate) use mysql::{
