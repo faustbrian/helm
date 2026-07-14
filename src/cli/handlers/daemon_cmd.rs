@@ -89,7 +89,7 @@ fn handle_daemon_backups(args: &DaemonBackupsArgs) -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_backups(_args: &DaemonBackupsArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
@@ -159,7 +159,7 @@ fn handle_daemon_migration_status(args: &DaemonMigrationStatusArgs) -> Result<()
 
 #[cfg(not(unix))]
 fn handle_daemon_migration_status(_args: &DaemonMigrationStatusArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]
@@ -194,7 +194,7 @@ fn handle_daemon_adopt(args: &DaemonAdoptArgs) -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_adopt(_args: &DaemonAdoptArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {
@@ -205,7 +205,7 @@ fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {
     );
 
     #[cfg(not(unix))]
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]
@@ -280,7 +280,7 @@ fn handle_daemon_status() -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_status() -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]
@@ -333,7 +333,7 @@ fn handle_daemon_reconcile() -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_reconcile() -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

@@ -17,7 +17,7 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-01 | One login-started per-user daemon is authoritative | Partial | `src/control_plane/daemon/unix_daemon_runtime.rs`; singleton lease and Unix service-manager tests | Live login/reboot records; Windows named-pipe daemon and startup runtime |
+| AC-01 | One login-started per-user daemon is authoritative | Partial | `src/control_plane/daemon/unix_daemon_runtime.rs`; singleton lease and Unix service-manager tests | Live macOS and Linux login/reboot records |
 | AC-02 | Watched-root YAML addition activates without manual start | Implemented | `reconcile_watched_roots`; discovery, debounce, complete-plan, and daemon reconciliation tests | Live claimed-platform add/edit/remove record |
 | AC-03 | TOML is absent from v8 config and state paths | Implemented | strict YAML loader, unsupported-TOML discovery diagnostic, and YAML lock tests | Clean-install acceptance on every claimed platform |
 | AC-04 | Invalid YAML, unknown fields, duplicates, invalid names, and collisions fail before mutation | Implemented | configuration tests; `complete_discovered_registry_collision_fails_before_persistence`; transactional registry tests | None at repository-test level |
@@ -60,7 +60,7 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-24 | macOS, Windows, and Linux claims have platform evidence | Pending live evidence | `docs/v8/platform-support.md`; Unix architecture CI matrix | Complete live Unix records; Windows runtime is explicitly unsupported |
+| AC-24 | macOS and Linux claims have platform evidence | Pending live evidence | `docs/v8/platform-support.md`; Unix architecture CI matrix | Complete live macOS and Linux records |
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | `scripts/audit-v8-host-dependencies.sh` and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
@@ -70,12 +70,11 @@ identified below.
 
 The current audit therefore blocks a v8 completion claim on:
 
-1. Windows named-pipe IPC, login service, and live Windows recovery evidence.
-2. Live macOS and Linux install/login/reboot/sleep/Engine recovery records.
-3. Live persistent deletion and uninstall keep-data/delete-data acceptance.
-4. Published runtime image SBOM, provenance, signature, and architecture proof.
-5. Gateway protocol and failure acceptance against the real pinned image.
-6. The immutable 40-project baseline/v8 benchmark record.
+1. Live macOS and Linux install/login/reboot/sleep/Engine recovery records.
+2. Live persistent deletion and uninstall keep-data/delete-data acceptance.
+3. Published runtime image SBOM, provenance, signature, and architecture proof.
+4. Gateway protocol and failure acceptance against the real pinned image.
+5. The immutable 40-project baseline/v8 benchmark record.
 
 Every blocker must link raw, reproducible evidence here before its row changes
 to `Complete`. A passing compile, unit test, interface, plan, or document cannot

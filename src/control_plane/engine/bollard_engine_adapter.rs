@@ -71,18 +71,6 @@ impl BollardEngineAdapter {
 
         Ok(Self { docker })
     }
-
-    /// Connects directly to a Docker-compatible Windows named pipe.
-    #[cfg(windows)]
-    pub(crate) async fn connect_named_pipe(pipe: &str) -> Result<Self, EngineError> {
-        let docker =
-            Docker::connect_with_named_pipe(pipe, REQUEST_TIMEOUT_SECONDS, API_DEFAULT_VERSION)
-                .map_err(|error| backend_error("connect to Engine named pipe", error))?;
-
-        let docker = negotiate_engine_api(docker).await?;
-
-        Ok(Self { docker })
-    }
 }
 
 impl ContainerLifecycle for BollardEngineAdapter {

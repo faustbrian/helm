@@ -43,7 +43,7 @@ pub(super) fn handle_daemon_restore(args: &DaemonRestoreArgs) -> Result<()> {
 
 #[cfg(not(unix))]
 pub(super) fn handle_daemon_restore(_args: &DaemonRestoreArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

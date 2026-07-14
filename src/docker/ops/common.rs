@@ -41,11 +41,6 @@ fn default_success_status() -> std::process::ExitStatus {
         use std::os::unix::process::ExitStatusExt;
         std::process::ExitStatus::from_raw(0)
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::ExitStatusExt;
-        std::process::ExitStatus::from_raw(0)
-    }
 }
 
 pub(super) fn run_simple_container_command(

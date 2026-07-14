@@ -30,7 +30,6 @@ mod require_host_command_success;
 mod stored_certificate_paths;
 mod trust_change;
 mod trust_store_error;
-mod windows_certificate_trust_store;
 
 pub(crate) use certificate_trust_store::CertificateTrustStore;
 pub(crate) use current_ca_trust_result::CurrentCaTrustResult;
@@ -62,4 +61,3 @@ use require_host_command_success::require_host_command_success;
 pub(crate) use stored_certificate_paths::StoredCertificatePaths;
 pub(crate) use trust_change::TrustChange;
 pub(crate) use trust_store_error::TrustStoreError;
-pub(crate) use windows_certificate_trust_store::WindowsCertificateTrustStore;

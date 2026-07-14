@@ -83,14 +83,13 @@ The complete v8 host-executable inventory is:
 | Executable | Owning feature | Invocation and failure boundary |
 | --- | --- | --- |
 | `security` | Explicit macOS CA trust setup/removal | Invoked only by `stackctl daemon trust`; a non-zero status leaves trust unchanged and returns the exact adapter error. |
-| `certutil` | Explicit Windows Current User CA trust setup/removal | Invoked only by the trust adapter; a non-zero status aborts the requested trust change. Windows daemon runtime remains unsupported until named-pipe acceptance exists. |
 | `sudo`, `update-ca-certificates`, `rm` | Explicit Debian-family CA trust setup/removal | Invoked only by the trust adapter; privilege denial or a non-zero update aborts setup/removal with no reconciliation fallback. |
 | `launchctl` | Explicit macOS login-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
 | `systemctl` | Explicit Linux user-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
 
-The selected Docker-compatible Engine is contacted over its API socket or
-named pipe; Stackctl does not invoke a `docker` or `podman` executable in the v8
-runtime. Caddy is an immutable workload-plane image, not a host executable.
+The selected Docker-compatible Engine is contacted over its Unix socket;
+Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
+Caddy is an immutable workload-plane image, not a host executable.
 
 ## Retention, backup, and deletion
 

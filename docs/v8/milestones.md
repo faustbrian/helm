@@ -24,7 +24,7 @@ Documentation is not completion. Each milestone requires executable evidence.
 - SQLite migrations and transactions survive forced interruption.
 - Filesystem events plus rescan converge adds, changes, removals, and editor
   rename writes.
-- Unix-socket and named-pipe contracts are versioned and permission-tested.
+- The Unix-socket contract is versioned and permission-tested.
 
 ## M4: Engine API and ownership
 

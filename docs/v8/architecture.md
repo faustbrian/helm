@@ -120,11 +120,11 @@ cancellation, and independent reconciliation for unrelated projects.
 An unavailable engine is recoverable observed state. Desired state remains
 authoritative and all resources reconcile when the selected engine returns.
 
-Runtime operations use versioned local IPC. macOS and Linux use a user-only Unix
-socket; Windows uses a user-only named pipe. Requests and responses carry
-protocol version, request ID, typed payload/result, and structured diagnostics.
-Logs and events support streaming and cancellation. Clients do not duplicate
-daemon reconciliation. Offline schema output and validation may remain local.
+Runtime operations use versioned local IPC over a user-only Unix socket.
+Requests and responses carry protocol version, request ID, typed payload/result,
+and structured diagnostics. Logs and events support streaming and cancellation.
+Clients do not duplicate daemon reconciliation. Offline schema output and
+validation may remain local.
 
 ## Transactional state
 
@@ -151,14 +151,14 @@ are deterministic.
 
 ## Platform ownership
 
-| Concern | macOS | Linux | Windows |
-| --- | --- | --- | --- |
-| Login start | launchd user agent | systemd user unit | per-user startup task/service |
-| Engine transport | Unix socket | Unix socket | named pipe |
-| IPC | Unix socket | Unix socket | named pipe |
-| File events | native watcher | native watcher | native watcher |
-| Trust | Keychain | supported system/browser stores | Current User certificate store |
-| Workloads | Linux engine VM | Linux containers | Linux engine VM/WSL2 |
+| Concern | macOS | Linux |
+| --- | --- | --- |
+| Login start | launchd user agent | systemd user unit |
+| Engine transport | Unix socket | Unix socket |
+| IPC | Unix socket | Unix socket |
+| File events | native watcher | native watcher |
+| Trust | Keychain | supported system/browser stores |
+| Workloads | Linux engine VM | Linux containers |
 
 Compilation is not platform evidence. Every claimed row requires a recorded
 platform acceptance result before release.

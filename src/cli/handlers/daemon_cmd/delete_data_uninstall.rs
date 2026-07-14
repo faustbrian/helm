@@ -48,7 +48,7 @@ pub(super) fn prepare_delete_data_uninstall(service_installed: bool) -> Result<O
 
 #[cfg(not(unix))]
 pub(super) fn prepare_delete_data_uninstall(_service_installed: bool) -> Result<Option<PathBuf>> {
-    bail!("delete-data uninstall requires the Windows named-pipe runtime implementation")
+    bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

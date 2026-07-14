@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed Windows-specific Engine, trust-store, IPC, CI, and documentation
+  paths. V8 now targets only macOS and Linux hosts through Unix-native
+  boundaries.
 - Removed the disconnected generic runtime builder and reconciler that existed
   only in tests and implied unsupported Composer, JavaScript, system-package,
   and installer-artifact behavior alongside the daemon's PHP extension path.
@@ -220,7 +223,7 @@ All notable changes to this project are documented in this file.
 - Added ownership-scoped Engine benchmark snapshots and a non-overwriting raw
   sample harness that never parses Docker or Podman CLI output.
 - Added full-suite Linux and macOS x86_64/arm64 CI coverage plus an explicit
-  platform matrix that keeps unverified and Windows combinations unsupported.
+  platform matrix that keeps unverified combinations unsupported.
 - Added a CI-enforced v8 host-dependency audit that rejects direct process
   execution and legacy runtime imports outside explicit OS integration seams.
 - Added daemon-worker acceptance coverage proving rollback reconstructs the
@@ -788,8 +791,6 @@ All notable changes to this project are documented in this file.
   once and removes only the exact certificate identity supplied by Stackctl.
 - Added a macOS System Keychain trust adapter with exact SHA-256 inspection,
   explicit root installation, and fingerprint-scoped certificate removal.
-- Added a Windows Current User root-store adapter with exact SHA-1 thumbprint
-  lookup, non-elevated installation, and thumbprint-scoped removal.
 - Added an explicit Debian-family trust adapter that owns one fingerprint-named
   local root, refuses conflicting file contents, and refreshes system CA state.
 - Added a replaceable v8 gateway boundary that validates and atomically applies
@@ -878,8 +879,8 @@ All notable changes to this project are documented in this file.
   discovered registry before atomically persisting any project ownership.
 - Added the v8 Engine capability boundary with mandatory installation ownership
   metadata and replaceable container lifecycle strategies.
-- Added a nonblocking direct Docker-compatible API adapter for Docker Unix
-  sockets and Windows named pipes, also usable with Podman's compatible API.
+- Added a nonblocking direct Docker-compatible API adapter for Unix sockets,
+  also usable with Podman's compatible API.
 - Added the normative v8 two-plane architecture, strict YAML and deterministic
   naming rules, complete service-sharing matrix, operational policies,
   independently verifiable milestones, and 40-project benchmark protocol.

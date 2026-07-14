@@ -32,5 +32,5 @@ pub(super) fn handle_daemon_benchmark() -> Result<()> {
 
 #[cfg(not(unix))]
 pub(super) fn handle_daemon_benchmark() -> Result<()> {
-    bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    bail!("Stackctl v8 requires a Unix host")
 }

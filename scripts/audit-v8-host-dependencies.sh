@@ -6,7 +6,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 readonly TRUST_EXECUTOR="src/control_plane/tls/process_host_command_executor.rs"
 readonly MACOS_TRUST="src/control_plane/tls/mac_os_certificate_trust_store.rs"
-readonly WINDOWS_TRUST="src/control_plane/tls/windows_certificate_trust_store.rs"
 readonly DEBIAN_TRUST="src/control_plane/tls/debian_certificate_trust_store.rs"
 readonly TRUST_TESTS="src/control_plane/tls/tests.rs"
 violations=0
@@ -37,7 +36,7 @@ audit_file() {
   fi
 
   case "$file" in
-    "$MACOS_TRUST"|"$WINDOWS_TRUST"|"$DEBIAN_TRUST"|"$TRUST_TESTS") ;;
+    "$MACOS_TRUST"|"$DEBIAN_TRUST"|"$TRUST_TESTS") ;;
     *)
       report_matches \
         "host commands may be constructed only by explicit trust-store adapters" \
@@ -67,6 +66,13 @@ while IFS= read -r -d '' file; do
   audit_file "$file"
 done < <(find src/cli/handlers -maxdepth 1 -type f -name 'v8_*.rs' -print0)
 
+while IFS= read -r -d '' file; do
+  report_matches \
+    "v8 contains a removed Windows platform path" \
+    'Windows|named[_ -]pipe|certutil|cfg\(windows\)|target_os[[:space:]]*=[[:space:]]*"windows"' \
+    "$file"
+done < <(find src docs .github -type f \( -name '*.rs' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) -print0)
+
 if ((violations > 0)); then
   printf 'v8 host-dependency audit failed with %d violating file(s)\n' "$violations" >&2
   exit 1
@@ -75,4 +81,4 @@ fi
 printf '%s\n' \
   "v8 host-dependency audit passed" \
   "allowed host process boundary: $TRUST_EXECUTOR" \
-  "normal v8 runtime boundary: typed Engine API and local IPC"
+  "normal v8 runtime boundary: Unix Engine API socket and local IPC"

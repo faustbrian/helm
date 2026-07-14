@@ -34,6 +34,9 @@
     )
 )]
 
+#[cfg(not(unix))]
+compile_error!("Stackctl v8 supports only macOS and Linux Unix hosts");
+
 use anyhow::Result;
 use clap::Parser;
 

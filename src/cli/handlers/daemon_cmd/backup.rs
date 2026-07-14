@@ -43,7 +43,7 @@ pub(super) fn handle_daemon_backup(args: &DaemonBackupArgs) -> Result<()> {
 
 #[cfg(not(unix))]
 pub(super) fn handle_daemon_backup(_args: &DaemonBackupArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

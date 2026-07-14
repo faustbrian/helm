@@ -106,7 +106,7 @@ fn follow_prune(operation_id: &str) -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_prune_execute(_args: &DaemonPruneExecuteArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]
@@ -158,5 +158,5 @@ fn handle_daemon_prune_plan(args: &DaemonPrunePlanArgs) -> Result<()> {
 
 #[cfg(not(unix))]
 fn handle_daemon_prune_plan(_args: &DaemonPrunePlanArgs) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }

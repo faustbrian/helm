@@ -32,16 +32,10 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
         bail!("singleton CA trust is not implemented for this Unix platform");
     }
 
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     {
         let _ = args;
-        bail!("singleton CA persistence requires the Windows named-pipe runtime implementation");
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = args;
-        bail!("singleton CA trust is not implemented for this platform");
+        bail!("Stackctl v8 requires a Unix host");
     }
 }
 

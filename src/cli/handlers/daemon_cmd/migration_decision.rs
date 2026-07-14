@@ -53,7 +53,7 @@ pub(super) fn handle_migration_decision(
     _args: &DaemonMigrationDecisionArgs,
     _decision: IpcMigrationDecision,
 ) -> Result<()> {
-    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
+    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

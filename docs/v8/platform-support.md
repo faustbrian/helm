@@ -12,12 +12,10 @@ unit tests are necessary evidence but never sufficient on their own.
 | Ubuntu Linux | arm64 | Preview | Full test suite on `ubuntu-24.04-arm` in CI | Same live acceptance as Linux x86_64 plus multi-architecture image verification |
 | macOS | x86_64 | Preview | Full test suite on `macos-15-intel` in CI | Fresh Docker Desktop install; login/reboot; launchd; Unix socket permissions; Keychain trust install/removal; Docker Desktop restart; laptop sleep/wake; bind mounts; FSEvents; gateway traffic; backup/restore; benchmark |
 | macOS | arm64 | Preview | Full test suite on `macos-15` in CI and local arm64 development checks | Same live acceptance as macOS x86_64 plus arm64 image verification |
-| Windows | x86_64 | Unsupported | Trust-store and Engine named-pipe adapter unit coverage only | Per-user named-pipe IPC, daemon ownership/ACLs, login service, filesystem recovery, WSL2/Docker Desktop recovery, trust, gateway, backup/restore, and benchmark acceptance |
-| Windows | arm64 | Unsupported | No release evidence | Complete Windows x86_64 blockers plus native arm64 Engine and image acceptance |
 
 `Preview` means the implementation is intended to work but must not be marketed
-as release-supported. `Unsupported` means Stackctl must fail clearly instead of
-falling back to legacy host tooling or implying partial support.
+as release-supported. V8 targets macOS and Linux hosts only; other operating
+systems are outside the product contract.
 
 ## Engine support
 
