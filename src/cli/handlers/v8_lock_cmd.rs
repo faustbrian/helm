@@ -419,7 +419,7 @@ mod tests {
         })
         .expect("catalog-backed lock");
 
-        assert_eq!(lock.catalog_revision(), Some("2026-07-13.1"));
+        assert_eq!(lock.catalog_revision(), Some("2026-07-14.1"));
         assert_eq!(lock.images()["db"].source(), "preset:postgres:17");
     }
 

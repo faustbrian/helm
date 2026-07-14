@@ -64,10 +64,8 @@
         "dusk",
         "selenium",
         "gotenberg",
-        "mailhog",
         "mailpit",
-        "rabbitmq",
-        "soketi"
+        "rabbitmq"
       ]
     },
     "service": {

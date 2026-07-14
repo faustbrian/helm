@@ -13,9 +13,7 @@ pub(crate) fn resolve_service_deployment_strategy(
         "gotenberg" => ServiceDeploymentStrategy::SharedStateless,
         "memcached" | "localstack" => ServiceDeploymentStrategy::DedicatedProject,
         "dragonfly" | "garage" | "rustfs" | "opensearch" | "elasticsearch" | "meilisearch"
-        | "typesense" | "mailhog" | "soketi" => {
-            ServiceDeploymentStrategy::DedicatedUntilIsolationProven
-        }
+        | "typesense" => ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
         "frankenphp" | "laravel" | "reverb" => ServiceDeploymentStrategy::ProjectApplication,
         "horizon" | "queue-worker" | "queue" | "scheduler" => {
             ServiceDeploymentStrategy::ProjectProcess

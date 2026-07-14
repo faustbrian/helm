@@ -67,7 +67,7 @@ the source declaration and an immutable sha256 digest:
 
 ```yaml
 schema_version: 1
-catalog_revision: 2026-07-13.1
+catalog_revision: 2026-07-14.1
 images:
   app:
     source: preset:laravel:8.5
@@ -83,6 +83,10 @@ configured value; presets use `preset:{name}` or
 value, unsupported field, duplicate key, tag, or additional YAML document
 fails the complete registry before mutation. Stackctl never repairs a stale
 lock or guesses a replacement.
+
+Built-in presets resolve through an explicitly revisioned catalog of versioned
+vendor tags. The catalog never uses the unbounded `latest` alias. Mailpit
+replaces the MailHog preset, while Laravel Reverb replaces the Soketi preset.
 
 Discovery reads the lock only beside `.stackctl.yaml`, with the same byte bound,
 UTF-8 requirement, and symbolic-link prohibition as the project file. Projects

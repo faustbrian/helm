@@ -1,7 +1,7 @@
 use super::{PresetArtifact, PresetArtifactError};
 
 /// Revision binding preset-only lock entries to this exact catalog.
-pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-13.1";
+pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-14.1";
 
 /// Resolves one preset into a deliberate versioned registry source.
 pub(crate) fn resolve_preset_artifact(
@@ -28,7 +28,12 @@ pub(crate) fn resolve_preset_artifact(
         "postgres" => format!("postgres:{version}"),
         "mysql" => format!("mysql:{version}"),
         "mariadb" => format!("mariadb:{version}"),
-        "sqlserver" => format!("mcr.microsoft.com/mssql/server:{version}-latest"),
+        "sqlserver" => fixed(
+            preset,
+            version,
+            default,
+            "mcr.microsoft.com/mssql/server:2022-CU25-ubuntu-22.04",
+        )?,
         "redis" => format!("redis:{version}-alpine"),
         "valkey" => format!("valkey/valkey:{version}"),
         "localstack" => format!("localstack/localstack:{version}"),
@@ -41,17 +46,22 @@ pub(crate) fn resolve_preset_artifact(
             preset,
             version,
             default,
-            "docker.dragonflydb.io/dragonflydb/dragonfly:latest",
+            "docker.dragonflydb.io/dragonflydb/dragonfly:v1.39.0",
         )?,
         "memcached" => fixed(preset, version, default, "memcached:1.6-alpine")?,
-        "minio" => fixed(preset, version, default, "minio/minio:latest")?,
+        "minio" => fixed(
+            preset,
+            version,
+            default,
+            "minio/minio:RELEASE.2025-09-07T16-13-09Z",
+        )?,
         "garage" => fixed(preset, version, default, "dxflrs/garage:v2.1.0")?,
-        "rustfs" => fixed(preset, version, default, "rustfs/rustfs:latest")?,
+        "rustfs" => fixed(preset, version, default, "rustfs/rustfs:1.0.0-beta.2")?,
         "opensearch" => fixed(
             preset,
             version,
             default,
-            "opensearchproject/opensearch:latest",
+            "opensearchproject/opensearch:3.6.0",
         )?,
         "elasticsearch" => fixed(
             preset,
@@ -59,17 +69,15 @@ pub(crate) fn resolve_preset_artifact(
             default,
             "docker.elastic.co/elasticsearch/elasticsearch:9.4.2",
         )?,
-        "meilisearch" => fixed(preset, version, default, "getmeili/meilisearch:latest")?,
+        "meilisearch" => fixed(preset, version, default, "getmeili/meilisearch:v1.45.1")?,
         "typesense" => fixed(preset, version, default, "typesense/typesense:0.26.0")?,
         "dusk" | "selenium" => fixed(
             preset,
             version,
             default,
-            "selenium/standalone-chromium:latest",
+            "selenium/standalone-chromium:4.43.0-20260404",
         )?,
-        "mailhog" => fixed(preset, version, default, "mailhog/mailhog:latest")?,
-        "mailpit" => fixed(preset, version, default, "axllent/mailpit:latest")?,
-        "soketi" => fixed(preset, version, default, "quay.io/soketi/soketi:latest")?,
+        "mailpit" => fixed(preset, version, default, "axllent/mailpit:v1.30.0")?,
         _ => return Err(unsupported(preset, version)),
     };
 
@@ -93,8 +101,7 @@ fn default_version(preset: &str) -> Option<&'static str> {
         "sqlserver" => Some("2022"),
         "redis" => Some("7"),
         "valkey" => Some("8"),
-        "dragonfly" | "memcached" | "minio" | "rustfs" | "meilisearch" | "mailhog" | "mailpit"
-        | "soketi" => Some("1"),
+        "dragonfly" | "memcached" | "minio" | "rustfs" | "meilisearch" | "mailpit" => Some("1"),
         "garage" => Some("2"),
         "localstack" => Some("4"),
         "opensearch" => Some("3"),

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced every built-in v8 service preset's unbounded `latest` alias with a
+  versioned vendor tag and dropped the MailHog and Soketi presets in favor of
+  Mailpit and Laravel Reverb.
 - Removed Windows-specific Engine, trust-store, IPC, CI, and documentation
   paths. V8 now targets only macOS and Linux hosts through Unix-native
   boundaries.

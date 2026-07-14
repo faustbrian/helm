@@ -168,16 +168,8 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
         ("dusk", ServiceDeploymentStrategy::Ephemeral),
         ("selenium", ServiceDeploymentStrategy::Ephemeral),
         ("gotenberg", ServiceDeploymentStrategy::SharedStateless),
-        (
-            "mailhog",
-            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
-        ),
         ("mailpit", ServiceDeploymentStrategy::SharedWithAttribution),
         ("rabbitmq", ServiceDeploymentStrategy::SharedByCompatibility),
-        (
-            "soketi",
-            ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
-        ),
     ];
 
     assert_eq!(
@@ -199,11 +191,19 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
             .to_string(),
         "unknown v8 service preset 'invented'"
     );
+    for removed in ["mailhog", "soketi"] {
+        assert_eq!(
+            resolve_service_deployment_strategy(removed)
+                .expect_err("removed preset")
+                .to_string(),
+            format!("unknown v8 service preset '{removed}'")
+        );
+    }
 }
 
 #[test]
 fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
-    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-13.1");
+    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-14.1");
 
     for preset in KNOWN_SERVICE_PRESETS {
         let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
@@ -232,6 +232,35 @@ fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
             .reference(),
         "postgres:18"
     );
+    for removed in ["mailhog", "soketi"] {
+        assert!(
+            resolve_preset_artifact(removed, None)
+                .expect_err("removed preset")
+                .to_string()
+                .contains("has no built-in artifact catalog entry")
+        );
+    }
+}
+
+#[test]
+fn preset_artifact_catalog_never_resolves_a_latest_alias() {
+    for preset in KNOWN_SERVICE_PRESETS {
+        let Some(artifact) = resolve_preset_artifact(preset, None).expect("known artifact policy")
+        else {
+            continue;
+        };
+
+        let tag = artifact
+            .reference()
+            .rsplit_once(':')
+            .map(|(_, tag)| tag)
+            .expect("catalog reference has a tag");
+        assert!(
+            tag != "latest" && !tag.ends_with("-latest"),
+            "preset {preset} resolves mutable alias {}",
+            artifact.reference()
+        );
+    }
 }
 
 fn route_claim(path: &str, project: &str, service: &str) -> RouteClaim {

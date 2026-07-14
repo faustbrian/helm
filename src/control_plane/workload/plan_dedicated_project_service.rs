@@ -147,7 +147,7 @@ fn persistent_data_path(preset: &str) -> Option<&'static str> {
         "opensearch" => Some("/usr/share/opensearch/data"),
         "elasticsearch" => Some("/usr/share/elasticsearch/data"),
         "meilisearch" => Some("/meili_data"),
-        "memcached" | "mailhog" | "soketi" => None,
+        "memcached" => None,
         _ => None,
     }
 }
