@@ -33,6 +33,7 @@ mod v7_logical_data_inventory;
 mod v7_logical_data_migration_adapter;
 mod v7_logical_data_migration_adapter_options;
 mod v7_logical_data_migration_source;
+mod v7_logical_data_migration_source_options;
 mod v7_migration_adapter;
 mod v7_migration_adapter_executor;
 mod v7_migration_adapter_plan;
@@ -64,6 +65,7 @@ mod v7_service_inventory;
 mod v7_service_inventory_options;
 mod v7_volume_inventory;
 mod v7_volume_source;
+mod validate_v7_logical_data_migration_source;
 
 pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_environment_rollback;
 pub(crate) use confirm_v7_migration::confirm_v7_migration;
@@ -94,6 +96,7 @@ use v7_inventory_error::V7InventoryError;
 use v7_logical_data_inventory::V7LogicalDataInventory;
 pub(crate) use v7_logical_data_migration_adapter_options::V7LogicalDataMigrationAdapterOptions;
 pub(crate) use v7_logical_data_migration_source::V7LogicalDataMigrationSource;
+pub(crate) use v7_logical_data_migration_source_options::V7LogicalDataMigrationSourceOptions;
 pub(crate) use v7_migration_adapter::{
     V7EnvironmentMigrationAdapter, V7MigrationServiceAdapter, V7RouteMigrationAdapter,
     V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
@@ -128,3 +131,4 @@ pub(crate) use v7_service_inventory::V7ServiceInventory;
 use v7_service_inventory_options::V7ServiceInventoryOptions;
 pub(crate) use v7_volume_inventory::V7VolumeInventory;
 pub(crate) use v7_volume_source::V7VolumeSource;
+pub(crate) use validate_v7_logical_data_migration_source::validate_v7_logical_data_migration_source;

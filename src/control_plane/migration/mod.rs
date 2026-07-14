@@ -45,7 +45,9 @@ pub(crate) use object_store::{
 };
 pub(crate) use postgres::{
     EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
-    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
+    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, V7PostgresCredential,
+    V7PostgresMigrationProvider, V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement,
+    backup_postgres_database,
 };
 pub(crate) use rabbitmq::{
     RabbitMqBackupOptions, RabbitMqRestoreOptions, backup_rabbitmq_vhost, restore_rabbitmq_vhost,
@@ -65,13 +67,14 @@ pub(crate) use v7::{
     V7GeneratedEnvironmentArtifact, V7GeneratedEnvironmentRollbackMaterial,
     V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions, V7HostArtifactInventory,
     V7InstallationTrustMigrationAdapterOptions, V7InventoryBlocker,
-    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource, V7MigrationAdapterExecutor,
-    V7MigrationAdapterPlan, V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions,
-    V7MigrationAdapterTarget, V7MigrationCutoverOptions, V7MigrationExecutionError,
-    V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions,
-    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSelection,
-    V7MigrationServiceSource, V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource,
-    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource,
+    V7LogicalDataMigrationSourceOptions, V7MigrationAdapterExecutor, V7MigrationAdapterPlan,
+    V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
+    V7MigrationCutoverOptions, V7MigrationExecutionError, V7MigrationExecutionJournal,
+    V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions, V7MigrationRouteSource,
+    V7MigrationServiceAdapter, V7MigrationServiceSelection, V7MigrationServiceSource,
+    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
     V7ProtectedGeneratedEnvironmentAdapterOptions, V7PublicFileArtifact,
     V7RecoverableMigrationProvider, V7RecreatedServiceTarget, V7RouteInventory,
     V7RouteMigrationAdapter, V7RuntimeFeature, V7ServiceInventory, V7TrustMigrationAdapter,

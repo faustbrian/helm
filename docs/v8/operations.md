@@ -339,6 +339,16 @@ After authorization, accepted-v7 and v8-owned sessions use the same bounded
 attached and streaming transport. Timeout enforcement, secret-safe stderr
 draining, output limits, status polling, and exit-code handling therefore have
 one implementation; only target authorization and session creation differ.
+The PostgreSQL logical-data provider binds the accepted project, service,
+driver, kind, container name, immutable Engine ID, and database name before it
+runs `pg_dump`. Its private recovery manifest is additionally bound to the
+accepted inventory revision. Target preparation verifies that artifact before
+any v8 command, then idempotently provisions and resets the deterministic
+database before each `pg_restore`, making a restart during preparation safe to
+replay. Catalog verification proves the target database owner and rejects
+invalid indexes or unvalidated constraints. Rollback verifies that the exact
+legacy database remains reachable; only project confirmation enters the
+separate source-retirement strategy.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

@@ -2,6 +2,7 @@
 mod tests;
 
 mod backup_postgres_database;
+mod backup_v7_postgres_database;
 mod engine_postgres_source_retirement;
 mod postgres_backup_options;
 mod postgres_migration_operations;
@@ -13,9 +14,17 @@ mod postgres_source_retirement_options;
 mod postgres_verify_target_options;
 mod provision_postgres_target;
 mod restore_postgres_database;
+mod restore_v7_postgres_target;
+mod v7_postgres_credential;
+mod v7_postgres_migration_provider;
+mod v7_postgres_migration_provider_options;
+mod v7_postgres_source_retirement;
 mod verify_postgres_target;
+mod verify_v7_postgres_source;
+mod verify_v7_postgres_target;
 
 pub(crate) use backup_postgres_database::backup_postgres_database;
+use backup_v7_postgres_database::backup_v7_postgres_database;
 pub(crate) use engine_postgres_source_retirement::EnginePostgresSourceRetirement;
 pub(crate) use postgres_backup_options::PostgresBackupOptions;
 pub(crate) use postgres_migration_operations::PostgresMigrationOperations;
@@ -27,4 +36,11 @@ pub(crate) use postgres_source_retirement_options::PostgresSourceRetirementOptio
 pub(crate) use postgres_verify_target_options::PostgresVerifyTargetOptions;
 pub(crate) use provision_postgres_target::provision_postgres_target;
 pub(crate) use restore_postgres_database::restore_postgres_database;
+use restore_v7_postgres_target::restore_v7_postgres_target;
+pub(crate) use v7_postgres_credential::V7PostgresCredential;
+pub(crate) use v7_postgres_migration_provider::V7PostgresMigrationProvider;
+pub(crate) use v7_postgres_migration_provider_options::V7PostgresMigrationProviderOptions;
+pub(crate) use v7_postgres_source_retirement::V7PostgresSourceRetirement;
 pub(crate) use verify_postgres_target::verify_postgres_target;
+use verify_v7_postgres_source::verify_v7_postgres_source;
+use verify_v7_postgres_target::verify_v7_postgres_target;

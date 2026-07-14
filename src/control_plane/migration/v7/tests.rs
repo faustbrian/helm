@@ -4,12 +4,13 @@ use super::{
     V7EnvironmentMigrationAdapter, V7GatewaySnapshotMigrationAdapterOptions,
     V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions,
     V7InstallationTrustMigrationAdapterOptions, V7InventoryBlocker,
-    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource, V7MigrationAdapterExecutor,
-    V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
-    V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
-    V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
-    V7MigrationServiceSource, V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource,
-    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource,
+    V7LogicalDataMigrationSourceOptions, V7MigrationAdapterExecutor, V7MigrationAdapterRegistry,
+    V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget, V7MigrationCutoverOptions,
+    V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions,
+    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
+    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
     V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
     V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
     V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
@@ -1129,7 +1130,9 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
             "blockers": [],
             "services": [{
                 "service_id": "database",
+                "kind": "database",
                 "driver": "postgres",
+                "container_name": "bill-database",
                 "observed_container_id": "legacy-postgres",
                 "logical_data": logical_data
             }]
@@ -1161,20 +1164,30 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
             updated_at_unix_seconds: 10,
         })
         .expect("logical-data execution");
-        let source = V7LogicalDataMigrationSource::new(
-            "database",
-            "postgres",
-            "legacy-postgres",
+        let source = V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
+            project_id: "bill".to_owned(),
+            service_id: "database".to_owned(),
+            kind: "database".to_owned(),
+            driver: "postgres".to_owned(),
+            container_name: "bill-database".to_owned(),
+            container_id: "legacy-postgres".to_owned(),
             logical_data,
-        )
+        })
         .expect("logical-data source");
-        let drifted_source = V7LogicalDataMigrationSource::new(
-            "database",
-            "postgres",
-            "legacy-postgres",
-            BTreeMap::from([("database".to_owned(), "other_database".to_owned())]),
-        )
-        .expect("drifted logical-data source");
+        let drifted_source =
+            V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                kind: "database".to_owned(),
+                driver: "postgres".to_owned(),
+                container_name: "bill-database".to_owned(),
+                container_id: "legacy-postgres".to_owned(),
+                logical_data: BTreeMap::from([(
+                    "database".to_owned(),
+                    "other_database".to_owned(),
+                )]),
+            })
+            .expect("drifted logical-data source");
         let mut drifted_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
@@ -1188,6 +1201,30 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
         .expect_err("logical identity drift must reject registration");
         assert!(error.contains("identity differs from accepted v7 evidence"));
         assert!(drifted_provider.calls.is_empty());
+        let drifted_target_source =
+            V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                kind: "database".to_owned(),
+                driver: "postgres".to_owned(),
+                container_name: "other-database".to_owned(),
+                container_id: "legacy-postgres".to_owned(),
+                logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
+            })
+            .expect("drifted logical-data command target");
+        let mut drifted_target_provider = RecordingV7LogicalDataProvider::default();
+        let error = register_v7_logical_data_migration_adapter(
+            &mut V7MigrationAdapterRegistry::default(),
+            &plan,
+            V7LogicalDataMigrationAdapterOptions {
+                accepted: &accepted,
+                source: &drifted_target_source,
+                provider: &mut drifted_target_provider,
+            },
+        )
+        .expect_err("command target label drift must reject registration");
+        assert!(error.contains("command target differs from accepted v7 evidence"));
+        assert!(drifted_target_provider.calls.is_empty());
         let mut provider = RecordingV7LogicalDataProvider::default();
         let mut journal = RecordingV7Journal::default();
         {

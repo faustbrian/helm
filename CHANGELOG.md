@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added the first live accepted-v7 logical-data provider for PostgreSQL. It
+  streams an identity-bound custom dump through the Engine, verifies recovery
+  before target mutation, replay-safely resets and restores the deterministic
+  v8 database, verifies both sides, and keeps source retirement behind a
+  confirmation-only strategy.
 - Shared the bounded attached and streaming command transport between v8-owned
   containers and separately authorized accepted-v7 targets, keeping timeout,
   output, status polling, and exit handling single-sourced.
