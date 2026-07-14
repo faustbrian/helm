@@ -102,6 +102,6 @@ pub(crate) use v7::{
     select_v7_migration_adapters,
 };
 pub(crate) use volume::{
-    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
-    restore_project_volume,
+    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, V7VolumeBackupOptions,
+    backup_project_volume, backup_v7_volume, restore_project_volume,
 };

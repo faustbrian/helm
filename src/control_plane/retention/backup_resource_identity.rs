@@ -51,6 +51,19 @@ impl BackupResourceIdentity {
         }
     }
 
+    pub(crate) fn for_v7_named_volume(
+        project_id: &str,
+        service_id: &str,
+        evidence_revision: &str,
+    ) -> Self {
+        Self {
+            resource_id: format!("{project_id}/{service_id}"),
+            installation_id: "v7-migration".to_owned(),
+            resource_kind: "named_volume_archive".to_owned(),
+            compatibility_fingerprint: evidence_revision.to_owned(),
+        }
+    }
+
     pub(crate) fn from_resource(resource: &ResourceRecord) -> Self {
         Self {
             resource_id: resource.resource_id().to_owned(),
