@@ -246,6 +246,11 @@ Browser opening accepts `healthy` and `running_unverified` routes and otherwise
 fails with the exact service state and observation time instead of issuing an
 ad-hoc application HTTP probe.
 
-Engine events provide prompt reaction while periodic scans restore correctness.
+The singleton keeps one installation-scoped managed-container Engine event
+subscription. A bounded channel coalesces bursts into prompt full
+reconciliation, and the last processed event cursor prevents a reconnect from
+replaying the cursor event. Stream failure or closure reconnects with bounded
+exponential backoff and jitter. Periodic complete discovery remains the
+correctness fallback when events are lost or coalesced.
 Repeated failures back off with jitter and one durable diagnostic rather than
 log spam. One project or shared service failure does not block unrelated work.

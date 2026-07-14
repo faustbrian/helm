@@ -1,5 +1,5 @@
 use super::{EngineConnectionFuture, EngineConnector};
-use crate::control_plane::engine::{BollardEngineAdapter, EngineError, bounded_engine_operation};
+use crate::control_plane::engine::{BollardEngineAdapter, bounded_engine_operation};
 use std::path::Path;
 use std::time::Duration;
 

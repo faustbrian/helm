@@ -3,10 +3,11 @@ use super::{
     ActiveProjectLogSession, ActiveProjectRestore, BollardUnixEngineConnector,
     DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
     EngineBenchmarkSnapshotProvider, EngineConnectionOutcome, EngineConnectionSupervisor,
-    EngineImageReferenceResolution, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
-    FilesystemEventWatcher, ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue,
-    PostgresPruneQueue, ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry,
-    ProjectRestoreQueue, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    EngineEventObservation, EngineEventSubscription, EngineImageReferenceResolution,
+    EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
+    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
+    ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
     UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, dispatch_daemon_request,
     initialize_default_installation, invalidate_engine_connection, plan_engine_reconciliation,
     reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
@@ -54,6 +55,7 @@ pub(crate) struct UnixDaemonRuntime {
     filesystem_watcher: FilesystemEventWatcher,
     pub(super) engine_runtime: tokio::runtime::Runtime,
     pub(super) engine_connection: EngineConnectionSupervisor<BollardUnixEngineConnector>,
+    engine_events: EngineEventSubscription,
     pub(super) runtime_directory: PathBuf,
     pub(super) global_network_request: NetworkCreateOptions,
     pub(super) engine_reconciliation: EngineReconciliationSchedule,
@@ -122,6 +124,7 @@ impl UnixDaemonRuntime {
             engine_retry,
         )?;
         let global_network_request = global_network_request(installation.installation_id())?;
+        let engine_events = EngineEventSubscription::new(installation.installation_id())?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
 
         Ok(Self {
@@ -130,6 +133,7 @@ impl UnixDaemonRuntime {
             filesystem_watcher,
             engine_runtime,
             engine_connection,
+            engine_events,
             runtime_directory,
             global_network_request,
             engine_reconciliation: EngineReconciliationSchedule::default(),
@@ -275,6 +279,7 @@ impl UnixDaemonRuntime {
                     {
                         self.reconcile_engine_plane(now, now_unix_seconds);
                     }
+                    self.drive_engine_events(now);
                     self.drive_project_commands(now, now_unix_seconds);
                     self.drive_project_backups(now, now_unix_seconds);
                     self.drive_postgres_prunes(now, now_unix_seconds);
@@ -293,6 +298,24 @@ impl UnixDaemonRuntime {
                 .next_deadline()
                 .saturating_duration_since(now);
             std::thread::sleep(self.options.idle_poll_interval.min(until_scan));
+        }
+    }
+
+    fn drive_engine_events(&mut self, now: Instant) {
+        let observation = self.engine_events.poll(
+            &self.engine_runtime,
+            self.engine_connection.engine().cloned(),
+            now,
+        );
+        match observation {
+            EngineEventObservation::Idle => {}
+            EngineEventObservation::Events { count } => {
+                self.engine_reconciliation.request();
+                tracing::debug!(count, "managed Engine events scheduled reconciliation");
+            }
+            EngineEventObservation::Disconnected { detail } => {
+                tracing::debug!(error = detail, "managed Engine event stream will reconnect");
+            }
         }
     }
 

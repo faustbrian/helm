@@ -68,6 +68,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Connected the typed managed-container Engine event stream to the singleton
+  daemon. Events schedule prompt full reconciliation through a bounded channel,
+  while cursor-based reconnects use bounded exponential backoff and periodic
+  discovery remains the correctness fallback.
 - Added digest-pinned Composer, Node, and Bun application-runtime inputs. The
   daemon resolves every base and tool image through the selected Engine, builds
   one network-disabled content-addressed Linux runtime, and propagates it to

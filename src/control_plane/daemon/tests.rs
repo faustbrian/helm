@@ -5748,6 +5748,9 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     );
     engine_schedule.complete();
     assert!(!engine_schedule.is_due());
+    engine_schedule.request();
+    assert!(engine_schedule.is_due());
+    engine_schedule.complete();
     assert_eq!(applied.report().sources().len(), 1);
     assert_eq!(
         applied
@@ -8024,6 +8027,52 @@ fn daemon_watch_rejects_broken_localhost_resolution_before_writing_state() {
     );
     assert!(!runtime_directory.exists());
     std::fs::remove_dir_all(root).expect("remove preflight fixture");
+}
+
+#[test]
+fn managed_engine_events_are_polled_without_blocking_and_resume_after_close() {
+    use super::{EngineEventObservation, EngineEventSubscription};
+    use crate::control_plane::engine::{
+        ContainerEvent, ContainerEventAction, ContainerEventCursor, ContainerEventSource,
+        ContainerEventStream, ContainerId,
+    };
+
+    #[derive(Clone, Copy)]
+    struct OneEventSource;
+
+    impl ContainerEventSource for OneEventSource {
+        fn stream_managed<'stream>(
+            &'stream self,
+            _installation_id: &'stream str,
+            _cursor: ContainerEventCursor,
+        ) -> ContainerEventStream<'stream> {
+            Box::pin(futures_util::stream::iter([Ok(ContainerEvent::new(
+                ContainerId::new("container-app"),
+                ContainerEventAction::Died,
+                2_000_000_000,
+            ))]))
+        }
+    }
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("event runtime");
+    let now = Instant::now();
+    let mut subscription =
+        EngineEventSubscription::new("installation-1").expect("event subscription");
+
+    assert_eq!(
+        subscription.poll(&runtime, Some(OneEventSource), now),
+        EngineEventObservation::Events { count: 1 }
+    );
+    assert_eq!(
+        subscription.poll(&runtime, Some(OneEventSource), now),
+        EngineEventObservation::Idle
+    );
+    assert_eq!(
+        subscription.poll(&runtime, Some(OneEventSource), now + Duration::from_secs(1),),
+        EngineEventObservation::Events { count: 1 }
+    );
 }
 
 #[cfg(unix)]

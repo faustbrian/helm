@@ -39,6 +39,13 @@ impl EngineReconciliationSchedule {
         self.due
     }
 
+    /// Requests another observed-state pass without changing desired state.
+    pub(crate) fn request(&mut self) {
+        if self.permitted {
+            self.due = true;
+        }
+    }
+
     /// Returns the last complete validated registry, including while blocked.
     pub(crate) const fn desired_registry(&self) -> Option<&DesiredRegistry> {
         self.desired_registry.as_ref()

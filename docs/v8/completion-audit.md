@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 649 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 650 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -51,7 +51,7 @@ identified below.
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
 | AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, and strict dispatch guard | Live Engine compatibility negotiation record |
-| AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | event supervisor, bounded backoff, health invalidation, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
+| AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | production managed-event subscription, cursor-based bounded reconnect, bounded connection backoff, health invalidation, event scheduling, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
 | AC-21 | Daemon restart, login, reboot, service crash, sleep, and wake recover | Partial | queue/state restore, idempotent reconciliation, restart, and crash tests | Login, reboot, sleep/wake, and service-crash platform artifacts |
 | AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup and crash-replayable prune, daemon-owned Redis/Valkey prefix backup, prune, and safety-backed in-place restore, recovery-bound RabbitMQ prune plus safety-backed in-place topology restore for empty vhosts, recovery-bound MinIO current-object backup, exact tenant prune, and safety-backed in-place restore for unversioned buckets, ownership-reverified quiesced backup, safety-backed empty-target restore, and recovery-bound installation deletion for dedicated project volumes, disposable GC, reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server restore/cutover/confirm/rollback, and explicit keep-data/delete-data paths with terminal-marker and failed-operation retry tests | RabbitMQ non-empty message backup and restore plus live rename/remove/restore/uninstall acceptance |
 | AC-23 | V8 enforces a clean-install major-version boundary | Implemented | v8-only CLI parser and dispatch, removed pre-v8 source trees and dependencies, no config conversion command, and unsupported-TOML discovery diagnostics | Clean-host installation acceptance |
