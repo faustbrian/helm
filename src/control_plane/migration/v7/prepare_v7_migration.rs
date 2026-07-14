@@ -7,7 +7,7 @@ use crate::control_plane::state::{
 pub(crate) async fn prepare_v7_migration(
     journal: &mut dyn V7MigrationExecutionJournal,
     plan: &V7MigrationExecutionRecord,
-    registry: &mut V7MigrationAdapterRegistry,
+    registry: &mut V7MigrationAdapterRegistry<'_>,
     updated_at_unix_seconds: i64,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
     validate_plan(plan, registry, updated_at_unix_seconds)?;
@@ -106,7 +106,7 @@ pub(crate) async fn prepare_v7_migration(
 
 fn validate_plan(
     plan: &V7MigrationExecutionRecord,
-    registry: &V7MigrationAdapterRegistry,
+    registry: &V7MigrationAdapterRegistry<'_>,
     updated_at_unix_seconds: i64,
 ) -> Result<(), V7MigrationExecutionError> {
     if plan.phase() != V7MigrationExecutionPhase::Planned {

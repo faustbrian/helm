@@ -6,7 +6,7 @@ use crate::control_plane::state::V7MigrationExecutionRecord;
 
 /// Registers the exact accepted generated-environment transition when selected.
 pub(crate) fn register_v7_protected_environment_migration_adapter(
-    registry: &mut V7MigrationAdapterRegistry,
+    registry: &mut V7MigrationAdapterRegistry<'_>,
     execution: &V7MigrationExecutionRecord,
     options: V7ProtectedGeneratedEnvironmentAdapterOptions<'_>,
 ) -> Result<bool, String> {

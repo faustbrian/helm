@@ -6,7 +6,7 @@ use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutio
 pub(crate) async fn confirm_v7_migration(
     journal: &mut dyn V7MigrationExecutionJournal,
     plan: &V7MigrationExecutionRecord,
-    registry: &mut V7MigrationAdapterRegistry,
+    registry: &mut V7MigrationAdapterRegistry<'_>,
     updated_at_unix_seconds: i64,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
     let execution = load_execution(journal, plan)?;

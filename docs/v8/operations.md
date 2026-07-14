@@ -274,7 +274,10 @@ The preparation coordinator resolves every checkpoint through a common
 adapter-strategy registry before writing its initial record. Registry entries
 are exact adapter IDs, not global kind handlers, so two services using the same
 database engine retain separate source, target, credential, and recovery
-context. The registry must contain exactly the immutable checkpoint set and
+context. A registry is scoped to one execution and may borrow the daemon's live
+typed Engine, gateway, and service providers; adapters do not require global
+handles or provider ownership transfer. The registry must contain exactly the
+immutable checkpoint set and
 match every selected kind; missing, extra, duplicate, or mismatched bindings
 fail before persistence. The coordinator completes and
 journals all required recovery artifacts before target work, prioritizes those

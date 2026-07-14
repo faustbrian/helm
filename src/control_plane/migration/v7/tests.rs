@@ -687,6 +687,34 @@ fn recreated_v7_services_require_typed_active_targets() {
 }
 
 #[test]
+fn v7_registry_can_borrow_a_live_provider_for_one_execution() {
+    run_test(async {
+        let checkpoint = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+            .expect("route checkpoint");
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, vec![checkpoint], 10);
+        let mut target_prepared = false;
+        let mut journal = RecordingV7Journal::default();
+        {
+            let mut registry = V7MigrationAdapterRegistry::default();
+            registry
+                .register(
+                    "route",
+                    "no-routes",
+                    Box::new(BorrowingV7Adapter {
+                        target_prepared: &mut target_prepared,
+                    }),
+                )
+                .expect("register borrowed adapter");
+            prepare_v7_migration(&mut journal, &plan, &mut registry, 11)
+                .await
+                .expect("prepare borrowed adapter");
+        }
+
+        assert!(target_prepared);
+    });
+}
+
+#[test]
 fn v7_adapter_selection_covers_every_legacy_driver_without_fallback() {
     use V7MigrationServiceAdapter as Adapter;
 
@@ -1544,7 +1572,7 @@ fn v7_execution_record(
 fn lifecycle_v7_registry(
     calls: Arc<Mutex<Vec<String>>>,
     fail_route_cutover: bool,
-) -> V7MigrationAdapterRegistry {
+) -> V7MigrationAdapterRegistry<'static> {
     let database: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
         calls: Arc::clone(&calls),
         target_reference: Some("postgres-v8-bill"),
@@ -1672,6 +1700,48 @@ fn v7_rollback_state() -> MigrationRollbackPlan {
         Vec::new(),
     )
     .expect("v7 rollback state")
+}
+
+struct BorrowingV7Adapter<'operation> {
+    target_prepared: &'operation mut bool,
+}
+
+impl V7MigrationAdapterExecutor for BorrowingV7Adapter<'_> {
+    fn prepare_recovery<'operation>(
+        &'operation mut self,
+        _checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, MigrationBackup> {
+        Box::pin(async { Err(MigrationOperationError::new("no recovery")) })
+    }
+
+    fn prepare_target<'operation>(
+        &'operation mut self,
+        _checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, V7MigrationAdapterTarget> {
+        *self.target_prepared = true;
+        Box::pin(async { Ok(V7MigrationAdapterTarget::NoExternalTarget) })
+    }
+
+    fn cutover<'operation>(
+        &'operation mut self,
+        _checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn rollback<'operation>(
+        &'operation mut self,
+        _checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn confirm<'operation>(
+        &'operation mut self,
+        _checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 struct RecordingV7Adapter {

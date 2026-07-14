@@ -6,7 +6,7 @@ use crate::control_plane::state::{
 
 /// Binds one recreation checkpoint to exact active v8 observed or logical state.
 pub(crate) fn register_v7_recreated_service_migration_adapter(
-    registry: &mut V7MigrationAdapterRegistry,
+    registry: &mut V7MigrationAdapterRegistry<'_>,
     execution: &V7MigrationExecutionRecord,
     service_id: &str,
     target: V7RecreatedServiceTarget,

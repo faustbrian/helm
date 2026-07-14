@@ -4,7 +4,7 @@ use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutio
 
 /// Idempotently applies every prepared adapter and records one global cutover.
 pub(crate) async fn cutover_v7_migration(
-    options: V7MigrationCutoverOptions<'_>,
+    options: V7MigrationCutoverOptions<'_, '_>,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
     let execution = load_execution(options.journal, options.plan)?;
     if options.desired_state.project().project_name() != execution.project_id()

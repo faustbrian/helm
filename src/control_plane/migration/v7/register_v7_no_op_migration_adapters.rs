@@ -3,7 +3,7 @@ use crate::control_plane::state::V7MigrationExecutionRecord;
 
 /// Registers every explicitly selected adapter that owns no external work.
 pub(crate) fn register_v7_no_op_migration_adapters(
-    registry: &mut V7MigrationAdapterRegistry,
+    registry: &mut V7MigrationAdapterRegistry<'_>,
     execution: &V7MigrationExecutionRecord,
 ) -> Result<usize, String> {
     let mut registered = 0;

@@ -4,16 +4,16 @@ use std::collections::BTreeMap;
 
 /// Exact per-resource strategy registry for one immutable v7 execution plan.
 #[derive(Default)]
-pub(crate) struct V7MigrationAdapterRegistry {
-    registrations: BTreeMap<String, V7MigrationAdapterRegistration>,
+pub(crate) struct V7MigrationAdapterRegistry<'adapter> {
+    registrations: BTreeMap<String, V7MigrationAdapterRegistration<'adapter>>,
 }
 
-impl V7MigrationAdapterRegistry {
+impl<'adapter> V7MigrationAdapterRegistry<'adapter> {
     pub(crate) fn register(
         &mut self,
         adapter_id: impl Into<String>,
         adapter_kind: impl Into<String>,
-        executor: Box<dyn V7MigrationAdapterExecutor>,
+        executor: Box<dyn V7MigrationAdapterExecutor + 'adapter>,
     ) -> Result<(), String> {
         let adapter_id = adapter_id.into();
         let adapter_kind = adapter_kind.into();
@@ -63,7 +63,8 @@ impl V7MigrationAdapterRegistry {
     pub(super) fn executor(
         &mut self,
         checkpoint: &V7MigrationAdapterCheckpoint,
-    ) -> Result<&mut Box<dyn V7MigrationAdapterExecutor>, V7MigrationExecutionError> {
+    ) -> Result<&mut Box<dyn V7MigrationAdapterExecutor + 'adapter>, V7MigrationExecutionError>
+    {
         let Some(registration) = self.registrations.get_mut(checkpoint.adapter_id()) else {
             return Err(missing(checkpoint));
         };
@@ -81,7 +82,7 @@ impl V7MigrationAdapterRegistry {
     fn registration(
         &self,
         checkpoint: &V7MigrationAdapterCheckpoint,
-    ) -> Result<&V7MigrationAdapterRegistration, V7MigrationExecutionError> {
+    ) -> Result<&V7MigrationAdapterRegistration<'adapter>, V7MigrationExecutionError> {
         let registration = self
             .registrations
             .get(checkpoint.adapter_id())
@@ -98,9 +99,9 @@ impl V7MigrationAdapterRegistry {
     }
 }
 
-struct V7MigrationAdapterRegistration {
+struct V7MigrationAdapterRegistration<'adapter> {
     adapter_kind: String,
-    executor: Box<dyn V7MigrationAdapterExecutor>,
+    executor: Box<dyn V7MigrationAdapterExecutor + 'adapter>,
 }
 
 fn missing(checkpoint: &V7MigrationAdapterCheckpoint) -> V7MigrationExecutionError {

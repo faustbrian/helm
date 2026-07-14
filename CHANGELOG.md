@@ -35,6 +35,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Made the exact v7 adapter registry execution-scoped so stateful strategies
+  can safely borrow live typed Engine and gateway providers without global
+  handles, ownership transfer, or `'static` adapter workarounds.
 - Added concrete recreation adapters for v7 project workloads, stateless
   services, and ephemeral services. Preparation now requires exact active v8
   workload or logical-resource ownership, while only explicitly ephemeral
