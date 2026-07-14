@@ -35,6 +35,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a read-only v7 project inventory through a dedicated typed Engine
+  capability. It deterministically binds legacy config to stopped or running
+  legacy-labelled containers, observed image identities and mounts, routes,
+  trust requirements, logical names, credential-field presence, environment
+  keys, and runtime customizations without retaining secret values. Ambiguous
+  ownership, missing observations, volume drift, bind or anonymous mounts, and
+  unsupported Swarm sources remain explicit migration blockers.
 - Bound project-owned persistent volumes into installation delete-data plans
   with user-visible resource and recovery identities, confirmation tokens that
   include exact artifact evidence, reverification at freeze and immediately

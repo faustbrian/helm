@@ -214,6 +214,18 @@ resources, restores and verifies data, starts the app, applies environment and
 routes, verifies readiness, records reversible cutover, and removes old
 resources only after confirmation.
 
+The first phase is a read-only, secret-free typed inventory. A dedicated Engine
+capability lists both running and stopped containers carrying only the legacy
+`com.stackctl.managed=true` marker. The inventory then requires exact legacy
+service, kind, and container-name labels and records the Engine-observed image
+identity and mount set alongside configured intent. Duplicate matches,
+conflicting labels, missing image identity, volume drift, unexpected mounts,
+host binds, anonymous mounts, absent containers, and legacy Swarm targets block
+automatic migration with retained source state. Environment and credential
+values are never copied into this diagnostic model; only key or field presence
+is recorded. Resource-specific adapter selection and live cutover remain
+separate later phases.
+
 An existing volume is never attached to an incompatible image or different
 engine as an implicit upgrade. Unsupported projects retain a precise diagnostic
 and v7 rollback path.

@@ -7,12 +7,12 @@ use super::{
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
     ContainerResourceMetrics, ContainerState, ContainerVolumeArchive, EngineError, EngineFuture,
     HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
-    ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
-    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
-    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
-    ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource,
+    ImageResolver, ImmutableImageReference, LegacyContainerDiscovery, LogChunk, LogSource,
+    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ObservedContainer, ObservedContainerMount, ObservedNetwork, ObservedResourceOwnership,
+    ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding,
+    PublishedPortDiscovery, RegistryImageReference, ResourceKind, ResourceMetrics,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -488,6 +488,23 @@ impl ContainerDiscovery for BollardEngineAdapter {
                     .list_containers(Some(managed_container_list_request()))
                     .await
                     .map_err(|error| backend_error("list managed containers", error))
+            })
+            .await?
+            .into_iter()
+            .map(observed_container)
+            .collect()
+        })
+    }
+}
+
+impl LegacyContainerDiscovery for BollardEngineAdapter {
+    fn discover_v7_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
+        Box::pin(async move {
+            bounded_engine_operation("list v7 managed containers", request_timeout(), async {
+                self.docker
+                    .list_containers(Some(legacy_v7_container_list_request()))
+                    .await
+                    .map_err(|error| backend_error("list v7 managed containers", error))
             })
             .await?
             .into_iter()
@@ -1537,6 +1554,17 @@ pub(super) fn managed_container_list_request() -> bollard::query_parameters::Lis
         .build()
 }
 
+pub(super) fn legacy_v7_container_list_request() -> bollard::query_parameters::ListContainersOptions
+{
+    ListContainersOptionsBuilder::default()
+        .all(true)
+        .filters(&HashMap::from([(
+            "label".to_owned(),
+            vec!["com.stackctl.managed=true".to_owned()],
+        )]))
+        .build()
+}
+
 pub(super) fn published_port_list_request() -> bollard::query_parameters::ListContainersOptions {
     ListContainersOptionsBuilder::default().all(false).build()
 }
@@ -1614,6 +1642,13 @@ fn managed_resource_filters() -> HashMap<String, Vec<String>> {
 pub(super) fn observed_container(
     summary: ContainerSummary,
 ) -> Result<ObservedContainer, EngineError> {
+    let image_identity = summary.image_id.or(summary.image);
+    let mounts = summary
+        .mounts
+        .unwrap_or_default()
+        .into_iter()
+        .map(observed_container_mount)
+        .collect::<Result<Vec<_>, _>>()?;
     let id = summary.id.ok_or_else(|| EngineError::Backend {
         detail: "Engine returned a managed container without an ID".to_owned(),
     })?;
@@ -1623,7 +1658,33 @@ pub(super) fn observed_container(
         .into_iter()
         .collect::<BTreeMap<_, _>>();
 
-    Ok(ObservedContainer::new(ContainerId::new(id), labels))
+    let observed = ObservedContainer::new(ContainerId::new(id), labels).with_mounts(mounts);
+
+    Ok(match image_identity {
+        Some(image_identity) => observed.with_image_identity(image_identity),
+        None => observed,
+    })
+}
+
+fn observed_container_mount(mount: MountPoint) -> Result<ObservedContainerMount, EngineError> {
+    let mount_type = mount.typ.unwrap_or_else(|| "unknown".to_owned());
+    let named_volume = mount_type == "volume";
+    let source = if named_volume {
+        mount.name.or(mount.source)
+    } else {
+        mount.source.or(mount.name)
+    }
+    .unwrap_or_else(|| mount_type.clone());
+    let target = mount.destination.ok_or_else(|| EngineError::Backend {
+        detail: format!("Engine returned a {mount_type} mount without a destination"),
+    })?;
+
+    Ok(ObservedContainerMount::new(
+        source,
+        target,
+        named_volume,
+        mount.rw == Some(false),
+    ))
 }
 
 pub(super) fn observed_network(network: Network) -> Result<ObservedNetwork, EngineError> {

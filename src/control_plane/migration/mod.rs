@@ -19,6 +19,7 @@ mod recovery_point_restore_options;
 mod redis;
 mod run_migration;
 mod sql_server;
+mod v7;
 mod volume;
 
 pub(crate) use execute_recovery_point_restore::execute_recovery_point_restore;
@@ -58,6 +59,10 @@ pub(crate) use sql_server::{
     SqlServerBackupOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
     SqlServerRestoreOptions, SqlServerVerifyTargetOptions, backup_sql_server_database,
     restore_sql_server_database, verify_sql_server_target,
+};
+pub(crate) use v7::{
+    V7InventoryBlocker, V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7RuntimeFeature, V7VolumeSource, inventory_v7_project,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
