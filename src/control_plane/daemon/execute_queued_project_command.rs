@@ -42,7 +42,7 @@ where
     ProjectCommandExecutionResult::new(operation_id, outcome)
 }
 
-async fn find_application<E>(
+pub(crate) async fn find_application<E>(
     engine: &E,
     project_id: &str,
     service_id: &str,

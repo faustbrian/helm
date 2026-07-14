@@ -1,7 +1,8 @@
 use super::{
     ProjectProcessOperationOptions, ProjectProcessOperationPlan, ProjectProcessPlan,
     ProjectProcessPlanOptions, ProjectProcessRequestOptions, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, WorkloadPlanError, project_process_request,
+    RuntimeEnvironmentOptions, WorkloadPlanError, merge_project_declared_environment,
+    project_process_request,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
@@ -11,7 +12,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// Plans one worker or scheduler against its application's exact runtime image.
+/// Plans one long-lived worker against its application's exact runtime image.
 pub(crate) fn plan_project_process_operation(
     options: ProjectProcessOperationOptions<'_>,
 ) -> Result<ProjectProcessOperationPlan, WorkloadPlanError> {
@@ -48,7 +49,8 @@ pub(crate) fn plan_project_process_operation(
             options.application.request().image()
         )));
     }
-    let declared = merged_declared_environment(service, application_service)?;
+    let declared =
+        merge_project_declared_environment(service, application_service, "project process")?;
     let environment = RuntimeEnvironment::new(RuntimeEnvironmentOptions {
         project: service.project().clone(),
         declared,
@@ -114,31 +116,10 @@ pub(crate) fn plan_project_process_operation(
     ))
 }
 
-fn merged_declared_environment(
-    service: &crate::control_plane::ServiceExecutionPlan,
-    application: &crate::control_plane::ServiceExecutionPlan,
-) -> Result<BTreeMap<String, String>, WorkloadPlanError> {
-    let mut declared = application.desired().environment().clone();
-    for (key, value) in service.desired().environment() {
-        if declared.get(key).is_some_and(|existing| existing != value) {
-            return Err(invalid(format!(
-                "project process '{}-{}' environment key '{key}' conflicts with application '{}'",
-                service.project().as_str(),
-                service.service().as_str(),
-                application.service().as_str()
-            )));
-        }
-        declared.insert(key.clone(), value.clone());
-    }
-
-    Ok(declared)
-}
-
 fn default_command(preset: &str) -> Vec<String> {
     let arguments = match preset {
         "horizon" => ["php", "artisan", "horizon"].as_slice(),
         "queue-worker" | "queue" => ["php", "artisan", "queue:work", "--no-interaction"].as_slice(),
-        "scheduler" => ["php", "artisan", "schedule:work", "--no-interaction"].as_slice(),
         _ => [].as_slice(),
     };
 

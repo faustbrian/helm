@@ -3,7 +3,7 @@ use super::{ProjectProcessPlanOptions, RuntimeEnvironment, WorkloadPlanError};
 use std::fmt::{Debug, Formatter};
 use std::path::{Path, PathBuf};
 
-/// One dedicated worker or scheduler process in the project runtime image.
+/// One dedicated long-lived worker in the project runtime image.
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct ProjectProcessPlan {
     project_id: String,

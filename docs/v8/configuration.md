@@ -115,7 +115,8 @@ supported extension modules for amd64 and arm64. The supported catalog is
 Unknown names fail during desired-state validation. The daemon derives a
 content-addressed image from the locked base and sorted extension set, enables
 the declared modules without network access, and verifies each module through
-PHP before starting the app. Workers and schedulers use that exact built image.
+PHP before starting the app. Workers use that exact built image, while
+schedulers execute inside the exact application container.
 Images without one of these presets cannot declare extensions implicitly; they
 must contain their requirements already.
 
@@ -126,8 +127,10 @@ tags or download an installer during unattended reconciliation. The daemon
 derives one content-addressed Linux runtime from the locked application base,
 the target platform, normalized PHP extensions, and all declared tool-image
 digests. It makes every input available through the selected Engine before an
-offline build, then starts the application from that derived image. Workers and
-schedulers inherit the same resulting image.
+offline build, then starts the application from that derived image. Workers
+inherit the resulting image. The singleton daemon invokes scheduler commands
+inside that application container once per wall-clock minute, so a project does
+not require an otherwise idle scheduler container.
 
 Project system libraries are part of the immutable application base image.
 Stackctl does not accept arbitrary package names and run a distribution package

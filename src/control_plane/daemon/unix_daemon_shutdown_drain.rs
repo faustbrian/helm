@@ -15,6 +15,7 @@ impl UnixDaemonRuntime {
             self.publish_finished_postgres_prune(now_unix_seconds);
             self.publish_finished_project_restore(now_unix_seconds);
             self.publish_finished_migration_decision(now_unix_seconds);
+            self.publish_finished_scheduled_commands();
             if self.has_active_mutation() {
                 std::thread::sleep(SHUTDOWN_DRAIN_POLL_INTERVAL);
             }
@@ -27,5 +28,6 @@ impl UnixDaemonRuntime {
             || self.has_active_postgres_prune()
             || self.has_active_project_restore()
             || self.has_active_migration_decision()
+            || self.has_active_scheduled_commands()
     }
 }

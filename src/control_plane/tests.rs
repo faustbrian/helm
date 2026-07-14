@@ -164,7 +164,10 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
         ("horizon", ServiceDeploymentStrategy::ProjectProcess),
         ("queue-worker", ServiceDeploymentStrategy::ProjectProcess),
         ("queue", ServiceDeploymentStrategy::ProjectProcess),
-        ("scheduler", ServiceDeploymentStrategy::ProjectProcess),
+        (
+            "scheduler",
+            ServiceDeploymentStrategy::ProjectScheduledCommand,
+        ),
         ("dusk", ServiceDeploymentStrategy::Ephemeral),
         ("selenium", ServiceDeploymentStrategy::Ephemeral),
         ("gotenberg", ServiceDeploymentStrategy::SharedStateless),
@@ -209,7 +212,11 @@ fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
         let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
         let artifact = resolve_preset_artifact(preset, None).expect("known artifact policy");
 
-        if strategy == ServiceDeploymentStrategy::ProjectProcess {
+        if matches!(
+            strategy,
+            ServiceDeploymentStrategy::ProjectProcess
+                | ServiceDeploymentStrategy::ProjectScheduledCommand
+        ) {
             assert_eq!(artifact, None, "process preset {preset} inherits app image");
         } else {
             let artifact = artifact.unwrap_or_else(|| panic!("preset {preset} needs an artifact"));

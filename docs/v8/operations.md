@@ -49,8 +49,11 @@ content-addressed by the locked base digest, target Linux platform, normalized
 PHP extension set, exact Composer, Node, and Bun image digests, and immutable
 ownership metadata. Equivalent projects reuse the verified Engine build cache.
 Every referenced image is made available through the typed `ImageResolver`
-before the daemon submits a network-disabled Engine build. Workers and
-schedulers are rebound to the exact derived image used by their application.
+before the daemon submits a network-disabled Engine build. Workers are rebound
+to the exact derived image used by their application. Scheduler commands use a
+bounded, non-shell Engine exec inside the exact owned application container.
+The daemon dispatches only the current wall-clock minute, never replays missed
+minutes after downtime, and skips a minute if that scheduler is still running.
 
 Additional system libraries belong in a digest-pinned custom application base.
 Normal reconciliation never runs a host package manager or performs an online

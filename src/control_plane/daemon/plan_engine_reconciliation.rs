@@ -10,6 +10,7 @@ use crate::control_plane::workload::{
     DedicatedProjectServiceOptions, ImmutableProjectApplicationOptions,
     ProjectProcessOperationOptions, plan_dedicated_project_service,
     plan_immutable_project_application, plan_project_process_operation,
+    plan_scheduled_project_command,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -22,6 +23,7 @@ pub(crate) fn plan_engine_reconciliation(
     let mut applications = Vec::new();
     let mut dedicated_services = Vec::new();
     let mut process_services = Vec::new();
+    let mut scheduled_services = Vec::new();
     let mut routes = options.shared_routes.to_vec();
 
     for service in options.execution.services() {
@@ -46,6 +48,10 @@ pub(crate) fn plan_engine_reconciliation(
         }
         if service.strategy() == ServiceDeploymentStrategy::ProjectProcess {
             process_services.push(service);
+            continue;
+        }
+        if service.strategy() == ServiceDeploymentStrategy::ProjectScheduledCommand {
+            scheduled_services.push(service);
             continue;
         }
         if matches!(
@@ -90,41 +96,17 @@ pub(crate) fn plan_engine_reconciliation(
 
     let mut processes = Vec::with_capacity(process_services.len());
     for service in process_services {
-        let application_services = options
-            .execution
-            .services()
-            .iter()
-            .filter(|candidate| {
-                candidate.project() == service.project()
-                    && candidate.strategy() == ServiceDeploymentStrategy::ProjectApplication
-                    && service
-                        .desired()
-                        .dependencies()
-                        .contains(candidate.service())
-            })
-            .collect::<Vec<_>>();
-        if application_services.len() != 1 {
-            return Err(invalid(format!(
-                "project process '{}-{}' must depend on exactly one project application",
-                service.project().as_str(),
-                service.service().as_str()
-            )));
-        }
-        let application_service = application_services[0];
-        let application = applications
-            .iter()
-            .find(|application| {
-                application.request().metadata().project_id() == Some(service.project().as_str())
-                    && application.request().metadata().resource_id()
-                        == Some(application_service.service().as_str())
-            })
-            .ok_or_else(|| {
-                invalid(format!(
-                    "project process '{}-{}' application dependency was not planned",
-                    service.project().as_str(),
-                    service.service().as_str()
-                ))
-            })?;
+        let application_service = resolve_application_dependency(
+            options.execution.services(),
+            service,
+            "project process",
+        )?;
+        let application = resolve_planned_application(
+            &applications,
+            service,
+            application_service,
+            "project process",
+        )?;
         let managed_environment = options
             .managed_environments
             .iter()
@@ -146,14 +128,91 @@ pub(crate) fn plan_engine_reconciliation(
         );
     }
 
+    let mut scheduled_commands = Vec::with_capacity(scheduled_services.len());
+    for service in scheduled_services {
+        let application_service = resolve_application_dependency(
+            options.execution.services(),
+            service,
+            "scheduled project command",
+        )?;
+        resolve_planned_application(
+            &applications,
+            service,
+            application_service,
+            "scheduled project command",
+        )?;
+        let managed_environment = options
+            .managed_environments
+            .iter()
+            .find(|environment| environment.project_id() == service.project().as_str())
+            .cloned()
+            .unwrap_or_else(|| empty_environment(service.project().as_str()));
+        scheduled_commands.push(
+            plan_scheduled_project_command(service, application_service, managed_environment)
+                .map_err(invalid)?,
+        );
+    }
+
     let gateway = GatewaySnapshot::new(routes).map_err(invalid)?;
 
     Ok(EngineReconciliationPlan::new(
         applications,
         dedicated_services,
         processes,
+        scheduled_commands,
         gateway,
     ))
+}
+
+fn resolve_application_dependency<'plan>(
+    services: &'plan [crate::control_plane::ServiceExecutionPlan],
+    service: &crate::control_plane::ServiceExecutionPlan,
+    workload: &str,
+) -> Result<&'plan crate::control_plane::ServiceExecutionPlan, EngineReconciliationPlanError> {
+    let applications = services
+        .iter()
+        .filter(|candidate| {
+            candidate.project() == service.project()
+                && candidate.strategy() == ServiceDeploymentStrategy::ProjectApplication
+                && service
+                    .desired()
+                    .dependencies()
+                    .contains(candidate.service())
+        })
+        .collect::<Vec<_>>();
+    match applications.as_slice() {
+        [application] => Ok(application),
+        _ => Err(invalid(format!(
+            "{workload} '{}-{}' must depend on exactly one project application",
+            service.project().as_str(),
+            service.service().as_str()
+        ))),
+    }
+}
+
+fn resolve_planned_application<'plan>(
+    applications: &'plan [crate::control_plane::workload::ImmutableProjectApplicationPlan],
+    service: &crate::control_plane::ServiceExecutionPlan,
+    application_service: &crate::control_plane::ServiceExecutionPlan,
+    workload: &str,
+) -> Result<
+    &'plan crate::control_plane::workload::ImmutableProjectApplicationPlan,
+    EngineReconciliationPlanError,
+> {
+    applications
+        .iter()
+        .find(|application| {
+            application.request().metadata().project_id() == Some(service.project().as_str())
+                && application.request().metadata().resource_id()
+                    == Some(application_service.service().as_str())
+        })
+        .ok_or_else(|| {
+            invalid(format!(
+                "{workload} '{}-{}' application dependency was not planned",
+                service.project().as_str(),
+                service.service().as_str()
+            ))
+        })
 }
 
 fn unsupported(

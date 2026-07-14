@@ -4,7 +4,7 @@ use crate::control_plane::engine::{
     ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind, RetentionClass,
 };
 
-/// Restores one supervised project worker or scheduler by stable resource identity.
+/// Restores one supervised project worker by stable resource identity.
 pub(crate) async fn reconcile_project_process<E>(
     engine: &mut E,
     options: WorkloadReconcileOptions<'_>,

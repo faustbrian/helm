@@ -9,14 +9,14 @@ use super::{
     ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, ScheduledCommandClock,
+    SingletonLease, collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
     execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
     execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
-    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result,
-    queue_next_installation_deletion_prune, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
+    execute_scheduled_project_command, finalize_installation_deletion,
+    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
+    publish_project_restore_result, queue_next_installation_deletion_prune,
+    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
     retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
@@ -195,6 +195,71 @@ fn queued_project_commands_execute_only_in_the_exact_owned_application() {
         engine.command_environments()[0].get("DB_PASSWORD"),
         Some(&"runtime-only-secret".to_owned())
     );
+}
+
+#[test]
+fn scheduled_project_commands_execute_only_in_the_exact_owned_application() {
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )]);
+    let plan = crate::control_plane::workload::ScheduledProjectCommandPlan::new(
+        crate::control_plane::workload::ScheduledProjectCommandPlanOptions {
+            project: crate::control_plane::ProjectIdentity::resolve(
+                Some("bill"),
+                Path::new("/work/bill"),
+            )
+            .expect("project identity"),
+            service: crate::control_plane::ServiceIdentity::new("scheduler")
+                .expect("scheduler identity"),
+            application_service: crate::control_plane::ServiceIdentity::new("app")
+                .expect("application identity"),
+            arguments: ["php", "artisan", "schedule:run", "--no-interaction"]
+                .map(str::to_owned)
+                .to_vec(),
+            environment: BTreeMap::from([("APP_MODE".to_owned(), "local".to_owned())]),
+            timeout: Duration::from_secs(55),
+        },
+    )
+    .expect("scheduled command plan");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+
+    let output = runtime
+        .block_on(execute_scheduled_project_command(
+            engine.clone(),
+            plan,
+            "install-1".to_owned(),
+            8,
+        ))
+        .expect("scheduled command output");
+
+    assert_eq!(output.stdout(), b"installed\n");
+    assert_eq!(engine.containers(), ["container-app"]);
+    assert_eq!(
+        engine.command_arguments()[0],
+        ["php", "artisan", "schedule:run", "--no-interaction"]
+    );
+    assert_eq!(
+        engine.command_environments()[0].get("APP_MODE"),
+        Some(&"local".to_owned())
+    );
+}
+
+#[test]
+fn scheduled_command_clock_runs_once_per_current_minute_without_replay() {
+    let mut clock = ScheduledCommandClock::default();
+
+    assert!(clock.take_due(61));
+    assert!(!clock.take_due(119));
+    assert!(clock.take_due(3_599));
+    assert!(!clock.take_due(3_599));
+    assert!(!clock.take_due(120));
+    assert!(clock.take_due(180));
 }
 
 #[test]
@@ -5341,6 +5406,56 @@ fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
         Some(&"steady".to_owned())
     );
     assert_eq!(plan.gateway().routes().len(), 1);
+}
+
+#[test]
+fn complete_engine_plans_schedule_commands_inside_the_application_runtime() {
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n    environment:\n      APP_MODE: local\n  scheduler:\n    preset: scheduler\n    depends_on: [app]\n    environment:\n      SCHEDULE_MODE: steady\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    assert!(plan.processes().is_empty());
+    assert_eq!(plan.scheduled_commands().len(), 1);
+    let scheduler = &plan.scheduled_commands()[0];
+    assert_eq!(scheduler.project_id(), "bill");
+    assert_eq!(scheduler.service_id(), "scheduler");
+    assert_eq!(scheduler.application_service(), "app");
+    assert_eq!(
+        scheduler.arguments(),
+        ["php", "artisan", "schedule:run", "--no-interaction"]
+    );
+    assert_eq!(
+        scheduler.environment().get("APP_MODE"),
+        Some(&"local".to_owned())
+    );
+    assert_eq!(
+        scheduler.environment().get("SCHEDULE_MODE"),
+        Some(&"steady".to_owned())
+    );
 }
 
 #[test]

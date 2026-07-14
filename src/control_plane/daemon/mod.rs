@@ -43,6 +43,7 @@ mod execute_queued_project_command;
 mod execute_queued_project_restore;
 mod execute_rabbitmq_project_restore;
 mod execute_redis_project_restore;
+mod execute_scheduled_project_command;
 mod failed_event_json;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
@@ -113,6 +114,7 @@ mod retry_failed_installation_deletion_prune;
 mod run_unix_daemon_watch;
 #[cfg(unix)]
 mod run_unix_daemon_watch_with_resolver;
+mod scheduled_command_clock;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
@@ -135,6 +137,8 @@ mod unix_daemon_runtime_error;
 #[cfg(unix)]
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
+mod unix_daemon_scheduled_commands;
+#[cfg(unix)]
 mod unix_daemon_shutdown_drain;
 #[cfg(unix)]
 mod unix_daemon_shutdown_signal;
@@ -148,6 +152,7 @@ pub(crate) use active_project_backup::ActiveProjectBackup;
 pub(crate) use active_project_command::ActiveProjectCommand;
 pub(crate) use active_project_log_session::ActiveProjectLogSession;
 pub(crate) use active_project_restore::ActiveProjectRestore;
+pub(crate) use scheduled_command_clock::ScheduledCommandClock;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
@@ -192,6 +197,7 @@ pub(crate) use execute_queued_project_command::execute_queued_project_command;
 pub(crate) use execute_queued_project_restore::execute_queued_project_restore;
 pub(crate) use execute_rabbitmq_project_restore::execute_rabbitmq_project_restore;
 pub(crate) use execute_redis_project_restore::execute_redis_project_restore;
+pub(crate) use execute_scheduled_project_command::execute_scheduled_project_command;
 pub(crate) use failed_event_json::failed_event_json;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;

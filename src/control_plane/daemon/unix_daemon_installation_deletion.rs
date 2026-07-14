@@ -19,6 +19,7 @@ impl UnixDaemonRuntime {
             || self.has_active_project_restore()
             || self.has_active_postgres_prune()
             || self.has_active_migration_decision()
+            || self.has_active_scheduled_commands()
         {
             return;
         }

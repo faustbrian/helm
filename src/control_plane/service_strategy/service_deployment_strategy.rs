@@ -8,6 +8,7 @@ pub(crate) enum ServiceDeploymentStrategy {
     DedicatedUntilIsolationProven,
     ProjectApplication,
     ProjectProcess,
+    ProjectScheduledCommand,
     Ephemeral,
 }
 

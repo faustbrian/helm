@@ -29,6 +29,7 @@ impl UnixDaemonRuntime {
             || self.active_project_command.is_some()
             || self.active_project_backup.is_some()
             || self.active_migration_decision.is_some()
+            || self.has_active_scheduled_commands()
         {
             return;
         }

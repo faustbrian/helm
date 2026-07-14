@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced one idle scheduler process container per project with daemon-owned
+  minute dispatch into the exact application container. Scheduler commands now
+  use typed Engine exec, inherit the application's complete managed
+  environment, run at most once per wall-clock minute without catch-up bursts,
+  skip overlapping invocations, and remain serialized against destructive
+  Engine operations.
 - Made benchmark scenario identity fail closed by verifying complete
   registered project ownership against per-project apps and canonical workers,
   application fingerprints, shared-service implementations and major versions,

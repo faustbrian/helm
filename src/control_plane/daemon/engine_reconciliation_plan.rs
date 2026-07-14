@@ -1,6 +1,7 @@
 use crate::control_plane::gateway::GatewaySnapshot;
 use crate::control_plane::workload::{
     DedicatedProjectServicePlan, ImmutableProjectApplicationPlan, ProjectProcessOperationPlan,
+    ScheduledProjectCommandPlan,
 };
 
 /// A complete, side-effect-free Engine pass derived before any mutation.
@@ -9,6 +10,7 @@ pub(crate) struct EngineReconciliationPlan {
     applications: Vec<ImmutableProjectApplicationPlan>,
     dedicated_services: Vec<DedicatedProjectServicePlan>,
     processes: Vec<ProjectProcessOperationPlan>,
+    scheduled_commands: Vec<ScheduledProjectCommandPlan>,
     gateway: GatewaySnapshot,
 }
 
@@ -17,12 +19,14 @@ impl EngineReconciliationPlan {
         applications: Vec<ImmutableProjectApplicationPlan>,
         dedicated_services: Vec<DedicatedProjectServicePlan>,
         processes: Vec<ProjectProcessOperationPlan>,
+        scheduled_commands: Vec<ScheduledProjectCommandPlan>,
         gateway: GatewaySnapshot,
     ) -> Self {
         Self {
             applications,
             dedicated_services,
             processes,
+            scheduled_commands,
             gateway,
         }
     }
@@ -33,6 +37,10 @@ impl EngineReconciliationPlan {
 
     pub(crate) fn processes(&self) -> &[ProjectProcessOperationPlan] {
         &self.processes
+    }
+
+    pub(crate) fn scheduled_commands(&self) -> &[ScheduledProjectCommandPlan] {
+        &self.scheduled_commands
     }
 
     pub(crate) fn dedicated_services(&self) -> &[DedicatedProjectServicePlan] {

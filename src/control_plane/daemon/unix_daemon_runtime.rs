@@ -7,15 +7,15 @@ use super::{
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
     ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, UnixDaemonShutdownSignal,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, ScheduledCommandClock,
+    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, UnixDaemonShutdownSignal,
     dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
     plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
     restore_daemon_operation_queues, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
-use crate::control_plane::engine::NetworkCreateOptions;
+use crate::control_plane::engine::{AttachedCommandOutput, EngineError, NetworkCreateOptions};
 use crate::control_plane::gateway::{
     GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
     SystemGatewayPortProbe, prepare_gateway_runtime_assets, reconcile_gateway_plane,
@@ -38,11 +38,11 @@ use crate::control_plane::state::{
 use crate::control_plane::state::{InstallationLifecycle, SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
     DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
-    ProjectVolumeReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
-    garbage_collect_disposable_containers, materialize_application_request,
-    project_volume_resource_record, reconcile_project_application, reconcile_project_process,
-    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
-    stop_orphaned_project_workloads, workload_resource_record,
+    ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan, WorkloadReconcileError,
+    WorkloadReconcileOptions, garbage_collect_disposable_containers,
+    materialize_application_request, project_volume_resource_record, reconcile_project_application,
+    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
+    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -75,8 +75,14 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) active_project_restore: Option<ActiveProjectRestore>,
     pub(super) active_postgres_prune: Option<ActivePostgresPrune>,
     pub(super) active_migration_decision: Option<ActiveMigrationDecision>,
+    pub(super) scheduled_project_commands: Vec<ScheduledProjectCommandPlan>,
+    pub(super) active_scheduled_commands: BTreeMap<
+        (String, String),
+        tokio::task::JoinHandle<Result<AttachedCommandOutput, EngineError>>,
+    >,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
+    pub(super) scheduled_command_clock: ScheduledCommandClock,
     pub(super) options: UnixDaemonRuntimeOptions,
 }
 
@@ -153,8 +159,11 @@ impl UnixDaemonRuntime {
             active_project_restore: None,
             active_postgres_prune: None,
             active_migration_decision: None,
+            scheduled_project_commands: Vec::new(),
+            active_scheduled_commands: BTreeMap::new(),
             control_plane: ControlPlane::new(store),
             scheduler,
+            scheduled_command_clock: ScheduledCommandClock::default(),
             options,
         })
     }
@@ -284,6 +293,7 @@ impl UnixDaemonRuntime {
                         && !self.has_active_project_restore()
                         && !self.has_active_postgres_prune()
                         && !self.has_active_migration_decision()
+                        && !self.has_active_scheduled_commands()
                         && self.engine_reconciliation.may_reconcile()
                     {
                         self.reconcile_engine_plane(now, now_unix_seconds);
@@ -294,6 +304,7 @@ impl UnixDaemonRuntime {
                     self.drive_postgres_prunes(now, now_unix_seconds);
                     self.drive_project_restores(now, now_unix_seconds);
                     self.drive_migration_decisions(now, now_unix_seconds);
+                    self.drive_scheduled_project_commands(now_unix_seconds);
                     self.drive_project_logs(now);
                     self.drive_installation_deletion(now, now_unix_seconds);
                 }
@@ -1162,6 +1173,7 @@ impl UnixDaemonRuntime {
                     return;
                 }
                 self.resource_health = health_snapshot;
+                self.scheduled_project_commands = engine_plan.scheduled_commands().to_vec();
                 self.engine_reconciliation.mark_converged();
                 tracing::debug!(
                     action = ?gateway.gateway_action(),

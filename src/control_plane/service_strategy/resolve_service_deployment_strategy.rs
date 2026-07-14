@@ -15,9 +15,8 @@ pub(crate) fn resolve_service_deployment_strategy(
         "dragonfly" | "garage" | "rustfs" | "opensearch" | "elasticsearch" | "meilisearch"
         | "typesense" => ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
         "frankenphp" | "laravel" | "reverb" => ServiceDeploymentStrategy::ProjectApplication,
-        "horizon" | "queue-worker" | "queue" | "scheduler" => {
-            ServiceDeploymentStrategy::ProjectProcess
-        }
+        "horizon" | "queue-worker" | "queue" => ServiceDeploymentStrategy::ProjectProcess,
+        "scheduler" => ServiceDeploymentStrategy::ProjectScheduledCommand,
         "dusk" | "selenium" => ServiceDeploymentStrategy::Ephemeral,
         _ => return Err(ServiceStrategyError::unknown(preset)),
     };

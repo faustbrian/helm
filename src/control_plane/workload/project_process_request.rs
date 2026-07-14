@@ -6,7 +6,7 @@ use crate::control_plane::engine::{
 
 const PROJECT_SOURCE_TARGET: &str = "/workspace";
 
-/// Produces one Engine request for a supervised worker or scheduler.
+/// Produces one Engine request for a supervised long-lived worker.
 pub(crate) fn project_process_request(
     options: ProjectProcessRequestOptions,
 ) -> Result<ContainerCreateOptions, EngineError> {
