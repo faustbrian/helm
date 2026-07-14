@@ -1134,6 +1134,8 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 "driver": "postgres",
                 "container_name": "bill-database",
                 "observed_container_id": "legacy-postgres",
+                "configured_mounts": [],
+                "observed_mounts": [],
                 "logical_data": logical_data
             }]
         })
@@ -1171,6 +1173,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
             driver: "postgres".to_owned(),
             container_name: "bill-database".to_owned(),
             container_id: "legacy-postgres".to_owned(),
+            named_volumes: Vec::new(),
             logical_data,
         })
         .expect("logical-data source");
@@ -1182,6 +1185,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 driver: "postgres".to_owned(),
                 container_name: "bill-database".to_owned(),
                 container_id: "legacy-postgres".to_owned(),
+                named_volumes: Vec::new(),
                 logical_data: BTreeMap::from([(
                     "database".to_owned(),
                     "other_database".to_owned(),
@@ -1209,6 +1213,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 driver: "postgres".to_owned(),
                 container_name: "other-database".to_owned(),
                 container_id: "legacy-postgres".to_owned(),
+                named_volumes: Vec::new(),
                 logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
             })
             .expect("drifted logical-data command target");
@@ -1225,6 +1230,31 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
         .expect_err("command target label drift must reject registration");
         assert!(error.contains("command target differs from accepted v7 evidence"));
         assert!(drifted_target_provider.calls.is_empty());
+        let drifted_volume_source =
+            V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                kind: "database".to_owned(),
+                driver: "postgres".to_owned(),
+                container_name: "bill-database".to_owned(),
+                container_id: "legacy-postgres".to_owned(),
+                named_volumes: vec!["other-data".to_owned()],
+                logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
+            })
+            .expect("drifted logical-data volumes");
+        let mut drifted_volume_provider = RecordingV7LogicalDataProvider::default();
+        let error = register_v7_logical_data_migration_adapter(
+            &mut V7MigrationAdapterRegistry::default(),
+            &plan,
+            V7LogicalDataMigrationAdapterOptions {
+                accepted: &accepted,
+                source: &drifted_volume_source,
+                provider: &mut drifted_volume_provider,
+            },
+        )
+        .expect_err("logical-data volume drift must reject registration");
+        assert!(error.contains("volumes differ from accepted v7 evidence"));
+        assert!(drifted_volume_provider.calls.is_empty());
         let mut provider = RecordingV7LogicalDataProvider::default();
         let mut journal = RecordingV7Journal::default();
         {

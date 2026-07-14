@@ -11,6 +11,7 @@ pub(crate) struct V7LogicalDataMigrationSource {
     driver: String,
     container_name: String,
     container_id: String,
+    named_volumes: Vec<String>,
     logical_data: BTreeMap<String, String>,
 }
 
@@ -23,8 +24,10 @@ impl V7LogicalDataMigrationSource {
             driver,
             container_name,
             container_id,
+            mut named_volumes,
             logical_data,
         } = options;
+        named_volumes.sort();
         let valid = !project_id.is_empty()
             && !project_id.contains('/')
             && !project_id.contains('\0')
@@ -39,6 +42,10 @@ impl V7LogicalDataMigrationSource {
             && !container_name.contains('\0')
             && !container_id.is_empty()
             && !container_id.contains('\0')
+            && named_volumes
+                .iter()
+                .all(|name| !name.is_empty() && !name.contains('\0'))
+            && !named_volumes.windows(2).any(|pair| pair[0] == pair[1])
             && logical_data.iter().all(|(key, value)| {
                 !key.is_empty() && !value.is_empty() && !key.contains('\0') && !value.contains('\0')
             });
@@ -56,6 +63,7 @@ impl V7LogicalDataMigrationSource {
             driver,
             container_name,
             container_id,
+            named_volumes,
             logical_data,
         })
     }
@@ -82,6 +90,10 @@ impl V7LogicalDataMigrationSource {
 
     pub(crate) fn container_id(&self) -> &str {
         &self.container_id
+    }
+
+    pub(crate) fn named_volumes(&self) -> &[String] {
+        &self.named_volumes
     }
 
     pub(crate) const fn logical_data(&self) -> &BTreeMap<String, String> {

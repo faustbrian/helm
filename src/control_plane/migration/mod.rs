@@ -44,10 +44,10 @@ pub(crate) use object_store::{
     MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket, restore_minio_bucket,
 };
 pub(crate) use postgres::{
-    EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
-    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, V7PostgresCredential,
-    V7PostgresMigrationProvider, V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement,
-    backup_postgres_database,
+    EnginePostgresSourceRetirement, EngineV7PostgresSourceRetirement, PostgresBackupOptions,
+    PostgresMigrationOperations, PostgresMigrationOperationsOptions,
+    PostgresSourceRetirementOptions, V7PostgresCredential, V7PostgresMigrationProvider,
+    V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement, backup_postgres_database,
 };
 pub(crate) use rabbitmq::{
     RabbitMqBackupOptions, RabbitMqRestoreOptions, backup_rabbitmq_vhost, restore_rabbitmq_vhost,

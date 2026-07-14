@@ -1,17 +1,18 @@
 use super::{
-    EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
-    PostgresMigrationOperationsOptions, PostgresProvisionTargetOptions, PostgresRestoreOptions,
-    PostgresSourceRetirement, PostgresSourceRetirementOptions, PostgresVerifyTargetOptions,
-    V7PostgresCredential, V7PostgresMigrationProvider, V7PostgresMigrationProviderOptions,
-    V7PostgresSourceRetirement, backup_postgres_database, provision_postgres_target,
-    restore_postgres_database, verify_postgres_target,
+    EnginePostgresSourceRetirement, EngineV7PostgresSourceRetirement, PostgresBackupOptions,
+    PostgresMigrationOperations, PostgresMigrationOperationsOptions,
+    PostgresProvisionTargetOptions, PostgresRestoreOptions, PostgresSourceRetirement,
+    PostgresSourceRetirementOptions, PostgresVerifyTargetOptions, V7PostgresCredential,
+    V7PostgresMigrationProvider, V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement,
+    backup_postgres_database, provision_postgres_target, restore_postgres_database,
+    verify_postgres_target,
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerId, ContainerLogStream, EngineFuture, LogChunk, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
-    RetentionClass, V7ContainerCommandExecutor, V7ContainerCommandTarget,
-    reconstruct_owned_container,
+    RetentionClass, V7ContainerCommandExecutor, V7ContainerCommandTarget, V7ContainerRetirement,
+    V7ContainerRetirementTarget, reconstruct_owned_container,
 };
 use crate::control_plane::migration::{
     MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture, MigrationOperations,
@@ -589,6 +590,37 @@ fn v7_postgres_provider_streams_recovery_and_prepares_replay_safe_v8_target() {
     std::fs::remove_dir_all(root).expect("remove v7 PostgreSQL provider fixture");
 }
 
+#[test]
+fn engine_v7_postgres_retirement_forwards_only_accepted_engine_id_and_volumes() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("v7 PostgreSQL retirement runtime");
+    let source = v7_postgres_source();
+    let mut engine = RecordingV7ContainerRetirement::default();
+    let mut retirement = EngineV7PostgresSourceRetirement::new(&mut engine);
+
+    runtime
+        .block_on(retirement.retire_source(&source))
+        .expect("retire accepted v7 PostgreSQL resources");
+
+    assert_eq!(
+        engine.target.into_inner().expect("retirement target"),
+        Some(
+            V7ContainerRetirementTarget::new(
+                V7ContainerCommandTarget::new(
+                    ContainerId::new("legacy-postgres"),
+                    "bill-database",
+                    "database",
+                    "database",
+                )
+                .expect("accepted v7 container"),
+                vec!["bill-database-data".to_owned()],
+            )
+            .expect("accepted v7 retirement target")
+        )
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
@@ -759,6 +791,21 @@ fn postgres_source_retirement_rejects_an_unconfirmed_checkpoint() {
 #[derive(Default)]
 struct RecordingV7PostgresSourceRetirement {
     called: Arc<AtomicBool>,
+}
+
+#[derive(Default)]
+struct RecordingV7ContainerRetirement {
+    target: Mutex<Option<V7ContainerRetirementTarget>>,
+}
+
+impl V7ContainerRetirement for RecordingV7ContainerRetirement {
+    fn retire_v7_container<'operation>(
+        &'operation mut self,
+        target: &'operation V7ContainerRetirementTarget,
+    ) -> EngineFuture<'operation, ()> {
+        *self.target.lock().expect("record retirement target") = Some(target.clone());
+        Box::pin(async { Ok(()) })
+    }
 }
 
 impl V7PostgresSourceRetirement for RecordingV7PostgresSourceRetirement {
@@ -1132,6 +1179,7 @@ fn v7_postgres_source() -> V7LogicalDataMigrationSource {
         driver: "postgres".to_owned(),
         container_name: "bill-database".to_owned(),
         container_id: "legacy-postgres".to_owned(),
+        named_volumes: vec!["bill-database-data".to_owned()],
         logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
     })
     .expect("v7 PostgreSQL source")
@@ -1150,6 +1198,18 @@ fn accepted_v7_postgres_inventory() -> AcceptedV7InventoryRecord {
             "driver": "postgres",
             "container_name": "bill-database",
             "observed_container_id": "legacy-postgres",
+            "configured_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-database-data",
+                "target": "/var/lib/postgresql/data",
+                "read_only": false
+            }],
+            "observed_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-database-data",
+                "target": "/var/lib/postgresql/data",
+                "read_only": false
+            }],
             "logical_data": {"database": "legacy_bill"}
         }]
     })

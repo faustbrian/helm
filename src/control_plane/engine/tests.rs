@@ -11,10 +11,10 @@ use super::{
     NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
     ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
     PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceKind,
-    ResourceMetrics, RetentionClass, V7ContainerCommandTarget, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
-    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
-    reconstruct_owned_network, reconstruct_owned_volume,
+    ResourceMetrics, RetentionClass, V7ContainerCommandTarget, V7ContainerRetirement,
+    V7ContainerRetirementTarget, VolumeCreateOptions, VolumeDiscovery, VolumeManager, VolumeMount,
+    classify_observed_resource, delete_owned_installation_resources, gateway_container_request,
+    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -40,6 +40,10 @@ use super::bollard_engine_adapter::{
     validate_volume_archive_identity, verify_owned_container_labels, verify_owned_network_labels,
     verify_owned_volume_labels, verify_v7_container_command_labels, volume_archive_upload_target,
     volume_create_request,
+};
+use super::bollard_v7_container_retirement::{
+    v7_volume_user_list_request, validate_missing_v7_container_retry,
+    verify_v7_container_retirement,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1504,6 +1508,86 @@ fn v7_command_target_requires_exact_legacy_ownership_labels() {
         .expect_err("legacy service drift must block command execution");
     assert!(error.to_string().contains("accepted v7"));
     assert!(error.to_string().contains("ownership labels"));
+}
+
+#[test]
+fn v7_retirement_requires_exact_labels_and_named_volume_mounts() {
+    let container = V7ContainerCommandTarget::new(
+        ContainerId::new("legacy-container-id"),
+        "bill-database",
+        "database",
+        "database",
+    )
+    .expect("legacy container identity");
+    let target = V7ContainerRetirementTarget::new(container, vec!["bill-postgres-data".to_owned()])
+        .expect("legacy retirement target");
+    let labels = std::collections::HashMap::from([
+        ("com.stackctl.managed".to_owned(), "true".to_owned()),
+        (
+            "com.stackctl.container".to_owned(),
+            "bill-database".to_owned(),
+        ),
+        ("com.stackctl.service".to_owned(), "database".to_owned()),
+        ("com.stackctl.kind".to_owned(), "database".to_owned()),
+    ]);
+    let mounts = vec![MountPoint {
+        typ: Some("volume".to_owned()),
+        name: Some("bill-postgres-data".to_owned()),
+        destination: Some("/var/lib/postgresql/data".to_owned()),
+        rw: Some(true),
+        ..MountPoint::default()
+    }];
+
+    verify_v7_container_retirement(&target, &labels, &mounts)
+        .expect("exact accepted retirement identity");
+    let drifted_mounts = vec![MountPoint {
+        typ: Some("volume".to_owned()),
+        name: Some("other-data".to_owned()),
+        ..MountPoint::default()
+    }];
+    let error = verify_v7_container_retirement(&target, &labels, &drifted_mounts)
+        .expect_err("volume drift must block legacy retirement");
+    assert!(error.to_string().contains("no longer match"));
+}
+
+#[test]
+fn v7_retirement_retry_never_deletes_an_unprovable_remaining_volume() {
+    let container = V7ContainerCommandTarget::new(
+        ContainerId::new("legacy-container-id"),
+        "bill-database",
+        "database",
+        "database",
+    )
+    .expect("legacy container identity");
+    let target = V7ContainerRetirementTarget::new(container, vec!["bill-postgres-data".to_owned()])
+        .expect("legacy retirement target");
+
+    validate_missing_v7_container_retry(&target, &[]).expect("fully retired replay");
+    let error = validate_missing_v7_container_retry(&target, &["bill-postgres-data".to_owned()])
+        .expect_err("remaining volume identity is ambiguous after container removal");
+    assert!(error.to_string().contains("refusing ambiguous retry"));
+    assert!(error.to_string().contains("no immutable identity"));
+}
+
+#[test]
+fn v7_volume_user_scan_is_exact_and_includes_stopped_containers() {
+    let request = v7_volume_user_list_request("bill-postgres-data");
+
+    assert!(request.all);
+    assert_eq!(
+        request.filters,
+        Some(std::collections::HashMap::from([(
+            "volume".to_owned(),
+            vec!["bill-postgres-data".to_owned()],
+        )]))
+    );
+}
+
+#[test]
+fn v7_container_retirement_is_an_object_safe_narrow_strategy() {
+    fn accepts_retirement(_retirement: &mut dyn V7ContainerRetirement) {}
+
+    let _ = accepts_retirement;
 }
 
 #[test]

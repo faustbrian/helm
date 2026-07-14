@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests;
 
+mod accepted_v7_named_volumes;
 mod capture_v7_generated_environment_rollback;
 mod confirm_v7_migration;
 mod cutover_v7_migration;
@@ -67,6 +68,7 @@ mod v7_volume_inventory;
 mod v7_volume_source;
 mod validate_v7_logical_data_migration_source;
 
+pub(crate) use accepted_v7_named_volumes::accepted_v7_named_volumes;
 pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_environment_rollback;
 pub(crate) use confirm_v7_migration::confirm_v7_migration;
 pub(crate) use cutover_v7_migration::cutover_v7_migration;

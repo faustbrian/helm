@@ -1,4 +1,4 @@
-use super::V7LogicalDataMigrationSource;
+use super::{V7LogicalDataMigrationSource, accepted_v7_named_volumes};
 use crate::control_plane::state::AcceptedV7InventoryRecord;
 
 /// Rebinds every logical-data command and resource identity to accepted evidence.
@@ -55,6 +55,11 @@ pub(crate) fn validate_v7_logical_data_migration_source(
             .map_err(|error| format!("accepted v7 logical-data identity is invalid: {error}"))?;
     if &logical_data != source.logical_data() {
         return Err("legacy logical-data identity differs from accepted v7 evidence".to_owned());
+    }
+    let configured_volumes = accepted_v7_named_volumes(service, "configured_mounts")?;
+    let observed_volumes = accepted_v7_named_volumes(service, "observed_mounts")?;
+    if configured_volumes != source.named_volumes() || observed_volumes != source.named_volumes() {
+        return Err("legacy logical-data volumes differ from accepted v7 evidence".to_owned());
     }
 
     Ok(())

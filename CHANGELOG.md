@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added confirmation-time accepted-v7 PostgreSQL retirement through a narrow
+  Engine capability. Cleanup revalidates the immutable container ID, exact
+  legacy labels, and accepted named-volume set before stopping or deleting
+  anything, refuses volumes still used by any container, and treats only a
+  fully absent source as a successful replay.
 - Added the first live accepted-v7 logical-data provider for PostgreSQL. It
   streams an identity-bound custom dump through the Engine, verifies recovery
   before target mutation, replay-safely resets and restores the deterministic

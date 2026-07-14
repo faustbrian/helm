@@ -1,6 +1,6 @@
 use super::{
     V7MigrationAdapterExecutor, V7MigrationAdapterTarget, V7NamedVolumeMigrationAdapterOptions,
-    V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider,
+    V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider, accepted_v7_named_volumes,
 };
 use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
 use crate::control_plane::state::V7MigrationAdapterCheckpoint;
@@ -108,8 +108,8 @@ fn validate_accepted_source(
     {
         return Err("legacy volume container differs from accepted v7 evidence".to_owned());
     }
-    let configured_volumes = named_volumes(service, "configured_mounts")?;
-    let observed_volumes = named_volumes(service, "observed_mounts")?;
+    let configured_volumes = accepted_v7_named_volumes(service, "configured_mounts")?;
+    let observed_volumes = accepted_v7_named_volumes(service, "observed_mounts")?;
     if configured_volumes != options.source.volume_names()
         || observed_volumes != options.source.volume_names()
     {
@@ -117,26 +117,4 @@ fn validate_accepted_source(
     }
 
     Ok(())
-}
-
-fn named_volumes(service: &serde_json::Value, field: &str) -> Result<Vec<String>, String> {
-    let mut volumes = service
-        .get(field)
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| format!("accepted v7 service has no {field} evidence"))?
-        .iter()
-        .filter(|mount| {
-            mount.get("source_kind").and_then(serde_json::Value::as_str) == Some("named_volume")
-        })
-        .map(|mount| {
-            mount
-                .get("source")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .ok_or_else(|| "accepted v7 named-volume identity is invalid".to_owned())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    volumes.sort();
-
-    Ok(volumes)
 }

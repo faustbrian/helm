@@ -49,7 +49,7 @@ const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
 /// A direct Docker-compatible Engine API adapter used for Docker and Podman.
 #[derive(Clone)]
 pub(crate) struct BollardEngineAdapter {
-    docker: Docker,
+    pub(super) docker: Docker,
 }
 
 impl BollardEngineAdapter {
@@ -1385,6 +1385,14 @@ pub(super) fn verify_v7_container_command_labels(
     target: &V7ContainerCommandTarget,
     labels: &HashMap<String, String>,
 ) -> Result<(), EngineError> {
+    verify_v7_container_labels_for("execute a command in accepted v7", target, labels)
+}
+
+pub(super) fn verify_v7_container_labels_for(
+    action: &'static str,
+    target: &V7ContainerCommandTarget,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
     let exact = labels.get("com.stackctl.managed").map(String::as_str) == Some("true")
         && labels.get("com.stackctl.container").map(String::as_str)
             == Some(target.container_name())
@@ -1395,7 +1403,7 @@ pub(super) fn verify_v7_container_command_labels(
     }
 
     Err(EngineError::OwnershipMismatch {
-        action: "execute a command in accepted v7",
+        action,
         resource_kind: "container",
         resource_id: target.container_id().as_str().to_owned(),
     })
@@ -1836,7 +1844,7 @@ async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {
     Ok(docker)
 }
 
-const fn request_timeout() -> Duration {
+pub(super) const fn request_timeout() -> Duration {
     Duration::from_secs(REQUEST_TIMEOUT_SECONDS)
 }
 
@@ -1857,7 +1865,7 @@ pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), 
     Ok(())
 }
 
-fn backend_error(action: &str, error: BollardError) -> EngineError {
+pub(super) fn backend_error(action: &str, error: BollardError) -> EngineError {
     EngineError::Backend {
         detail: format!("failed to {action}: {error}"),
     }
