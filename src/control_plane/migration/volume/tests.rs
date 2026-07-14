@@ -1,6 +1,7 @@
 use super::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, V7VolumeBackupOptions,
-    backup_project_volume, backup_v7_volume, restore_project_volume,
+    V7VolumeTargetRestoreOptions, backup_project_volume, backup_v7_volume, restore_project_volume,
+    restore_v7_volume_target,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerHealth, ContainerId, ContainerLifecycle, ContainerState,
@@ -228,6 +229,54 @@ fn owned_project_volume_restore_recreates_empty_target_before_upload() {
     );
     assert_eq!(restore_engine.uploaded(), b"owned tar archive");
     std::fs::remove_dir_all(root).expect("remove restore fixture");
+}
+
+#[test]
+fn accepted_v7_volume_restore_recreates_exact_prepared_target() {
+    let root = temporary_directory("v7-restore");
+    std::fs::create_dir_all(&root).expect("create v7 restore fixture");
+    let archive = root.join("artifact.bin");
+    std::fs::write(&archive, b"legacy tar archive").expect("write v7 archive");
+    let (container, volume, _) = fixture();
+    let desired_volume =
+        VolumeCreateOptions::new(volume.name(), volume.metadata().clone()).expect("desired volume");
+    let desired_container = ContainerCreateOptions::new(
+        "stackctl-bill-search",
+        concat!(
+            "search@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        container.metadata().clone(),
+    )
+    .expect("desired container")
+    .with_volume_mount(
+        VolumeMount::read_write(volume.name(), "/var/lib/search").expect("volume mount"),
+    );
+    let mut engine = RecordingVolumeRestoreEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime");
+
+    let (restored_container, restored_volume) = runtime
+        .block_on(restore_v7_volume_target(
+            &mut engine,
+            &container,
+            &volume,
+            &V7VolumeTargetRestoreOptions {
+                desired_container: &desired_container,
+                desired_volume: &desired_volume,
+                expected_mount_target: "/var/lib/search",
+                archive: &archive,
+                timeout: Duration::from_secs(5),
+            },
+        ))
+        .expect("restore accepted v7 volume target");
+
+    assert_eq!(restored_container.metadata(), desired_container.metadata());
+    assert_eq!(restored_volume.metadata(), desired_volume.metadata());
+    assert_eq!(engine.uploaded(), b"legacy tar archive");
+    std::fs::remove_dir_all(root).expect("remove v7 restore fixture");
 }
 
 #[test]

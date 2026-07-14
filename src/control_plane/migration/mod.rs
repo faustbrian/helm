@@ -103,5 +103,6 @@ pub(crate) use v7::{
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, V7VolumeBackupOptions,
-    backup_project_volume, backup_v7_volume, restore_project_volume,
+    V7VolumeTargetRestoreOptions, backup_project_volume, backup_v7_volume, restore_project_volume,
+    restore_v7_volume_target,
 };

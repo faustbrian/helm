@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added exact prepared-v8 volume reset, archive restore, ownership checks, and
+  readiness verification for accepted-v7 recovery artifacts.
 - Added identity-bound streaming backups for exact accepted-v7 volumes, with
   one-time quiescing, verified durable artifacts, and source-state recovery.
 - Preserved accepted-v7 container names and kinds in named-volume source
