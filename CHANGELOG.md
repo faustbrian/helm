@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a live recovery-first named-volume provider that binds verified v7
+  artifacts to one exact compatible prepared-v8 target and confirmation-only
+  source retirement.
 - Added exact prepared-v8 volume reset, archive restore, ownership checks, and
   readiness verification for accepted-v7 recovery artifacts.
 - Added identity-bound streaming backups for exact accepted-v7 volumes, with

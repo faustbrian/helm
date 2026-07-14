@@ -50,6 +50,8 @@ mod v7_migration_rollback_options;
 mod v7_named_volume_migration_adapter;
 mod v7_named_volume_migration_adapter_options;
 mod v7_named_volume_migration_mount;
+mod v7_named_volume_migration_provider;
+mod v7_named_volume_migration_provider_options;
 mod v7_named_volume_migration_source;
 mod v7_no_op_migration_adapter;
 mod v7_project_inventory;
@@ -119,6 +121,8 @@ pub(crate) use v7_migration_execution_plan_options::V7MigrationExecutionPlanOpti
 pub(crate) use v7_migration_rollback_options::V7MigrationRollbackOptions;
 pub(crate) use v7_named_volume_migration_adapter_options::V7NamedVolumeMigrationAdapterOptions;
 pub(crate) use v7_named_volume_migration_mount::V7NamedVolumeMigrationMount;
+pub(crate) use v7_named_volume_migration_provider::V7NamedVolumeMigrationProvider;
+pub(crate) use v7_named_volume_migration_provider_options::V7NamedVolumeMigrationProviderOptions;
 pub(crate) use v7_named_volume_migration_source::V7NamedVolumeMigrationSource;
 pub(crate) use v7_no_op_migration_adapter::V7NoOpMigrationAdapter;
 pub(crate) use v7_project_inventory::V7ProjectInventory;

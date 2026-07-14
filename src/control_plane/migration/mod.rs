@@ -86,6 +86,7 @@ pub(crate) use v7::{
     V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions, V7MigrationRouteSource,
     V7MigrationServiceAdapter, V7MigrationServiceSelection, V7MigrationServiceSource,
     V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationMount,
+    V7NamedVolumeMigrationProvider, V7NamedVolumeMigrationProviderOptions,
     V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
     V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions, V7PublicFileArtifact,
     V7RecoverableMigrationProvider, V7RecreatedServiceTarget, V7RouteInventory,
