@@ -379,6 +379,20 @@ and authenticated username. The complete sequence is safe to replay after an
 interrupted preparation; rollback checks the exact retained v7 database
 through the separately authorized v7 command target, and confirmation
 delegates to the shared exact Engine retirement capability.
+
+The MongoDB logical-data provider likewise binds one exact accepted database,
+container, named-volume set, and recovery identity. Credentials are carried in
+redacted command environments rather than command arguments. `mongodump`
+streams an archive scoped to the accepted source database; target preparation
+reverifies it before any v8 command, drops only the deterministic v8 database,
+and reapplies its deterministic restricted user. `mongorestore` explicitly
+maps `source.*` to `target.*`, so the archive cannot recreate the legacy
+database name. Target and retained-source checks require the expected database,
+authenticated username, and successful ping. Preparation is safe to replay,
+rollback retains and verifies the separately authorized source, and only
+confirmation delegates its exact container and accepted named volumes to the
+shared Engine retirement capability.
+
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

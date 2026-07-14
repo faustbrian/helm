@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an accepted-v7 MongoDB logical migration provider. It streams a
+  database-scoped archive through the separately authorized legacy container,
+  binds recovery to accepted evidence, replay-safely rebuilds the deterministic
+  v8 database and user, remaps every source namespace, verifies both
+  authenticated identities, and retires exact Engine resources only after
+  confirmation.
 - Added accepted-v7 MySQL and MariaDB logical migration providers. They bind
   flavor to accepted image evidence, stream schema-neutral verified dumps,
   reject and clean up dumps carrying explicit legacy definers, replay-safely

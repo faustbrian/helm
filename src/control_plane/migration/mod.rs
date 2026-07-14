@@ -32,9 +32,11 @@ pub(crate) use migration_operations::{MigrationFuture, MigrationOperations};
 pub(crate) use migration_rollback_plan::MigrationRollbackPlan;
 pub(crate) use migration_target_plan::MigrationTargetPlan;
 pub(crate) use mongodb::{
-    MongoDbBackupOptions, MongoDbMigrationOperations, MongoDbMigrationOperationsOptions,
-    MongoDbRestoreOptions, MongoDbVerifyTargetOptions, backup_mongodb_database,
-    restore_mongodb_database, verify_mongodb_target,
+    EngineV7MongoDbSourceRetirement, MongoDbBackupOptions, MongoDbMigrationOperations,
+    MongoDbMigrationOperationsOptions, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
+    V7MongoDbCredential, V7MongoDbMigrationProvider, V7MongoDbMigrationProviderOptions,
+    V7MongoDbSourceRetirement, backup_mongodb_database, restore_mongodb_database,
+    verify_mongodb_target,
 };
 pub(crate) use mysql::{
     EngineV7MySqlSourceRetirement, MySqlBackupOptions, MySqlMigrationOperations,
