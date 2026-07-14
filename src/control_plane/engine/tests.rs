@@ -37,7 +37,7 @@ use super::bollard_engine_adapter::{
     observed_container, observed_network, observed_volume, published_port_bindings,
     published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
     verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
-    volume_create_request,
+    volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1325,6 +1325,26 @@ fn volume_archive_rejects_unrelated_or_ambiguous_mounts() {
     let mount_error = exact_volume_mount_target(&duplicate_mounts, "stackctl-bill-search-data")
         .expect_err("ambiguous volume mounts must fail closed");
     assert!(mount_error.to_string().contains("exactly one"));
+}
+
+#[test]
+fn volume_archive_upload_uses_mount_parent() {
+    assert_eq!(
+        volume_archive_upload_target("/data").expect("top-level mount target"),
+        "/"
+    );
+    assert_eq!(
+        volume_archive_upload_target("/var/lib/search").expect("nested mount target"),
+        "/var/lib"
+    );
+    assert!(
+        volume_archive_upload_target("/").is_err(),
+        "root cannot be an owned volume mount"
+    );
+    assert!(
+        volume_archive_upload_target("relative/data").is_err(),
+        "relative mount cannot be an archive target"
+    );
 }
 
 #[test]

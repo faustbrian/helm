@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an ownership-bound dedicated-volume restore primitive that immediately
+  re-verifies cataloged recovery evidence, removes only the exact owned service
+  and volume, recreates the desired empty target, streams the archive through
+  the Engine API before start, and requires the restored service to become
+  ready. Daemon restore admission remains fail-closed until safety snapshots
+  are integrated.
 - Added daemon-owned backups for dedicated project-service volumes that resolve
   exact live container and volume ownership, quiesce only the matching service,
   stream the named volume through the Engine API into immutable checksummed

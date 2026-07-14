@@ -8395,6 +8395,19 @@ impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCo
                 })
         })
     }
+
+    fn upload_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        _archive: &'operation Path,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async {
+            Err(crate::control_plane::engine::EngineError::InvalidRequest {
+                detail: "upload is outside backup test scope".to_owned(),
+            })
+        })
+    }
 }
 
 impl crate::control_plane::engine::VolumeManager for RecordingProjectCommandEngine {

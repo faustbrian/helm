@@ -40,6 +40,7 @@ mod stored_backup_artifact;
 mod verified_backup_evidence;
 mod verify_backup_artifact;
 mod verify_recovery_point_artifact;
+mod verify_resource_recovery_point_artifact;
 mod verify_stored_backup_artifact;
 
 pub(crate) use backup_artifact_manifest::BackupArtifactManifest;
@@ -85,6 +86,7 @@ pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;
 pub(crate) const DEFAULT_ORPHAN_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
 pub(crate) use verify_backup_artifact::verify_backup_artifact;
 pub(crate) use verify_recovery_point_artifact::verify_recovery_point_artifact;
+pub(crate) use verify_resource_recovery_point_artifact::verify_resource_recovery_point_artifact;
 pub(crate) use verify_stored_backup_artifact::verify_stored_backup_artifact;
 
 /// Transitional name retained while the daemon prune coordinator becomes service-neutral.

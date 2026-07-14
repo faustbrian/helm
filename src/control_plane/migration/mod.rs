@@ -59,4 +59,7 @@ pub(crate) use sql_server::{
     SqlServerRestoreOptions, SqlServerVerifyTargetOptions, backup_sql_server_database,
     restore_sql_server_database, verify_sql_server_target,
 };
-pub(crate) use volume::{ProjectVolumeBackupOptions, backup_project_volume};
+pub(crate) use volume::{
+    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
+    restore_project_volume,
+};

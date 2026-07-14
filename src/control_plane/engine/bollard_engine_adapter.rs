@@ -29,14 +29,14 @@ use bollard::query_parameters::{
     CreateImageOptionsBuilder, DownloadFromContainerOptionsBuilder, EventsOptions,
     EventsOptionsBuilder, ListContainersOptionsBuilder, ListNetworksOptionsBuilder,
     ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions,
-    StatsOptionsBuilder, WaitContainerOptionsBuilder,
+    StatsOptionsBuilder, UploadToContainerOptionsBuilder, WaitContainerOptionsBuilder,
 };
-use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full};
+use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full, body_try_stream};
 use futures_util::{StreamExt, TryStreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
 const IMAGE_BUILD_TIMEOUT_SECONDS: u64 = 1_800;
@@ -283,6 +283,20 @@ pub(super) fn exact_volume_mount_target(
     Ok((*target).to_owned())
 }
 
+pub(super) fn volume_archive_upload_target(mount_target: &str) -> Result<String, EngineError> {
+    let target = Path::new(mount_target);
+    if !target.is_absolute() || target == Path::new("/") {
+        return Err(EngineError::InvalidRequest {
+            detail: format!("volume archive has unsafe mount target '{mount_target}'"),
+        });
+    }
+    let parent = target.parent().ok_or_else(|| EngineError::InvalidRequest {
+        detail: format!("volume archive mount target '{mount_target}' has no parent"),
+    })?;
+
+    Ok(parent.to_string_lossy().into_owned())
+}
+
 impl ContainerVolumeArchive for BollardEngineAdapter {
     fn download_volume_archive<'operation>(
         &'operation self,
@@ -336,6 +350,73 @@ impl ContainerVolumeArchive for BollardEngineAdapter {
                 output.flush().await.map_err(|error| EngineError::Backend {
                     detail: format!("flush owned volume archive: {error}"),
                 })
+            })
+            .await
+        })
+    }
+
+    fn upload_volume_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        archive: &'operation Path,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_volume_archive_identity(container, volume)?;
+            let archive =
+                tokio::fs::File::open(archive)
+                    .await
+                    .map_err(|error| EngineError::Backend {
+                        detail: format!("open owned volume archive: {error}"),
+                    })?;
+            bounded_engine_operation("upload owned volume archive", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify archive container ownership", error))?;
+                verify_owned_container_labels(
+                    container,
+                    &observed
+                        .config
+                        .as_ref()
+                        .and_then(|config| config.labels.as_ref())
+                        .cloned()
+                        .unwrap_or_default(),
+                )?;
+                let observed_volume = self
+                    .docker
+                    .inspect_volume(volume.name())
+                    .await
+                    .map_err(|error| backend_error("verify archive volume ownership", error))?;
+                verify_owned_volume_labels(volume, &observed_volume.labels)?;
+                let mount_target = exact_volume_mount_target(
+                    observed.mounts.as_deref().unwrap_or_default(),
+                    volume.name(),
+                )?;
+                let upload_target = volume_archive_upload_target(&mount_target)?;
+                let options = UploadToContainerOptionsBuilder::default()
+                    .path(&upload_target)
+                    .no_overwrite_dir_non_dir("true")
+                    .build();
+                let stream = futures_util::stream::try_unfold(archive, |mut archive| async move {
+                    let mut chunk = vec![0_u8; 64 * 1024];
+                    let read = archive.read(&mut chunk).await?;
+                    if read == 0 {
+                        return Ok(None);
+                    }
+                    chunk.truncate(read);
+
+                    Ok(Some((chunk.into(), archive)))
+                });
+                self.docker
+                    .upload_to_container(
+                        container.id().as_str(),
+                        Some(options),
+                        body_try_stream(stream),
+                    )
+                    .await
+                    .map_err(|error| backend_error("upload owned volume archive", error))
             })
             .await
         })
