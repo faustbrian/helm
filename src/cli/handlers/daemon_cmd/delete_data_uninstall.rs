@@ -182,6 +182,13 @@ fn deletion_diagnostics(diagnostics: &[crate::control_plane::IpcDiagnostic]) -> 
 }
 
 fn write_deletion_complete_marker(runtime_directory: &Path) -> Result<()> {
+    let _directory_lock =
+        crate::control_plane::lock_directory(runtime_directory).with_context(|| {
+            format!(
+                "failed to lock runtime directory {} for terminal deletion marker publication",
+                runtime_directory.display()
+            )
+        })?;
     let marker = runtime_directory.join(DELETION_COMPLETE_MARKER);
     let temporary = runtime_directory.join(".installation-deleted.tmp");
     let marker_exists = deletion_complete_marker_exists(runtime_directory)?;
@@ -312,6 +319,41 @@ mod tests {
         std::fs::write(root.join("state.sqlite3"), b"state").expect("state fixture");
         remove_deleted_runtime_directory(&root).expect("remove marked runtime directory");
         assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_marker_waits_for_the_runtime_directory_lock() {
+        use std::sync::mpsc;
+
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-delete-data-lock-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).expect("runtime fixture");
+        let directory_lock =
+            crate::control_plane::lock_directory(&root).expect("lock runtime directory");
+        let (sender, receiver) = mpsc::channel();
+        let root_for_thread = root.clone();
+        let marker_thread = std::thread::spawn(move || {
+            sender
+                .send(write_deletion_complete_marker(&root_for_thread))
+                .expect("report marker result");
+        });
+
+        assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+        directory_lock.unlock().expect("unlock runtime directory");
+        receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("marker resumes after directory unlock")
+            .expect("write terminal marker");
+        marker_thread.join().expect("join marker thread");
+
+        std::fs::remove_dir_all(root).expect("remove runtime fixture");
     }
 
     #[cfg(unix)]

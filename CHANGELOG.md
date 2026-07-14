@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized terminal delete-data marker publication on the owned runtime
+  directory. Concurrent uninstall clients now wait instead of deleting or
+  replacing one another's stable authorization-marker staging file.
 - Serialized SQLite recovery snapshot creation, idempotent reuse, and pruning
   on the private backup directory. Competing daemon startups now wait instead
   of deleting or replacing one another's stable snapshot staging file.
