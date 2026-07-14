@@ -5,6 +5,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
+const ACTIVE_GENERATION_FILE: &str = "current";
+const PENDING_ACTIVE_GENERATION_FILE: &str = ".current.tmp";
+
 /// Persists immutable certificate revisions without exposing partial bundles.
 pub(crate) struct FilesystemCertificateStore {
     root: PathBuf,
@@ -33,18 +36,26 @@ impl FilesystemCertificateStore {
         }
 
         let mut directories = Vec::new();
+        let mut active_generation = None;
         let entries = fs::read_dir(&self.root)
             .map_err(|error| io_error("read certificate root", &self.root, error))?;
         for entry in entries {
             let entry = entry
                 .map_err(|error| io_error("read certificate root entry", &self.root, error))?;
             let path = entry.path();
-            if !entry
+            let file_type = entry
                 .file_type()
-                .map_err(|error| io_error("inspect certificate root entry", &path, error))?
-                .is_dir()
-                || !is_bundle_directory(&path)
-            {
+                .map_err(|error| io_error("inspect certificate root entry", &path, error))?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == ACTIVE_GENERATION_FILE && file_type.is_file() {
+                active_generation = Some(read_active_generation(&path)?);
+                continue;
+            }
+            if name == PENDING_ACTIVE_GENERATION_FILE && file_type.is_file() {
+                continue;
+            }
+            if !file_type.is_dir() || !is_bundle_directory(&path) {
                 return Err(LocalCertificateError::new(format!(
                     "certificate root '{}' contains unexpected entry '{}'",
                     self.root.display(),
@@ -55,32 +66,35 @@ impl FilesystemCertificateStore {
         }
         directories.sort();
 
-        let mut current: Option<(LocalCertificateBundle, StoredCertificatePaths)> = None;
-        for directory in directories {
-            let candidate = self.load_directory(&directory)?;
-            let Some((bundle, _paths)) = &current else {
-                current = Some(candidate);
-                continue;
-            };
-            if candidate.0.leaf_renew_after() > bundle.leaf_renew_after() {
-                current = Some(candidate);
-                continue;
-            }
-            if candidate.0.leaf_renew_after() == bundle.leaf_renew_after() && candidate.0 != *bundle
-            {
+        if let Some(active_generation) = active_generation {
+            let directory = self.root.join(active_generation);
+            if !directories.contains(&directory) {
                 return Err(LocalCertificateError::new(format!(
-                    "certificate root '{}' contains ambiguous bundles with renewal deadline {}",
-                    self.root.display(),
-                    bundle.leaf_renew_after()
+                    "certificate root '{}' selects a missing active generation",
+                    self.root.display()
                 )));
             }
+
+            return self.load_directory(&directory).map(Some);
         }
 
-        Ok(current)
+        Ok(None)
     }
 
     #[cfg(unix)]
     pub(crate) fn persist(
+        &self,
+        bundle: &LocalCertificateBundle,
+    ) -> Result<StoredCertificatePaths, LocalCertificateError> {
+        let paths = self.persist_inactive(bundle)?;
+        self.activate(&paths)?;
+
+        Ok(paths)
+    }
+
+    /// Persists one immutable generation without changing the active bundle.
+    #[cfg(unix)]
+    pub(crate) fn persist_inactive(
         &self,
         bundle: &LocalCertificateBundle,
     ) -> Result<StoredCertificatePaths, LocalCertificateError> {
@@ -153,6 +167,50 @@ impl FilesystemCertificateStore {
         Ok(StoredCertificatePaths::new(final_directory))
     }
 
+    /// Atomically selects one verified immutable generation as current.
+    #[cfg(unix)]
+    pub(crate) fn activate(
+        &self,
+        paths: &StoredCertificatePaths,
+    ) -> Result<(), LocalCertificateError> {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        self.load_directory(paths.directory())?;
+        let generation = paths
+            .directory()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| LocalCertificateError::new("certificate generation is not Unicode"))?;
+        let pending = self.root.join(PENDING_ACTIVE_GENERATION_FILE);
+        match fs::remove_file(&pending) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(io_error(
+                    "remove stale active certificate pointer",
+                    &pending,
+                    error,
+                ));
+            }
+        }
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&pending)
+            .map_err(|error| io_error("create active certificate pointer", &pending, error))?;
+        file.write_all(format!("{generation}\n").as_bytes())
+            .map_err(|error| io_error("write active certificate pointer", &pending, error))?;
+        file.sync_all()
+            .map_err(|error| io_error("sync active certificate pointer", &pending, error))?;
+        let active = self.root.join(ACTIVE_GENERATION_FILE);
+        fs::rename(&pending, &active)
+            .map_err(|error| io_error("publish active certificate pointer", &active, error))?;
+        File::open(&self.root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| io_error("sync certificate root", &self.root, error))
+    }
+
     pub(crate) fn load_directory(
         &self,
         directory: &Path,
@@ -213,6 +271,25 @@ impl FilesystemCertificateStore {
             renew_after,
         ))
     }
+}
+
+fn read_active_generation(path: &Path) -> Result<String, LocalCertificateError> {
+    let generation = fs::read_to_string(path)
+        .map_err(|error| io_error("read active certificate pointer", path, error))?;
+    let generation = generation.trim();
+    if generation.len() != "bundle-".len() + 64
+        || !generation.starts_with("bundle-")
+        || !generation["bundle-".len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(LocalCertificateError::new(format!(
+            "active certificate pointer '{}' is malformed",
+            path.display()
+        )));
+    }
+
+    Ok(generation.to_owned())
 }
 
 fn is_bundle_directory(directory: &Path) -> bool {

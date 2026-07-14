@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added explicit transactional local-CA rotation through
+  `stackctl daemon trust rotate`. Certificate generations now use an atomic
+  active pointer; the replacement CA is installed and verified before the old
+  trust entry is removed, and trust-transition failures keep the prior CA
+  active.
 - Added idempotent MinIO identity disablement to orphaned shared-service
   reconciliation. Removed projects lose bucket access while their identity,
   policy attachment, buckets, and objects remain retained; RustFS continues to

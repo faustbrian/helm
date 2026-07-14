@@ -42,7 +42,7 @@ stackctl daemon service uninstall --delete-data --confirm-delete-data
 stackctl daemon status
 stackctl daemon reconcile
 stackctl daemon benchmark
-stackctl daemon trust install|status|remove
+stackctl daemon trust install|status|remove|rotate
 ```
 
 `daemon adopt`, `backup`, `backups`, `restore`, `prune`, and `migration`

@@ -4,7 +4,7 @@ use super::{
     LocalCaIdentity, LocalCertificateReconcileAction, MacOsCertificateTrustStore, TrustChange,
     TrustStoreError, ensure_ca_trusted, generate_local_certificates, inspect_current_ca_trust,
     install_current_ca_trust, reconcile_local_certificates, remove_ca_trust,
-    remove_current_ca_trust, renew_local_leaf_certificate,
+    remove_current_ca_trust, renew_local_leaf_certificate, rotate_current_ca_trust,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -213,6 +213,60 @@ fn current_ca_trust_install_recovers_one_persisted_identity_idempotently() {
         trust.installed.borrow().as_slice(),
         &[paths.ca_certificate()]
     );
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn current_ca_rotation_switches_trust_and_active_material_atomically() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RotationTrustStore::default();
+    let initial = install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
+        .expect("install initial CA");
+
+    let rotated = rotate_current_ca_trust(&certificates, &trust, datetime!(2026-07-14 12:00 UTC))
+        .expect("rotate current CA");
+    let (current, _) = certificates
+        .load_current()
+        .expect("load active CA")
+        .expect("active CA");
+    let current = LocalCaIdentity::from_pem(current.ca_certificate_pem()).expect("CA identity");
+
+    assert_eq!(rotated.previous_identity(), initial.identity());
+    assert_ne!(rotated.current_identity(), initial.identity());
+    assert_eq!(&current, rotated.current_identity());
+    assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn failed_ca_rotation_keeps_the_previous_generation_active_and_trusted() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RotationTrustStore::default();
+    let initial = install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
+        .expect("install initial CA");
+    trust
+        .fail_removal_of
+        .replace(Some(initial.identity().clone()));
+
+    let error = rotate_current_ca_trust(&certificates, &trust, datetime!(2026-07-14 12:00 UTC))
+        .expect_err("old trust removal must fail rotation");
+    let (current, _) = certificates
+        .load_current()
+        .expect("load active CA")
+        .expect("active CA");
+    let current = LocalCaIdentity::from_pem(current.ca_certificate_pem()).expect("CA identity");
+
+    assert!(
+        error
+            .to_string()
+            .contains("remove previous Stackctl CA trust")
+    );
+    assert_eq!(&current, initial.identity());
+    assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
 
     std::fs::remove_dir_all(root).expect("remove certificate root");
 }
@@ -540,6 +594,30 @@ fn certificate_bundles_load_with_their_persisted_renewal_deadline() {
 
 #[cfg(unix)]
 #[test]
+fn inactive_certificate_generation_is_not_selected_before_atomic_activation() {
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let stored = store
+        .persist_inactive(&bundle)
+        .expect("stage certificate bundle");
+
+    assert_eq!(store.load_current().expect("load inactive store"), None);
+
+    store
+        .activate(&stored)
+        .expect("activate certificate bundle");
+    assert_eq!(
+        store.load_current().expect("load active store"),
+        Some((bundle, stored))
+    );
+
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_store_recovers_the_latest_verified_bundle_after_restart() {
     let root = temporary_certificate_root();
     let initial =
@@ -637,6 +715,50 @@ struct RecordingTrustStore {
     trusted: Cell<bool>,
     installed: RefCell<Vec<PathBuf>>,
     removed: RefCell<Vec<LocalCaIdentity>>,
+}
+
+#[derive(Default)]
+struct RotationTrustStore {
+    trusted: RefCell<Vec<LocalCaIdentity>>,
+    fail_removal_of: RefCell<Option<LocalCaIdentity>>,
+}
+
+impl CertificateTrustStore for RotationTrustStore {
+    fn contains(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<bool, TrustStoreError> {
+        Ok(self.trusted.borrow().contains(identity))
+    }
+
+    fn install(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        let mut trusted = self.trusted.borrow_mut();
+        if !trusted.contains(identity) {
+            trusted.push(identity.clone());
+        }
+
+        Ok(())
+    }
+
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        if self.fail_removal_of.borrow().as_ref() == Some(identity) {
+            return Err(TrustStoreError::new("simulated trust removal failure"));
+        }
+        self.trusted
+            .borrow_mut()
+            .retain(|trusted| trusted != identity);
+
+        Ok(())
+    }
 }
 
 impl CertificateTrustStore for RecordingTrustStore {

@@ -19,6 +19,15 @@ Stackctl owns the CA and a renewable wildcard leaf for
 the gateway. Application containers use internal plain HTTP and never expose or
 ask users to trust their own CAs.
 
+`stackctl daemon trust rotate` creates an immutable replacement generation,
+installs and verifies its exact OS trust identity, removes the previous trust
+entry, and only then atomically selects the new generation. A failed install,
+verification, or removal keeps the prior generation active. Activation failure
+atomically reselects the prior generation before restoring its trust; if that
+filesystem rollback also fails, both identities remain trusted and the full
+recovery error is reported. Routine leaf renewal preserves the current CA
+identity and uses the same atomic active generation pointer.
+
 ## Supply chain and upgrades
 
 Built-in images use immutable digests. Application runtime images are
@@ -99,8 +108,8 @@ The complete v8 host-executable inventory is:
 
 | Executable | Owning feature | Invocation and failure boundary |
 | --- | --- | --- |
-| `security` | Explicit macOS CA trust setup/removal | Invoked only by `stackctl daemon trust`; a non-zero status leaves trust unchanged and returns the exact adapter error. |
-| `sudo`, `update-ca-certificates`, `rm` | Explicit Debian-family CA trust setup/removal | Invoked only by the trust adapter; privilege denial or a non-zero update aborts setup/removal with no reconciliation fallback. |
+| `security` | Explicit macOS CA trust setup/rotation/removal | Invoked only by `stackctl daemon trust`; a non-zero status leaves the prior active generation selected and returns the exact adapter error. |
+| `sudo`, `update-ca-certificates`, `rm` | Explicit Debian-family CA trust setup/rotation/removal | Invoked only by the trust adapter; privilege denial or a non-zero update aborts the trust transition with no reconciliation fallback. |
 | `launchctl` | Explicit macOS login-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
 | `systemctl` | Explicit Linux user-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
 | `open`, `xdg-open` | Explicit interactive `stackctl open` browser handoff | Invoked only after daemon-authoritative route and readiness checks; `--no-browser` and `--non-interactive` avoid the boundary, and opener failure is returned directly. |

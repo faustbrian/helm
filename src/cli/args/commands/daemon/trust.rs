@@ -16,4 +16,6 @@ pub(crate) enum DaemonTrustCommands {
     Status,
     /// Remove trust for the exact current singleton CA
     Remove,
+    /// Replace the singleton CA and atomically switch platform trust
+    Rotate,
 }

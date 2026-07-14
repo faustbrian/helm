@@ -4,6 +4,7 @@ use crate::cli::args::{DaemonTrustArgs, DaemonTrustCommands};
 use crate::control_plane::{
     CurrentCaTrustStatus, FilesystemCertificateStore, ProcessHostCommandExecutor, TrustChange,
     inspect_current_ca_trust, install_current_ca_trust, remove_current_ca_trust,
+    rotate_current_ca_trust,
 };
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Result, bail};
@@ -130,6 +131,24 @@ fn handle_with_store(
                 &format!(
                     "{verb} OS trust entry for Stackctl CA {}",
                     result.identity().sha256_hex()
+                ),
+                Persistence::Persistent,
+            );
+            Ok(())
+        }
+        DaemonTrustCommands::Rotate => {
+            let result = rotate_current_ca_trust(
+                certificates,
+                trust_store,
+                time::OffsetDateTime::now_utc(),
+            )?;
+            output::event(
+                "daemon",
+                LogLevel::Success,
+                &format!(
+                    "Rotated Stackctl CA trust from {} to {}",
+                    result.previous_identity().sha256_hex(),
+                    result.current_identity().sha256_hex()
                 ),
                 Persistence::Persistent,
             );

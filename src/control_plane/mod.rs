@@ -63,7 +63,7 @@ pub(crate) use tls::MacOsCertificateTrustStore;
 pub(crate) use tls::{
     CertificateTrustStore, CurrentCaTrustStatus, FilesystemCertificateStore,
     ProcessHostCommandExecutor, TrustChange, inspect_current_ca_trust, install_current_ca_trust,
-    remove_current_ca_trust,
+    remove_current_ca_trust, rotate_current_ca_trust,
 };
 pub(crate) use validate_route_claims::validate_route_claims;
 pub(crate) use validated_route_registry::ValidatedRouteRegistry;
