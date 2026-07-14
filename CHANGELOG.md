@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized launchd/systemd definition publication with an OS lock on the
+  existing definition directory and replaced PID-suffixed staging files with
+  one stable per-definition pending path. Interrupted setup no longer leaves
+  accumulating files beside the host service definition.
 - Enforced private permissions on the live SQLite state database and its WAL
   and shared-memory sidecars after every open. Existing state paths must also
   be real files, so credential-bearing state cannot be opened through a
