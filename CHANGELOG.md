@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned MongoDB logical backups using the exact active tenant
+  identity, an RFC 3986-encoded runtime-only connection URI, in-container
+  streamed archives, private immutable storage, and checksum verification.
 - Added daemon-owned MySQL/MariaDB recovery execution with exact catalog
   selection, isolated retained targets, authenticated restore verification,
   atomic environment cutover, explicit confirmation, source schema/user
