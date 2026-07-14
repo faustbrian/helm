@@ -869,6 +869,26 @@ fn inactive_certificate_generation_is_not_selected_before_atomic_activation() {
 
 #[cfg(unix)]
 #[test]
+fn certificate_store_removes_owned_staging_directory_after_a_crash() {
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let active = store.persist(&bundle).expect("persist certificate bundle");
+    let staging = root.join(format!(".bundle-{}-4242.tmp", "a".repeat(64)));
+    std::fs::create_dir(&staging).expect("create interrupted staging directory");
+    std::fs::write(staging.join("ca.key"), "partial private material")
+        .expect("write interrupted certificate material");
+
+    let loaded = store.load_current().expect("recover certificate store");
+
+    assert_eq!(loaded, Some((bundle, active)));
+    assert!(!staging.exists());
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_store_lock_serializes_generation_transactions() {
     let root = temporary_certificate_root();
     let store = FilesystemCertificateStore::new(root.clone());

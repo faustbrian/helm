@@ -61,6 +61,7 @@ impl FilesystemCertificateStore {
 
         let mut directories = Vec::new();
         let mut active_generation = None;
+        let mut removed_staging_directory = false;
         let entries = fs::read_dir(&self.root)
             .map_err(|error| io_error("read certificate root", &self.root, error))?;
         for entry in entries {
@@ -85,6 +86,17 @@ impl FilesystemCertificateStore {
             if name == CERTIFICATE_ROTATION_LOCK_FILE && file_type.is_file() {
                 continue;
             }
+            if file_type.is_dir() && is_staging_directory_name(&name) {
+                fs::remove_dir_all(&path).map_err(|error| {
+                    io_error(
+                        "remove interrupted certificate staging directory",
+                        &path,
+                        error,
+                    )
+                })?;
+                removed_staging_directory = true;
+                continue;
+            }
             if !file_type.is_dir() || !is_bundle_directory(&path) {
                 return Err(LocalCertificateError::new(format!(
                     "certificate root '{}' contains unexpected entry '{}'",
@@ -93,6 +105,11 @@ impl FilesystemCertificateStore {
                 )));
             }
             directories.push(path);
+        }
+        if removed_staging_directory {
+            File::open(&self.root)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|error| io_error("sync certificate root", &self.root, error))?;
         }
         directories.sort();
 
@@ -331,6 +348,23 @@ fn is_bundle_directory(directory: &Path) -> bool {
     };
 
     revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_staging_directory_name(name: &str) -> bool {
+    let Some(staging) = name
+        .strip_prefix(".bundle-")
+        .and_then(|name| name.strip_suffix(".tmp"))
+    else {
+        return false;
+    };
+    let Some((revision, process_id)) = staging.rsplit_once('-') else {
+        return false;
+    };
+
+    revision.len() == 64
+        && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && !process_id.is_empty()
+        && process_id.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 fn bundle_revision(bundle: &LocalCertificateBundle) -> String {

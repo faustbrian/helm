@@ -10,7 +10,9 @@ All notable changes to this project are documented in this file.
   leaf certificate, Stackctl removes inactive generations signed by that same
   CA while retaining different-CA generations required for rotation rollback.
   A fully successful CA rotation also removes its exact previous generation;
-  ambiguous or failed rotations continue to retain recovery material.
+  ambiguous or failed rotations continue to retain recovery material. Startup
+  also removes narrowly identified staging directories left by an interrupted
+  certificate write instead of treating them as permanent foreign corruption.
 - Expanded the host-dependency audit from selected source directories to every
   Rust source file. The native launchd/systemd service boundary is now an
   explicit exception instead of an unexamined gap in the audit.
