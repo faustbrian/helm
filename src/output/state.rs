@@ -22,6 +22,7 @@ impl LoggerState {
                 directory: default_log_dir_path(),
                 day: None,
                 file: None,
+                bytes_written: 0,
             }),
         }
     }

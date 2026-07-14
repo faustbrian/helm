@@ -263,12 +263,7 @@ fn service_definition(options: &DaemonServiceInstallOptions) -> Result<DaemonSer
 fn service_context(options: &DaemonServiceInstallOptions) -> Result<ServiceContext> {
     let binary = daemon_service_binary()?;
     let args = watch_command_args(options);
-    Ok(ServiceContext {
-        binary,
-        args,
-        stdout_path: daemon_state_home()?.join("watch-service.stdout.log"),
-        stderr_path: daemon_state_home()?.join("watch-service.stderr.log"),
-    })
+    Ok(ServiceContext { binary, args })
 }
 
 fn watch_command_args(options: &DaemonServiceInstallOptions) -> Vec<String> {
@@ -468,10 +463,6 @@ fn home_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home))
 }
 
-fn daemon_state_home() -> Result<PathBuf> {
-    Ok(home_dir()?.join(".config/stackctl/daemon"))
-}
-
 fn launchd_plist_path() -> Result<PathBuf> {
     Ok(home_dir()?
         .join("Library")
@@ -551,8 +542,6 @@ pub(crate) fn set_test_service_command_failure(command: &str) {
 struct ServiceContext {
     binary: String,
     args: Vec<String>,
-    stdout_path: PathBuf,
-    stderr_path: PathBuf,
 }
 
 #[cfg(test)]
@@ -652,6 +641,9 @@ mod tests {
         assert!(status.running);
         assert!(plist.contains("/tmp/stackctl"));
         assert!(plist.contains("<string>--dir</string>"));
+        assert!(plist.contains("<string>/dev/null</string>"));
+        assert!(!plist.contains("watch-service.stdout.log"));
+        assert!(!plist.contains("watch-service.stderr.log"));
         let watched_root = fs::canonicalize(std::env::temp_dir()).expect("watched root");
         assert!(plist.contains(&format!("<string>{}</string>", watched_root.display())));
 
@@ -684,6 +676,10 @@ mod tests {
         assert!(unit.contains("--interval"));
         assert!(!unit.contains("--exclude-dir"));
         assert!(!unit.contains("--max-projects"));
+        assert!(unit.contains("StandardOutput=journal"));
+        assert!(unit.contains("StandardError=journal"));
+        assert!(!unit.contains("StandardOutput=append:"));
+        assert!(!unit.contains("StandardError=append:"));
 
         let commands = take_test_service_commands();
         assert_eq!(commands.len(), 3);

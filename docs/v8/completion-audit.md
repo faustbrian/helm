@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 716 passed, 0 failed. `just lint` (format plus all-target
+`cargo test --quiet`: 720 passed, 0 failed. `just lint` (format plus all-target
 Clippy with the repository's configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
@@ -18,7 +18,7 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-01 | One login-started per-user daemon is authoritative | Partial | `src/control_plane/daemon/unix_daemon_runtime.rs`; one-command rollback-aware setup, canonical watched-root validation, singleton lease, IPC-readiness-gated transactional login-service installation, manager-and-IPC-backed status, and Unix service-manager tests | Live macOS and Linux login/reboot records |
+| AC-01 | One login-started per-user daemon is authoritative | Partial | `src/control_plane/daemon/unix_daemon_runtime.rs`; one-command rollback-aware setup, canonical watched-root validation, singleton lease, IPC-readiness-gated transactional login-service installation, manager-and-IPC-backed status, bounded host logging, and Unix service-manager tests | Live macOS and Linux login/reboot records |
 | AC-02 | Watched-root YAML addition activates without manual start | Implemented | `reconcile_watched_roots`; discovery, debounce, complete-plan, and daemon reconciliation tests | Live claimed-platform add/edit/remove record |
 | AC-03 | TOML is absent from v8 config and state paths | Implemented | strict YAML loader, unsupported-TOML discovery diagnostic, and YAML lock tests | Clean-install acceptance on every claimed platform |
 | AC-04 | Invalid YAML, unknown fields, duplicates, invalid names, and collisions fail before mutation | Implemented | configuration tests; `complete_discovered_registry_collision_fails_before_persistence`; transactional registry tests | None at repository-test level |
@@ -65,7 +65,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, manifest-pinned PHP image definition, commit-pinned multi-architecture publication workflow with SBOM/provenance/signing, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 716 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 720 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 

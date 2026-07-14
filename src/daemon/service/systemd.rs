@@ -28,11 +28,9 @@ fn render_unit(context: &ServiceContext) -> String {
     format!(
         "[Unit]\nDescription=Stackctl daemon watch service\nAfter=default.target\n\n\
 [Service]\nType=simple\nExecStart={exec_start}\nRestart=always\n\
-RestartSec=5\nStandardOutput=append:{stdout_path}\n\
-StandardError=append:{stderr_path}\n\n[Install]\nWantedBy=default.target\n",
+RestartSec=5\nStandardOutput=journal\nStandardError=journal\n\n\
+[Install]\nWantedBy=default.target\n",
         exec_start = exec_start,
-        stdout_path = context.stdout_path.to_string_lossy(),
-        stderr_path = context.stderr_path.to_string_lossy(),
     )
 }
 

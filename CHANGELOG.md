@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Bounded unattended host logging. Linux login services now use journald,
+  launchd no longer appends duplicate unrotated stdout/stderr files, and
+  Stackctl's persistent logs retain seven days with one 10 MiB active and one
+  10 MiB previous segment per day.
 - Made login-service status perform a bounded daemon IPC probe after the
   launchd/systemd running check. A manager-active but unresponsive singleton is
   now reported as an error instead of being presented as healthy.

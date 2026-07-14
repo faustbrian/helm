@@ -41,16 +41,14 @@ fn render_plist(context: &ServiceContext, label: &str) -> String {
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>{stdout_path}</string>
+  <string>/dev/null</string>
   <key>StandardErrorPath</key>
-  <string>{stderr_path}</string>
+  <string>/dev/null</string>
 </dict>
 </plist>
 "#,
         label = xml_escape(label),
         program_arguments = program_arguments,
-        stdout_path = xml_escape(&context.stdout_path.to_string_lossy()),
-        stderr_path = xml_escape(&context.stderr_path.to_string_lossy()),
     )
 }
 
