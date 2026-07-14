@@ -59,8 +59,9 @@ Documentation is not completion. Each milestone requires executable evidence.
 
 ## M8: Lifecycle, recovery, and platforms
 
-- Environment, approvals, orphaning, adoption, backup, restore, rotation,
-  deletion, and GC pass destructive-safety tests.
+- Environment, orphaning, adoption, backup, restore, rotation, deletion, and GC
+  pass destructive-safety tests. Unsupported privilege-expanding configuration
+  fails strict schema validation before planning.
 - Backup, restore, replacement, and deletion workflows have verified rollback.
 - Login, reboot, engine restart, daemon/service crash, sleep, and wake pass on
   every claimed platform and architecture.

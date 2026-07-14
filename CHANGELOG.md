@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the v8 architecture, lifecycle, and operations documents to match
+  the clean-slate security boundary. The current schema rejects unsupported
+  privilege expansion before planning and has no approval or state-schema
+  upgrade subsystem.
 - Required certificate generation directories and every persisted certificate
   or key path to be real filesystem objects before idempotent reuse, loading,
   or activation. TLS reconciliation can no longer adopt external bundle

@@ -76,14 +76,14 @@ on Docker request types, SQLite, clocks, filesystems, or process execution.
 V8 keeps these representations distinct:
 
 1. `RawProjectConfig`: strict deserialization of `.stackctl.yaml`.
-2. `DesiredProject`: validated names, services, capabilities, and policies.
+2. `DesiredProject`: validated names, services, dependencies, and policies.
 3. `ResolvedProjectPlan`: exact compatibility keys, logical resources,
    endpoints, routes, and reversible/destructive operations.
 4. Backend mutation requests: typed inputs to narrow effect capabilities.
 5. `ObservedState`: Engine objects, service readiness, route/certificate state,
    and persisted ownership.
-6. `ReconciliationResult`: converged, changed, awaiting approval, conflicted,
-   orphaned, degraded, or failed with structured reasons.
+6. Reconciliation output: applied, blocked before mutation, orphaned, degraded,
+   or failed with structured reasons.
 
 No common model exposes Docker argument arrays, CLI output, Caddyfile syntax,
 or host package-manager concepts.
@@ -122,13 +122,14 @@ validation may remain local.
 
 SQLite stores the installation ID, watched roots, projects, desired/resolved
 revisions, ownership, compatibility fingerprints, credentials, logical
-resources, routes, observed identifiers, reconciliation history, approvals,
-orphans, retention, and migrations.
+resources, routes, observed identifiers, daemon events and operations, orphans,
+retention, recovery points, and service-resource migrations.
 
-State transitions and schema upgrades are transactional. Upgrades create a
-verified backup and either commit completely or retain the prior database. If
-WAL is enabled, Stackctl pins a SQLite release containing applicable WAL race
-fixes.
+State transitions are transactional. V8 initializes only an empty database at
+its current schema and rejects any other non-empty schema before mutation. A
+verified bounded recovery snapshot is created before opening existing current
+state. If WAL is enabled, Stackctl pins a SQLite release containing applicable
+WAL race fixes.
 
 SQLite does not replace runtime observation. Engine labels reconstruct
 ownership after state loss and are compared with persisted state.

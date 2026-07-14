@@ -362,8 +362,8 @@ or revised in place.
 
 Health distinguishes engine absence, container absence/stoppage/restart,
 process health, service readiness, authentication, logical-resource drift,
-gateway drift, certificate expiry, name collision, approval blocking, orphaning,
-and destructive replacement.
+gateway drift, certificate expiry, name collision, invalid registry state,
+orphaning, and destructive replacement.
 
 Project status reports durable lifecycle and last Engine-observed health as
 separate fields. Health snapshots remain in daemon memory, are timestamped, and
