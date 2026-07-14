@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned RabbitMQ topology backups using exact vhost ownership,
+  a fail-closed zero-message policy, scoped broker definition export, immutable
+  artifact storage, and checksum verification without exposing credentials.
 - Extended common recovery-bound logical prune execution to RabbitMQ with
   user-first access revocation, exact vhost deletion, idempotent crash replay,
   and atomic tenant-state retirement without touching the shared broker.

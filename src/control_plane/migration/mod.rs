@@ -13,6 +13,7 @@ mod migration_target_plan;
 mod mongodb;
 mod mysql;
 mod postgres;
+mod rabbitmq;
 mod recovery_point_restore_options;
 mod run_migration;
 mod sql_server;
@@ -39,6 +40,7 @@ pub(crate) use postgres::{
     EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
 };
+pub(crate) use rabbitmq::{RabbitMqBackupOptions, backup_rabbitmq_vhost};
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};
 pub(crate) use sql_server::{

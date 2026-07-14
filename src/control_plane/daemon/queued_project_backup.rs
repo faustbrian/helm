@@ -89,6 +89,7 @@ impl QueuedProjectBackup {
                 | "mariadb_database"
                 | "mongodb_database"
                 | "sqlserver_database"
+                | "rabbitmq_vhost_user"
         ) {
             return Err(format!(
                 "project backup kind '{}' is not implemented",

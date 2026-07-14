@@ -1009,6 +1009,173 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
 }
 
 #[test]
+fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-rabbitmq-backup");
+    let fingerprint = format!("sha256:{}", "e".repeat(64));
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "rabbitmq-container",
+        "install-1",
+        "rabbitmq-4",
+        &fingerprint,
+    )]);
+    let operation = QueuedProjectBackup::new(
+        "backup-rabbitmq".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "bill/database/rabbitmq".to_owned(),
+        "rabbitmq_vhost_user".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid RabbitMQ backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/rabbitmq".to_owned(),
+        shared_resource_id: "rabbitmq-4".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/rabbitmq".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "rabbit-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified RabbitMQ backup");
+    let calls = engine.command_arguments();
+    assert_eq!(
+        calls[0],
+        [
+            "rabbitmqctl",
+            "list_queues",
+            "--vhost",
+            "stackctl_bill_database",
+            "name",
+            "messages",
+            "--no-table-headers",
+        ]
+    );
+    assert_eq!(calls[1][0], "sh");
+    assert!(calls[1][2].contains("export_definitions"));
+    assert!(calls[1][2].contains("STACKCTL_VHOST"));
+    assert!(!format!("{calls:?}").contains("rabbit-secret"));
+    assert_eq!(backup.artifact_size_bytes(), 10);
+    assert!(Path::new(backup.reference()).join("artifact.bin").is_file());
+    assert!(
+        Path::new(backup.reference())
+            .join("manifest.json")
+            .is_file()
+    );
+
+    std::fs::remove_dir_all(backup_root).expect("remove RabbitMQ backup fixture");
+}
+
+#[test]
+fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-rabbitmq-non-empty-backup");
+    let fingerprint = format!("sha256:{}", "f".repeat(64));
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "rabbitmq-container",
+        "install-1",
+        "rabbitmq-4",
+        &fingerprint,
+    )])
+    .with_rabbitmq_queue_output(b"jobs\t2\n".to_vec());
+    let operation = QueuedProjectBackup::new(
+        "backup-rabbitmq-non-empty".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "bill/database/rabbitmq".to_owned(),
+        "rabbitmq_vhost_user".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid RabbitMQ backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/rabbitmq".to_owned(),
+        shared_resource_id: "rabbitmq-4".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/rabbitmq".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "rabbit-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_000,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert!(
+        result
+            .outcome()
+            .as_ref()
+            .expect_err("non-empty queue must fail closed")
+            .contains("contains 2 message(s) in queue 'jobs'")
+    );
+    assert_eq!(engine.command_arguments().len(), 1);
+    assert!(!backup_root.join("bill").exists());
+
+    std::fs::remove_dir_all(backup_root).expect("remove RabbitMQ backup fixture");
+}
+
+#[test]
 fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
@@ -6247,6 +6414,7 @@ struct RecordingProjectCommandExecution {
     stopped: std::sync::Mutex<Vec<String>>,
     removed: std::sync::Mutex<Vec<String>>,
     created_volumes: std::sync::Mutex<Vec<String>>,
+    rabbitmq_queue_output: std::sync::Mutex<Vec<u8>>,
 }
 
 impl RecordingProjectCommandEngine {
@@ -6261,6 +6429,15 @@ impl RecordingProjectCommandEngine {
         self.execution
             .command_exit_code
             .store(exit_code, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    fn with_rabbitmq_queue_output(self, output: Vec<u8>) -> Self {
+        *self
+            .execution
+            .rabbitmq_queue_output
+            .lock()
+            .expect("RabbitMQ queue output") = output;
         self
     }
 
@@ -6496,6 +6673,13 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
         let rabbitmq_list_output = match request.arguments().get(1).map(String::as_str) {
             Some("list_users") => Some(b"st_bill_database\nother_user\n".to_vec()),
             Some("list_vhosts") => Some(b"/\nstackctl_bill_database\nother_vhost\n".to_vec()),
+            Some("list_queues") => Some(
+                self.execution
+                    .rabbitmq_queue_output
+                    .lock()
+                    .expect("RabbitMQ queue output")
+                    .clone(),
+            ),
             _ => None,
         };
         let verification_output = postgres_verification_output
