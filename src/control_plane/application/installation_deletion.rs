@@ -34,6 +34,20 @@ where
         if plan.confirmation_token() != confirmation_token {
             return Err("installation deletion confirmation token is stale".to_owned());
         }
+        let active_operations = self
+            .state_store
+            .active_daemon_operations()
+            .map_err(|error| error.to_string())?;
+        if !active_operations.is_empty() {
+            return Err(format!(
+                "installation deletion requires an idle daemon; active operations: {}",
+                active_operations
+                    .iter()
+                    .map(|operation| operation.operation_id())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         let (installation_id, logical_resources, _, recovery_points) =
             self.installation_deletion_snapshot()?;
         for prune in plan.logical_prunes() {

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refused installation-deletion freeze while any durable daemon operation is
+  queued or running, preventing backup, restore, command, or migration work
+  from racing the serialized teardown sequence.
 - Prevented a terminally deleted installation from being moved back into the
   deleting lifecycle by replaying the teardown transition.
 - Reverified the exact stored backup manifest, identity, checksum, and size

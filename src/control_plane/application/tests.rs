@@ -104,6 +104,49 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
             .expect("active lifecycle"),
         Some(crate::control_plane::state::InstallationLifecycle::Active)
     );
+    let accepted_json =
+        serde_json::to_string(&crate::control_plane::daemon::IpcEventKind::Accepted)
+            .expect("accepted event");
+    control_plane
+        .enqueue_daemon_operation(
+            &crate::control_plane::state::DaemonOperationRecord::new(
+                crate::control_plane::state::DaemonOperationRecordOptions {
+                    operation_id: "backup-in-flight".to_owned(),
+                    kind: "project_backup".to_owned(),
+                    payload_json: "{\"project\":\"bill\"}".to_owned(),
+                    status: crate::control_plane::state::DaemonOperationStatus::Queued,
+                    created_at_unix_seconds: 9_500,
+                    updated_at_unix_seconds: 9_500,
+                },
+            ),
+            &accepted_json,
+            256,
+        )
+        .expect("queue competing operation");
+    let error = control_plane
+        .begin_confirmed_installation_deletion(plan.confirmation_token(), 10_000)
+        .expect_err("active operation must block deletion freeze");
+    assert!(error.contains("backup-in-flight"));
+    assert_eq!(
+        control_plane
+            .installation_lifecycle()
+            .expect("active lifecycle"),
+        Some(crate::control_plane::state::InstallationLifecycle::Active)
+    );
+    control_plane
+        .transition_daemon_operation(
+            crate::control_plane::state::DaemonOperationTransitionOptions {
+                operation_id: "backup-in-flight",
+                expected: crate::control_plane::state::DaemonOperationStatus::Queued,
+                next: crate::control_plane::state::DaemonOperationStatus::Failed,
+                updated_at_unix_seconds: 9_600,
+                event_kind_json: Some(
+                    "{\"kind\":\"failed\",\"code\":\"cancelled\",\"message\":\"test\"}",
+                ),
+                event_retention_limit: 256,
+            },
+        )
+        .expect("terminalize competing operation");
     control_plane
         .begin_confirmed_installation_deletion(plan.confirmation_token(), 10_000)
         .expect("confirmed deletion transition");
