@@ -134,6 +134,7 @@ mod unix_daemon_watch_options;
 mod v7_host_artifact_paths;
 mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
+mod verify_accepted_v7_environment_rollback;
 
 pub(crate) use active_migration_decision::ActiveMigrationDecision;
 pub(crate) use active_postgres_prune::ActivePostgresPrune;
@@ -268,3 +269,4 @@ pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
 pub(crate) use v7_host_artifact_paths::V7HostArtifactPaths;
 pub(crate) use v7_project_inventory_provider::V7ProjectInventoryProvider;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;
+pub(crate) use verify_accepted_v7_environment_rollback::verify_accepted_v7_environment_rollback;

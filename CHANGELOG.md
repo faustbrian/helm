@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Captured exact legacy generated-environment bytes into randomized private
+  rollback envelopes during accepted v7 inventory. Acceptance now revalidates
+  stable source metadata, atomically records verified artifact evidence in
+  schema 17, and refuses reuse when the protected rollback is missing or
+  corrupt without exposing secrets or deterministic secret-derived hashes.
 - Added bounded, secret-free v7 host-artifact inventory for generated `.env`
   metadata and key names, project-scoped hosts and Caddy routes, and public
   Caddy CA certificates. Artifact reads reject symlinks, oversize files, and

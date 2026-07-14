@@ -1,9 +1,13 @@
 #[cfg(test)]
 mod tests;
 
+mod capture_v7_generated_environment_rollback;
 mod inventory_v7_host_artifacts;
 mod inventory_v7_project;
+mod read_v7_generated_environment_rollback;
 mod v7_generated_environment_artifact;
+mod v7_generated_environment_rollback_material;
+mod v7_generated_environment_rollback_options;
 mod v7_host_artifact_discovery_options;
 mod v7_host_artifact_inventory;
 mod v7_inventory_blocker;
@@ -20,9 +24,13 @@ mod v7_service_inventory_options;
 mod v7_volume_inventory;
 mod v7_volume_source;
 
+pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_environment_rollback;
 pub(crate) use inventory_v7_host_artifacts::inventory_v7_host_artifacts;
 pub(crate) use inventory_v7_project::inventory_v7_project;
+pub(crate) use read_v7_generated_environment_rollback::read_v7_generated_environment_rollback;
 pub(crate) use v7_generated_environment_artifact::V7GeneratedEnvironmentArtifact;
+pub(crate) use v7_generated_environment_rollback_material::V7GeneratedEnvironmentRollbackMaterial;
+pub(crate) use v7_generated_environment_rollback_options::V7GeneratedEnvironmentRollbackOptions;
 pub(crate) use v7_host_artifact_discovery_options::V7HostArtifactDiscoveryOptions;
 pub(crate) use v7_host_artifact_inventory::V7HostArtifactInventory;
 pub(crate) use v7_inventory_blocker::V7InventoryBlocker;

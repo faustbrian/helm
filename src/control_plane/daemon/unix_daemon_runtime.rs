@@ -199,11 +199,10 @@ impl UnixDaemonRuntime {
                 self.global_network_request.metadata().schema_version(),
             )
         });
-        let mut v7_project_inventory = self
-            .engine_connection
-            .engine()
-            .cloned()
-            .map(|engine| EngineV7ProjectInventoryProvider::new(&self.engine_runtime, engine));
+        let mut v7_project_inventory = self.engine_connection.engine().cloned().map(|engine| {
+            EngineV7ProjectInventoryProvider::new(&self.engine_runtime, engine)
+                .with_rollback_root(self.runtime_directory.join("backups"))
+        });
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
                 control_plane: &mut self.control_plane,

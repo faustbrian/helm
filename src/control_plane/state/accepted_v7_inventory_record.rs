@@ -7,6 +7,7 @@ use std::path::Path;
 pub(crate) struct AcceptedV7InventoryRecord {
     options: AcceptedV7InventoryRecordOptions,
     evidence_revision: String,
+    requires_generated_environment_rollback: bool,
 }
 
 impl AcceptedV7InventoryRecord {
@@ -29,6 +30,9 @@ impl AcceptedV7InventoryRecord {
                     .and_then(|value| value.as_array())
                     .is_some_and(Vec::is_empty)
         });
+        let generated_environment_present = inventory
+            .pointer("/host_artifacts/generated_environment")
+            .is_some_and(|value| !value.is_null());
         let valid = !options.project_id.is_empty()
             && options.canonical_project_path.is_absolute()
             && is_source_revision(&options.source_revision)
@@ -45,6 +49,7 @@ impl AcceptedV7InventoryRecord {
         Ok(Self {
             options,
             evidence_revision,
+            requires_generated_environment_rollback: generated_environment_present,
         })
     }
 
@@ -66,6 +71,16 @@ impl AcceptedV7InventoryRecord {
 
     pub(crate) fn inventory_json(&self) -> &str {
         &self.options.inventory_json
+    }
+
+    pub(crate) const fn generated_environment_rollback(
+        &self,
+    ) -> Option<&super::AcceptedV7EnvironmentRollback> {
+        self.options.generated_environment_rollback.as_ref()
+    }
+
+    pub(crate) const fn requires_generated_environment_rollback(&self) -> bool {
+        self.requires_generated_environment_rollback
     }
 
     pub(crate) const fn accepted_at_unix_seconds(&self) -> i64 {

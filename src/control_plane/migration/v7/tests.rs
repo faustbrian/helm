@@ -1,7 +1,8 @@
 use super::{
-    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7ProjectInventory,
-    V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RuntimeFeature, V7VolumeSource,
-    inventory_v7_host_artifacts, inventory_v7_project,
+    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions, V7InventoryBlocker,
+    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RuntimeFeature,
+    V7VolumeSource, capture_v7_generated_environment_rollback, inventory_v7_host_artifacts,
+    inventory_v7_project, read_v7_generated_environment_rollback,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -134,6 +135,100 @@ fn v7_host_artifacts_reject_symlinks_and_files_over_the_bound() {
     assert!(error.to_string().contains("exceeds the 5 byte limit"));
 
     std::fs::remove_dir_all(root).expect("remove artifact fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn v7_generated_environment_rollback_is_private_randomized_and_exact() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v7-environment-rollback-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let project = root.join("bill");
+    let backup_root = root.join("backups");
+    std::fs::create_dir_all(&project).expect("project fixture");
+    let environment_path = project.join(".env");
+    let hosts_path = root.join("hosts");
+    let caddy_state_path = root.join("missing-sites.toml");
+    let environment_bytes = b"DB_PASSWORD=small-secret\nEMPTY=\n";
+    std::fs::write(&environment_path, environment_bytes).expect("legacy environment");
+    std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("legacy hosts");
+    let artifacts = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+        environment_path: &environment_path,
+        hosts_path: &hosts_path,
+        caddy_state_path: &caddy_state_path,
+        caddy_ca_candidates: &[],
+        route_domains: &[],
+        maximum_artifact_bytes: 1024,
+    })
+    .expect("legacy host inventory");
+    let expected = artifacts
+        .generated_environment()
+        .expect("generated environment evidence");
+    let evidence_revision = "a".repeat(64);
+
+    let rollback =
+        capture_v7_generated_environment_rollback(V7GeneratedEnvironmentRollbackOptions {
+            project_id: "bill",
+            evidence_revision: &evidence_revision,
+            expected,
+            backup_root: &backup_root,
+            maximum_environment_bytes: 1024,
+            created_at_unix_seconds: 40_000,
+        })
+        .expect("protected environment rollback");
+
+    assert!(rollback.recovery_point().is_absolute());
+    assert_eq!(rollback.artifact_sha256().len(), 64);
+    assert!(rollback.artifact_size_bytes() > environment_bytes.len() as u64);
+    let stored_bytes = std::fs::read(rollback.recovery_point().join("artifact.bin"))
+        .expect("stored rollback envelope");
+    assert!(
+        !stored_bytes
+            .windows(b"small-secret".len())
+            .any(|window| window == b"small-secret")
+    );
+    assert_eq!(
+        std::fs::metadata(rollback.recovery_point())
+            .expect("rollback directory metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(rollback.recovery_point().join("artifact.bin"))
+            .expect("rollback artifact metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let restored =
+        read_v7_generated_environment_rollback(&rollback, "bill", &evidence_revision, 40_001, 1024)
+            .expect("read protected environment rollback");
+    assert_eq!(restored, environment_bytes);
+
+    std::fs::write(&environment_path, b"DB_PASSWORD=changed-after-inventory\n")
+        .expect("change legacy environment");
+    let error = capture_v7_generated_environment_rollback(V7GeneratedEnvironmentRollbackOptions {
+        project_id: "bill",
+        evidence_revision: &evidence_revision,
+        expected,
+        backup_root: &backup_root,
+        maximum_environment_bytes: 1024,
+        created_at_unix_seconds: 40_002,
+    })
+    .expect_err("changed environment must require a new plan");
+    assert!(error.to_string().contains("changed after inventory"));
+
+    std::fs::remove_dir_all(root).expect("remove rollback fixture");
 }
 
 #[test]

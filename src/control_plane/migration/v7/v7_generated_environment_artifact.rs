@@ -10,7 +10,7 @@ pub(crate) struct V7GeneratedEnvironmentArtifact {
 }
 
 impl V7GeneratedEnvironmentArtifact {
-    pub(super) fn new(
+    pub(crate) fn new(
         path: PathBuf,
         size_bytes: u64,
         modified_at_unix_seconds: i64,

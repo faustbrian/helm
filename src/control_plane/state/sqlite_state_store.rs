@@ -8,20 +8,21 @@ use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
-    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, CredentialLifecycle,
-    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationRecordOptions,
-    DaemonOperationRetryOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
-    EngineProvider, EnvironmentLifecycle, InstallationLifecycle, InstallationRecord,
-    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, ProjectAdoptionPlan,
-    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
+    CredentialLifecycle, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
+    DaemonOperationRecordOptions, DaemonOperationRetryOptions, DaemonOperationStatus,
+    DaemonOperationTransitionOptions, EngineProvider, EnvironmentLifecycle, InstallationLifecycle,
+    InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
+    StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 16;
+const CURRENT_SCHEMA_VERSION: u32 = 17;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -352,6 +353,21 @@ impl SqliteStateStore {
                  ) STRICT;
                  CREATE INDEX accepted_v7_inventories_project_idx
                      ON accepted_v7_inventories(project_id, canonical_project_path);",
+            )?;
+        }
+
+        if found < 17 {
+            transaction.execute_batch(
+                "ALTER TABLE accepted_v7_inventories
+                     ADD COLUMN environment_rollback_reference TEXT;
+                 ALTER TABLE accepted_v7_inventories
+                     ADD COLUMN environment_rollback_artifact_sha256 TEXT
+                         CHECK(environment_rollback_artifact_sha256 IS NULL
+                             OR length(environment_rollback_artifact_sha256) = 64);
+                 ALTER TABLE accepted_v7_inventories
+                     ADD COLUMN environment_rollback_artifact_size_bytes INTEGER
+                         CHECK(environment_rollback_artifact_size_bytes IS NULL
+                             OR environment_rollback_artifact_size_bytes > 0);",
             )?;
         }
 
@@ -1592,6 +1608,13 @@ impl StateStore for SqliteStateStore {
         &mut self,
         inventory: &AcceptedV7InventoryRecord,
     ) -> Result<(), StateStoreError> {
+        if inventory.requires_generated_environment_rollback()
+            && inventory.generated_environment_rollback().is_none()
+        {
+            return Err(StateStoreError::AcceptedV7InventoryConflict {
+                path: inventory.canonical_project_path().to_path_buf(),
+            });
+        }
         let canonical_path = exact_path(inventory.canonical_project_path())?;
         let transaction = self
             .connection
@@ -1622,12 +1645,58 @@ impl StateStore for SqliteStateStore {
             inventory.evidence_revision(),
         )?;
         if let Some(existing) = existing {
-            if existing.project_id() == inventory.project_id()
+            let same_inventory = existing.project_id() == inventory.project_id()
                 && existing.canonical_project_path() == inventory.canonical_project_path()
                 && existing.source_revision() == inventory.source_revision()
                 && existing.evidence_revision() == inventory.evidence_revision()
-                && existing.inventory_json() == inventory.inventory_json()
+                && existing.inventory_json() == inventory.inventory_json();
+            if same_inventory
+                && existing.generated_environment_rollback()
+                    == inventory.generated_environment_rollback()
             {
+                transaction.commit()?;
+
+                return Ok(());
+            }
+            if same_inventory
+                && existing.generated_environment_rollback().is_none()
+                && inventory.generated_environment_rollback().is_some()
+            {
+                let rollback = inventory.generated_environment_rollback().ok_or_else(|| {
+                    StateStoreError::AcceptedV7InventoryConflict {
+                        path: inventory.canonical_project_path().to_path_buf(),
+                    }
+                })?;
+                let rollback_reference = exact_path(rollback.reference())?;
+                let rollback_size =
+                    i64::try_from(rollback.artifact_size_bytes()).map_err(|_| {
+                        StateStoreError::CorruptState {
+                            detail: "accepted v7 environment rollback size exceeds SQLite range"
+                                .to_owned(),
+                        }
+                    })?;
+                let updated = transaction.execute(
+                    "UPDATE accepted_v7_inventories
+                     SET environment_rollback_reference = ?3,
+                         environment_rollback_artifact_sha256 = ?4,
+                         environment_rollback_artifact_size_bytes = ?5
+                     WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
+                    params![
+                        canonical_path,
+                        inventory.evidence_revision(),
+                        rollback_reference,
+                        rollback.artifact_sha256(),
+                        rollback_size,
+                    ],
+                )?;
+                if updated != 1 {
+                    return Err(StateStoreError::CorruptState {
+                        detail: format!(
+                            "accepted v7 inventory for '{}' disappeared during rollback enrichment",
+                            inventory.canonical_project_path().display()
+                        ),
+                    });
+                }
                 transaction.commit()?;
 
                 return Ok(());
@@ -1637,11 +1706,29 @@ impl StateStore for SqliteStateStore {
                 path: inventory.canonical_project_path().to_path_buf(),
             });
         }
+        let rollback_reference = inventory
+            .generated_environment_rollback()
+            .map(|rollback| exact_path(rollback.reference()))
+            .transpose()?;
+        let rollback_sha256 = inventory
+            .generated_environment_rollback()
+            .map(AcceptedV7EnvironmentRollback::artifact_sha256);
+        let rollback_size = inventory
+            .generated_environment_rollback()
+            .map(AcceptedV7EnvironmentRollback::artifact_size_bytes)
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| StateStoreError::CorruptState {
+                detail: "accepted v7 environment rollback size exceeds SQLite range".to_owned(),
+            })?;
         transaction.execute(
             "INSERT INTO accepted_v7_inventories (
                  canonical_project_path, project_id, source_revision,
-                 evidence_revision, inventory_json, accepted_at_unix_seconds
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 evidence_revision, inventory_json, accepted_at_unix_seconds,
+                 environment_rollback_reference,
+                 environment_rollback_artifact_sha256,
+                 environment_rollback_artifact_size_bytes
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 canonical_path,
                 inventory.project_id(),
@@ -1649,6 +1736,9 @@ impl StateStore for SqliteStateStore {
                 inventory.evidence_revision(),
                 inventory.inventory_json(),
                 inventory.accepted_at_unix_seconds(),
+                rollback_reference,
+                rollback_sha256,
+                rollback_size,
             ],
         )?;
         transaction.commit()?;
@@ -2496,7 +2586,10 @@ fn load_accepted_v7_inventory(
     let persisted = connection
         .query_row(
             "SELECT project_id, source_revision, evidence_revision,
-                    inventory_json, accepted_at_unix_seconds
+                    inventory_json, accepted_at_unix_seconds,
+                    environment_rollback_reference,
+                    environment_rollback_artifact_sha256,
+                    environment_rollback_artifact_size_bytes
              FROM accepted_v7_inventories
              WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
             params![canonical_project_path, evidence_revision],
@@ -2507,18 +2600,60 @@ fn load_accepted_v7_inventory(
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, i64>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
                 ))
             },
         )
         .optional()?;
     persisted
         .map(
-            |(project_id, source_revision, evidence_revision, inventory_json, accepted_at)| {
+            |(
+                project_id,
+                source_revision,
+                evidence_revision,
+                inventory_json,
+                accepted_at,
+                rollback_reference,
+                rollback_sha256,
+                rollback_size,
+            )| {
+                let generated_environment_rollback = match (
+                    rollback_reference,
+                    rollback_sha256,
+                    rollback_size,
+                ) {
+                    (Some(reference), Some(sha256), Some(size)) => {
+                        let size = u64::try_from(size).map_err(|_| StateStoreError::CorruptState {
+                            detail: format!(
+                                "accepted v7 inventory for '{canonical_project_path}' has invalid environment rollback size"
+                            ),
+                        })?;
+                        Some(
+                            AcceptedV7EnvironmentRollback::new(
+                                PathBuf::from(reference),
+                                sha256,
+                                size,
+                            )
+                            .map_err(|detail| StateStoreError::CorruptState { detail })?,
+                        )
+                    }
+                    (None, None, None) => None,
+                    _ => {
+                        return Err(StateStoreError::CorruptState {
+                            detail: format!(
+                                "accepted v7 inventory for '{canonical_project_path}' has incomplete environment rollback evidence"
+                            ),
+                        });
+                    }
+                };
                 let record = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
                     project_id,
                     canonical_project_path: PathBuf::from(canonical_project_path),
                     source_revision,
                     inventory_json,
+                    generated_environment_rollback,
                     accepted_at_unix_seconds: accepted_at,
                 })
                 .map_err(|detail| StateStoreError::CorruptState { detail })?;

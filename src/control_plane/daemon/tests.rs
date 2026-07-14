@@ -25,15 +25,15 @@ use crate::control_plane::daemon::ipc::{
     IpcBenchmarkTcpPort, IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
     IpcMigrationDecision, IpcMigrationStatus, IpcOutcome, IpcOutputStream, IpcPayload,
     IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle,
-    IpcResourceStatus, IpcResponse, IpcResult,
+    IpcResourceStatus, IpcResponse, IpcResult, IpcV7InventoryAcceptancePlan,
 };
 use crate::control_plane::engine::{ContainerHealth, LegacyContainerDiscovery};
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
     MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
     MySqlRestoreOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
-    restore_mongodb_database, restore_mysql_database, restore_sql_server_database,
-    verify_mongodb_target, verify_sql_server_target,
+    read_v7_generated_environment_rollback, restore_mongodb_database, restore_mysql_database,
+    restore_sql_server_database, verify_mongodb_target, verify_sql_server_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -6119,6 +6119,7 @@ password = "database-secret"
         .enable_all()
         .build()
         .expect("inventory runtime");
+    let rollback_root = root.join("backups");
     let mut provider = EngineV7ProjectInventoryProvider::new(
         &runtime,
         RecordingLegacyContainerDiscovery { observed },
@@ -6128,7 +6129,8 @@ password = "database-secret"
         hosts_path,
         root.join("sites.toml"),
         Vec::new(),
-    ));
+    ))
+    .with_rollback_root(rollback_root);
 
     let inventory = provider
         .inventory(&project_path, 1024 * 1024)
@@ -6152,6 +6154,25 @@ password = "database-secret"
     let json = serde_json::to_string(&inventory).expect("inventory JSON");
     assert!(!json.contains("database-secret"));
     assert!(!json.contains("generated-environment-secret"));
+    let plan = IpcV7InventoryAcceptancePlan::new(inventory.clone()).expect("acceptance plan");
+    let rollback = provider
+        .capture_generated_environment_rollback(
+            &inventory,
+            plan.evidence_revision(),
+            1024 * 1024,
+            40_000,
+        )
+        .expect("capture environment rollback")
+        .expect("generated environment rollback");
+    let restored = read_v7_generated_environment_rollback(
+        &rollback,
+        "bill",
+        plan.evidence_revision(),
+        40_001,
+        1024 * 1024,
+    )
+    .expect("read environment rollback");
+    assert_eq!(restored, b"DB_PASSWORD=generated-environment-secret\n");
 
     std::fs::remove_dir_all(root).expect("remove inventory fixture");
 }
@@ -6340,6 +6361,35 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         .expect("accepted inventory state")
         .expect("durable accepted inventory");
     assert_eq!(accepted.accepted_at_unix_seconds(), 10_001);
+    assert_eq!(provider.rollback_captures, 1);
+
+    let replay_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &accept_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        v7_project_inventory: Some(&mut provider),
+        now_unix_seconds: 10_002,
+    });
+    assert!(matches!(
+        replay_response.outcome(),
+        IpcOutcome::Success {
+            result: IpcResult::V7InventoryAccepted {
+                accepted_at_unix_seconds: 10_001,
+                ..
+            }
+        }
+    ));
+    assert_eq!(provider.rollback_captures, 1);
 
     provider.source_revision = format!("sha256:{}", "b".repeat(64));
     let stale_request = IpcRequest::new(
@@ -6367,7 +6417,7 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         benchmark_snapshot: None,
         image_reference_resolution: None,
         v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_002,
+        now_unix_seconds: 10_003,
     });
     assert!(matches!(
         stale_response.outcome(),
@@ -6405,7 +6455,7 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         benchmark_snapshot: None,
         image_reference_resolution: None,
         v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_003,
+        now_unix_seconds: 10_004,
     });
     assert!(matches!(
         blocked_response.outcome(),
@@ -6444,6 +6494,7 @@ struct RecordingV7ProjectInventoryProvider {
     paths: Vec<PathBuf>,
     source_revision: String,
     blockers: Vec<String>,
+    rollback_captures: usize,
 }
 
 impl Default for RecordingV7ProjectInventoryProvider {
@@ -6452,6 +6503,7 @@ impl Default for RecordingV7ProjectInventoryProvider {
             paths: Vec::new(),
             source_revision: format!("sha256:{}", "a".repeat(64)),
             blockers: Vec::new(),
+            rollback_captures: 0,
         }
     }
 }
@@ -6477,6 +6529,21 @@ impl V7ProjectInventoryProvider for RecordingV7ProjectInventoryProvider {
                 },
             ),
         )
+    }
+
+    fn capture_generated_environment_rollback(
+        &mut self,
+        _inventory: &crate::control_plane::daemon::ipc::IpcV7ProjectInventory,
+        _evidence_revision: &str,
+        _maximum_environment_bytes: usize,
+        _created_at_unix_seconds: i64,
+    ) -> Result<
+        Option<crate::control_plane::migration::V7GeneratedEnvironmentRollbackMaterial>,
+        String,
+    > {
+        self.rollback_captures += 1;
+
+        Ok(None)
     }
 }
 

@@ -230,10 +230,18 @@ retains only `.env` path, size, modification time, and key names; only routes
 matching the project's configured domains are retained from global files; and
 public CA certificates receive a SHA-256 revision. Exact environment bytes are
 not hashed into diagnostic evidence because that could disclose an offline
-verifier for weak secrets. They must instead be revalidated and copied into a
-private, user-only rollback artifact before any adapter can mutate the source.
-Resource-specific adapter selection and live cutover remain separate later
-phases.
+verifier for weak secrets. Inventory acceptance therefore re-reads the exact
+bounded file, requires its size, modification time, and key set to still match,
+and copies the bytes into a randomized private rollback envelope. The envelope
+and manifest are stored under user-only directories and files; SQLite retains
+only the protected reference, envelope checksum, and size. Randomization keeps
+that checksum from becoming a verifier for guessed secret values. Repeated
+acceptance re-verifies the existing artifact instead of silently replacing
+append-only evidence. Schema-16 records remain readable after upgrade; if one
+predates protected capture, acceptance permits only a one-way enrichment of
+its empty rollback fields while retaining its original inventory and acceptance
+time. Resource-specific adapter selection and live cutover remain separate
+later phases.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an
@@ -251,10 +259,13 @@ writes no state. `stackctl daemon migration accept [PATH]
 --confirmation-token TOKEN` performs a fresh config, Engine, and host-artifact
 inventory, recomputes the complete evidence digest, and rejects the request if
 any source, container, image, mount, route, public host artifact, environment
-metadata, or blocker evidence changed. Only an exact replay is appended to the
-SQLite acceptance journal. Each record contains the
-canonical path, deterministic project identity, source revision, full
-secret-free inventory, evidence revision, and acceptance time. A second path
+metadata, or blocker evidence changed. When generated environment exists,
+acceptance also fails before persistence if exact protected rollback capture or
+immediate verification fails. Only an exact replay is appended to the SQLite
+acceptance journal. Each record contains the canonical path, deterministic
+project identity, source revision, full secret-free inventory, protected
+environment rollback evidence when required, evidence revision, and acceptance
+time. A second path
 claiming an already accepted project identity fails loudly; Stackctl never
 renames, hashes, or repairs it. Later migration adapters must match an exact
 accepted evidence revision before acting.

@@ -1,12 +1,14 @@
 use super::{
-    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, CredentialLifecycle,
-    CredentialRecord, CredentialRecordOptions, DaemonEventRecord, EngineProvider,
-    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
-    MigrationRecordOptions, ProjectAdoptionPlan, ProjectAdoptionPlanOptions, ProjectRecord,
-    RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, DaemonEventRecord,
+    EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
+    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
+    ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
+    StateStore,
 };
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,7 +19,7 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 16);
+    assert_eq!(store.schema_version().expect("schema version"), 17);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -64,6 +66,91 @@ fn accepted_v7_inventory_is_append_only_idempotent_and_path_scoped() {
         .record_accepted_v7_inventory(&collision)
         .expect_err("duplicate project identity must fail loudly");
     assert!(error.to_string().contains("already accepted at"));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn accepted_v7_environment_requires_complete_protected_rollback_evidence() {
+    let database_path = temporary_database_path("accepted-v7-environment-rollback");
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let inventory_json = format!(
+        r#"{{"project_id":"bill","canonical_project_path":"/work/bill","source_revision":"{source_revision}","blockers":[],"host_artifacts":{{"generated_environment":{{"path":"/work/bill/.env"}}}}}}"#,
+    );
+    let evidence_revision = hex::encode(Sha256::digest(inventory_json.as_bytes()));
+    let legacy = rusqlite::Connection::open(&database_path).expect("legacy state database");
+    legacy
+        .execute_batch(
+            "CREATE TABLE accepted_v7_inventories (
+                 canonical_project_path TEXT NOT NULL,
+                 project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                 source_revision TEXT NOT NULL CHECK(length(source_revision) = 71),
+                 evidence_revision TEXT NOT NULL CHECK(length(evidence_revision) = 64),
+                 inventory_json TEXT NOT NULL CHECK(length(inventory_json) > 0),
+                 accepted_at_unix_seconds INTEGER NOT NULL
+                     CHECK(accepted_at_unix_seconds >= 0),
+                 PRIMARY KEY(canonical_project_path, evidence_revision)
+             ) STRICT;
+             CREATE INDEX accepted_v7_inventories_project_idx
+                 ON accepted_v7_inventories(project_id, canonical_project_path);
+             PRAGMA user_version = 16;",
+        )
+        .expect("legacy accepted inventory schema");
+    legacy
+        .execute(
+            "INSERT INTO accepted_v7_inventories (
+                 canonical_project_path, project_id, source_revision,
+                 evidence_revision, inventory_json, accepted_at_unix_seconds
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "/work/bill",
+                "bill",
+                source_revision,
+                evidence_revision,
+                inventory_json,
+                40_000_i64,
+            ],
+        )
+        .expect("legacy accepted inventory");
+    drop(legacy);
+    let mut store = SqliteStateStore::open(&database_path).expect("upgrade state store");
+
+    let incomplete = store
+        .accepted_v7_inventory(Path::new("/work/bill"), &evidence_revision)
+        .expect("load schema-16 accepted inventory")
+        .expect("legacy accepted inventory exists");
+    assert!(incomplete.requires_generated_environment_rollback());
+    let error = store
+        .record_accepted_v7_inventory(&incomplete)
+        .expect_err("new acceptance requires protected environment rollback");
+    assert!(error.to_string().contains("differs from durable evidence"));
+
+    let rollback = AcceptedV7EnvironmentRollback::new(
+        PathBuf::from("/private/backups/bill/environment"),
+        "b".repeat(64),
+        128,
+    )
+    .expect("environment rollback evidence");
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: source_revision.clone(),
+        inventory_json: inventory_json.clone(),
+        generated_environment_rollback: Some(rollback.clone()),
+        accepted_at_unix_seconds: 40_000,
+    })
+    .expect("accepted inventory with environment rollback");
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("enrich accepted inventory with protected rollback");
+    let restored = store
+        .accepted_v7_inventory(Path::new("/work/bill"), accepted.evidence_revision())
+        .expect("load accepted inventory")
+        .expect("accepted inventory exists");
+
+    assert_eq!(restored.generated_environment_rollback(), Some(&rollback));
+    assert_eq!(restored.accepted_at_unix_seconds(), 40_000);
 
     drop(store);
     remove_database(&database_path);
@@ -2049,7 +2136,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 16);
+    assert_eq!(store.schema_version().expect("schema version"), 17);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -2105,7 +2192,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 16);
+    assert_eq!(store.schema_version().expect("schema version"), 17);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -2149,7 +2236,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 16);
+    assert_eq!(store.schema_version().expect("schema version"), 17);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);
@@ -2188,6 +2275,7 @@ fn accepted_v7_inventory_at(
             r#"{{"project_id":"{project_id}","canonical_project_path":"{canonical_project_path}","source_revision":"sha256:{}","blockers":[],"seed":"{seed}"}}"#,
             seed.repeat(64),
         ),
+        generated_environment_rollback: None,
         accepted_at_unix_seconds,
     })
     .expect("valid accepted v7 inventory")

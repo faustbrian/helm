@@ -1,3 +1,4 @@
+mod accepted_v7_environment_rollback;
 mod accepted_v7_inventory_record;
 mod accepted_v7_inventory_record_options;
 mod credential_lifecycle;
@@ -40,6 +41,7 @@ mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
 
+pub(crate) use accepted_v7_environment_rollback::AcceptedV7EnvironmentRollback;
 pub(crate) use accepted_v7_inventory_record::AcceptedV7InventoryRecord;
 pub(crate) use accepted_v7_inventory_record_options::AcceptedV7InventoryRecordOptions;
 pub(crate) use credential_lifecycle::CredentialLifecycle;

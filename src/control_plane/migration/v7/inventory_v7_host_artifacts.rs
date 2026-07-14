@@ -91,7 +91,7 @@ fn generated_environment(
     )))
 }
 
-fn environment_keys(contents: &str) -> Vec<String> {
+pub(super) fn environment_keys(contents: &str) -> Vec<String> {
     contents
         .lines()
         .filter_map(|line| {
@@ -165,7 +165,7 @@ fn public_artifact(
     )))
 }
 
-fn read_regular(
+pub(super) fn read_regular(
     path: &Path,
     maximum_bytes: usize,
     required: bool,
@@ -260,8 +260,8 @@ struct LegacyCaddyState {
     routes: BTreeMap<String, String>,
 }
 
-struct ReadArtifact {
-    bytes: Vec<u8>,
-    size_bytes: u64,
-    modified_at: std::time::SystemTime,
+pub(super) struct ReadArtifact {
+    pub(super) bytes: Vec<u8>,
+    pub(super) size_bytes: u64,
+    pub(super) modified_at: std::time::SystemTime,
 }

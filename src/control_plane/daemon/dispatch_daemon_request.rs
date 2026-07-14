@@ -5,6 +5,7 @@ use super::{
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
     ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
     reconcile_watched_roots, retry_failed_installation_deletion_prune,
+    verify_accepted_v7_environment_rollback,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -15,9 +16,10 @@ use crate::control_plane::daemon::ipc::{
     IpcResult, IpcV7InventoryAcceptancePlan,
 };
 use crate::control_plane::state::{
-    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, DaemonOperationRecord,
-    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
-    EnvironmentLifecycle, MigrationPhase, ResourceLifecycle, ResourceRetention, StateStore,
+    AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
+    DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
+    DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
+    ResourceRetention, StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -373,12 +375,97 @@ where
                     )],
                 );
             }
+            let existing = match control_plane
+                .accepted_v7_inventory(canonical_path, plan.evidence_revision())
+            {
+                Ok(existing) => existing,
+                Err(error) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_persistence_failed",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            if let Some(existing) = existing.filter(|accepted| {
+                !accepted.requires_generated_environment_rollback()
+                    || accepted.generated_environment_rollback().is_some()
+            }) {
+                if let Err(message) = verify_accepted_v7_environment_rollback(
+                    &existing,
+                    now_unix_seconds,
+                    discovery_options.maximum_config_bytes(),
+                ) {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_environment_rollback_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+
+                return IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::V7InventoryAccepted {
+                        project_id: existing.project_id().to_owned(),
+                        evidence_revision: existing.evidence_revision().to_owned(),
+                        accepted_at_unix_seconds: existing.accepted_at_unix_seconds(),
+                    },
+                );
+            }
+            let generated_environment_rollback = match provider
+                .capture_generated_environment_rollback(
+                    plan.inventory(),
+                    plan.evidence_revision(),
+                    discovery_options.maximum_config_bytes(),
+                    now_unix_seconds,
+                ) {
+                Ok(rollback) => rollback,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_environment_rollback_capture_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let generated_environment_rollback = match generated_environment_rollback
+                .map(|rollback| {
+                    AcceptedV7EnvironmentRollback::new(
+                        rollback.recovery_point().to_path_buf(),
+                        rollback.artifact_sha256().to_owned(),
+                        rollback.artifact_size_bytes(),
+                    )
+                })
+                .transpose()
+            {
+                Ok(rollback) => rollback,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_environment_rollback_capture_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
             let record = match plan.inventory_json().and_then(|inventory_json| {
                 AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
                     project_id: plan.inventory().project_id().to_owned(),
                     canonical_project_path: canonical_path.to_path_buf(),
                     source_revision: plan.inventory().source_revision().to_owned(),
                     inventory_json,
+                    generated_environment_rollback,
                     accepted_at_unix_seconds: now_unix_seconds,
                 })
             }) {
@@ -405,14 +492,34 @@ where
                 );
             }
             match control_plane.record_accepted_v7_inventory(&record) {
-                Ok(()) => IpcResponse::success(
-                    request.request_id(),
-                    IpcResult::V7InventoryAccepted {
-                        project_id: record.project_id().to_owned(),
-                        evidence_revision: record.evidence_revision().to_owned(),
-                        accepted_at_unix_seconds: record.accepted_at_unix_seconds(),
-                    },
-                ),
+                Ok(()) => match control_plane
+                    .accepted_v7_inventory(canonical_path, record.evidence_revision())
+                {
+                    Ok(Some(persisted)) => IpcResponse::success(
+                        request.request_id(),
+                        IpcResult::V7InventoryAccepted {
+                            project_id: persisted.project_id().to_owned(),
+                            evidence_revision: persisted.evidence_revision().to_owned(),
+                            accepted_at_unix_seconds: persisted.accepted_at_unix_seconds(),
+                        },
+                    ),
+                    Ok(None) => IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_persistence_failed",
+                            "accepted legacy inventory disappeared after persistence",
+                            true,
+                        )],
+                    ),
+                    Err(error) => IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_persistence_failed",
+                            error.to_string(),
+                            true,
+                        )],
+                    ),
+                },
                 Err(error) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new(

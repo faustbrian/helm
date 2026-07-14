@@ -2,17 +2,20 @@ use super::{V7HostArtifactPaths, V7ProjectInventoryProvider, ipc::IpcV7ProjectIn
 use crate::config::{LoadConfigPathOptions, load_config_with};
 use crate::control_plane::engine::LegacyContainerDiscovery;
 use crate::control_plane::migration::{
-    V7HostArtifactDiscoveryOptions, V7ProjectInventoryRequest, inventory_v7_host_artifacts,
-    inventory_v7_project,
+    V7GeneratedEnvironmentArtifact, V7GeneratedEnvironmentRollbackMaterial,
+    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions,
+    V7ProjectInventoryRequest, capture_v7_generated_environment_rollback,
+    inventory_v7_host_artifacts, inventory_v7_project,
 };
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Bridges explicit legacy config parsing to typed Engine source discovery.
 pub(crate) struct EngineV7ProjectInventoryProvider<'runtime, Engine> {
     runtime: &'runtime tokio::runtime::Runtime,
     engine: Engine,
     host_artifact_paths: Option<V7HostArtifactPaths>,
+    rollback_root: Option<PathBuf>,
 }
 
 impl<'runtime, Engine> EngineV7ProjectInventoryProvider<'runtime, Engine> {
@@ -21,11 +24,17 @@ impl<'runtime, Engine> EngineV7ProjectInventoryProvider<'runtime, Engine> {
             runtime,
             engine,
             host_artifact_paths: None,
+            rollback_root: None,
         }
     }
 
     pub(crate) fn with_host_artifact_paths(mut self, paths: V7HostArtifactPaths) -> Self {
         self.host_artifact_paths = Some(paths);
+        self
+    }
+
+    pub(crate) fn with_rollback_root(mut self, rollback_root: PathBuf) -> Self {
+        self.rollback_root = Some(rollback_root);
         self
     }
 }
@@ -130,5 +139,37 @@ where
         let inventory = inventory.with_host_artifacts(host_artifacts);
 
         Ok(IpcV7ProjectInventory::from(&inventory))
+    }
+
+    fn capture_generated_environment_rollback(
+        &mut self,
+        inventory: &IpcV7ProjectInventory,
+        evidence_revision: &str,
+        maximum_environment_bytes: usize,
+        created_at_unix_seconds: i64,
+    ) -> Result<Option<V7GeneratedEnvironmentRollbackMaterial>, String> {
+        let Some(expected) = inventory.host_artifacts().generated_environment() else {
+            return Ok(None);
+        };
+        let rollback_root = self.rollback_root.as_deref().ok_or_else(|| {
+            "protected legacy environment rollback root is unavailable".to_owned()
+        })?;
+        let expected = V7GeneratedEnvironmentArtifact::new(
+            expected.path().to_path_buf(),
+            expected.size_bytes(),
+            expected.modified_at_unix_seconds(),
+            expected.keys().to_vec(),
+        );
+
+        capture_v7_generated_environment_rollback(V7GeneratedEnvironmentRollbackOptions {
+            project_id: inventory.project_id(),
+            evidence_revision,
+            expected: &expected,
+            backup_root: rollback_root,
+            maximum_environment_bytes,
+            created_at_unix_seconds,
+        })
+        .map(Some)
+        .map_err(|error| error.to_string())
     }
 }
