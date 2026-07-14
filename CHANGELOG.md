@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Bounded routine TLS renewal storage. After the gateway confirms the active
+  leaf certificate, Stackctl removes inactive generations signed by that same
+  CA while retaining different-CA generations required for rotation rollback.
 - Expanded the host-dependency audit from selected source directories to every
   Rust source file. The native launchd/systemd service boundary is now an
   explicit exception instead of an unexamined gap in the audit.

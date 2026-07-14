@@ -4,8 +4,9 @@ use super::{
     FilesystemCertificateStore, HostCommand, HostCommandExecutor, HostCommandOutput,
     LocalCaIdentity, LocalCertificateReconcileAction, MacOsCertificateTrustStore, TrustChange,
     TrustStoreError, ensure_ca_trusted, generate_local_certificates, inspect_current_ca_trust,
-    install_current_ca_trust, reconcile_local_certificates, remove_ca_trust,
-    remove_current_ca_trust, renew_local_leaf_certificate, rotate_current_ca_trust,
+    install_current_ca_trust, prune_inactive_leaf_certificate_generations,
+    reconcile_local_certificates, remove_ca_trust, remove_current_ca_trust,
+    renew_local_leaf_certificate, rotate_current_ca_trust,
 };
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -907,6 +908,49 @@ fn certificate_store_recovers_the_latest_verified_bundle_after_restart() {
 
     assert_eq!(current, renewed);
     assert_eq!(paths, expected);
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
+fn confirmed_leaf_renewal_prunes_inactive_generations_with_the_same_ca() {
+    let root = temporary_certificate_root();
+    let initial =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("initial TLS bundle");
+    let first = renew_local_leaf_certificate(&initial, datetime!(2026-10-13 12:00 UTC))
+        .expect("first renewed TLS bundle");
+    let second = renew_local_leaf_certificate(&first, datetime!(2027-01-13 12:00 UTC))
+        .expect("second renewed TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let initial_paths = store.persist(&initial).expect("persist initial bundle");
+    let first_paths = store.persist(&first).expect("persist first renewal");
+    let active_paths = store.persist(&second).expect("persist second renewal");
+
+    prune_inactive_leaf_certificate_generations(&store).expect("prune inactive leaf generations");
+
+    assert!(!initial_paths.directory().exists());
+    assert!(!first_paths.directory().exists());
+    assert!(active_paths.directory().exists());
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
+fn leaf_generation_pruning_retains_inactive_rotation_ca_material() {
+    let root = temporary_certificate_root();
+    let previous =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("previous CA bundle");
+    let replacement = generate_local_certificates(datetime!(2026-10-13 12:00 UTC))
+        .expect("replacement CA bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let previous_paths = store.persist(&previous).expect("persist previous CA");
+    let active_paths = store.persist(&replacement).expect("persist replacement CA");
+
+    prune_inactive_leaf_certificate_generations(&store)
+        .expect("preserve rotation rollback material");
+
+    assert!(previous_paths.directory().exists());
+    assert!(active_paths.directory().exists());
     std::fs::remove_dir_all(root).expect("remove certificate test root");
 }
 

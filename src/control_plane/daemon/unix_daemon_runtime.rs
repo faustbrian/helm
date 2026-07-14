@@ -36,6 +36,9 @@ use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
 use crate::control_plane::state::{InstallationLifecycle, SqliteStateStore, StateStore};
+use crate::control_plane::tls::{
+    FilesystemCertificateStore, prune_inactive_leaf_certificate_generations,
+};
 use crate::control_plane::workload::{
     DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
     ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan, WorkloadReconcileError,
@@ -1175,6 +1178,21 @@ impl UnixDaemonRuntime {
                     tracing::error!(
                         error = %error,
                         "gateway certificate activation publication blocked"
+                    );
+
+                    return;
+                }
+                let certificate_store =
+                    FilesystemCertificateStore::new(self.runtime_directory.join("tls"));
+                let certificate_cleanup = (|| {
+                    let _lock = certificate_store.lock()?;
+                    prune_inactive_leaf_certificate_generations(&certificate_store)
+                })();
+                if let Err(error) = certificate_cleanup {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        error = %error,
+                        "inactive gateway certificate cleanup blocked"
                     );
 
                     return;
