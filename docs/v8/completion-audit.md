@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 663 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 664 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -28,7 +28,7 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-07 | HTTPS is trusted after one-time setup | Pending live evidence | Stackctl CA/leaf tests, atomic active-generation selection, transactional CA rotation rollback, and OS trust adapters | Install, renewal, rotation, removal, and browser trust records per claimed platform |
+| AC-07 | HTTPS is trusted after one-time setup | Pending live evidence | Stackctl CA/leaf tests, cross-process certificate transaction locking, atomic active-generation selection, transactional CA rotation rollback, and OS trust adapters | Install, renewal, rotation, removal, and browser trust records per claimed platform |
 | AC-08 | No host Caddy or nginx is required | Implemented | pinned gateway container request; host-dependency audit | Live clean-host installation record |
 | AC-09 | One managed gateway routes all projects | Implemented | gateway plane, atomic full-snapshot, readiness, rollback, and port-conflict tests | Full HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, and crash acceptance artifact |
 | AC-10 | Application containers own no separate trusted CA | Implemented | gateway terminates TLS; app upstream plans are internal plain HTTP; dependency audit | Live container inspection artifact |

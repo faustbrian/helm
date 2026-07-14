@@ -8,6 +8,7 @@ pub(crate) fn inspect_current_ca_trust(
     certificates: &FilesystemCertificateStore,
     trust_store: &impl CertificateTrustStore,
 ) -> Result<CurrentCaTrustStatus, LocalCaTrustError> {
+    let _lock = certificates.lock()?;
     let Some((bundle, paths)) = certificates.load_current()? else {
         return Ok(CurrentCaTrustStatus::Absent);
     };

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized certificate generation, trust, renewal, rotation, removal, and
+  gateway asset preparation through one private advisory store lock. Concurrent
+  daemon reconciliation can no longer reactivate a stale generation during a
+  CLI trust operation.
 - Added explicit transactional local-CA rotation through
   `stackctl daemon trust rotate`. Certificate generations now use an atomic
   active pointer; the replacement CA is installed and verified before the old

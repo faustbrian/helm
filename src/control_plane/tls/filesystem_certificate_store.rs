@@ -1,4 +1,7 @@
-use super::{LocalCertificateBundle, LocalCertificateError, StoredCertificatePaths};
+use super::{
+    CertificateStoreLock, LocalCertificateBundle, LocalCertificateError, StoredCertificatePaths,
+    certificate_store_lock::CERTIFICATE_STORE_LOCK_FILE,
+};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -16,6 +19,12 @@ pub(crate) struct FilesystemCertificateStore {
 impl FilesystemCertificateStore {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
+    }
+
+    /// Serializes load, persist, trust, and activation across daemon and CLI.
+    #[cfg(unix)]
+    pub(crate) fn lock(&self) -> Result<CertificateStoreLock, LocalCertificateError> {
+        CertificateStoreLock::acquire(&self.root)
     }
 
     /// Recovers the newest fully verified immutable certificate generation.
@@ -53,6 +62,9 @@ impl FilesystemCertificateStore {
                 continue;
             }
             if name == PENDING_ACTIVE_GENERATION_FILE && file_type.is_file() {
+                continue;
+            }
+            if name == CERTIFICATE_STORE_LOCK_FILE && file_type.is_file() {
                 continue;
             }
             if !file_type.is_dir() || !is_bundle_directory(&path) {

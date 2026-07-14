@@ -27,6 +27,10 @@ atomically reselects the prior generation before restoring its trust; if that
 filesystem rollback also fails, both identities remain trusted and the full
 recovery error is reported. Routine leaf renewal preserves the current CA
 identity and uses the same atomic active generation pointer.
+All certificate-store load, trust, persistence, and activation transactions are
+serialized by a user-private advisory lock shared by the daemon and CLI. This
+prevents concurrent gateway renewal from selecting stale material during a
+manual trust operation.
 
 ## Supply chain and upgrades
 

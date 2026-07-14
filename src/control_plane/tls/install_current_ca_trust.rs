@@ -10,6 +10,7 @@ pub(crate) fn install_current_ca_trust(
     trust_store: &impl CertificateTrustStore,
     now: OffsetDateTime,
 ) -> Result<CurrentCaTrustResult, LocalCaTrustError> {
+    let _lock = certificates.lock()?;
     let current = certificates.load_current()?;
     let reconciliation =
         reconcile_local_certificates(current.as_ref().map(|(bundle, _)| bundle), now)?;

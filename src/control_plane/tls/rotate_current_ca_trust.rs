@@ -11,6 +11,7 @@ pub(crate) fn rotate_current_ca_trust(
     trust_store: &impl CertificateTrustStore,
     now: OffsetDateTime,
 ) -> Result<LocalCaRotationResult, LocalCaTrustError> {
+    let _lock = certificates.lock()?;
     let Some((previous_bundle, previous_paths)) = certificates.load_current()? else {
         return Err(LocalCertificateError::new(
             "Stackctl CA material does not exist; install trust before rotating it",

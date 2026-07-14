@@ -618,6 +618,38 @@ fn inactive_certificate_generation_is_not_selected_before_atomic_activation() {
 
 #[cfg(unix)]
 #[test]
+fn certificate_store_lock_serializes_generation_transactions() {
+    let root = temporary_certificate_root();
+    let store = FilesystemCertificateStore::new(root.clone());
+    let first = store.lock().expect("acquire first certificate lock");
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+    let contender_root = root.clone();
+    let contender = std::thread::spawn(move || {
+        started_tx.send(()).expect("announce lock attempt");
+        let store = FilesystemCertificateStore::new(contender_root);
+        let _lock = store.lock().expect("acquire contended certificate lock");
+        acquired_tx.send(()).expect("announce acquired lock");
+    });
+    started_rx.recv().expect("contender started");
+
+    assert!(
+        acquired_rx
+            .recv_timeout(std::time::Duration::from_millis(50))
+            .is_err(),
+        "the second transaction must wait while the first lock is held"
+    );
+
+    drop(first);
+    acquired_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("contender acquired released lock");
+    contender.join().expect("lock contender completed");
+    std::fs::remove_dir_all(root).expect("remove certificate test root");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_store_recovers_the_latest_verified_bundle_after_restart() {
     let root = temporary_certificate_root();
     let initial =
