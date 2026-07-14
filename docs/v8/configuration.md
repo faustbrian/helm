@@ -187,11 +187,14 @@ arguments, logs, labels, routes, image layers, or diagnostics.
 ## Project trust
 
 Declarative configurations in trusted watched roots reconcile automatically.
-Privilege expansion becomes `awaiting_approval`, including privileged mode,
-host networking, Engine socket mounts, devices, Linux capabilities, unsafe
-ports, binds outside the project, untrusted registries, host hooks, and
-destructive migration. Repository hooks run inside the application container;
-automatic discovery never executes them on the host.
+The current strict schema does not expose privileged mode, host networking,
+Engine socket mounts, devices, Linux capabilities, unsafe ports, binds outside
+the project, untrusted registries, host hooks, or destructive migration; those
+fields fail as unknown before planning. Any future schema that introduces a
+privilege expansion must represent it as `awaiting_approval` before mutation.
+Repository hooks run inside the application container; automatic discovery
+never executes them on the host. Both daemon discovery and thin-CLI project
+resolution reject symbolic-link configuration files.
 
 ## Clean-install configuration
 

@@ -17,6 +17,9 @@ All notable changes to this project are documented in this file.
 - Tightened the top-level platform boundary to macOS and Linux specifically
   and removed the setup/trust fallbacks for other Unix systems. Unsupported
   hosts now fail compilation instead of entering an untested runtime branch.
+- Made thin-CLI project resolution reject symbolic-link and non-file
+  `.stackctl.yaml` paths before parsing. Interactive commands now enforce the
+  same trusted configuration boundary as unattended daemon discovery.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish

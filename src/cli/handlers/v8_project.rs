@@ -38,6 +38,20 @@ pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Opt
     let Some((project_root, config_path)) = locate_project_config(context)? else {
         return Ok(None);
     };
+    let metadata = fs::symlink_metadata(&config_path)
+        .with_context(|| format!("failed to inspect {}", config_path.display()))?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "strict v8 configuration '{}' must not be a symbolic link",
+            config_path.display()
+        );
+    }
+    if !metadata.is_file() {
+        bail!(
+            "strict v8 configuration '{}' must be a regular file",
+            config_path.display()
+        );
+    }
     if config_path.extension().and_then(|value| value.to_str()) != Some("yaml") {
         return Ok(None);
     }
@@ -103,4 +117,52 @@ fn canonical_directory(path: &Path) -> Result<PathBuf> {
         bail!("project path '{}' is not a directory", canonical.display());
     }
     Ok(canonical)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    use clap::Parser;
+
+    use crate::cli::args::Cli;
+    use crate::cli::dispatch::context::CliDispatchContext;
+
+    use super::resolve_v8_project;
+
+    #[test]
+    fn project_resolution_refuses_a_symbolic_link_config() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v8-project-symlink-{}",
+            std::process::id()
+        ));
+        drop(fs::remove_dir_all(&root));
+        let project = root.join("project");
+        fs::create_dir_all(&project).expect("create project directory");
+        let victim = root.join("outside.yaml");
+        fs::write(
+            &victim,
+            "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+        )
+        .expect("write outside config");
+        symlink(&victim, project.join(".stackctl.yaml")).expect("create config symlink");
+        let cli = Cli::parse_from([
+            "stackctl",
+            "--project-root",
+            project.to_str().expect("project path"),
+            "status",
+        ]);
+        let context = CliDispatchContext::from_cli(&cli);
+
+        let error = match resolve_v8_project(&context) {
+            Ok(_) => panic!("symlink config must fail closed"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("symbolic link"));
+        assert!(error.to_string().contains(".stackctl.yaml"));
+
+        fs::remove_dir_all(root).expect("remove project fixture");
+    }
 }
