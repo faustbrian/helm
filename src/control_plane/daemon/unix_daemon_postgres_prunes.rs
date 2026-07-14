@@ -2,6 +2,7 @@ use super::ipc::IpcEventKind;
 use super::{
     ActivePostgresPrune, EngineConnectionOutcome, PostgresPruneExecutionOptions, UnixDaemonRuntime,
     execute_queued_postgres_prune, publish_postgres_prune_result,
+    queue_next_installation_deletion_prune,
 };
 use crate::control_plane::state::{DaemonOperationStatus, DaemonOperationTransitionOptions};
 use std::time::{Duration, Instant};
@@ -24,6 +25,28 @@ impl UnixDaemonRuntime {
             || self.active_migration_decision.is_some()
         {
             return;
+        }
+        match queue_next_installation_deletion_prune(
+            &mut self.control_plane,
+            &mut self.postgres_prunes,
+            &mut self.event_journal,
+            now_unix_seconds,
+        ) {
+            Ok(Some(operation_id)) => {
+                tracing::info!(
+                    operation_id,
+                    "installation deletion queued its next logical prune"
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::error!(
+                    error,
+                    "installation deletion could not queue its next logical prune"
+                );
+
+                return;
+            }
         }
         match self
             .engine_runtime

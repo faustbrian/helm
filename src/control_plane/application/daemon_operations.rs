@@ -27,4 +27,11 @@ where
     ) -> Result<Option<DaemonEventRecord>, StateStoreError> {
         self.state_store.transition_daemon_operation(options)
     }
+
+    pub(crate) fn daemon_operation(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<DaemonOperationRecord>, StateStoreError> {
+        self.state_store.daemon_operation(operation_id)
+    }
 }

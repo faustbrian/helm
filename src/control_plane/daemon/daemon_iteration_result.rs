@@ -7,6 +7,7 @@ pub(crate) struct DaemonIterationResult {
     scan_reason: Option<DiscoveryScanReason>,
     reconciliation: Option<DiscoveryReconciliationResult>,
     request: Option<IpcRequest>,
+    installation_deleting: bool,
 }
 
 impl DaemonIterationResult {
@@ -14,11 +15,13 @@ impl DaemonIterationResult {
         scan_reason: Option<DiscoveryScanReason>,
         reconciliation: Option<DiscoveryReconciliationResult>,
         request: Option<IpcRequest>,
+        installation_deleting: bool,
     ) -> Self {
         Self {
             scan_reason,
             reconciliation,
             request,
+            installation_deleting,
         }
     }
 
@@ -32,5 +35,9 @@ impl DaemonIterationResult {
 
     pub(crate) const fn request(&self) -> Option<&IpcRequest> {
         self.request.as_ref()
+    }
+
+    pub(crate) const fn installation_deleting(&self) -> bool {
+        self.installation_deleting
     }
 }

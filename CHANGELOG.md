@@ -23,6 +23,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a restart-safe installation-deletion driver that durably queues one
+  exact recovery-authorized logical prune at a time, deduplicates lost
+  in-memory work against durable operation history, and blocks stale ordinary
+  Engine reconciliation while teardown owns mutation.
 - Added a confirmed installation-deletion transition that regenerates the
   complete plan, rejects token drift without mutation, rereads every selected
   backup artifact, and only then atomically freezes reconciliation.

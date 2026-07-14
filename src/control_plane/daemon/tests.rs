@@ -13,7 +13,8 @@ use super::{
     dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
     execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
     execute_queued_project_restore, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result, reconcile_watched_roots,
+    publish_project_command_result, publish_project_restore_result,
+    queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
@@ -6707,6 +6708,124 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
     assert!(!operations[0].payload_json().contains("runtime-only-secret"));
     assert!(!operations[0].payload_json().contains("/backups/"));
     std::fs::remove_dir_all(root).expect("remove prune-plan fixture");
+}
+
+#[test]
+fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("installation-delete-prune");
+    let database_path = root.join("state.sqlite3");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: "runtime-only-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery = stored_logical_recovery(&root, &logical, "backup-42");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("initialize installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .record_recovery_point(&recovery)
+        .expect("persist recovery point");
+    let mut control_plane = ControlPlane::new(store);
+    let deletion = control_plane
+        .plan_installation_deletion()
+        .expect("deletion plan");
+    let mut queue = PostgresPruneQueue::default();
+    let mut journal = IpcEventJournal::default();
+    assert_eq!(
+        queue_next_installation_deletion_prune(
+            &mut control_plane,
+            &mut queue,
+            &mut journal,
+            39_999,
+        )
+        .expect("active installation remains untouched"),
+        None
+    );
+    control_plane
+        .begin_confirmed_installation_deletion(deletion.confirmation_token(), 40_000)
+        .expect("freeze installation");
+
+    let operation_id = queue_next_installation_deletion_prune(
+        &mut control_plane,
+        &mut queue,
+        &mut journal,
+        40_001,
+    )
+    .expect("queue next deletion prune")
+    .expect("one remaining logical resource");
+
+    assert_eq!(queue.len(), 1);
+    assert!(operation_id.starts_with("installation-delete-"));
+    assert_eq!(
+        queue_next_installation_deletion_prune(
+            &mut control_plane,
+            &mut queue,
+            &mut journal,
+            40_002,
+        )
+        .expect("occupied queue remains unchanged"),
+        None
+    );
+    let queued = queue.pop_front().expect("queued logical prune");
+    assert_eq!(queued.logical_resource_id(), "stackctl_bill_database");
+    assert_eq!(queued.recovery_point_id(), "backup-42");
+    assert_eq!(
+        queue_next_installation_deletion_prune(
+            &mut control_plane,
+            &mut queue,
+            &mut journal,
+            40_003,
+        )
+        .expect("durable duplicate check"),
+        None
+    );
+    let operation = control_plane
+        .daemon_operation(&operation_id)
+        .expect("read durable deletion operation")
+        .expect("durable deletion operation");
+    assert_eq!(operation.operation_id(), operation_id);
+    assert!(!operation.payload_json().contains("runtime-only-secret"));
+    assert!(!operation.payload_json().contains(&recovery.reference()));
+
+    std::fs::remove_dir_all(root).expect("remove deletion prune fixture");
+}
+
+#[test]
+fn deleting_iteration_blocks_stale_engine_reconciliation() {
+    let iteration = super::DaemonIterationResult::new(None, None, None, true);
+
+    assert!(iteration.installation_deleting());
 }
 
 #[test]

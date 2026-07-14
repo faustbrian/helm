@@ -1869,6 +1869,39 @@ impl StateStore for SqliteStateStore {
         Ok(event)
     }
 
+    fn daemon_operation(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<DaemonOperationRecord>, StateStoreError> {
+        if operation_id.is_empty() {
+            return Err(StateStoreError::InvalidDaemonOperation {
+                detail: "operation ID must not be empty".to_owned(),
+            });
+        }
+        let persisted = self
+            .connection
+            .query_row(
+                "SELECT operation_id, kind, payload_json, status,
+                        created_at_unix_seconds, updated_at_unix_seconds
+                 FROM daemon_operations
+                 WHERE operation_id = ?1",
+                params![operation_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+
+        persisted.map(parse_daemon_operation).transpose()
+    }
+
     fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError> {
         let mut statement = self.connection.prepare(
             "SELECT operation_id, kind, payload_json, status,
@@ -1890,33 +1923,39 @@ impl StateStore for SqliteStateStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        persisted
-            .into_iter()
-            .map(
-                |(operation_id, kind, payload_json, status, created_at, updated_at)| {
-                    if operation_id.is_empty()
-                        || kind.is_empty()
-                        || payload_json.is_empty()
-                        || created_at < 0
-                        || updated_at < created_at
-                    {
-                        return Err(StateStoreError::CorruptState {
-                            detail: "daemon operation contains invalid durable fields".to_owned(),
-                        });
-                    }
-
-                    Ok(DaemonOperationRecord::new(DaemonOperationRecordOptions {
-                        operation_id,
-                        kind,
-                        payload_json,
-                        status: DaemonOperationStatus::parse(&status)?,
-                        created_at_unix_seconds: created_at,
-                        updated_at_unix_seconds: updated_at,
-                    }))
-                },
-            )
-            .collect()
+        persisted.into_iter().map(parse_daemon_operation).collect()
     }
+}
+
+fn parse_daemon_operation(
+    (operation_id, kind, payload_json, status, created_at, updated_at): (
+        String,
+        String,
+        String,
+        String,
+        i64,
+        i64,
+    ),
+) -> Result<DaemonOperationRecord, StateStoreError> {
+    if operation_id.is_empty()
+        || kind.is_empty()
+        || payload_json.is_empty()
+        || created_at < 0
+        || updated_at < created_at
+    {
+        return Err(StateStoreError::CorruptState {
+            detail: "daemon operation contains invalid durable fields".to_owned(),
+        });
+    }
+
+    Ok(DaemonOperationRecord::new(DaemonOperationRecordOptions {
+        operation_id,
+        kind,
+        payload_json,
+        status: DaemonOperationStatus::parse(&status)?,
+        created_at_unix_seconds: created_at,
+        updated_at_unix_seconds: updated_at,
+    }))
 }
 
 fn append_daemon_event_in_transaction(

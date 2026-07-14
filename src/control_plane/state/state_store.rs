@@ -202,6 +202,12 @@ pub(crate) trait StateStore: Send {
         options: DaemonOperationTransitionOptions<'_>,
     ) -> Result<Option<DaemonEventRecord>, StateStoreError>;
 
+    /// Loads one exact operation, including terminal history, for idempotency.
+    fn daemon_operation(
+        &self,
+        operation_id: &str,
+    ) -> Result<Option<DaemonOperationRecord>, StateStoreError>;
+
     /// Loads non-terminal operations in creation order for restart recovery.
     fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError>;
 }

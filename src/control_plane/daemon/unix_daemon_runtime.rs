@@ -224,11 +224,14 @@ impl UnixDaemonRuntime {
         {
             self.scheduler.record_filesystem_event(now);
         }
+        let installation_deleting =
+            self.control_plane.installation_lifecycle()? == Some(InstallationLifecycle::Deleting);
 
         Ok(DaemonIterationResult::new(
             scan_reason,
             reconciliation,
             request,
+            installation_deleting,
         ))
     }
 
@@ -256,7 +259,8 @@ impl UnixDaemonRuntime {
                             );
                         }
                     }
-                    if !self.has_active_project_command()
+                    if !iteration.installation_deleting()
+                        && !self.has_active_project_command()
                         && !self.has_active_project_backup()
                         && !self.has_active_project_restore()
                         && !self.has_active_postgres_prune()
