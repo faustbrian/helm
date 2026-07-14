@@ -8,5 +8,6 @@ pub(crate) struct PostgresPruneExecutionOptions {
     pub(crate) state_database_path: PathBuf,
     pub(crate) installation_id: String,
     pub(crate) schema_version: u32,
+    pub(crate) verified_at_unix_seconds: i64,
     pub(crate) timeout: Duration,
 }

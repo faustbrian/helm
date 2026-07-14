@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reverified the exact stored backup manifest, identity, checksum, and size
+  immediately before every destructive logical prune, so catalog evidence
+  cannot authorize deletion after an artifact is missing or tampered with.
 - Made the legacy TCP health-check test server accept both expected successful
   connections instead of racing listener shutdown after the first request.
 - Reported Redis and Valkey tenant prefixes as logical data-lifecycle

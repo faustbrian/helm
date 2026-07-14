@@ -9,6 +9,7 @@ use crate::control_plane::retention::{
     SqlServerLogicalPruneOptions, prune_minio_logical_resource, prune_mongodb_logical_resource,
     prune_mysql_logical_resource, prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
     prune_redis_logical_resource, prune_sql_server_logical_resource,
+    verify_recovery_point_artifact,
 };
 use crate::control_plane::shared_infrastructure::{MySqlFlavor, RedisFlavor};
 use crate::control_plane::state::{
@@ -36,6 +37,7 @@ where
 {
     if options.installation_id.is_empty()
         || options.schema_version == 0
+        || options.verified_at_unix_seconds < 0
         || options.timeout.is_zero()
     {
         return Err("logical prune runtime identity is incomplete".to_owned());
@@ -74,6 +76,17 @@ where
     }
     let logical = exact_logical(&logical_resources, &options.operation)?;
     let credential = exact_credential(&credentials, &options.operation)?;
+    let recovery = recovery_points
+        .iter()
+        .find(|recovery| recovery.recovery_point_id() == options.operation.recovery_point_id())
+        .ok_or_else(|| "logical prune recovery point disappeared before execution".to_owned())?;
+    verify_recovery_point_artifact(
+        recovery,
+        logical,
+        &options.installation_id,
+        options.verified_at_unix_seconds,
+    )
+    .map_err(|error| error.to_string())?;
     let administrator = exact_administrator(&credentials, &options.operation, logical)?;
     let observed = engine
         .discover_managed()

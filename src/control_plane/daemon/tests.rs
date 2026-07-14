@@ -1833,7 +1833,8 @@ fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
 #[test]
 fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
     use crate::control_plane::retention::{
-        PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+        BackupResourceIdentity, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
+        store_backup_artifact_for_identity,
     };
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
@@ -1877,6 +1878,13 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
         values: BTreeMap::from([("DB_PASSWORD".to_owned(), "project-secret".to_owned())]),
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let backup = store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_logical(&logical, "install-1"),
+        b"postgres backup",
+        39_000,
+        &root.join("backups"),
+    )
+    .expect("stored recovery artifact");
     let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
         recovery_point_id: "backup-42".to_owned(),
         project_id: "bill".to_owned(),
@@ -1884,9 +1892,10 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
         logical_resource_id: "stackctl_bill_database".to_owned(),
         resource_kind: "postgres_database_and_role".to_owned(),
         compatibility_fingerprint: "sha256:postgres-17".to_owned(),
-        reference: root.join("backups/backup-42.dump").display().to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
+        reference: backup.recovery_point().display().to_string(),
+        artifact_sha256: "3fe135eb41e568127d31f382e7ebb8350b001024ff1257d9b857d5c787cfc494"
+            .to_owned(),
+        artifact_size_bytes: 15,
         created_at_unix_seconds: 39_000,
         verified_at_unix_seconds: 39_100,
     })
@@ -1971,6 +1980,7 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -1987,6 +1997,33 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
         .upsert_logical_resources(std::slice::from_ref(&orphaned))
         .expect("restore planned state");
     drop(repair_store);
+    std::fs::write(backup.artifact_file(), b"tampered backup").expect("tamper recovery artifact");
+    let tampered_engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "postgres-container",
+        "install-1",
+        "postgres-17",
+        "sha256:postgres-17",
+    )]);
+    let tampered = runtime.block_on(execute_queued_postgres_prune(
+        tampered_engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation: operation.clone(),
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            verified_at_unix_seconds: 40_001,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+    assert!(
+        tampered
+            .outcome()
+            .as_ref()
+            .expect_err("tampered recovery must block prune")
+            .contains("checksum")
+    );
+    assert_eq!(tampered_engine.started(), 0);
+    std::fs::write(backup.artifact_file(), b"postgres backup").expect("repair test artifact");
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         "postgres-container",
         "install-1",
@@ -2000,6 +2037,7 @@ fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_002,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -2077,20 +2115,7 @@ fn queued_logical_prune_dispatches_mysql_adapter_and_retires_exact_state() {
         secret: "administrator-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
-    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
-        recovery_point_id: "backup-mysql".to_owned(),
-        project_id: "bill".to_owned(),
-        service_id: "database".to_owned(),
-        logical_resource_id: "stackctl_bill_database".to_owned(),
-        resource_kind: "mysql_database".to_owned(),
-        compatibility_fingerprint: fingerprint.clone(),
-        reference: root.join("backups/backup-mysql.sql").display().to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
-        created_at_unix_seconds: 39_000,
-        verified_at_unix_seconds: 39_100,
-    })
-    .expect("recovery point");
+    let recovery_point = stored_logical_recovery(&root, &logical, "backup-mysql");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("state store");
     store
@@ -2148,6 +2173,7 @@ fn queued_logical_prune_dispatches_mysql_adapter_and_retires_exact_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -2218,23 +2244,7 @@ fn queued_logical_prune_dispatches_mongodb_adapter_and_retires_exact_state() {
         secret: "administrator-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
-    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
-        recovery_point_id: "backup-mongodb".to_owned(),
-        project_id: "bill".to_owned(),
-        service_id: "database".to_owned(),
-        logical_resource_id: "stackctl_bill_database".to_owned(),
-        resource_kind: "mongodb_database".to_owned(),
-        compatibility_fingerprint: fingerprint.clone(),
-        reference: root
-            .join("backups/backup-mongodb.archive")
-            .display()
-            .to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
-        created_at_unix_seconds: 39_000,
-        verified_at_unix_seconds: 39_100,
-    })
-    .expect("recovery point");
+    let recovery_point = stored_logical_recovery(&root, &logical, "backup-mongodb");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("state store");
     store
@@ -2292,6 +2302,7 @@ fn queued_logical_prune_dispatches_mongodb_adapter_and_retires_exact_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -2364,23 +2375,7 @@ fn queued_logical_prune_dispatches_sql_server_adapter_and_retires_exact_state() 
         secret: "AdministratorSecret1".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
-    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
-        recovery_point_id: "backup-sqlserver".to_owned(),
-        project_id: "bill".to_owned(),
-        service_id: "database".to_owned(),
-        logical_resource_id: "stackctl_bill_database".to_owned(),
-        resource_kind: "sqlserver_database".to_owned(),
-        compatibility_fingerprint: fingerprint.clone(),
-        reference: root
-            .join("backups/backup-sqlserver.bak")
-            .display()
-            .to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
-        created_at_unix_seconds: 39_000,
-        verified_at_unix_seconds: 39_100,
-    })
-    .expect("recovery point");
+    let recovery_point = stored_logical_recovery(&root, &logical, "backup-sqlserver");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("state store");
     store
@@ -2438,6 +2433,7 @@ fn queued_logical_prune_dispatches_sql_server_adapter_and_retires_exact_state() 
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(60),
         },
     ));
@@ -2504,23 +2500,7 @@ fn queued_logical_prune_dispatches_rabbitmq_adapter_and_retires_exact_state() {
         secret: "project-secret".to_owned(),
         lifecycle: CredentialLifecycle::Disabled,
     });
-    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
-        recovery_point_id: "backup-rabbitmq".to_owned(),
-        project_id: "bill".to_owned(),
-        service_id: "database".to_owned(),
-        logical_resource_id: logical.logical_resource_id().to_owned(),
-        resource_kind: logical.kind().to_owned(),
-        compatibility_fingerprint: fingerprint.clone(),
-        reference: root
-            .join("backups/backup-rabbitmq.json")
-            .display()
-            .to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
-        created_at_unix_seconds: 39_000,
-        verified_at_unix_seconds: 39_100,
-    })
-    .expect("recovery point");
+    let recovery_point = stored_logical_recovery(&root, &logical, "backup-rabbitmq");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("state store");
     store
@@ -2575,6 +2555,7 @@ fn queued_logical_prune_dispatches_rabbitmq_adapter_and_retires_exact_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -2642,20 +2623,7 @@ fn queued_logical_prune_dispatches_redis_adapter_and_retires_exact_state() {
         secret: "administrator-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
-    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
-        recovery_point_id: "backup-redis".to_owned(),
-        project_id: "bill".to_owned(),
-        service_id: "cache".to_owned(),
-        logical_resource_id: logical.logical_resource_id().to_owned(),
-        resource_kind: logical.kind().to_owned(),
-        compatibility_fingerprint: fingerprint.clone(),
-        reference: root.join("backups/backup-redis").display().to_string(),
-        artifact_sha256: "a".repeat(64),
-        artifact_size_bytes: 42,
-        created_at_unix_seconds: 39_000,
-        verified_at_unix_seconds: 39_100,
-    })
-    .expect("recovery point");
+    let recovery_point = stored_logical_recovery(&root, &logical, "backup-redis");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("state store");
     store
@@ -2713,6 +2681,7 @@ fn queued_logical_prune_dispatches_redis_adapter_and_retires_exact_state() {
             state_database_path: database_path.clone(),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
+            verified_at_unix_seconds: 40_001,
             timeout: Duration::from_secs(30),
         },
     ));
@@ -8060,6 +8029,40 @@ fn postgres_prune_restart_fixture(
     .expect("queued restart prune");
 
     (queued, logical, credential)
+}
+
+fn stored_logical_recovery(
+    root: &Path,
+    logical: &crate::control_plane::state::LogicalResourceRecord,
+    recovery_point_id: &str,
+) -> RecoveryPointRecord {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity,
+    };
+    use sha2::{Digest, Sha256};
+
+    let artifact = format!("backup:{recovery_point_id}").into_bytes();
+    let stored = store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_logical(logical, "install-1"),
+        &artifact,
+        39_000,
+        &root.join("backups"),
+    )
+    .expect("stored logical recovery");
+    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: recovery_point_id.to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: hex::encode(Sha256::digest(&artifact)),
+        artifact_size_bytes: u64::try_from(artifact.len()).expect("artifact size"),
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point")
 }
 
 fn malformed_project_application(

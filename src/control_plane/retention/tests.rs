@@ -1,5 +1,5 @@
 use super::{
-    BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
+    BackupArtifactManifest, BackupResourceIdentity, BackupVerificationError, DataLifecycleStrategy,
     DataLifecycleStrategyError, DeletionDecision, InstallationDeletionPlan,
     InstallationDeletionPlanOptions, LogicalPrunePlan, LogicalPrunePlanOptions,
     MinioLogicalPruneOptions, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
@@ -11,7 +11,7 @@ use super::{
     prune_sql_server_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
     store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
-    verify_backup_artifact, verify_stored_backup_artifact,
+    verify_backup_artifact, verify_recovery_point_artifact, verify_stored_backup_artifact,
 };
 
 #[test]
@@ -1316,6 +1316,44 @@ fn logical_resources_in_one_shared_service_have_distinct_backup_identities() {
     );
 
     std::fs::remove_dir_all(&root).expect("remove logical backup fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn deletion_reverification_rejects_a_tampered_recovery_artifact() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-deletion-reverification-{}-{}",
+        std::process::id(),
+        50_006
+    ));
+    let logical = logical_resource("bill/database", "bill");
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let stored = store_backup_artifact_for_identity(&identity, b"bill data", 44_000, &root)
+        .expect("stored logical backup");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "bill/database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: "a33d2089e4c2c1afd8d0434f120070fc4b60b7a3429635739f82527b7f133dec"
+            .to_owned(),
+        artifact_size_bytes: 9,
+        created_at_unix_seconds: 44_000,
+        verified_at_unix_seconds: 44_001,
+    })
+    .expect("recovery point");
+    verify_recovery_point_artifact(&recovery, &logical, "install-1", 44_002)
+        .expect("unchanged recovery artifact");
+
+    std::fs::write(stored.artifact_file(), b"tampered!").expect("tamper artifact");
+    let error = verify_recovery_point_artifact(&recovery, &logical, "install-1", 44_003)
+        .expect_err("tampered recovery artifact must fail closed");
+
+    assert_eq!(error, BackupVerificationError::ChecksumMismatch);
+    std::fs::remove_dir_all(&root).expect("remove deletion verification fixture");
 }
 
 #[cfg(unix)]

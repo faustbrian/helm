@@ -83,6 +83,7 @@ impl UnixDaemonRuntime {
                     .installation_id()
                     .to_owned(),
                 schema_version: self.global_network_request.metadata().schema_version(),
+                verified_at_unix_seconds: now_unix_seconds,
                 timeout: POSTGRES_PRUNE_TIMEOUT,
             },
         ));
