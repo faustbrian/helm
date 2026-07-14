@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed the executable pre-v8 runtime-parity harnesses and their `just`
+  targets. They generated TOML and invoked the deleted compatibility CLI, so
+  retaining them contradicted the v8 clean-slate boundary.
 - Required login-service uninstall to verify manager cleanup before deleting
   the host definition. launchd must report the process stopped; systemd must
   report it both stopped and disabled, or the definition is preserved for a
