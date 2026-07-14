@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit, revision-bound v7 inventory acceptance. Read-only inventory
+  now returns a purpose-bound confirmation token only when no blockers exist;
+  `daemon migration accept [PATH] --confirmation-token TOKEN` re-inventories
+  through the selected Engine, rejects stale evidence and project-identity
+  collisions, and appends the exact secret-free observation to SQLite without
+  changing the legacy source.
 - Added `daemon migration inventory [PATH]` as an explicit read-only legacy
   inspection path. The singleton limits requests to authoritative watched
   roots, reads only a bounded regular `.stackctl.toml`, rejects source changes

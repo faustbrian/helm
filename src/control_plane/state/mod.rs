@@ -1,3 +1,5 @@
+mod accepted_v7_inventory_record;
+mod accepted_v7_inventory_record_options;
 mod credential_lifecycle;
 mod credential_persistence;
 mod credential_record;
@@ -38,6 +40,8 @@ mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
 
+pub(crate) use accepted_v7_inventory_record::AcceptedV7InventoryRecord;
+pub(crate) use accepted_v7_inventory_record_options::AcceptedV7InventoryRecordOptions;
 pub(crate) use credential_lifecycle::CredentialLifecycle;
 pub(crate) use credential_record::CredentialRecord;
 pub(crate) use credential_record_options::CredentialRecordOptions;

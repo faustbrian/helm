@@ -1,11 +1,11 @@
 use super::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, DaemonEventRecord,
-    EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
-    ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore,
+    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, CredentialLifecycle,
+    CredentialRecord, CredentialRecordOptions, DaemonEventRecord, EngineProvider,
+    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    MigrationRecordOptions, ProjectAdoptionPlan, ProjectAdoptionPlanOptions, ProjectRecord,
+    RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord,
+    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -17,8 +17,53 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 15);
+    assert_eq!(store.schema_version().expect("schema version"), 16);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn accepted_v7_inventory_is_append_only_idempotent_and_path_scoped() {
+    let database_path = temporary_database_path("accepted-v7-inventory");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    let accepted = accepted_v7_inventory("a", 40_000);
+
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("record accepted inventory");
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("idempotent replay");
+
+    assert_eq!(
+        store
+            .accepted_v7_inventory(Path::new("/work/bill"), accepted.evidence_revision())
+            .expect("load accepted inventory"),
+        Some(accepted)
+    );
+    assert!(
+        store
+            .latest_accepted_v7_inventory(Path::new("/work/other"))
+            .expect("other project inventory")
+            .is_none()
+    );
+    let replacement = accepted_v7_inventory("b", 40_001);
+    store
+        .record_accepted_v7_inventory(&replacement)
+        .expect("append newly accepted evidence");
+    assert_eq!(
+        store
+            .latest_accepted_v7_inventory(Path::new("/work/bill"))
+            .expect("latest accepted inventory"),
+        Some(replacement)
+    );
+    let collision = accepted_v7_inventory_at("bill", "/work/bill-copy", "c", 40_002);
+    let error = store
+        .record_accepted_v7_inventory(&collision)
+        .expect_err("duplicate project identity must fail loudly");
+    assert!(error.to_string().contains("already accepted at"));
 
     drop(store);
     remove_database(&database_path);
@@ -2004,7 +2049,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 15);
+    assert_eq!(store.schema_version().expect("schema version"), 16);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -2060,7 +2105,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 15);
+    assert_eq!(store.schema_version().expect("schema version"), 16);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -2104,7 +2149,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 15);
+    assert_eq!(store.schema_version().expect("schema version"), 16);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);
@@ -2123,6 +2168,29 @@ fn project_record(path: &str, name: &str, domains: &[&str]) -> ProjectRecord {
         name.to_owned(),
         domains.iter().map(|domain| (*domain).to_owned()).collect(),
     )
+}
+
+fn accepted_v7_inventory(seed: &str, accepted_at_unix_seconds: i64) -> AcceptedV7InventoryRecord {
+    accepted_v7_inventory_at("bill", "/work/bill", seed, accepted_at_unix_seconds)
+}
+
+fn accepted_v7_inventory_at(
+    project_id: &str,
+    canonical_project_path: &str,
+    seed: &str,
+    accepted_at_unix_seconds: i64,
+) -> AcceptedV7InventoryRecord {
+    AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: project_id.to_owned(),
+        canonical_project_path: PathBuf::from(canonical_project_path),
+        source_revision: format!("sha256:{}", seed.repeat(64)),
+        inventory_json: format!(
+            r#"{{"project_id":"{project_id}","canonical_project_path":"{canonical_project_path}","source_revision":"sha256:{}","blockers":[],"seed":"{seed}"}}"#,
+            seed.repeat(64),
+        ),
+        accepted_at_unix_seconds,
+    })
+    .expect("valid accepted v7 inventory")
 }
 
 fn resource_record(

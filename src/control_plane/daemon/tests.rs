@@ -6221,6 +6221,188 @@ fn daemon_exposes_v7_inventory_only_below_an_authoritative_watched_root() {
     std::fs::remove_dir_all(root).expect("remove inventory IPC fixture");
 }
 
+#[test]
+fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
+    let root = temporary_directory("v7-inventory-acceptance");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("legacy project directory");
+    let project_path = std::fs::canonicalize(project_path).expect("canonical project path");
+    let watched_root = std::fs::canonicalize(&root).expect("canonical watched root");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&watched_root))
+        .expect("watched root");
+    let mut control_plane = ControlPlane::new(store);
+    let mut provider = RecordingV7ProjectInventoryProvider::default();
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+    let plan_request = IpcRequest::new(
+        "v7-acceptance-plan",
+        IpcPayload::PlanV7InventoryAcceptance {
+            canonical_path: project_path.clone(),
+        },
+    );
+    let plan_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &plan_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        v7_project_inventory: Some(&mut provider),
+        now_unix_seconds: 10_000,
+    });
+    let IpcOutcome::Success {
+        result: IpcResult::V7InventoryAcceptancePlan { plan },
+    } = plan_response.outcome()
+    else {
+        panic!("unexpected acceptance plan response: {plan_response:?}");
+    };
+    assert!(
+        control_plane
+            .latest_accepted_v7_inventory(&project_path)
+            .expect("accepted inventory state")
+            .is_none()
+    );
+    let confirmation_token = plan
+        .confirmation_token()
+        .expect("blocker-free confirmation token")
+        .to_owned();
+    let evidence_revision = plan.evidence_revision().to_owned();
+    let accept_request = IpcRequest::new(
+        "v7-acceptance-execute",
+        IpcPayload::AcceptV7Inventory {
+            canonical_path: project_path.clone(),
+            confirmation_token,
+        },
+    );
+    let accept_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &accept_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        v7_project_inventory: Some(&mut provider),
+        now_unix_seconds: 10_001,
+    });
+
+    assert_eq!(provider.paths, [project_path.clone(), project_path.clone()]);
+    assert!(matches!(
+        accept_response.outcome(),
+        IpcOutcome::Success {
+            result: IpcResult::V7InventoryAccepted {
+                evidence_revision: accepted,
+                ..
+            }
+        } if accepted == &evidence_revision
+    ));
+    let accepted = control_plane
+        .accepted_v7_inventory(&project_path, &evidence_revision)
+        .expect("accepted inventory state")
+        .expect("durable accepted inventory");
+    assert_eq!(accepted.accepted_at_unix_seconds(), 10_001);
+
+    provider.source_revision = format!("sha256:{}", "b".repeat(64));
+    let stale_request = IpcRequest::new(
+        "v7-acceptance-stale",
+        IpcPayload::AcceptV7Inventory {
+            canonical_path: project_path.clone(),
+            confirmation_token: plan
+                .confirmation_token()
+                .expect("confirmation token")
+                .to_owned(),
+        },
+    );
+    let stale_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &stale_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        v7_project_inventory: Some(&mut provider),
+        now_unix_seconds: 10_002,
+    });
+    assert!(matches!(
+        stale_response.outcome(),
+        IpcOutcome::Failure { diagnostics }
+            if diagnostics.iter().any(|item| item.code() == "v7_inventory_confirmation_stale")
+    ));
+    assert_eq!(
+        control_plane
+            .latest_accepted_v7_inventory(&project_path)
+            .expect("latest accepted inventory")
+            .expect("original accepted inventory")
+            .evidence_revision(),
+        evidence_revision
+    );
+    provider.blockers = vec!["legacy source is ambiguous".to_owned()];
+    let blocked_request = IpcRequest::new(
+        "v7-acceptance-blocked",
+        IpcPayload::AcceptV7Inventory {
+            canonical_path: project_path.clone(),
+            confirmation_token: "not-authorized".to_owned(),
+        },
+    );
+    let blocked_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &blocked_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        v7_project_inventory: Some(&mut provider),
+        now_unix_seconds: 10_003,
+    });
+    assert!(matches!(
+        blocked_response.outcome(),
+        IpcOutcome::Failure { diagnostics }
+            if diagnostics.iter().any(|item| item.code() == "v7_inventory_acceptance_blocked")
+    ));
+    assert_eq!(
+        control_plane
+            .latest_accepted_v7_inventory(&project_path)
+            .expect("latest accepted inventory")
+            .expect("original accepted inventory")
+            .evidence_revision(),
+        evidence_revision
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove acceptance fixture");
+}
+
 struct RecordingLegacyContainerDiscovery {
     observed: crate::control_plane::engine::ObservedContainer,
 }
@@ -6236,9 +6418,20 @@ impl LegacyContainerDiscovery for RecordingLegacyContainerDiscovery {
     }
 }
 
-#[derive(Default)]
 struct RecordingV7ProjectInventoryProvider {
     paths: Vec<PathBuf>,
+    source_revision: String,
+    blockers: Vec<String>,
+}
+
+impl Default for RecordingV7ProjectInventoryProvider {
+    fn default() -> Self {
+        Self {
+            paths: Vec::new(),
+            source_revision: format!("sha256:{}", "a".repeat(64)),
+            blockers: Vec::new(),
+        }
+    }
 }
 
 impl V7ProjectInventoryProvider for RecordingV7ProjectInventoryProvider {
@@ -6253,13 +6446,11 @@ impl V7ProjectInventoryProvider for RecordingV7ProjectInventoryProvider {
                 crate::control_plane::daemon::ipc::IpcV7ProjectInventoryOptions {
                     project_id: "bill".to_owned(),
                     canonical_project_path: canonical_project_path.to_path_buf(),
-                    source_revision:
-                        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            .to_owned(),
+                    source_revision: self.source_revision.clone(),
                     schema_version: 1,
                     services: Vec::new(),
                     routes: Vec::new(),
-                    blockers: Vec::new(),
+                    blockers: self.blockers.clone(),
                     requires_legacy_ca_capture: false,
                 },
             ),

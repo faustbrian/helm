@@ -4,9 +4,10 @@ use super::{
     IpcInstallationDeletionPlan, IpcInstallationDeletionStatus, IpcInstallationLifecycle,
     IpcLogChunk, IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream,
     IpcPayload, IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, IpcV7Mount,
-    IpcV7ProjectInventory, IpcV7ProjectInventoryOptions, IpcV7Route, IpcV7ServiceInventory,
-    IpcV7ServiceInventoryOptions, decode_request_frame, decode_response_frame, encode_frame,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcV7InventoryAcceptancePlan, IpcV7Mount, IpcV7ProjectInventory, IpcV7ProjectInventoryOptions,
+    IpcV7Route, IpcV7ServiceInventory, IpcV7ServiceInventoryOptions, decode_request_frame,
+    decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -306,6 +307,58 @@ fn v7_inventory_round_trips_complete_secret_free_source_evidence() {
     let json = serde_json::to_string(&inventory).expect("inventory JSON");
     assert!(!json.contains("database-secret"));
     assert!(!json.contains("environment-secret"));
+}
+
+#[test]
+fn v7_inventory_acceptance_round_trips_plan_and_execution_intent() {
+    let inventory = IpcV7ProjectInventory::new(IpcV7ProjectInventoryOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: format!("sha256:{}", "a".repeat(64)),
+        schema_version: 7,
+        services: Vec::new(),
+        routes: Vec::new(),
+        blockers: Vec::new(),
+        requires_legacy_ca_capture: false,
+    });
+    let plan = IpcV7InventoryAcceptancePlan::new(inventory).expect("acceptance plan");
+    let request = IpcRequest::new(
+        "v7-accept-42",
+        IpcPayload::AcceptV7Inventory {
+            canonical_path: PathBuf::from("/work/bill"),
+            confirmation_token: plan
+                .confirmation_token()
+                .expect("confirmation token")
+                .to_owned(),
+        },
+    );
+    let response =
+        IpcResponse::success("v7-plan-42", IpcResult::V7InventoryAcceptancePlan { plan });
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
+    let blocked = IpcV7InventoryAcceptancePlan::new(IpcV7ProjectInventory::new(
+        IpcV7ProjectInventoryOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: PathBuf::from("/work/bill"),
+            source_revision: format!("sha256:{}", "a".repeat(64)),
+            schema_version: 7,
+            services: Vec::new(),
+            routes: Vec::new(),
+            blockers: vec!["legacy source is ambiguous".to_owned()],
+            requires_legacy_ca_capture: false,
+        },
+    ))
+    .expect("blocked plan");
+    assert_eq!(blocked.confirmation_token(), None);
 }
 
 #[test]

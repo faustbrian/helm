@@ -11,12 +11,25 @@ pub(crate) struct DaemonMigrationArgs {
 pub(crate) enum DaemonMigrationCommands {
     /// Inventory one legacy project without mutating its source
     Inventory(DaemonMigrationInventoryArgs),
+    /// Persist one freshly revalidated blocker-free legacy inventory
+    Accept(DaemonMigrationAcceptArgs),
     /// Show durable migration checkpoints for one exact project
     Status(DaemonMigrationStatusArgs),
     /// Permanently accept one reversible migration and retire its source
     Confirm(DaemonMigrationDecisionArgs),
     /// Return one reversible migration to its retained source
     Rollback(DaemonMigrationDecisionArgs),
+}
+
+/// Confirms the exact inventory evidence returned by the planning command.
+#[derive(Args)]
+pub(crate) struct DaemonMigrationAcceptArgs {
+    /// Existing legacy project directory containing .stackctl.toml
+    #[arg(default_value = ".", value_name = "PATH")]
+    pub(crate) path: PathBuf,
+    /// Exact confirmation token returned by `daemon migration inventory`
+    #[arg(long, value_name = "TOKEN")]
+    pub(crate) confirmation_token: String,
 }
 
 /// Selects one legacy project below an authoritative watched root.

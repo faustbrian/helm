@@ -26,6 +26,13 @@ pub(crate) enum IpcPayload {
     ProjectMigrations { canonical_path: PathBuf },
     /// Inventories one exact legacy project without mutating source state.
     InventoryV7Project { canonical_path: PathBuf },
+    /// Plans acceptance from one fresh legacy inventory without persistence.
+    PlanV7InventoryAcceptance { canonical_path: PathBuf },
+    /// Re-inventories and accepts only exact purpose-bound legacy evidence.
+    AcceptV7Inventory {
+        canonical_path: PathBuf,
+        confirmation_token: String,
+    },
     /// Queues one explicit decision for an exact reversible migration.
     DecideProjectMigration {
         canonical_path: PathBuf,

@@ -1,7 +1,8 @@
 use super::{
     IpcBenchmarkSnapshot, IpcEvent, IpcInstallationDeletionPlan, IpcInstallationDeletionStatus,
     IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint, IpcV7ProjectInventory,
+    IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint, IpcV7InventoryAcceptancePlan,
+    IpcV7ProjectInventory,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -35,6 +36,14 @@ pub(crate) enum IpcResult {
     ProjectMigrations { migrations: Vec<IpcMigrationStatus> },
     /// Returns complete secret-free legacy migration source evidence.
     V7ProjectInventory { inventory: IpcV7ProjectInventory },
+    /// Returns exact evidence and an optional blocker-free acceptance token.
+    V7InventoryAcceptancePlan { plan: IpcV7InventoryAcceptancePlan },
+    /// Confirms one exact freshly re-observed inventory is now durable.
+    V7InventoryAccepted {
+        project_id: String,
+        evidence_revision: String,
+        accepted_at_unix_seconds: i64,
+    },
     /// Returns immutable verified recovery evidence newest-first.
     ProjectRecoveryPoints {
         recovery_points: Vec<IpcRecoveryPoint>,

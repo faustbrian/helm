@@ -8,20 +8,20 @@ use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
-    CredentialLifecycle, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
-    DaemonOperationRecordOptions, DaemonOperationRetryOptions, DaemonOperationStatus,
-    DaemonOperationTransitionOptions, EngineProvider, EnvironmentLifecycle, InstallationLifecycle,
-    InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
-    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
-    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
-    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
-    StateStoreError,
+    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, CredentialLifecycle,
+    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationRecordOptions,
+    DaemonOperationRetryOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
+    EngineProvider, EnvironmentLifecycle, InstallationLifecycle, InstallationRecord,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, ProjectAdoptionPlan,
+    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 15;
+const CURRENT_SCHEMA_VERSION: u32 = 16;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -338,6 +338,23 @@ impl SqliteStateStore {
             )?;
         }
 
+        if found < 16 {
+            transaction.execute_batch(
+                "CREATE TABLE accepted_v7_inventories (
+                     canonical_project_path TEXT NOT NULL,
+                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),
+                     source_revision TEXT NOT NULL CHECK(length(source_revision) = 71),
+                     evidence_revision TEXT NOT NULL CHECK(length(evidence_revision) = 64),
+                     inventory_json TEXT NOT NULL CHECK(length(inventory_json) > 0),
+                     accepted_at_unix_seconds INTEGER NOT NULL
+                         CHECK(accepted_at_unix_seconds >= 0),
+                     PRIMARY KEY(canonical_project_path, evidence_revision)
+                 ) STRICT;
+                 CREATE INDEX accepted_v7_inventories_project_idx
+                     ON accepted_v7_inventories(project_id, canonical_project_path);",
+            )?;
+        }
+
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
@@ -473,6 +490,7 @@ impl StateStore for SqliteStateStore {
         transaction.execute("DELETE FROM credentials", [])?;
         transaction.execute("DELETE FROM managed_environments", [])?;
         transaction.execute("DELETE FROM migrations", [])?;
+        transaction.execute("DELETE FROM accepted_v7_inventories", [])?;
         transaction.execute("DELETE FROM recovery_points", [])?;
         transaction.execute(
             "UPDATE installation SET lifecycle = 'deleted' WHERE singleton = 1",
@@ -1570,6 +1588,93 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    fn record_accepted_v7_inventory(
+        &mut self,
+        inventory: &AcceptedV7InventoryRecord,
+    ) -> Result<(), StateStoreError> {
+        let canonical_path = exact_path(inventory.canonical_project_path())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let identity_conflict = transaction
+            .query_row(
+                "SELECT project_id, canonical_project_path
+                 FROM accepted_v7_inventories
+                 WHERE (project_id = ?1 AND canonical_project_path <> ?2)
+                    OR (canonical_project_path = ?2 AND project_id <> ?1)
+                 ORDER BY accepted_at_unix_seconds DESC
+                 LIMIT 1",
+                params![inventory.project_id(), canonical_path],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        if let Some((existing_project_id, existing_path)) = identity_conflict {
+            return Err(StateStoreError::AcceptedV7ProjectIdentityConflict {
+                project_id: inventory.project_id().to_owned(),
+                existing_project_id,
+                existing_path: PathBuf::from(existing_path),
+                requested_path: inventory.canonical_project_path().to_path_buf(),
+            });
+        }
+        let existing = load_accepted_v7_inventory(
+            &transaction,
+            canonical_path,
+            inventory.evidence_revision(),
+        )?;
+        if let Some(existing) = existing {
+            if existing.project_id() == inventory.project_id()
+                && existing.canonical_project_path() == inventory.canonical_project_path()
+                && existing.source_revision() == inventory.source_revision()
+                && existing.evidence_revision() == inventory.evidence_revision()
+                && existing.inventory_json() == inventory.inventory_json()
+            {
+                transaction.commit()?;
+
+                return Ok(());
+            }
+
+            return Err(StateStoreError::AcceptedV7InventoryConflict {
+                path: inventory.canonical_project_path().to_path_buf(),
+            });
+        }
+        transaction.execute(
+            "INSERT INTO accepted_v7_inventories (
+                 canonical_project_path, project_id, source_revision,
+                 evidence_revision, inventory_json, accepted_at_unix_seconds
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                canonical_path,
+                inventory.project_id(),
+                inventory.source_revision(),
+                inventory.evidence_revision(),
+                inventory.inventory_json(),
+                inventory.accepted_at_unix_seconds(),
+            ],
+        )?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn accepted_v7_inventory(
+        &self,
+        canonical_project_path: &Path,
+        evidence_revision: &str,
+    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError> {
+        load_accepted_v7_inventory(
+            &self.connection,
+            exact_path(canonical_project_path)?,
+            evidence_revision,
+        )
+    }
+
+    fn latest_accepted_v7_inventory(
+        &self,
+        canonical_project_path: &Path,
+    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError> {
+        load_latest_accepted_v7_inventory(&self.connection, exact_path(canonical_project_path)?)
+    }
+
     fn record_recovery_point(
         &mut self,
         recovery_point: &RecoveryPointRecord,
@@ -2381,4 +2486,80 @@ fn exact_path(path: &Path) -> Result<&str, StateStoreError> {
     path.to_str().ok_or_else(|| StateStoreError::NonUtf8Path {
         path: path.to_path_buf(),
     })
+}
+
+fn load_accepted_v7_inventory(
+    connection: &Connection,
+    canonical_project_path: &str,
+    evidence_revision: &str,
+) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError> {
+    let persisted = connection
+        .query_row(
+            "SELECT project_id, source_revision, evidence_revision,
+                    inventory_json, accepted_at_unix_seconds
+             FROM accepted_v7_inventories
+             WHERE canonical_project_path = ?1 AND evidence_revision = ?2",
+            params![canonical_project_path, evidence_revision],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            },
+        )
+        .optional()?;
+    persisted
+        .map(
+            |(project_id, source_revision, evidence_revision, inventory_json, accepted_at)| {
+                let record = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+                    project_id,
+                    canonical_project_path: PathBuf::from(canonical_project_path),
+                    source_revision,
+                    inventory_json,
+                    accepted_at_unix_seconds: accepted_at,
+                })
+                .map_err(|detail| StateStoreError::CorruptState { detail })?;
+                if record.evidence_revision() != evidence_revision {
+                    return Err(StateStoreError::CorruptState {
+                        detail: format!(
+                            "accepted v7 inventory for '{canonical_project_path}' has invalid evidence revision"
+                        ),
+                    });
+                }
+
+                Ok(record)
+            },
+        )
+        .transpose()
+}
+
+fn load_latest_accepted_v7_inventory(
+    connection: &Connection,
+    canonical_project_path: &str,
+) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError> {
+    let evidence_revision = connection
+        .query_row(
+            "SELECT evidence_revision FROM accepted_v7_inventories
+             WHERE canonical_project_path = ?1
+             ORDER BY accepted_at_unix_seconds DESC, evidence_revision DESC
+             LIMIT 1",
+            [canonical_project_path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    evidence_revision
+        .map(|revision| {
+            load_accepted_v7_inventory(connection, canonical_project_path, &revision)?.ok_or_else(
+                || StateStoreError::CorruptState {
+                    detail: format!(
+                        "accepted v7 inventory for '{canonical_project_path}' disappeared"
+                    ),
+                },
+            )
+        })
+        .transpose()
 }

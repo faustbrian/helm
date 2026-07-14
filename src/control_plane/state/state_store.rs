@@ -1,8 +1,8 @@
 use super::{
-    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationRetryOptions,
-    DaemonOperationTransitionOptions, InstallationLifecycle, InstallationRecord,
-    LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan,
-    ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
+    AcceptedV7InventoryRecord, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
+    DaemonOperationRetryOptions, DaemonOperationTransitionOptions, InstallationLifecycle,
+    InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord,
+    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -164,6 +164,25 @@ pub(crate) trait StateStore: Send {
 
     /// Loads migration checkpoints in stable identity order.
     fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
+
+    /// Accepts immutable secret-free v7 source evidence, allowing exact replay.
+    fn record_accepted_v7_inventory(
+        &mut self,
+        inventory: &AcceptedV7InventoryRecord,
+    ) -> Result<(), StateStoreError>;
+
+    /// Loads accepted evidence for one exact canonical legacy project path.
+    fn accepted_v7_inventory(
+        &self,
+        canonical_project_path: &Path,
+        evidence_revision: &str,
+    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError>;
+
+    /// Loads the most recently accepted immutable evidence for one path.
+    fn latest_accepted_v7_inventory(
+        &self,
+        canonical_project_path: &Path,
+    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError>;
 
     /// Inserts immutable verified recovery evidence, allowing exact replay only.
     fn record_recovery_point(

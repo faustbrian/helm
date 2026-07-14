@@ -12,9 +12,9 @@ mod service;
 mod trust;
 
 use crate::cli::args::{
-    DaemonAdoptArgs, DaemonArgs, DaemonBackupsArgs, DaemonCommands, DaemonMigrationArgs,
-    DaemonMigrationCommands, DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs,
-    DaemonWatchArgs,
+    DaemonAdoptArgs, DaemonArgs, DaemonBackupsArgs, DaemonCommands, DaemonMigrationAcceptArgs,
+    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationInventoryArgs,
+    DaemonMigrationStatusArgs, DaemonWatchArgs,
 };
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
@@ -98,6 +98,7 @@ fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
         DaemonMigrationCommands::Inventory(inventory) => {
             handle_daemon_migration_inventory(inventory)
         }
+        DaemonMigrationCommands::Accept(accept) => handle_daemon_migration_accept(accept),
         DaemonMigrationCommands::Status(status) => handle_daemon_migration_status(status),
         DaemonMigrationCommands::Confirm(decision) => {
             migration_decision::handle_migration_decision(
@@ -119,11 +120,13 @@ fn handle_daemon_migration_inventory(args: &DaemonMigrationInventoryArgs) -> Res
     use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
 
     let canonical_path = std::fs::canonicalize(&args.path)?;
-    let response = send_singleton_request(IpcPayload::InventoryV7Project { canonical_path })?;
+    let response =
+        send_singleton_request(IpcPayload::PlanV7InventoryAcceptance { canonical_path })?;
     match response.outcome() {
         IpcOutcome::Success {
-            result: IpcResult::V7ProjectInventory { inventory },
+            result: IpcResult::V7InventoryAcceptancePlan { plan },
         } => {
+            let inventory = plan.inventory();
             output::event(
                 "daemon",
                 LogLevel::Info,
@@ -178,6 +181,17 @@ fn handle_daemon_migration_inventory(args: &DaemonMigrationInventoryArgs) -> Res
                     "Legacy inventory has no automatic-migration blockers",
                     Persistence::Persistent,
                 );
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "Evidence revision: {}; accept with --confirmation-token {}",
+                        plan.evidence_revision(),
+                        plan.confirmation_token()
+                            .expect("blocker-free inventory has a confirmation token"),
+                    ),
+                    Persistence::Persistent,
+                );
                 return Ok(());
             }
             for blocker in inventory.blockers() {
@@ -198,6 +212,52 @@ fn handle_daemon_migration_inventory(args: &DaemonMigrationInventoryArgs) -> Res
         }
         outcome => anyhow::bail!("unexpected legacy inventory response: {outcome:?}"),
     }
+}
+
+#[cfg(unix)]
+fn handle_daemon_migration_accept(args: &DaemonMigrationAcceptArgs) -> Result<()> {
+    use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
+
+    let canonical_path = std::fs::canonicalize(&args.path)?;
+    let response = send_singleton_request(IpcPayload::AcceptV7Inventory {
+        canonical_path,
+        confirmation_token: args.confirmation_token.clone(),
+    })?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result:
+                IpcResult::V7InventoryAccepted {
+                    project_id,
+                    evidence_revision,
+                    accepted_at_unix_seconds,
+                },
+        } => {
+            output::event(
+                "daemon",
+                LogLevel::Success,
+                &format!(
+                    "Accepted legacy inventory for '{project_id}': evidence={evidence_revision}, accepted_at={accepted_at_unix_seconds}"
+                ),
+                Persistence::Persistent,
+            );
+
+            Ok(())
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let diagnostic = diagnostics
+                .iter()
+                .map(|item| format!("{}: {}", item.code(), item.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("legacy inventory acceptance failed: {diagnostic}")
+        }
+        outcome => anyhow::bail!("unexpected legacy inventory acceptance response: {outcome:?}"),
+    }
+}
+
+#[cfg(not(unix))]
+fn handle_daemon_migration_accept(_args: &DaemonMigrationAcceptArgs) -> Result<()> {
+    anyhow::bail!("the v8 singleton daemon requires the Windows named-pipe runtime")
 }
 
 #[cfg(not(unix))]

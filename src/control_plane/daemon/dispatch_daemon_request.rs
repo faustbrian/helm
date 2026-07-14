@@ -12,12 +12,12 @@ use crate::control_plane::daemon::ipc::{
     IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcManagedEnvironment,
     IpcMigrationDecision, IpcMigrationStatus, IpcPayload, IpcProjectCommand, IpcProjectStatus,
     IpcRecoveryPoint, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse,
-    IpcResult,
+    IpcResult, IpcV7InventoryAcceptancePlan,
 };
 use crate::control_plane::state::{
-    DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
-    DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
-    ResourceRetention, StateStore,
+    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, DaemonOperationRecord,
+    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
+    EnvironmentLifecycle, MigrationPhase, ResourceLifecycle, ResourceRetention, StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -256,6 +256,170 @@ where
                 Err(message) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new("v7_inventory_failed", message, false)],
+                ),
+            }
+        }
+        IpcPayload::PlanV7InventoryAcceptance { canonical_path } => {
+            if let Err(message) = validate_v7_inventory_path(control_plane, canonical_path) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_plan_failed",
+                        message,
+                        false,
+                    )],
+                );
+            }
+            let Some(provider) = v7_project_inventory.as_mut() else {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_engine_unavailable",
+                        "the selected Engine is unavailable for legacy inventory",
+                        true,
+                    )],
+                );
+            };
+            let plan = provider
+                .inventory(canonical_path, discovery_options.maximum_config_bytes())
+                .and_then(IpcV7InventoryAcceptancePlan::new);
+            match plan {
+                Ok(plan) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::V7InventoryAcceptancePlan { plan },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_plan_failed",
+                        message,
+                        false,
+                    )],
+                ),
+            }
+        }
+        IpcPayload::AcceptV7Inventory {
+            canonical_path,
+            confirmation_token,
+        } => {
+            if let Err(message) = validate_v7_inventory_path(control_plane, canonical_path) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_failed",
+                        message,
+                        false,
+                    )],
+                );
+            }
+            let Some(provider) = v7_project_inventory.as_mut() else {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_engine_unavailable",
+                        "the selected Engine is unavailable for legacy inventory",
+                        true,
+                    )],
+                );
+            };
+            let inventory = match provider
+                .inventory(canonical_path, discovery_options.maximum_config_bytes())
+            {
+                Ok(inventory) => inventory,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let plan = match IpcV7InventoryAcceptancePlan::new(inventory) {
+                Ok(plan) => plan,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            if plan.confirmation_token().is_none() {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_blocked",
+                        format!(
+                            "legacy inventory has {} blocker(s); resolve every blocker and plan again",
+                            plan.inventory().blockers().len()
+                        ),
+                        false,
+                    )],
+                );
+            }
+            if !plan.confirms(confirmation_token) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_confirmation_stale",
+                        "legacy source evidence changed after planning; inspect and confirm the new inventory",
+                        false,
+                    )],
+                );
+            }
+            let record = match plan.inventory_json().and_then(|inventory_json| {
+                AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+                    project_id: plan.inventory().project_id().to_owned(),
+                    canonical_project_path: canonical_path.to_path_buf(),
+                    source_revision: plan.inventory().source_revision().to_owned(),
+                    inventory_json,
+                    accepted_at_unix_seconds: now_unix_seconds,
+                })
+            }) {
+                Ok(record) => record,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_failed",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            if record.evidence_revision() != plan.evidence_revision() {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_failed",
+                        "legacy inventory evidence revision changed during acceptance",
+                        false,
+                    )],
+                );
+            }
+            match control_plane.record_accepted_v7_inventory(&record) {
+                Ok(()) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::V7InventoryAccepted {
+                        project_id: record.project_id().to_owned(),
+                        evidence_revision: record.evidence_revision().to_owned(),
+                        accepted_at_unix_seconds: record.accepted_at_unix_seconds(),
+                    },
+                ),
+                Err(error) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_inventory_acceptance_persistence_failed",
+                        error.to_string(),
+                        true,
+                    )],
                 ),
             }
         }

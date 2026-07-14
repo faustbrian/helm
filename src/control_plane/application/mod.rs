@@ -15,6 +15,7 @@ mod project_source;
 mod reconcile_logical_environment;
 mod recovery_points;
 mod registry_plan_error;
+mod v7_inventory_acceptance;
 
 pub(crate) use control_plane::ControlPlane;
 pub(crate) use control_plane_error::ControlPlaneError;

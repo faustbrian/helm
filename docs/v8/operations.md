@@ -232,9 +232,22 @@ absolute project path below one of its authoritative watched roots, reads an
 exact regular non-symlink `.stackctl.toml` within the normal configuration-size
 limit, verifies that its bytes did not change during expansion, and uses only
 the installation-selected Engine. The command prints the source revision,
-configured and observed service identities, route count, CA-capture requirement,
-and every blocker. A blocked inventory exits unsuccessfully after reporting all
-issues and never changes the source project.
+complete evidence revision, configured and observed service identities, route
+count, CA-capture requirement, and every blocker. A blocked inventory exits
+unsuccessfully after reporting all issues, never changes the source project,
+and receives no acceptance token.
+
+A blocker-free preview returns a purpose-bound confirmation token but still
+writes no state. `stackctl daemon migration accept [PATH]
+--confirmation-token TOKEN` performs a fresh config read and Engine inventory,
+recomputes the complete evidence digest, and rejects the request if any source,
+container, image, mount, route, or blocker evidence changed. Only an exact
+replay is appended to the SQLite acceptance journal. Each record contains the
+canonical path, deterministic project identity, source revision, full
+secret-free inventory, evidence revision, and acceptance time. A second path
+claiming an already accepted project identity fails loudly; Stackctl never
+renames, hashes, or repairs it. Later migration adapters must match an exact
+accepted evidence revision before acting.
 
 An existing volume is never attached to an incompatible image or different
 engine as an implicit upgrade. Unsupported projects retain a precise diagnostic

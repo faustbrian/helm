@@ -929,6 +929,27 @@ fn daemon_command_variants_parse() {
     };
     assert_eq!(args.path, PathBuf::from("/work/legacy-bill"));
 
+    let accept_inventory = Cli::parse_from([
+        "stackctl",
+        "daemon",
+        "migration",
+        "accept",
+        "/work/legacy-bill",
+        "--confirmation-token",
+        "evidence-token",
+    ]);
+    let commands::Commands::Daemon(args) = accept_inventory.command else {
+        panic!("expected daemon command");
+    };
+    let commands::DaemonCommands::Migration(args) = args.command else {
+        panic!("expected daemon migration command");
+    };
+    let commands::DaemonMigrationCommands::Accept(args) = args.command else {
+        panic!("expected daemon migration accept command");
+    };
+    assert_eq!(args.path, PathBuf::from("/work/legacy-bill"));
+    assert_eq!(args.confirmation_token, "evidence-token");
+
     for command in ["confirm", "rollback"] {
         let migration = Cli::parse_from([
             "stackctl",
