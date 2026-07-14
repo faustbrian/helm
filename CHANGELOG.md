@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a concrete v7 named-volume strategy boundary. Registration matches the
+  exact accepted container plus configured and Engine-observed volume set,
+  requires recovery before restoring and verifying a v8 target, retains the
+  legacy source for rollback, and permits retirement only after confirmation.
 - Added a concrete installation-scoped v7 trust adapter. It privately backs up
   exact accepted legacy Caddy CAs, installs the Stackctl CA at cutover, restores
   legacy trust from verified backup even when original files disappear, and

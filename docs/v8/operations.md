@@ -311,6 +311,15 @@ the only recreation strategy allowed to prepare without a durable target.
 Cutover, rollback, and confirmation then follow normal desired-state
 reconciliation and retention instead of introducing a second container
 lifecycle path inside migration.
+Named-volume checkpoints bind a dedicated legacy migration provider to the
+exact accepted service, Engine container identity, and identical configured and
+observed volume-name set. The provider must quiesce and restart the source while
+producing verified recovery evidence, restore and verify an exact v8 target
+before the checkpoint can become prepared, and reverify that target at cutover.
+Rollback verifies the retained legacy source and leaves the prepared target as
+retained evidence. Only project-wide confirmation may ask the provider to
+retire the exact accepted legacy source; mismatched volume evidence fails during
+registration before provider mutation.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

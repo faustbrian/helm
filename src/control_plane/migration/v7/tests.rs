@@ -5,15 +5,16 @@ use super::{
     V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
     V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
     V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
-    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
+    V7MigrationServiceSource, V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationProvider,
+    V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
     V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
     V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
     V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
     confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_gateway_snapshot_migration_adapter,
-    register_v7_installation_trust_migration_adapter, register_v7_no_op_migration_adapters,
-    register_v7_protected_environment_migration_adapter,
+    register_v7_installation_trust_migration_adapter, register_v7_named_volume_migration_adapter,
+    register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
     register_v7_recreated_service_migration_adapter, rollback_v7_migration,
     select_v7_migration_adapters,
 };
@@ -978,6 +979,137 @@ fn v7_trust_adapter_restores_legacy_ca_from_private_backup() {
 
         assert!(trust.retains(&legacy_identity));
         std::fs::remove_dir_all(root).expect("remove trust fixture");
+    });
+}
+
+#[test]
+fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
+    run_test(async {
+        let source_revision = format!("sha256:{}", "a".repeat(64));
+        let inventory_json = serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": "/work/bill",
+            "source_revision": source_revision,
+            "blockers": [],
+            "services": [{
+                "service_id": "app",
+                "observed_container_id": "legacy-app-container",
+                "configured_mounts": [{
+                    "source_kind": "named_volume",
+                    "source": "bill-app-data",
+                    "target": "/app/storage",
+                    "read_only": false
+                }],
+                "observed_mounts": [{
+                    "source_kind": "named_volume",
+                    "source": "bill-app-data",
+                    "target": "/app/storage",
+                    "read_only": false
+                }]
+            }]
+        })
+        .to_string();
+        let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            source_revision,
+            inventory_json,
+            generated_environment_rollback: None,
+            accepted_at_unix_seconds: 10,
+        })
+        .expect("accepted volume evidence");
+        let checkpoint =
+            V7MigrationAdapterCheckpoint::pending("volume/app", "named-volume-archive", true, 10)
+                .expect("volume checkpoint");
+        let plan = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            evidence_revision: accepted.evidence_revision().to_owned(),
+            adapter_plan_revision: "b".repeat(64),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: vec![checkpoint],
+            updated_at_unix_seconds: 10,
+        })
+        .expect("volume execution");
+        let source = V7NamedVolumeMigrationSource::new(
+            "app",
+            "legacy-app-container",
+            vec!["bill-app-data".to_owned()],
+        )
+        .expect("named volume source");
+        let drifted_source = V7NamedVolumeMigrationSource::new(
+            "app",
+            "legacy-app-container",
+            vec!["bill-other-data".to_owned()],
+        )
+        .expect("drifted named volume source");
+        let mut drifted_provider = RecordingV7NamedVolumeProvider::default();
+        let error = register_v7_named_volume_migration_adapter(
+            &mut V7MigrationAdapterRegistry::default(),
+            &plan,
+            V7NamedVolumeMigrationAdapterOptions {
+                accepted: &accepted,
+                source: &drifted_source,
+                provider: &mut drifted_provider,
+            },
+        )
+        .expect_err("volume drift must reject adapter registration");
+        assert!(error.contains("differ from accepted v7 evidence"));
+        assert!(drifted_provider.calls.is_empty());
+        let mut provider = RecordingV7NamedVolumeProvider::default();
+        let mut journal = RecordingV7Journal::default();
+        {
+            let mut registry = V7MigrationAdapterRegistry::default();
+            assert!(
+                register_v7_named_volume_migration_adapter(
+                    &mut registry,
+                    &plan,
+                    V7NamedVolumeMigrationAdapterOptions {
+                        accepted: &accepted,
+                        source: &source,
+                        provider: &mut provider,
+                    },
+                )
+                .expect("register named volume adapter")
+            );
+            let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 11)
+                .await
+                .expect("prepare named volume migration");
+            assert_eq!(
+                prepared.checkpoints()[0].target_reference(),
+                Some("volume:bill-app-data-v8")
+            );
+            let desired_state = v7_cutover_state();
+            cutover_v7_migration(V7MigrationCutoverOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                desired_state: &desired_state,
+                updated_at_unix_seconds: 12,
+            })
+            .await
+            .expect("cut over named volume");
+            let restored_state = v7_rollback_state();
+            rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 13,
+            })
+            .await
+            .expect("roll back named volume");
+        }
+
+        assert_eq!(
+            provider.calls,
+            [
+                "backup:legacy-app-container:bill-app-data",
+                "restore:volume:bill-app-data-v8",
+                "verify-target:volume:bill-app-data-v8",
+                "verify-source:legacy-app-container:bill-app-data",
+            ]
+        );
     });
 }
 
@@ -1982,6 +2114,72 @@ struct RecordingV7GatewayProvider {
 #[derive(Default)]
 struct RecordingV7TrustStore {
     identities: Mutex<BTreeSet<String>>,
+}
+
+#[derive(Default)]
+struct RecordingV7NamedVolumeProvider {
+    calls: Vec<String>,
+}
+
+impl V7NamedVolumeMigrationProvider for RecordingV7NamedVolumeProvider {
+    fn backup_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7NamedVolumeMigrationSource,
+    ) -> MigrationFuture<'operation, MigrationBackup> {
+        self.calls.push(format!(
+            "backup:{}:{}",
+            source.container_id(),
+            source.volume_names().join(",")
+        ));
+        Box::pin(async { MigrationBackup::new("/private/recovery", "c".repeat(64), 1) })
+    }
+
+    fn restore_and_verify_target<'operation>(
+        &'operation mut self,
+        _source: &'operation V7NamedVolumeMigrationSource,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, V7MigrationAdapterTarget> {
+        assert_eq!(checkpoint.recovery_reference(), Some("/private/recovery"));
+        self.calls
+            .push("restore:volume:bill-app-data-v8".to_owned());
+        Box::pin(async {
+            V7MigrationAdapterTarget::resource("volume:bill-app-data-v8")
+                .map_err(MigrationOperationError::new)
+        })
+    }
+
+    fn verify_target<'operation>(
+        &'operation mut self,
+        _source: &'operation V7NamedVolumeMigrationSource,
+        target_reference: &'operation str,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!("verify-target:{target_reference}"));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn verify_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7NamedVolumeMigrationSource,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!(
+            "verify-source:{}:{}",
+            source.container_id(),
+            source.volume_names().join(",")
+        ));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn retire_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7NamedVolumeMigrationSource,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!(
+            "retire:{}:{}",
+            source.container_id(),
+            source.volume_names().join(",")
+        ));
+        Box::pin(async { Ok(()) })
+    }
 }
 
 impl RecordingV7TrustStore {
