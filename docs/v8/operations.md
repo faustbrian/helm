@@ -295,6 +295,15 @@ it binds the active managed-environment revision as its target. Project `.env`
 files remain user-owned and are neither rewritten nor deleted during prepare,
 cutover, rollback, or confirmation; v8 environment publication and restoration
 occur through the atomic managed-state transactions and container injection.
+The installation-trust strategy re-reads every accepted legacy Caddy CA as a
+bounded regular non-symlink file and stores the exact certificate set in a
+private identity-bound backup before preparation can complete. Cutover ensures
+the prepared Stackctl CA identity is trusted. Rollback re-verifies the backup
+manifest, identity, checksum, size, and exact accepted bytes before restoring
+legacy CA trust, even if the original Caddy certificate files no longer exist.
+Project confirmation never removes legacy CA trust; retirement is an explicit
+installation-scoped operation only after no accepted project retains a rollback
+dependency.
 Recreated project workloads and stateless services bind only to an active v8
 `ResourceRecord` or project-scoped `LogicalResourceRecord` whose service
 identity matches the immutable checkpoint. An explicitly ephemeral adapter is

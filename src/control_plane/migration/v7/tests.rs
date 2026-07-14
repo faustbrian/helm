@@ -1,17 +1,18 @@
 use super::{
     V7EnvironmentMigrationAdapter, V7GatewaySnapshotMigrationAdapterOptions,
-    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions, V7InventoryBlocker,
-    V7MigrationAdapterExecutor, V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions,
-    V7MigrationAdapterTarget, V7MigrationCutoverOptions, V7MigrationExecutionJournal,
-    V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions, V7MigrationRouteSource,
-    V7MigrationServiceAdapter, V7MigrationServiceSource, V7ProjectInventory,
-    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
-    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
-    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
-    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions,
+    V7InstallationTrustMigrationAdapterOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
+    V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
+    V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
+    V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
+    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
+    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
+    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
+    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
+    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
-    register_v7_gateway_snapshot_migration_adapter, register_v7_no_op_migration_adapters,
+    register_v7_gateway_snapshot_migration_adapter,
+    register_v7_installation_trust_migration_adapter, register_v7_no_op_migration_adapters,
     register_v7_protected_environment_migration_adapter,
     register_v7_recreated_service_migration_adapter, rollback_v7_migration,
     select_v7_migration_adapters,
@@ -38,12 +39,16 @@ use crate::control_plane::state::{
     V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase, V7MigrationExecutionRecord,
     V7MigrationExecutionRecordOptions,
 };
+use crate::control_plane::tls::{
+    CertificateTrustStore, LocalCaIdentity, TrustStoreError, generate_local_certificates,
+};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use time::macros::datetime;
 
 #[test]
 fn v7_adapter_selection_is_complete_deterministic_and_does_not_archive_logical_storage() {
@@ -821,6 +826,158 @@ fn v7_gateway_adapter_backs_up_and_replaces_complete_snapshots() {
             ]
         );
         std::fs::remove_dir_all(root).expect("remove gateway fixture");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn v7_trust_adapter_restores_legacy_ca_from_private_backup() {
+    run_test(async {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v7-trust-adapter-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("trust fixture");
+        let legacy_bundle =
+            generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("legacy CA bundle");
+        let target_bundle = generate_local_certificates(datetime!(2026-07-14 12:00 UTC))
+            .expect("Stackctl CA bundle");
+        let legacy_path = root.join("legacy-caddy-ca.pem");
+        let target_path = root.join("stackctl-ca.pem");
+        let hosts_path = root.join("hosts");
+        std::fs::write(&legacy_path, legacy_bundle.ca_certificate_pem()).expect("legacy CA");
+        std::fs::write(&target_path, target_bundle.ca_certificate_pem()).expect("target CA");
+        std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("hosts fixture");
+        let artifacts = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+            environment_path: &root.join("missing.env"),
+            hosts_path: &hosts_path,
+            caddy_state_path: &root.join("missing-caddy.toml"),
+            caddy_ca_candidates: std::slice::from_ref(&legacy_path),
+            route_domains: &[],
+            maximum_artifact_bytes: 64 * 1024,
+        })
+        .expect("legacy trust inventory");
+        let legacy_artifacts = artifacts.caddy_ca_certificates().to_vec();
+        let source_revision = format!("sha256:{}", "a".repeat(64));
+        let inventory_json = serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": "/work/bill",
+            "source_revision": source_revision,
+            "blockers": [],
+            "host_artifacts": {
+                "caddy_ca_certificates": legacy_artifacts.iter().map(|artifact| serde_json::json!({
+                    "path": artifact.path(),
+                    "revision": artifact.revision(),
+                    "size_bytes": artifact.size_bytes(),
+                })).collect::<Vec<_>>()
+            }
+        })
+        .to_string();
+        let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            source_revision,
+            inventory_json,
+            generated_environment_rollback: None,
+            accepted_at_unix_seconds: 10,
+        })
+        .expect("accepted trust evidence");
+        let checkpoint = V7MigrationAdapterCheckpoint::pending(
+            "trust",
+            "installation-legacy-caddy-ca-transition",
+            true,
+            10,
+        )
+        .expect("trust checkpoint");
+        let plan = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            evidence_revision: accepted.evidence_revision().to_owned(),
+            adapter_plan_revision: "b".repeat(64),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: vec![checkpoint],
+            updated_at_unix_seconds: 10,
+        })
+        .expect("trust execution");
+        let legacy_identity =
+            LocalCaIdentity::from_pem(legacy_bundle.ca_certificate_pem()).expect("legacy identity");
+        let target_identity =
+            LocalCaIdentity::from_pem(target_bundle.ca_certificate_pem()).expect("target identity");
+        let trust = RecordingV7TrustStore::default();
+        trust.retain(&legacy_identity);
+        let mut journal = RecordingV7Journal::default();
+        let backup_root = root.join("backups");
+        {
+            let mut registry = V7MigrationAdapterRegistry::default();
+            assert!(
+                register_v7_installation_trust_migration_adapter(
+                    &mut registry,
+                    &plan,
+                    V7InstallationTrustMigrationAdapterOptions {
+                        accepted: &accepted,
+                        legacy_ca_artifacts: &legacy_artifacts,
+                        target_certificate_path: &target_path,
+                        trust_store: &trust,
+                        backup_root: &backup_root,
+                        created_at_unix_seconds: 11,
+                        verified_at_unix_seconds: 12,
+                    },
+                )
+                .expect("register trust adapter")
+            );
+            let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 12)
+                .await
+                .expect("prepare trust transition");
+            let recovery_reference = prepared.checkpoints()[0]
+                .recovery_reference()
+                .expect("legacy trust recovery reference");
+            let recovery_artifact = Path::new(recovery_reference).join("artifact.bin");
+            let recovery_bytes =
+                std::fs::read(&recovery_artifact).expect("legacy trust recovery bytes");
+            let desired_state = v7_cutover_state();
+            cutover_v7_migration(V7MigrationCutoverOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                desired_state: &desired_state,
+                updated_at_unix_seconds: 13,
+            })
+            .await
+            .expect("cut over trust");
+            assert!(trust.retains(&target_identity));
+            std::fs::remove_file(&legacy_path).expect("remove original legacy CA");
+            trust.forget(&legacy_identity);
+            let restored_state = v7_rollback_state();
+            std::fs::write(&recovery_artifact, b"tampered").expect("tamper trust recovery");
+            let error = rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 14,
+            })
+            .await
+            .expect_err("tampered trust recovery blocks rollback");
+            assert!(error.to_string().contains("verify legacy trust backup"));
+            assert!(!trust.retains(&legacy_identity));
+            std::fs::write(&recovery_artifact, recovery_bytes).expect("restore trust recovery");
+            rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 14,
+            })
+            .await
+            .expect("restore legacy trust");
+        }
+
+        assert!(trust.retains(&legacy_identity));
+        std::fs::remove_dir_all(root).expect("remove trust fixture");
     });
 }
 
@@ -1820,6 +1977,62 @@ struct BorrowingV7Adapter<'operation> {
 struct RecordingV7GatewayProvider {
     active_revision: Option<String>,
     applied_revisions: Vec<String>,
+}
+
+#[derive(Default)]
+struct RecordingV7TrustStore {
+    identities: Mutex<BTreeSet<String>>,
+}
+
+impl RecordingV7TrustStore {
+    fn retain(&self, identity: &LocalCaIdentity) {
+        self.identities
+            .lock()
+            .expect("trust identities")
+            .insert(identity.sha256_hex().to_owned());
+    }
+
+    fn forget(&self, identity: &LocalCaIdentity) {
+        self.identities
+            .lock()
+            .expect("trust identities")
+            .remove(identity.sha256_hex());
+    }
+
+    fn retains(&self, identity: &LocalCaIdentity) -> bool {
+        self.identities
+            .lock()
+            .expect("trust identities")
+            .contains(identity.sha256_hex())
+    }
+}
+
+impl CertificateTrustStore for RecordingV7TrustStore {
+    fn contains(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<bool, TrustStoreError> {
+        Ok(self.retains(identity))
+    }
+
+    fn install(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<(), TrustStoreError> {
+        self.retain(identity);
+        Ok(())
+    }
+
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &Path,
+    ) -> Result<(), TrustStoreError> {
+        self.forget(identity);
+        Ok(())
+    }
 }
 
 impl GatewayConfiguration for RecordingV7GatewayProvider {

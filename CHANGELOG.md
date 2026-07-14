@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a concrete installation-scoped v7 trust adapter. It privately backs up
+  exact accepted legacy Caddy CAs, installs the Stackctl CA at cutover, restores
+  legacy trust from verified backup even when original files disappear, and
+  never removes shared legacy trust during project confirmation.
 - Added a concrete full-snapshot v7 gateway adapter. It stores a private,
   identity-bound rollback snapshot, publishes and verifies the complete target
   route revision, and refuses rollback when the retained artifact is missing,
