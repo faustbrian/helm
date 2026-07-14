@@ -29,7 +29,7 @@ pub(crate) fn plan_engine_reconciliation(
         options
             .prepared_project_services
             .iter()
-            .map(|prepared| prepared.route().clone()),
+            .filter_map(|prepared| prepared.route().cloned()),
     );
 
     for service in options.execution.services() {
@@ -66,26 +66,20 @@ pub(crate) fn plan_engine_reconciliation(
                 | ServiceDeploymentStrategy::DedicatedUntilIsolationProven
                 | ServiceDeploymentStrategy::DedicatedRoutableProject
         ) {
-            let generated_environment =
-                if service.strategy() == ServiceDeploymentStrategy::DedicatedRoutableProject {
-                    let prepared = options
-                        .prepared_project_services
-                        .iter()
-                        .find(|prepared| {
-                            prepared.project_id() == service.project().as_str()
-                                && prepared.service_id() == service.service().as_str()
-                        })
-                        .ok_or_else(|| {
-                            invalid(format!(
-                                "routable project service '{}-{}' was not prepared",
-                                service.project().as_str(),
-                                service.service().as_str()
-                            ))
-                        })?;
-                    Some(prepared.container_environment())
-                } else {
-                    None
-                };
+            let prepared = options.prepared_project_services.iter().find(|prepared| {
+                prepared.project_id() == service.project().as_str()
+                    && prepared.service_id() == service.service().as_str()
+            });
+            if service.strategy() == ServiceDeploymentStrategy::DedicatedRoutableProject
+                && prepared.is_none()
+            {
+                return Err(invalid(format!(
+                    "routable project service '{}-{}' was not prepared",
+                    service.project().as_str(),
+                    service.service().as_str()
+                )));
+            }
+            let generated_environment = prepared.map(|prepared| prepared.container_environment());
             dedicated_services.push(
                 plan_dedicated_project_service(DedicatedProjectServiceOptions {
                     service,

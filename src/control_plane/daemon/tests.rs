@@ -5259,9 +5259,11 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
 
 #[cfg(unix)]
 #[test]
-fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
+fn complete_engine_plans_bind_prepared_project_service_state() {
     use super::unix_daemon_runtime::merge_prepared_environments;
-    use crate::control_plane::project_infrastructure::plan_soketi_project_resources;
+    use crate::control_plane::project_infrastructure::{
+        plan_soketi_project_resources, plan_typesense_project_resources,
+    };
     use crate::control_plane::shared_infrastructure::CredentialSecret;
 
     let source = ProjectSource::new(
@@ -5271,10 +5273,13 @@ fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
             concat!(
                 "schema_version: 8\nproject: bill\nservices:\n",
                 "  app:\n    image: ghcr.io/acme/bill@sha256:{}\n",
+                "  search:\n    preset: typesense\n    version: '0'\n",
+                "    image: typesense/typesense@sha256:{}\n",
                 "  websocket:\n    preset: soketi\n    version: '1'\n",
                 "    image: quay.io/soketi/soketi@sha256:{}\n"
             ),
             "a".repeat(64),
+            "c".repeat(64),
             "b".repeat(64)
         ),
     );
@@ -5285,7 +5290,17 @@ fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
         .iter()
         .find(|service| service.service().as_str() == "websocket")
         .expect("Soketi execution service");
+    let typesense = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "search")
+        .expect("Typesense execution service");
     let prepared = vec![
+        plan_typesense_project_resources(
+            typesense,
+            CredentialSecret::new("typesense-secret".to_owned()),
+        )
+        .expect("prepared Typesense service"),
         plan_soketi_project_resources(soketi, CredentialSecret::new("stable-secret".to_owned()))
             .expect("prepared Soketi service"),
     ];
@@ -5307,7 +5322,11 @@ fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
     })
     .expect("complete Engine plan");
 
-    let dedicated = &plan.dedicated_services()[0];
+    let dedicated = plan
+        .dedicated_services()
+        .iter()
+        .find(|service| service.request().metadata().resource_id() == Some("websocket"))
+        .expect("Soketi service plan");
     assert_eq!(
         dedicated
             .request()
@@ -5329,6 +5348,23 @@ fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
             .environment()
             .get("PUSHER_APP_SECRET"),
         Some(&"stable-secret".to_owned())
+    );
+    let search = plan
+        .dedicated_services()
+        .iter()
+        .find(|service| service.request().metadata().resource_id() == Some("search"))
+        .expect("Typesense service plan");
+    assert_eq!(
+        search.request().environment().get("TYPESENSE_API_KEY"),
+        Some(&"typesense-secret".to_owned())
+    );
+    assert!(search.volume().is_some());
+    assert_eq!(
+        plan.applications()[0]
+            .request()
+            .environment()
+            .get("TYPESENSE_HOST"),
+        Some(&"stackctl-bill-search".to_owned())
     );
     assert_eq!(plan.gateway().routes().len(), 2);
     assert_eq!(

@@ -37,9 +37,12 @@ fn soketi_preparation_replays_one_stable_secret_and_complete_route_contract() {
     assert_eq!(first.credential().secret(), replayed.credential().secret());
     assert_eq!(first.project_id(), "bill");
     assert_eq!(first.service_id(), "websocket");
-    assert_eq!(first.route().domain(), "bill-websocket.stackctl.localhost");
     assert_eq!(
-        first.route().upstream(),
+        first.route().expect("Soketi route").domain(),
+        "bill-websocket.stackctl.localhost"
+    );
+    assert_eq!(
+        first.route().expect("Soketi route").upstream(),
         "http://stackctl-bill-websocket:6001"
     );
     assert_eq!(
@@ -92,6 +95,55 @@ fn soketi_preparation_rejects_reserved_environment_before_storing_a_secret() {
          'SOKETI_DEFAULT_APP_SECRET'"
     );
     assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn typesense_preparation_replays_stable_bootstrap_credentials_and_endpoints() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  search:\n    preset: typesense\n    version: '0'\n    image: typesense/typesense@sha256:{}\n",
+            "b".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-typesense-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x33))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0x44))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        first[0].credential().secret(),
+        replayed[0].credential().secret()
+    );
+    assert_eq!(
+        first[0].container_environment().get("TYPESENSE_DATA_DIR"),
+        Some(&"/data".to_owned())
+    );
+    assert_eq!(
+        first[0].container_environment().get("TYPESENSE_API_KEY"),
+        Some(&first[0].credential().secret().to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("TYPESENSE_HOST"),
+        Some(&"stackctl-bill-search".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("TYPESENSE_PORT"),
+        Some(&"8108".to_owned())
+    );
+    assert_eq!(first[0].route(), None);
 
     std::fs::remove_file(database).expect("remove state store");
 }

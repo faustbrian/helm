@@ -13,6 +13,9 @@ All notable changes to this project are documented in this file.
 - Added a dedicated routable Soketi preset with a pinned multi-architecture
   artifact, stable redaction-safe project credentials, generated Pusher client
   environment, and built-in gateway routing without host port publication.
+- Added stable Typesense bootstrap credentials and generated private endpoint
+  values so the accepted preset starts with its required data directory and API
+  key without user-maintained secrets or host port publication.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

@@ -3,7 +3,7 @@ use crate::control_plane::state::{CredentialRecord, ManagedEnvironmentRecord};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 
-/// Stable generated state required by one routable project service.
+/// Stable generated state required by one prepared project service.
 #[derive(Eq, PartialEq)]
 pub(crate) struct PreparedProjectService {
     project_id: String,
@@ -11,7 +11,7 @@ pub(crate) struct PreparedProjectService {
     credential: CredentialRecord,
     environment: ManagedEnvironmentRecord,
     container_environment: BTreeMap<String, String>,
-    route: GatewayRoute,
+    route: Option<GatewayRoute>,
 }
 
 impl PreparedProjectService {
@@ -21,7 +21,7 @@ impl PreparedProjectService {
         credential: CredentialRecord,
         environment: ManagedEnvironmentRecord,
         container_environment: BTreeMap<String, String>,
-        route: GatewayRoute,
+        route: Option<GatewayRoute>,
     ) -> Self {
         Self {
             project_id,
@@ -53,8 +53,8 @@ impl PreparedProjectService {
         &self.container_environment
     }
 
-    pub(crate) const fn route(&self) -> &GatewayRoute {
-        &self.route
+    pub(crate) const fn route(&self) -> Option<&GatewayRoute> {
+        self.route.as_ref()
     }
 }
 
