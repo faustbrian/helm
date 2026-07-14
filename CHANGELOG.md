@@ -29,6 +29,9 @@ All notable changes to this project are documented in this file.
   Mailpit, object-store, gateway-bootstrap, and credential writers now exclude
   concurrent processes before recovering or replacing their stable staging
   files.
+- Refused symbolic-link and non-file RabbitMQ bootstrap configuration before
+  accepting an idempotent shared-service definition. The read-only container
+  mount can no longer alias an external file merely because its bytes match.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish

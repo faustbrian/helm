@@ -2787,6 +2787,44 @@ fn rabbitmq_definitions_store_is_private_hash_only_and_atomically_replaceable() 
     std::fs::remove_dir_all(&root).expect("remove RabbitMQ fixture");
 }
 
+#[cfg(unix)]
+#[test]
+fn rabbitmq_definitions_store_refuses_a_linked_immutable_config() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-rabbitmq-config-symlink-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    let mounted = root.join("mounted");
+    std::fs::create_dir_all(&mounted).expect("create RabbitMQ mount directory");
+    let victim = root.join("victim.conf");
+    std::fs::write(
+        &victim,
+        "definitions.import_backend = local_filesystem\n\
+         definitions.local.path = /etc/stackctl/rabbitmq/definitions.json\n\
+         definitions.skip_if_unchanged = true\n",
+    )
+    .expect("write victim config");
+    symlink(&victim, mounted.join("rabbitmq.conf")).expect("create config symlink");
+    let definitions = RabbitMqDefinitions::new(Vec::new()).expect("empty definitions");
+
+    let error = store_rabbitmq_definitions(&definitions, &root)
+        .expect_err("linked RabbitMQ config must fail closed");
+
+    assert!(error.to_string().contains("symbolic link"));
+    assert!(
+        std::fs::symlink_metadata(mounted.join("rabbitmq.conf"))
+            .expect("linked RabbitMQ config")
+            .file_type()
+            .is_symlink()
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove RabbitMQ fixture");
+}
+
 #[test]
 fn rabbitmq_materializes_one_private_persistent_definition_backed_instance() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(

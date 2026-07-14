@@ -41,16 +41,32 @@ pub(crate) fn store_rabbitmq_definitions(
 
 #[cfg(unix)]
 fn store_immutable_file(path: &Path, contents: &[u8]) -> Result<(), RabbitMqPlanError> {
-    if path.exists() {
-        let found =
-            std::fs::read(path).map_err(|error| io_error("read broker config", path, error))?;
-        if found != contents {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
             return Err(RabbitMqPlanError::new(format!(
-                "existing RabbitMQ config '{}' does not match the managed config",
+                "refusing symbolic link RabbitMQ config '{}'",
                 path.display()
             )));
         }
-        return Ok(());
+        Ok(metadata) if metadata.is_file() => {
+            let found =
+                std::fs::read(path).map_err(|error| io_error("read broker config", path, error))?;
+            if found != contents {
+                return Err(RabbitMqPlanError::new(format!(
+                    "existing RabbitMQ config '{}' does not match the managed config",
+                    path.display()
+                )));
+            }
+            return Ok(());
+        }
+        Ok(_) => {
+            return Err(RabbitMqPlanError::new(format!(
+                "RabbitMQ config '{}' is not a regular file",
+                path.display()
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(io_error("inspect broker config", path, error)),
     }
 
     replace_file(path, contents)
