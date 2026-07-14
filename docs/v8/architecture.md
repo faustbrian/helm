@@ -2,8 +2,7 @@
 
 ## Current repository constraints
 
-The v7 implementation establishes useful behavior but does not provide the v8
-ownership model:
+The pre-v8 implementation does not provide the v8 ownership model:
 
 - `src/daemon/supervisor.rs` runs one recovery loop per project and calls CLI
   handlers rather than reconciling a global desired graph.
@@ -23,8 +22,16 @@ ownership model:
   list and carry container-engine and domain-strategy concerns in project
   configuration.
 
-These paths remain migration sources while v8 is introduced. They are not the
-target architecture.
+These paths document behavior being replaced. V8 neither executes nor imports
+them; it starts from a new installation and new `.stackctl.yaml` projects.
+
+## Clean-install boundary
+
+V8 has no in-place major-version upgrade, compatibility backend, pre-v8
+resource adoption, or config conversion path. Installing v8 creates a new
+per-user control-plane state directory and manages only resources bearing its
+own installation identity. Pre-v8 containers, volumes, configuration, routes,
+certificates, and host integrations remain outside its ownership.
 
 ## Two planes
 

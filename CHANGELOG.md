@@ -6,9 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Corrected the v8 completion audit to distinguish tested v7 migration
-  provider components from daemon-composed end-to-end migration, and to keep
-  incomplete persistent recovery and deletion coverage marked partial.
+- Removed the pre-v8 inventory, compatibility adapters, config conversion,
+  revision journals, and upgrade rollback paths. V8 now has an explicit
+  clean-install boundary and manages only newly created v8 state and resources.
 - Blocked whole-installation delete-data preflight when project-owned
   persistent volumes have no ownership-bound recovery adapter, preventing
   terminal Engine cleanup from erasing unprotected dedicated-service data,
@@ -271,7 +271,7 @@ All notable changes to this project are documented in this file.
 - Added `stackctl daemon migration status` over typed singleton IPC so users
   can inspect exact project-scoped durable migration phases, verified-backup
   state, and confirmation requirements without exposing recovery paths,
-  credentials, or retained v7 rollback material.
+  credentials, or retained source rollback material.
 - Added typed operation-scoped browser execution for Dusk and Selenium with
   durable `--browser` intent, immutable artifacts, official Grid readiness,
   private-network endpoint injection, no host ports, Engine-native 2 GiB shared
@@ -336,12 +336,12 @@ All notable changes to this project are documented in this file.
   PHP-CS-Fixer, Psalm, Pint, Pest, PHPUnit, and Rector project tools through
   owned application containers, with exact arguments and declarative runtime
   version enforcement.
-- Added a strict v8 dispatch boundary that prevents unported YAML commands from
-  entering v7 config, Docker CLI, or host-tooling execution paths, while
-  preserving normal legacy dispatch for explicitly discovered TOML projects.
+- Added a strict v8 dispatch boundary that prevents project commands from
+  entering removed config, Docker CLI, or host-tooling execution paths and
+  rejects TOML projects as unsupported.
 - Added strict v8 `url` lookup through authoritative singleton project status,
   returning only exact published HTTPS routes and rejecting legacy kind or
-  driver selectors instead of deriving host ports through the v7 config path.
+  driver selectors instead of deriving host ports through removed config paths.
 - Added strict v8 Artisan and non-interactive exec dispatch through the
   singleton command queue, preserving exact non-shell arguments and rejecting
   interactive PTY and browser-bootstrap flows until the daemon IPC can support
@@ -604,8 +604,6 @@ All notable changes to this project are documented in this file.
   readiness, and idempotent per-project database and login reconciliation.
 - Added private stateless Gotenberg sharing by exact immutable profile with
   module-aware readiness and daemon-managed project endpoints.
-- Replaced in-place v7 config rewriting with non-destructive strict v8 YAML
-  candidates, checksum-bound semantic reports, and explicit review blockers.
 - Added transactional backup restoration with exact resource verification,
   checksum-tracked isolated staging, target-native validation, atomic cutover,
   and mandatory rollback after every post-staging failure.
@@ -614,8 +612,9 @@ All notable changes to this project are documented in this file.
   cutover and rejects skipped phases, identity drift, proof replacement, and
   terminal-state changes.
 - Added a crash-resumable migration coordinator that advances only completed
-  backup, target, restore, verification, and cutover checkpoints, retains v7
-  rollback material, and requires explicit confirmation before source retirement.
+  backup, target, restore, verification, and cutover checkpoints, retains
+  source rollback material, and requires explicit confirmation before source
+  retirement.
 - Added streaming atomic private backup recovery points with portable resource
   manifests, immutable history, crash-safe pending recovery, and reread verification.
 - Hardened durable resource reconciliation against immutable ownership drift and

@@ -5686,7 +5686,7 @@ fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
     assert_eq!(report.issues().len(), 2);
     assert!(diagnostics.contains("alpha/.stackctl.toml"));
     assert!(diagnostics.contains("zeta/.stackctl.toml"));
-    assert!(diagnostics.contains("stackctl config migrate --to yaml"));
+    assert!(diagnostics.contains("create a new `.stackctl.yaml`"));
 
     std::fs::remove_dir_all(&root).expect("remove TOML fixture");
 }
@@ -6500,8 +6500,8 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
                     &MigrationRecord::new(MigrationRecordOptions {
                         migration_id: migration_id.to_owned(),
                         project_id: project_id.to_owned(),
-                        source_revision: "sha256:v7".to_owned(),
-                        target_revision: "sha256:v8".to_owned(),
+                        source_revision: "sha256:source".to_owned(),
+                        target_revision: "sha256:target".to_owned(),
                         source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
                         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
                         phase,
@@ -6513,7 +6513,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
                             .then_some(1_024),
                         target_resource_id: (phase >= MigrationPhase::TargetProvisioned)
                             .then(|| format!("postgres-{project_id}")),
-                        rollback_reference: Some("v7:retained-source".to_owned()),
+                        rollback_reference: Some("source:retained-source".to_owned()),
                         updated_at_unix_seconds: 12_345,
                     })
                     .expect("migration checkpoint"),
@@ -6565,7 +6565,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         )
     );
     assert!(!format!("{response:?}").contains("/private/recovery-point"));
-    assert!(!format!("{response:?}").contains("v7:retained-source"));
+    assert!(!format!("{response:?}").contains("source:retained-source"));
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove migration fixture");

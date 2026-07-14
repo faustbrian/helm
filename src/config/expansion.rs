@@ -12,9 +12,7 @@ mod service;
 pub(super) fn expand_raw_config(raw: RawConfig) -> Result<Config> {
     let schema_version = raw.schema_version.unwrap_or(1);
     if schema_version != 1 {
-        anyhow::bail!(
-            "unsupported schema_version '{schema_version}'; run `stackctl config migrate`"
-        );
+        anyhow::bail!("unsupported schema_version '{schema_version}'");
     }
     let project_type = raw.project_type.unwrap_or(ProjectType::Project);
 

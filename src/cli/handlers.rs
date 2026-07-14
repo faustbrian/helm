@@ -38,6 +38,8 @@ mod share_cmd;
 mod start_cmd;
 mod status_cmd;
 mod stop_cmd;
+#[cfg(unix)]
+mod strict_v8_dispatch_guard;
 mod swarm_cmd;
 mod task_cmd;
 mod up_cmd;
@@ -45,8 +47,6 @@ mod update_cmd;
 mod url_cmd;
 #[cfg(unix)]
 mod v8_env_cmd;
-#[cfg(unix)]
-mod v8_legacy_fallback_guard;
 #[cfg(unix)]
 mod v8_lock_cmd;
 #[cfg(unix)]
@@ -69,7 +69,7 @@ pub(crate) use app_create_cmd::{HandleAppCreateOptions, handle_app_create};
 pub(crate) use artisan_cmd::{
     HandleArtisanOptions, handle_artisan, set_testing_runtime_pool_size_override,
 };
-pub(crate) use config_cmd::{handle_config, handle_config_migrate};
+pub(crate) use config_cmd::handle_config;
 pub(crate) use config_schema_cmd::handle_config_schema;
 pub(crate) use config_validate_cmd::handle_config_validate;
 pub(crate) use daemon_cmd::handle_daemon;
@@ -109,6 +109,8 @@ pub(crate) use share_cmd::{
 pub(crate) use start_cmd::{HandleStartOptions, handle_start};
 pub(crate) use status_cmd::handle_status;
 pub(crate) use stop_cmd::handle_stop;
+#[cfg(unix)]
+pub(crate) use strict_v8_dispatch_guard::enforce_strict_v8_dispatch;
 pub(crate) use swarm_cmd::{HandleSwarmOptions, handle_swarm};
 pub(crate) use task_cmd::{
     HandleTaskDepsWorkflowOptions, TaskDependencyAction, handle_task_deps_workflow,
@@ -118,8 +120,6 @@ pub(crate) use update_cmd::{HandleUpdateOptions, handle_update};
 pub(crate) use url_cmd::handle_url;
 #[cfg(unix)]
 pub(crate) use v8_env_cmd::handle_v8_env;
-#[cfg(unix)]
-pub(crate) use v8_legacy_fallback_guard::reject_v8_legacy_fallback;
 #[cfg(unix)]
 pub(crate) use v8_lock_cmd::handle_v8_lock;
 #[cfg(unix)]

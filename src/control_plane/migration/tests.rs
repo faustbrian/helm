@@ -52,7 +52,7 @@ fn migration_executes_to_reversible_cutover_without_retiring_v7() {
         assert_eq!(records[0].target_resource_id(), Some("postgres-v8-bill"));
         assert_eq!(
             records[0].rollback_reference(),
-            Some("v7:container/database")
+            Some("source:container/database")
         );
         assert_eq!(
             store.projects().expect("load project"),
@@ -350,8 +350,8 @@ fn inventory() -> MigrationRecord {
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase: MigrationPhase::Inventoried,
@@ -359,7 +359,7 @@ fn inventory() -> MigrationRecord {
         backup_artifact_sha256: None,
         backup_artifact_size_bytes: None,
         target_resource_id: None,
-        rollback_reference: Some("v7:container/database".to_owned()),
+        rollback_reference: Some("source:container/database".to_owned()),
         updated_at_unix_seconds: 99,
     })
     .expect("valid migration plan")
@@ -405,7 +405,7 @@ fn cutover_project() -> ProjectRecord {
 fn original_environment() -> ManagedEnvironmentRecord {
     ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
         project_id: "bill".to_owned(),
-        revision: "sha256:environment-v7".to_owned(),
+        revision: "sha256:environment-source".to_owned(),
         values: BTreeMap::from([("DB_DATABASE".to_owned(), "legacy_bill".to_owned())]),
         lifecycle: EnvironmentLifecycle::Active,
     })
@@ -414,7 +414,7 @@ fn original_environment() -> ManagedEnvironmentRecord {
 fn cutover_environment() -> ManagedEnvironmentRecord {
     ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
         project_id: "bill".to_owned(),
-        revision: "sha256:environment-v8".to_owned(),
+        revision: "sha256:environment-target".to_owned(),
         values: BTreeMap::from([(
             "DB_DATABASE".to_owned(),
             "stackctl_bill_database".to_owned(),

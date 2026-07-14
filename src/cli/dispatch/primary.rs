@@ -26,12 +26,6 @@ pub(super) fn dispatch_primary(
     match &cli.command {
         Commands::Init | Commands::Completions(_) => Some(Ok(())),
         Commands::Config(args) => Some(match args.command {
-            Some(ConfigCommands::Migrate { ref to }) => handlers::handle_config_migrate(
-                context.quiet(),
-                context.config_path(),
-                context.project_root(),
-                to,
-            ),
             Some(ConfigCommands::Schema) => handlers::handle_config_schema(),
             Some(ConfigCommands::Validate { ref path }) => {
                 handlers::handle_config_validate(path.as_deref(), context.quiet())

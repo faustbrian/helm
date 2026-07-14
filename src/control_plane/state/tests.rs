@@ -2208,8 +2208,8 @@ fn migration_options(
     MigrationRecordOptions {
         migration_id: "migration-bill".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-16".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase,
@@ -2221,7 +2221,7 @@ fn migration_options(
         target_resource_id: (phase >= MigrationPhase::TargetProvisioned)
             .then(|| "postgres-shared-17".to_owned()),
         rollback_reference: (phase >= MigrationPhase::Cutover)
-            .then(|| "retained:v7-resource".to_owned()),
+            .then(|| "retained:source-resource".to_owned()),
         updated_at_unix_seconds,
     }
 }

@@ -189,7 +189,6 @@ Initialize a new `.stackctl.toml` in the current directory.
 
 - Without subcommand: print resolved config.
 - `--format <FORMAT>`: output format (`toml` default, `json` supported).
-- `stackctl config migrate`: migrate local config schema to latest supported version.
 
 ### `stackctl daemon <start|watch|status|stop|logs>`
 

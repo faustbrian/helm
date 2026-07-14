@@ -2,9 +2,9 @@
 
 ## Canonical project file
 
-V8 reads only `.stackctl.yaml` during normal operation. User configuration is
-YAML, daemon state is SQLite, and machine-facing artifacts use JSON or typed
-wire formats. TOML is limited to the isolated v7 migration reader.
+V8 reads only `.stackctl.yaml`. User configuration is YAML, daemon state is
+SQLite, and machine-facing artifacts use JSON or typed wire formats. TOML is
+not parsed, converted, or used as a fallback.
 
 Services use a Compose-familiar mapping keyed by identity:
 
@@ -93,7 +93,7 @@ resolved to immutable identities before their Engine resources can be planned.
 explicit images are resolved by the singleton daemon through its selected
 Engine and the result is validated again before publication. Already immutable
 explicit images do not require an Engine lookup. `stackctl lock verify` and
-`stackctl lock diff` operate on strict YAML and never load the v7 TOML runtime.
+`stackctl lock diff` operate on strict YAML and never load pre-v8 config paths.
 Preset-only generation uses a revisioned built-in image catalog. The lock
 records that catalog revision, so changing a preset's registry source or
 default version invalidates existing locks instead of silently changing the
@@ -155,14 +155,9 @@ ports, binds outside the project, untrusted registries, host hooks, and
 destructive migration. Repository hooks run inside the application container;
 automatic discovery never executes them on the host.
 
-## V7 migration
+## Clean-install configuration
 
-`stackctl config migrate --to yaml` reads v7 TOML in an isolated module and
-emits `.stackctl.yaml` plus `.stackctl-migration-report.json` using atomic file
-publication. The
-report binds the candidate to the source checksum and lists value-redacted
-semantic differences. The candidate must pass strict v8 parsing and desired
-state resolution before publication. Existing outputs and the v7 source are
-never overwritten; blocking differences leave review artifacts but perform no
-cutover. Normal v8 discovery rejects TOML with the exact migration command and
-never edits a repository automatically.
+V8 does not convert an earlier Stackctl configuration. A project enters the v8
+registry only through a newly authored `.stackctl.yaml` that passes strict v8
+validation. Discovery reports a nearby `.stackctl.toml` as unsupported and
+does not read or mutate it.

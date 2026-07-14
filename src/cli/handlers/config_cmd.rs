@@ -3,9 +3,8 @@
 //! Contains cli handlers config cmd logic used by Stackctl command workflows.
 
 use anyhow::Result;
-use std::path::Path;
 
-use crate::cli::handlers::{log, serialize};
+use crate::cli::handlers::serialize;
 use crate::config;
 
 /// Handles the `config` CLI command.
@@ -13,53 +12,13 @@ pub(crate) fn handle_config(config: &config::Config, format: &str) -> Result<()>
     serialize::print_pretty(config, format)
 }
 
-/// Handles the `config migrate` CLI command.
-pub(crate) fn handle_config_migrate(
-    quiet: bool,
-    config_path: Option<&Path>,
-    project_root: Option<&Path>,
-    to: &str,
-) -> Result<()> {
-    let result = config::migrate_config_with(config::MigrateConfigOptions {
-        config_path,
-        project_root,
-        runtime_env: None,
-        to,
-    })?;
-    log::info_if_not_quiet(
-        quiet,
-        "config",
-        &format!(
-            "Wrote v8 candidate {} and report {}; retained {}",
-            result.candidate().display(),
-            result.report().display(),
-            result.source().display()
-        ),
-    );
-    if result.has_blocking_differences() {
-        let paths = result
-            .differences()
-            .iter()
-            .filter(|difference| difference.blocking())
-            .map(config::MigrationDifference::path)
-            .collect::<Vec<_>>()
-            .join(", ");
-        anyhow::bail!(
-            "v8 candidate requires review for: {paths}; the v7 source was retained and no cutover occurred"
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::config::{Config, Driver, Kind, ServiceConfig};
 
-    use super::{handle_config, handle_config_migrate};
+    use super::handle_config;
 
     fn service(name: &str, kind: Kind, driver: Driver) -> ServiceConfig {
         ServiceConfig {
@@ -116,24 +75,6 @@ mod tests {
         }
     }
 
-    fn temp_root() -> std::path::PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "stackctl-config-cmd-tests-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("create temp dir");
-        root
-    }
-
-    fn write_config(root: &std::path::Path, content: &str) -> std::path::PathBuf {
-        let path = root.join(".stackctl.toml");
-        fs::write(&path, content).expect("write config");
-        path
-    }
-
     #[test]
     fn handle_config_renders_supported_formats() -> Result<()> {
         let cfg = base_config();
@@ -146,37 +87,5 @@ mod tests {
     fn handle_config_rejects_unknown_format() {
         let cfg = base_config();
         assert!(handle_config(&cfg, "yaml").is_err());
-    }
-
-    #[test]
-    fn handle_config_migrate_writes_file_at_explicit_path() -> Result<()> {
-        let root = temp_root();
-        let config_path = write_config(
-            &root,
-            r#"
-schema_version = 1
-project_type = "project"
-container_prefix = "stackctl"
-
-[[service]]
-name = "app"
-kind = "app"
-driver = "frankenphp"
-image = "nginx:1.29"
-"#,
-        );
-
-        handle_config_migrate(false, Some(&config_path), None, "yaml")?;
-        assert!(config_path.exists());
-        assert!(root.join(".stackctl.yaml").exists());
-        assert!(root.join(".stackctl-migration-report.json").exists());
-        Ok(())
-    }
-
-    #[test]
-    fn handle_config_migrate_fails_without_config_path() {
-        let root = temp_root();
-        let result = handle_config_migrate(false, Some(&root.join("missing.toml")), None, "yaml");
-        assert!(result.is_err());
     }
 }

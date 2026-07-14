@@ -226,7 +226,7 @@ pub(super) fn validate_inventory(
     }
     if inventory.rollback_reference().is_none() {
         return Err(MigrationError::InvalidInventory {
-            detail: "retained v7 rollback material is required".to_owned(),
+            detail: "retained source rollback material is required".to_owned(),
         });
     }
     if updated_at_unix_seconds < inventory.updated_at_unix_seconds() {

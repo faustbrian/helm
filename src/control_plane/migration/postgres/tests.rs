@@ -701,11 +701,11 @@ fn rollback_project() -> ProjectRecord {
 }
 
 fn cutover_environment() -> ManagedEnvironmentRecord {
-    migration_environment("sha256:environment-v8", "stackctl_bill_database")
+    migration_environment("sha256:environment-target", "stackctl_bill_database")
 }
 
 fn rollback_environment() -> ManagedEnvironmentRecord {
-    migration_environment("sha256:environment-v7", "legacy_bill")
+    migration_environment("sha256:environment-source", "source_bill")
 }
 
 fn migration_environment(revision: &str, database: &str) -> ManagedEnvironmentRecord {
@@ -841,8 +841,8 @@ fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRe
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase: MigrationPhase::TargetProvisioned,
@@ -850,7 +850,7 @@ fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRe
         backup_artifact_sha256: Some(checksum.to_owned()),
         backup_artifact_size_bytes: Some(size),
         target_resource_id: Some("stackctl_bill_database_restore".to_owned()),
-        rollback_reference: Some("v7:bill/database".to_owned()),
+        rollback_reference: Some("source:bill/database".to_owned()),
         updated_at_unix_seconds: 47_000,
     })
     .expect("restore checkpoint")
@@ -860,8 +860,8 @@ fn target_checkpoint(phase: MigrationPhase) -> MigrationRecord {
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase,
@@ -871,7 +871,7 @@ fn target_checkpoint(phase: MigrationPhase) -> MigrationRecord {
         ),
         backup_artifact_size_bytes: Some(13),
         target_resource_id: Some("stackctl_bill_database_restore".to_owned()),
-        rollback_reference: Some("v7:bill/database".to_owned()),
+        rollback_reference: Some("source:bill/database".to_owned()),
         updated_at_unix_seconds: 50_000,
     })
     .expect("target checkpoint")
@@ -881,8 +881,8 @@ fn backup_checkpoint() -> MigrationRecord {
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase: MigrationPhase::BackupVerified,
@@ -892,7 +892,7 @@ fn backup_checkpoint() -> MigrationRecord {
         ),
         backup_artifact_size_bytes: Some(13),
         target_resource_id: None,
-        rollback_reference: Some("v7:bill/database".to_owned()),
+        rollback_reference: Some("source:bill/database".to_owned()),
         updated_at_unix_seconds: 50_000,
     })
     .expect("backup checkpoint")
@@ -902,8 +902,8 @@ fn adapter_inventory() -> MigrationRecord {
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase: MigrationPhase::Inventoried,
@@ -911,7 +911,7 @@ fn adapter_inventory() -> MigrationRecord {
         backup_artifact_sha256: None,
         backup_artifact_size_bytes: None,
         target_resource_id: None,
-        rollback_reference: Some("v7:bill/database".to_owned()),
+        rollback_reference: Some("source:bill/database".to_owned()),
         updated_at_unix_seconds: 50_000,
     })
     .expect("PostgreSQL migration inventory")
@@ -921,8 +921,8 @@ fn adapter_cutover_checkpoint() -> MigrationRecord {
     MigrationRecord::new(MigrationRecordOptions {
         migration_id: "migration-bill-database".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
+        source_revision: "sha256:source".to_owned(),
+        target_revision: "sha256:target".to_owned(),
         source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         phase: MigrationPhase::Cutover,
@@ -932,7 +932,7 @@ fn adapter_cutover_checkpoint() -> MigrationRecord {
         ),
         backup_artifact_size_bytes: Some(13),
         target_resource_id: Some("stackctl_bill_database".to_owned()),
-        rollback_reference: Some("v7:bill/database".to_owned()),
+        rollback_reference: Some("source:bill/database".to_owned()),
         updated_at_unix_seconds: 50_001,
     })
     .expect("PostgreSQL cutover checkpoint")

@@ -2,9 +2,9 @@
 
 Documentation is not completion. Each milestone requires executable evidence.
 
-## M1: Characterize v7 and establish the v8 domain
+## M1: Establish the v8 domain
 
-- Characterization tests preserve required migration behavior.
+- Characterization tests define behavior retained within the new v8 model.
 - Pure raw, desired, resolved, observed, and result types exist.
 - Tests prove effect-free planning boundaries.
 
@@ -15,7 +15,8 @@ Documentation is not completion. Each milestone requires executable evidence.
   names, overlong labels, and collisions fail before effects.
 - Domains are exactly `{project}-{service}.stackctl.localhost`.
 - JSON Schema and read-only validation are tested.
-- Runtime config loading rejects TOML with the migration command.
+- Runtime config loading rejects TOML and directs users to create a fresh v8
+  project file.
 
 ## M3: Singleton state and IPC
 
@@ -56,11 +57,11 @@ Documentation is not completion. Each milestone requires executable evidence.
 - Incompatible profiles produce separate explained instances.
 - Dedicated/ephemeral strategies match the service matrix.
 
-## M8: Lifecycle, migration, and platforms
+## M8: Lifecycle, recovery, and platforms
 
 - Environment, approvals, orphaning, adoption, backup, restore, rotation,
   deletion, and GC pass destructive-safety tests.
-- V7 config and per-project resource migration has verified rollback.
+- Backup, restore, replacement, and deletion workflows have verified rollback.
 - Login, reboot, engine restart, daemon/service crash, sleep, and wake pass on
   every claimed platform and architecture.
 

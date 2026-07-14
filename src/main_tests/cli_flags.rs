@@ -433,18 +433,7 @@ fn cli_rejects_removed_connect_list_shell_commands() {
     assert!(Cli::try_parse_from(["stackctl", "connect"]).is_err());
     assert!(Cli::try_parse_from(["stackctl", "list"]).is_err());
     assert!(Cli::try_parse_from(["stackctl", "shell"]).is_err());
-}
-
-#[test]
-fn config_cli_parses_migrate_subcommand() {
-    let cli = Cli::try_parse_from(["stackctl", "config", "migrate"]).expect("parse config migrate");
-    match cli.command {
-        Commands::Config(args) => assert!(matches!(
-            args.command,
-            Some(crate::cli::args::ConfigCommands::Migrate { to }) if to == "yaml"
-        )),
-        _ => panic!("expected config command"),
-    }
+    assert!(Cli::try_parse_from(["stackctl", "config", "migrate"]).is_err());
 }
 
 #[test]

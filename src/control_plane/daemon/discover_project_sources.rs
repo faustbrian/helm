@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".stackctl.yaml";
 const ARTIFACT_LOCK_FILE: &str = ".stackctl.lock.yaml";
-const LEGACY_CONFIG_FILE: &str = ".stackctl.toml";
+const UNSUPPORTED_TOML_FILE: &str = ".stackctl.toml";
 const PRUNED_DIRECTORIES: [&str; 5] = [".git", ".stackctl", "node_modules", "target", "vendor"];
 
 /// Performs one bounded correctness scan without executing project code.
@@ -146,17 +146,19 @@ fn inspect_project_directory(
         }
     }
 
-    let legacy_path = directory.join(LEGACY_CONFIG_FILE);
-    match fs::symlink_metadata(&legacy_path) {
+    let unsupported_path = directory.join(UNSUPPORTED_TOML_FILE);
+    match fs::symlink_metadata(&unsupported_path) {
         Ok(metadata) if metadata.is_file() || metadata.file_type().is_symlink() => {
-            issues.push(ProjectDiscoveryIssue::LegacyToml { path: legacy_path });
+            issues.push(ProjectDiscoveryIssue::UnsupportedToml {
+                path: unsupported_path,
+            });
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(source) => {
             return Err(ProjectDiscoveryError::Io {
-                action: "inspect legacy project config",
-                path: legacy_path,
+                action: "inspect unsupported TOML project config",
+                path: unsupported_path,
                 source,
             });
         }

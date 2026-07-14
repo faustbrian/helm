@@ -5,8 +5,8 @@
 Measure on the same machine and Engine configuration:
 
 1. Engine/VM idle baseline without Stackctl containers.
-2. One representative v7 project.
-3. Forty v7 projects with per-project infrastructure.
+2. One representative per-project-stack baseline.
+3. Forty baseline projects with per-project infrastructure.
 4. One v8 project.
 5. Forty v8 projects sharing compatible infrastructure.
 6. Forty v8 projects split across two PostgreSQL majors and two application
@@ -37,7 +37,7 @@ Stackctl revision, image digests, sample interval, and raw output.
 - V8 removes at least 90% of duplicate infrastructure containers in the
   representative 40-project scenario.
 - V8 idle memory excluding the fixed Engine/VM baseline is at least 60% lower
-  than the v7 40-project scenario.
+  than the 40-project per-project-stack baseline.
 - Warm reconciliation completes within two seconds after a config event and a
   repeated pass performs no runtime mutation.
 - A service or gateway crash returns to ready within 30 seconds.
@@ -77,10 +77,10 @@ The harness never invokes or parses `docker` or `podman`. Host and Engine-VM
 baseline metrics are outside the container API and must be captured by a
 platform-appropriate independent tool, then supplied through
 `STACKCTL_BENCHMARK_HOST_METRICS_FILE`; the harness rejects a missing artifact.
-The Engine-only and v7 scenarios must be captured with that same independent
-collector because the v8 daemon correctly refuses to claim ownership of v7 or
-foreign containers. Never interpret their absence from a v8 snapshot as zero
-resource use.
+The Engine-only and per-project-stack scenarios must be captured with that same
+independent collector because the v8 daemon correctly refuses to claim
+ownership of foreign containers. Never interpret their absence from a v8
+snapshot as zero resource use.
 
 The harness refuses to overwrite a result directory. Commit raw samples,
 metadata, external host/VM samples, and a human-readable threshold comparison.

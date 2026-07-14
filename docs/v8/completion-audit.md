@@ -19,7 +19,7 @@ identified below.
 |---|---|---|---|---|
 | AC-01 | One login-started per-user daemon is authoritative | Partial | `src/control_plane/daemon/unix_daemon_runtime.rs`; singleton lease and Unix service-manager tests | Live login/reboot records; Windows named-pipe daemon and startup runtime |
 | AC-02 | Watched-root YAML addition activates without manual start | Implemented | `reconcile_watched_roots`; discovery, debounce, complete-plan, and daemon reconciliation tests | Live claimed-platform add/edit/remove record |
-| AC-03 | TOML is absent from normal v8 config and state paths | Implemented | strict YAML loader, v8 legacy fallback guard, YAML lock tests, isolated `config migrate` module | Remove isolated compatibility parser only after the v7 migration window ends |
+| AC-03 | TOML is absent from v8 config and state paths | Implemented | strict YAML loader, unsupported-TOML discovery diagnostic, and YAML lock tests | Clean-install acceptance on every claimed platform |
 | AC-04 | Invalid YAML, unknown fields, duplicates, invalid names, and collisions fail before mutation | Implemented | configuration tests; `complete_discovered_registry_collision_fails_before_persistence`; transactional registry tests | None at repository-test level |
 | AC-05 | Domains are exactly `{project}-{service}.stackctl.localhost` without repair | Implemented | identity and `composite_name_collision_fails_instead_of_receiving_a_fallback_domain` tests | None at repository-test level |
 | AC-06 | Default domains resolve without hosts edits or a DNS daemon | Pending live evidence | `.localhost` resolver preflight tests; host-dependency audit | Loopback-resolution acceptance artifact for every claimed platform |
@@ -50,11 +50,11 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, strict legacy guard | Live Engine compatibility negotiation record |
+| AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, and strict dispatch guard | Live Engine compatibility negotiation record |
 | AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | event supervisor, bounded backoff, health invalidation, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
 | AC-21 | Daemon restart, login, reboot, service crash, sleep, and wake recover | Partial | queue/state restore, idempotent reconciliation, restart, and crash tests | Login, reboot, sleep/wake, and service-crash platform artifacts |
 | AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup and crash-replayable prune, daemon-owned Redis/Valkey prefix backup, prune, and safety-backed in-place restore, recovery-bound RabbitMQ prune plus safety-backed in-place topology restore for empty vhosts, recovery-bound MinIO current-object backup, exact tenant prune, and safety-backed in-place restore for unversioned buckets, ownership-reverified quiesced backup, safety-backed empty-target restore, and recovery-bound installation deletion for dedicated project volumes, disposable GC, reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server restore/cutover/confirm/rollback, and explicit keep-data/delete-data paths with terminal-marker and failed-operation retry tests | RabbitMQ non-empty message backup and restore plus live rename/remove/restore/uninstall acceptance |
-| AC-23 | Existing v7 projects have tested migration and rollback | Partial | TOML-to-YAML semantic migration; reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup/restore/cutover/confirm/rollback tests | Complete v7 inventory and adapters for remaining data services, routes, trust, app runtimes, volumes, and generated environment |
+| AC-23 | V8 enforces a clean-install major-version boundary | Implemented | no config conversion command, no legacy inventory or adapter state, and unsupported-TOML discovery diagnostics | Clean-host installation acceptance |
 
 ## Supply chain, platforms, and efficiency
 
@@ -63,8 +63,8 @@ identified below.
 | AC-24 | macOS, Windows, and Linux claims have platform evidence | Pending live evidence | `docs/v8/platform-support.md`; Unix architecture CI matrix | Complete live Unix records; Windows runtime is explicitly unsupported |
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | `scripts/audit-v8-host-dependencies.sh` and required CI job | Clean-host runtime acceptance |
-| AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable v7, Engine baseline, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,488 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
+| AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 
@@ -73,10 +73,9 @@ The current audit therefore blocks a v8 completion claim on:
 1. Windows named-pipe IPC, login service, and live Windows recovery evidence.
 2. Live macOS and Linux install/login/reboot/sleep/Engine recovery records.
 3. Live persistent deletion and uninstall keep-data/delete-data acceptance.
-4. Complete v7 resource inventory and non-PostgreSQL migration adapters.
-5. Published runtime image SBOM, provenance, signature, and architecture proof.
-6. Gateway protocol and failure acceptance against the real pinned image.
-7. The immutable 40-project v7/baseline/v8 benchmark record.
+4. Published runtime image SBOM, provenance, signature, and architecture proof.
+5. Gateway protocol and failure acceptance against the real pinned image.
+6. The immutable 40-project baseline/v8 benchmark record.
 
 Every blocker must link raw, reproducible evidence here before its row changes
 to `Complete`. A passing compile, unit test, interface, plan, or document cannot

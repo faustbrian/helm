@@ -770,13 +770,6 @@ fn command_variants_parse() {
         panic!("expected profile command");
     }
 
-    let config = Cli::parse_from(["stackctl", "config", "migrate", "--to", "yaml"]);
-    if let commands::Commands::Config(commands::ConfigArgs { command, .. }) = config.command {
-        assert!(matches!(command, Some(ConfigCommands::Migrate { to }) if to == "yaml"));
-    } else {
-        panic!("expected config command");
-    }
-
     let config_schema = Cli::parse_from(["stackctl", "config", "schema"]);
     if let commands::Commands::Config(commands::ConfigArgs { command, .. }) = config_schema.command
     {

@@ -96,7 +96,7 @@ pub(super) fn handle_setup_commands(
     }
 
     #[cfg(unix)]
-    handlers::reject_v8_legacy_fallback(cli, context)?;
+    handlers::enforce_strict_v8_dispatch(cli, context)?;
 
     Ok(false)
 }

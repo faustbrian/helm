@@ -1,4 +1,4 @@
-//! Prevent strict v8 projects from entering legacy runtime dispatch.
+//! Prevent project commands from entering removed pre-v8 runtime dispatch.
 
 use std::path::{Path, PathBuf};
 
@@ -10,41 +10,43 @@ use crate::config;
 
 use super::v8_project::resolve_v8_project;
 
-pub(crate) fn reject_v8_legacy_fallback(
+pub(crate) fn enforce_strict_v8_dispatch(
     _cli: &Cli,
     context: &CliDispatchContext<'_>,
 ) -> Result<()> {
-    if v8_config_path(context)?.is_some() && resolve_v8_project(context)?.is_some() {
+    let Some(path) = project_config_path(context)? else {
+        return Ok(());
+    };
+    if path.extension().and_then(|value| value.to_str()) != Some("yaml") {
         bail!(
-            "this command is not implemented for strict v8 and will not fall back to the v7 Docker or host-tooling runtime"
+            "pre-v8 config '{}' is unsupported; create a new `.stackctl.yaml` for a clean v8 installation",
+            path.display()
         );
+    }
+    if resolve_v8_project(context)?.is_some() {
+        bail!("this command is not implemented for strict v8 and has no compatibility runtime");
     }
 
     Ok(())
 }
 
-fn v8_config_path(context: &CliDispatchContext<'_>) -> Result<Option<PathBuf>> {
+fn project_config_path(context: &CliDispatchContext<'_>) -> Result<Option<PathBuf>> {
     if let Some(path) = context.config_path() {
-        return Ok(
-            (path.extension().and_then(|value| value.to_str()) == Some("yaml"))
-                .then(|| path.to_path_buf()),
-        );
+        return Ok(Some(path.to_path_buf()));
     }
 
     let start = match context.project_root() {
         Some(path) => path.to_path_buf(),
         None => std::env::current_dir().context("failed to get current directory")?,
     };
-    find_v8_config_in_ancestors(&start)
+    find_project_config_in_ancestors(&start)
 }
 
-fn find_v8_config_in_ancestors(start: &Path) -> Result<Option<PathBuf>> {
+fn find_project_config_in_ancestors(start: &Path) -> Result<Option<PathBuf>> {
     let mut current = Some(start);
     while let Some(directory) = current {
         if let Some(path) = config::config_path_in_dir(directory)? {
-            return Ok(
-                (path.extension().and_then(|value| value.to_str()) == Some("yaml")).then_some(path),
-            );
+            return Ok(Some(path));
         }
         current = directory.parent();
     }
@@ -63,7 +65,7 @@ mod tests {
     use crate::cli::args::Cli;
     use crate::cli::dispatch::context::CliDispatchContext;
 
-    use super::reject_v8_legacy_fallback;
+    use super::enforce_strict_v8_dispatch;
 
     static PROJECT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -80,7 +82,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_yaml_commands_never_fall_through_to_v7_runtime_dispatch() {
+    fn strict_yaml_commands_never_enter_removed_runtime_dispatch() {
         let root = project(
             ".stackctl.yaml",
             "schema_version: 8\nservices:\n  app:\n    preset: app\n",
@@ -93,14 +95,14 @@ mod tests {
         ]);
         let context = CliDispatchContext::from_cli(&cli);
 
-        let error = reject_v8_legacy_fallback(&cli, &context).expect_err("v8 boundary");
+        let error = enforce_strict_v8_dispatch(&cli, &context).expect_err("v8 boundary");
 
         assert!(error.to_string().contains("not implemented for strict v8"));
-        assert!(error.to_string().contains("will not fall back"));
+        assert!(error.to_string().contains("no compatibility runtime"));
     }
 
     #[test]
-    fn toml_projects_remain_available_to_the_v7_dispatcher() {
+    fn toml_projects_are_rejected_as_unsupported() {
         let root = project(
             ".stackctl.toml",
             "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
@@ -113,6 +115,9 @@ mod tests {
         ]);
         let context = CliDispatchContext::from_cli(&cli);
 
-        reject_v8_legacy_fallback(&cli, &context).expect("v7 fallback");
+        let error = enforce_strict_v8_dispatch(&cli, &context)
+            .expect_err("pre-v8 config must not enter runtime dispatch");
+        assert!(error.to_string().contains("pre-v8 config"));
+        assert!(error.to_string().contains("clean v8 installation"));
     }
 }

@@ -205,18 +205,13 @@ operation. Unsupported service kinds, missing evidence, ownership drift, and
 ambiguous runtime paths fail closed without removing the login service or
 runtime state.
 
-## V7 migration
+## Clean installation
 
-Migration inventories v7 config, host routes/trust, containers, images,
-volumes, logical data, credentials, custom runtime features, and generated
-environment. It validates the v8 plan, backs up data, provisions target
-resources, restores and verifies data, starts the app, applies environment and
-routes, verifies readiness, records reversible cutover, and removes old
-resources only after confirmation.
-
-An existing volume is never attached to an incompatible image or different
-engine as an implicit upgrade. Unsupported projects retain a precise diagnostic
-and v7 rollback path.
+V8 does not inspect, import, adopt, modify, or delete resources from an earlier
+major version. A new installation creates its own state, trust, network,
+gateway, and ownership-labeled resources. Existing containers and volumes must
+be handled independently before or after installing v8; they are never attached
+to v8 services as an implicit upgrade.
 
 ## Failure and recovery
 
