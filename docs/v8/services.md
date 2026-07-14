@@ -10,7 +10,13 @@ logical resources reconcile independently and idempotently.
 
 ## Preset matrix
 
-| Preset | Default scope | Logical isolation | Backup and upgrade boundary | Dedicated when |
+The `sharing key` for every shared row starts with the complete compatibility
+identity above. The row names the additional implementation-specific boundary.
+Dedicated rows use project plus service identity and never join a compatibility
+pool. "Engine state only" means the current contract can prove that the process
+is running but does not yet claim protocol-level readiness.
+
+| Preset | Default scope and sharing key | Logical isolation | Backup and upgrade boundary | Dedicated when |
 | --- | --- | --- | --- | --- |
 | PostgreSQL | Shared by major/profile | Database and restricted role/password | Logical dump/restore; new instance for major upgrade | Extensions, locale, auth, or immutable settings differ |
 | MySQL | Shared by engine/major/profile | Schema and restricted user/password | Logical dump/restore; new instance for major/plugin change | Plugins, SQL mode, charset defaults, or settings differ |
@@ -40,10 +46,44 @@ logical resources reconcile independently and idempotently.
 | RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Broker-wide quiesced maintenance window; credential-free scoped topology plus durable persistent classic-queue message-store backup and network-isolated safety-backed restore; non-durable, non-persistent, quorum, and stream messages fail closed | Plugins, policies, topology, isolation, maintenance tolerance, or required recovery type differs |
 | Soketi | Dedicated routable project service | Stable project app ID/key/secret | Stateless; no service volume | Always project-scoped until cross-project isolation is proven |
 
-Every strategy also requires authenticated readiness, not merely a running
-container. Provisioning a logical resource must not restart a compatible
-shared instance. Changing an immutable compatibility field creates a new
-instance and explicit migration, never an in-place reinterpretation.
+## Operational contract matrix
+
+| Preset | Credential model | Endpoint model | Readiness contract | Project removal behavior |
+| --- | --- | --- | --- | --- |
+| PostgreSQL | Stable database owner role and password; separate managed administrator secret | Internal host and port plus project database through managed `DB_*` values | Administrator-authenticated server probe followed by idempotent role/database provisioning | Apply `NOLOGIN` to the exact project role; retain role, database, and data |
+| MySQL | Stable restricted user/password and project schema; separate root secret | Internal host and port plus project schema through managed `DB_*` values | Root-authenticated probe and idempotent schema/user/grant provisioning | Delete the exact project user; retain schema and data |
+| MariaDB | Same project contract as MySQL with an implementation-distinct shared instance | Internal host and port plus project schema through managed `DB_*` values | Root-authenticated probe and idempotent schema/user/grant provisioning | Delete the exact project user; retain schema and data |
+| MongoDB | Stable database-scoped user/password; separate administrator secret | Internal MongoDB URI naming the project database | Administrator-authenticated ping and idempotent scoped-user provisioning | Delete the exact database user; retain database and collections |
+| SQL Server | Stable login/user/password and project database; separate administrator secret | Internal host and port plus project database through managed `DB_*` values | Administrator-authenticated query and idempotent login/database/user provisioning | Disable the exact project login; retain database and user |
+| Redis | Stable ACL user/password and enforced project key prefix | Internal Redis host, port, username, password, and prefix | Administrator-authenticated ping plus ACL publication/reload verification | Delete the exact ACL user; retain prefixed keys |
+| Valkey | Same isolated ACL contract as Redis with an implementation-distinct shared instance | Internal Valkey host, port, username, password, and prefix | Administrator-authenticated ping plus ACL publication/reload verification | Delete the exact ACL user; retain prefixed keys |
+| MinIO | Stable access key/secret scoped by bucket policy; separate root credential | Internal S3 endpoint, bucket, region, access key, and secret | Root-authenticated health plus idempotent bucket, identity, and policy provisioning | Disable the exact project identity; retain bucket and objects |
+| RabbitMQ | Stable project user/password, dedicated vhost, and exact permissions | Internal AMQP host, port, vhost, username, and password | Administrator-authenticated diagnostics plus atomic definitions publication | Delete the exact project user; retain vhost, topology, and messages |
+| Mailpit | Stable SMTP username/password used as the project attribution identity | Shared internal SMTP endpoint and deterministic project UI route | HTTP readiness plus authenticated SMTP configuration snapshot | Disable the project credential and remove it from active authentication; retain shared service state |
+| Gotenberg | No project secret | Shared internal HTTP endpoint | HTTP health endpoint from the exact shared container | Remove the logical reference; stop the unreferenced stateless container |
+| Dragonfly | User-declared service configuration; no generated tenant credential | Project-private network endpoint; no host port or gateway route | Engine state only; sharing remains unsupported | Stop/remove the disposable container; retain its project volume |
+| Memcached | No credential; any namespace remains an application convention | Project-private network endpoint; no host port or gateway route | Engine state only | Stop/remove the disposable container; no persistent data is retained |
+| Garage | User-declared service configuration; no generated tenant credential | Project-private network endpoint; no host port or gateway route | Engine state only; policy isolation remains unproven | Stop/remove the disposable container; retain its project volume |
+| RustFS | User-declared service configuration; no generated tenant credential | Project-private network endpoint; no host port or gateway route | Engine state only until the external admin lifecycle is proven | Stop/remove the disposable container; retain its project volume |
+| LocalStack | User-declared project service settings | Project-private network endpoint; no host port or implicit route | Engine state only | Stop/remove the disposable container; retain its project volume |
+| OpenSearch | User-declared service authentication and settings | Project-private network endpoint; no host port or implicit route | Engine state only; safe shared security is not claimed | Stop/remove the disposable container; retain its project volume |
+| Elasticsearch | User-declared service authentication and settings | Project-private network endpoint; no host port or implicit route | Engine state only; safe shared security is not claimed | Stop/remove the disposable container; retain its project volume |
+| Meilisearch | User-declared service key and settings | Project-private network endpoint; no host port or implicit route | Engine state only; scoped-key sharing is not claimed | Stop/remove the disposable container; retain its project volume |
+| Typesense | User-declared service key and settings | Project-private network endpoint; no host port or implicit route | Engine state only; scoped-key sharing is not claimed | Stop/remove the disposable container; retain its project volume |
+| Application/FrankenPHP | Daemon-managed service values merged with declared project environment; no secret in labels or image layers | Deterministic HTTPS route to internal plain HTTP; no project host port | Engine-observed application container health | Remove the disposable runtime; project source and infrastructure retention remain independent |
+| Reverb | Project application environment and any framework-managed credentials | Deterministic HTTPS/WebSocket route to internal plain HTTP | Engine-observed application container health | Remove the disposable runtime; retained infrastructure is unaffected |
+| Horizon/workers | Inherit the application image and daemon-managed project environment | No public endpoint; supervised process container on the private network | Engine process state tied to the exact application revision | Stop/remove the disposable process container |
+| Scheduler | Inherit the application image and daemon-managed project environment | No endpoint; daemon-timed Engine exec in the application container | Exact command completion and daemon scheduling state | Remove future schedules when the project leaves desired state |
+| Dusk/Selenium | Operation-scoped browser session; no durable project secret | Private Grid endpoint available only to the test operation | Official Selenium Grid readiness probe | Always stop/remove the operation container, including interrupted-session recovery |
+| Soketi | Deterministic app ID/key plus one stable random, redaction-safe project secret | Deterministic HTTPS/WebSocket route and internal port 6001; no host port | Pinned image Node probe against `/ready` | Stop/remove the disposable service and disable its retained credential |
+| MailHog | Unsupported | None | None | None; use Mailpit |
+
+Every strategy advertised as shared requires authenticated readiness, not
+merely a running container. An `Engine state only` row therefore remains
+dedicated and is not evidence for future sharing. Provisioning a logical
+resource must not restart a compatible shared instance. Changing an immutable
+compatibility field creates a new instance and explicit migration, never an
+in-place reinterpretation.
 
 Dedicated project services use a common Engine substrate: exact project and
 service ownership, deterministic container naming, immutable image and numeric

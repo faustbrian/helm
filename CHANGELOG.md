@@ -13,6 +13,9 @@ All notable changes to this project are documented in this file.
 - Added a dedicated routable Soketi preset with a pinned multi-architecture
   artifact, stable redaction-safe project credentials, generated Pusher client
   environment, and built-in gateway routing without host port publication.
+- Expanded the service strategy matrix to state every preset's credential,
+  endpoint, readiness, deletion, sharing, isolation, backup, and dedication
+  boundary without implying unimplemented tenant isolation.
 - Made runtime-image publication retain a revision-specific tag and verify the
   signed digest, Linux amd64/arm64 manifest entries, SBOM, and provenance before
   uploading one raw evidence bundle. A publication run now produces the
