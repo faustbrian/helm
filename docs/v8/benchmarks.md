@@ -50,8 +50,8 @@ Thresholds may be tightened by evidence, not weakened merely to pass.
 ## Evidence
 
 Keep the harness under `scripts/` and result summaries under
-`docs/v8/benchmarks/`. Results distinguish the unavoidable Docker Desktop/WSL
-VM baseline from Stackctl workload consumption.
+`docs/v8/benchmarks/`. Results distinguish the unavoidable macOS Engine VM or
+Linux Engine baseline from Stackctl workload consumption.
 
 Build the release candidate, prepare and fully reconcile one scenario, then run:
 

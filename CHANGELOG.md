@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed WSL from the v8 benchmark contract. Benchmark evidence now separates
+  the supported macOS Engine VM or Linux Engine baseline from Stackctl workload
+  consumption.
 - Removed the durable project-command decoder's compatibility field for old
   serialized environments. V8 queue payloads now reject that unknown field
   instead of silently discarding state from an earlier payload shape.
