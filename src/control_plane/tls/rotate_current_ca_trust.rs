@@ -2,6 +2,7 @@ use super::{
     CertificateTrustStore, FilesystemCertificateStore, LocalCaIdentity, LocalCaRotationResult,
     LocalCaTrustError, LocalCertificateError, StoredCertificatePaths, TrustStoreError,
     ensure_ca_trusted, generate_local_certificates, remove_ca_trust,
+    remove_inactive_certificate_generation,
 };
 use time::OffsetDateTime;
 
@@ -96,6 +97,12 @@ where
             &current_paths,
             error,
         ));
+    }
+    if let Err(error) = remove_inactive_certificate_generation(certificates, &previous_paths) {
+        tracing::warn!(
+            error = %error,
+            "completed CA rotation retained its inactive certificate generation"
+        );
     }
 
     Ok(LocalCaRotationResult::new(

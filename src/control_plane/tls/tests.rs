@@ -292,6 +292,14 @@ fn current_ca_rotation_switches_trust_and_active_material_atomically() {
     assert_eq!(&current, rotated.current_identity());
     assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
     assert!(served.get());
+    assert_eq!(
+        std::fs::read_dir(&root)
+            .expect("read certificate root")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .count(),
+        1
+    );
 
     std::fs::remove_dir_all(root).expect("remove certificate root");
 }

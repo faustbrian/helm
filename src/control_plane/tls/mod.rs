@@ -29,6 +29,7 @@ mod prune_inactive_leaf_certificate_generations;
 mod reconcile_local_certificates;
 mod remove_ca_trust;
 mod remove_current_ca_trust;
+mod remove_inactive_certificate_generation;
 mod renew_local_leaf_certificate;
 mod require_host_command_success;
 mod rotate_current_ca_trust;
@@ -65,6 +66,7 @@ pub(crate) use prune_inactive_leaf_certificate_generations::prune_inactive_leaf_
 pub(crate) use reconcile_local_certificates::reconcile_local_certificates;
 pub(crate) use remove_ca_trust::remove_ca_trust;
 pub(crate) use remove_current_ca_trust::remove_current_ca_trust;
+use remove_inactive_certificate_generation::remove_inactive_certificate_generation;
 pub(crate) use renew_local_leaf_certificate::renew_local_leaf_certificate;
 use require_host_command_success::require_host_command_success;
 pub(crate) use rotate_current_ca_trust::rotate_current_ca_trust;
