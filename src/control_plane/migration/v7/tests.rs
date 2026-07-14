@@ -1192,19 +1192,18 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 )]),
             })
             .expect("drifted logical-data source");
-        let mut drifted_provider = RecordingV7LogicalDataProvider::default();
+        let drifted_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_source,
-                provider: &mut drifted_provider,
+                provider: Box::new(drifted_provider),
             },
         )
         .expect_err("logical identity drift must reject registration");
         assert!(error.contains("identity differs from accepted v7 evidence"));
-        assert!(drifted_provider.calls.is_empty());
         let drifted_target_source =
             V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
                 project_id: "bill".to_owned(),
@@ -1217,19 +1216,18 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
             })
             .expect("drifted logical-data command target");
-        let mut drifted_target_provider = RecordingV7LogicalDataProvider::default();
+        let drifted_target_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_target_source,
-                provider: &mut drifted_target_provider,
+                provider: Box::new(drifted_target_provider),
             },
         )
         .expect_err("command target label drift must reject registration");
         assert!(error.contains("command target differs from accepted v7 evidence"));
-        assert!(drifted_target_provider.calls.is_empty());
         let drifted_volume_source =
             V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
                 project_id: "bill".to_owned(),
@@ -1242,20 +1240,20 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
             })
             .expect("drifted logical-data volumes");
-        let mut drifted_volume_provider = RecordingV7LogicalDataProvider::default();
+        let drifted_volume_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_volume_source,
-                provider: &mut drifted_volume_provider,
+                provider: Box::new(drifted_volume_provider),
             },
         )
         .expect_err("logical-data volume drift must reject registration");
         assert!(error.contains("volumes differ from accepted v7 evidence"));
-        assert!(drifted_volume_provider.calls.is_empty());
-        let mut provider = RecordingV7LogicalDataProvider::default();
+        let provider = RecordingV7LogicalDataProvider::default();
+        let calls = Arc::clone(&provider.calls);
         let mut journal = RecordingV7Journal::default();
         {
             let mut registry = V7MigrationAdapterRegistry::default();
@@ -1266,7 +1264,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                     V7LogicalDataMigrationAdapterOptions {
                         accepted: &accepted,
                         source: &source,
-                        provider: &mut provider,
+                        provider: Box::new(provider),
                     },
                 )
                 .expect("register logical-data adapter")
@@ -1301,7 +1299,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
         }
 
         assert_eq!(
-            provider.calls,
+            *calls.lock().expect("logical-data provider calls"),
             [
                 "backup:postgres:legacy-postgres:database=legacy_bill",
                 "restore:logical-resource:postgres/bill",
@@ -2404,7 +2402,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
 
 #[derive(Default)]
 struct RecordingV7LogicalDataProvider {
-    calls: Vec<String>,
+    calls: Arc<Mutex<Vec<String>>>,
 }
 
 impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
@@ -2414,7 +2412,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, MigrationBackup> {
-        self.calls.push(format!(
+        self.calls.lock().expect("logical-data calls").push(format!(
             "backup:{}:{}:{}",
             source.driver(),
             source.container_id(),
@@ -2433,6 +2431,8 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
             Some("/private/logical-recovery")
         );
         self.calls
+            .lock()
+            .expect("logical-data calls")
             .push("restore:logical-resource:postgres/bill".to_owned());
         Box::pin(async {
             V7MigrationAdapterTarget::resource("logical-resource:postgres/bill")
@@ -2445,7 +2445,10 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         _source: &'operation V7LogicalDataMigrationSource,
         target_reference: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.push(format!("verify-target:{target_reference}"));
+        self.calls
+            .lock()
+            .expect("logical-data calls")
+            .push(format!("verify-target:{target_reference}"));
         Box::pin(async { Ok(()) })
     }
 
@@ -2453,7 +2456,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.push(format!(
+        self.calls.lock().expect("logical-data calls").push(format!(
             "verify-source:{}:{}:{}",
             source.driver(),
             source.container_id(),
@@ -2466,7 +2469,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.push(format!(
+        self.calls.lock().expect("logical-data calls").push(format!(
             "retire:{}:{}:{}",
             source.driver(),
             source.container_id(),

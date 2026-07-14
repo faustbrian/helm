@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made accepted-v7 logical-data adapters own their validated source clone and
+  execution-scoped provider, removing self-referential daemon composition
+  requirements without introducing global handles.
 - Removed unnecessary exclusive Engine borrowing from accepted-v7 source
   retirement, allowing every execution-scoped migration provider to share the
   same typed Engine connection while retaining exact confirmation-time

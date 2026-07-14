@@ -6,5 +6,5 @@ pub(crate) struct V7LogicalDataMigrationAdapterOptions<'operation> {
     pub(crate) accepted: &'operation AcceptedV7InventoryRecord,
     pub(crate) source: &'operation V7LogicalDataMigrationSource,
     pub(crate) provider:
-        &'operation mut dyn V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>,
+        Box<dyn V7RecoverableMigrationProvider<V7LogicalDataMigrationSource> + 'operation>,
 }
