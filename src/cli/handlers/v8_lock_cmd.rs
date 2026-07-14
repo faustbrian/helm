@@ -269,6 +269,21 @@ fn load_optional_lock(lock_path: &Path) -> Result<Option<ArtifactLock>> {
 }
 
 fn publish_lock(path: &Path, lock: &ArtifactLock) -> Result<()> {
+    let parent = path
+        .parent()
+        .context("artifact lock path has no parent directory")?;
+    let directory_lock = fs::File::open(parent).with_context(|| {
+        format!(
+            "failed to open artifact lock directory {}",
+            parent.display()
+        )
+    })?;
+    directory_lock.lock().with_context(|| {
+        format!(
+            "failed to lock artifact lock directory {}",
+            parent.display()
+        )
+    })?;
     if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         bail!(
             "refusing to replace symbolic-link artifact lock {}",
@@ -278,6 +293,25 @@ fn publish_lock(path: &Path, lock: &ArtifactLock) -> Result<()> {
     let yaml = serde_yaml_ng::to_string(lock).context("failed to serialize v8 artifact lock")?;
     parse_artifact_lock(&yaml, path).context("generated artifact lock failed validation")?;
     let temporary = temporary_path(path);
+    match fs::remove_file(&temporary) {
+        Ok(()) => fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .with_context(|| {
+                format!(
+                    "failed to sync artifact lock directory {}",
+                    parent.display()
+                )
+            })?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to remove stale temporary lock {}",
+                    temporary.display()
+                )
+            });
+        }
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -288,9 +322,6 @@ fn publish_lock(path: &Path, lock: &ArtifactLock) -> Result<()> {
         file.sync_all()?;
         fs::rename(&temporary, path)
             .with_context(|| format!("failed to publish artifact lock {}", path.display()))?;
-        let parent = path
-            .parent()
-            .context("artifact lock path has no parent directory")?;
         fs::File::open(parent)
             .and_then(|directory| directory.sync_all())
             .with_context(|| {
@@ -357,13 +388,12 @@ fn next_request_id() -> String {
 }
 
 fn temporary_path(path: &Path) -> PathBuf {
-    let sequence = REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-    path.with_extension(format!("yaml.tmp-{}-{sequence}", std::process::id()))
+    path.with_extension("yaml.tmp")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::generate_lock;
+    use super::{generate_lock, publish_lock};
     use crate::control_plane::parse_project_config;
     use std::collections::BTreeMap;
     use std::path::Path;
@@ -456,5 +486,41 @@ mod tests {
         assert_eq!(lock.images().len(), 1);
         assert!(lock.images().contains_key("app"));
         assert_eq!(lock.catalog_revision(), None);
+    }
+
+    #[test]
+    fn publication_recovers_one_stable_interrupted_lock_staging_file() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-artifact-lock-staging-{}",
+            std::process::id()
+        ));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("create project directory");
+        let path = root.join(".stackctl.lock.yaml");
+        let pending = root.join(".stackctl.lock.yaml.tmp");
+        std::fs::write(&pending, "interrupted").expect("write interrupted staging file");
+        let config = parse_project_config(
+            "schema_version: 8\nservices:\n  app:\n    image: ghcr.io/stackctl/php:8.4\n",
+            &root.join(".stackctl.yaml"),
+        )
+        .expect("project config");
+        let lock = generate_lock(&config, |_| {
+            Ok(BTreeMap::from([(
+                "app".to_owned(),
+                concat!(
+                    "ghcr.io/stackctl/php@sha256:",
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                )
+                .to_owned(),
+            )]))
+        })
+        .expect("artifact lock");
+
+        publish_lock(&path, &lock).expect("publish artifact lock");
+
+        assert!(path.is_file());
+        assert!(!pending.exists());
+
+        std::fs::remove_dir_all(root).expect("remove lock fixture");
     }
 }

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized project artifact-lock publication on the existing project
+  directory and replaced PID-suffixed YAML staging files with one stable pending
+  path. A later `stackctl lock images` run now recovers an interrupted publish
+  instead of leaving fragments in the project forever.
 - Serialized launchd/systemd definition publication with an OS lock on the
   existing definition directory and replaced PID-suffixed staging files with
   one stable per-definition pending path. Interrupted setup no longer leaves
