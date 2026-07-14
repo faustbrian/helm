@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Enforced private permissions on the live SQLite state database and its WAL
+  and shared-memory sidecars after every open. Existing state paths must also
+  be real files, so credential-bearing state cannot be opened through a
+  symbolic link.
 - Replaced timestamp-and-PID state-backup staging files with one stable private
   pending path. Daemon startup now removes and syncs an interrupted staging file
   before reusing or publishing a verified recovery point, preventing abandoned

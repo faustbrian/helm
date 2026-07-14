@@ -24,6 +24,77 @@ fn opening_a_new_store_creates_the_clean_v8_schema_atomically() {
     remove_database(&database_path);
 }
 
+#[cfg(unix)]
+#[test]
+fn state_database_and_sqlite_sidecars_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let database_path = temporary_database_path("private-state-files");
+    let store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .connection
+        .execute_batch(
+            "CREATE TABLE privacy_probe (value TEXT);\n\
+             INSERT INTO privacy_probe VALUES ('secret');",
+        )
+        .expect("write state to WAL");
+
+    for path in [
+        database_path.clone(),
+        database_path.with_extension("sqlite3-wal"),
+        database_path.with_extension("sqlite3-shm"),
+    ] {
+        if path.exists() {
+            assert_eq!(
+                std::fs::metadata(&path)
+                    .expect("state file metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600,
+                "{} must be private",
+                path.display()
+            );
+        }
+    }
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[cfg(unix)]
+#[test]
+fn opening_state_rejects_a_symbolic_link_without_mutating_its_target() {
+    use std::os::unix::fs::symlink;
+
+    let database_path = temporary_database_path("state-symlink");
+    let target = database_path.with_extension("target.sqlite3");
+    let connection = rusqlite::Connection::open(&target).expect("create target database");
+    connection
+        .execute_batch("PRAGMA user_version = 99;")
+        .expect("mark target database");
+    drop(connection);
+    symlink(&target, &database_path).expect("create database symlink");
+
+    let error = match SqliteStateStore::open(&database_path) {
+        Ok(_) => panic!("symbolic-link state must be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("must be a real file"));
+    let connection = rusqlite::Connection::open(&target).expect("reopen target database");
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .expect("target schema version"),
+        99
+    );
+    drop(connection);
+
+    std::fs::remove_file(&database_path).expect("remove state symlink");
+    remove_database(&target);
+}
+
 #[test]
 fn opening_a_store_rejects_a_non_v8_schema() {
     let database_path = temporary_database_path("unsupported-schema");

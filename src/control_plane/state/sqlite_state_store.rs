@@ -19,6 +19,8 @@ use super::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(super) const CURRENT_SCHEMA_VERSION: u32 = 16;
@@ -31,6 +33,7 @@ pub(crate) struct SqliteStateStore {
 impl SqliteStateStore {
     /// Opens a store and atomically creates the clean v8 schema when absent.
     pub(crate) fn open(database_path: &Path) -> Result<Self, StateStoreError> {
+        validate_database_path(database_path)?;
         let connection = Connection::open(database_path)?;
         connection.execute_batch(
             "PRAGMA foreign_keys = ON;\n\
@@ -40,6 +43,7 @@ impl SqliteStateStore {
         )?;
         let mut store = Self { connection };
         store.initialize_schema()?;
+        protect_database_files(database_path)?;
 
         Ok(store)
     }
@@ -220,6 +224,76 @@ impl SqliteStateStore {
 
         Ok(())
     }
+}
+
+fn validate_database_path(path: &Path) -> Result<(), StateStoreError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => Ok(()),
+        Ok(_) => Err(StateStoreError::CorruptState {
+            detail: format!(
+                "state database path '{}' must be a real file",
+                path.display()
+            ),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(StateStoreError::CorruptState {
+            detail: format!(
+                "failed to inspect state database '{}': {error}",
+                path.display()
+            ),
+        }),
+    }
+}
+
+#[cfg(unix)]
+fn protect_database_files(path: &Path) -> Result<(), StateStoreError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    for candidate in [
+        path.to_path_buf(),
+        sqlite_sidecar_path(path, "-wal"),
+        sqlite_sidecar_path(path, "-shm"),
+    ] {
+        match fs::symlink_metadata(&candidate) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                fs::set_permissions(&candidate, fs::Permissions::from_mode(0o600)).map_err(
+                    |error| StateStoreError::CorruptState {
+                        detail: format!(
+                            "failed to protect state file '{}': {error}",
+                            candidate.display()
+                        ),
+                    },
+                )?;
+            }
+            Ok(_) => {
+                return Err(StateStoreError::CorruptState {
+                    detail: format!("state file '{}' must be a real file", candidate.display()),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(StateStoreError::CorruptState {
+                    detail: format!(
+                        "failed to inspect state file '{}': {error}",
+                        candidate.display()
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn protect_database_files(_path: &Path) -> Result<(), StateStoreError> {
+    Ok(())
+}
+
+fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = OsString::from(path.as_os_str());
+    value.push(suffix);
+    PathBuf::from(value)
 }
 
 impl StateStore for SqliteStateStore {
