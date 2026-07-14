@@ -52,8 +52,9 @@ fn stable_fraction(identity: &str, attempt: u32) -> f64 {
     let mut digest = Sha256::new();
     digest.update(identity.as_bytes());
     digest.update(attempt.to_le_bytes());
-    let hash = digest.finalize();
-    let value = u64::from_le_bytes(hash[..8].try_into().expect("sha256 prefix"));
+    let hash: [u8; 32] = digest.finalize().into();
+    let [a, b, c, d, e, f, g, h, ..] = hash;
+    let value = u64::from_le_bytes([a, b, c, d, e, f, g, h]);
 
     value as f64 / u64::MAX as f64
 }

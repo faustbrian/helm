@@ -218,12 +218,12 @@ impl UnixDaemonRuntime {
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
                 benchmark_snapshot: benchmark_snapshot.as_mut().map(|provider| {
-                    let provider: &mut dyn super::BenchmarkSnapshotProvider = provider;
-                    provider
+                    let dynamic_provider: &mut dyn super::BenchmarkSnapshotProvider = provider;
+                    dynamic_provider
                 }),
                 image_reference_resolution: image_reference_resolution.as_mut().map(|resolver| {
-                    let resolver: &mut dyn ImageReferenceResolution = resolver;
-                    resolver
+                    let dynamic_resolver: &mut dyn ImageReferenceResolution = resolver;
+                    dynamic_resolver
                 }),
                 now_unix_seconds,
             })

@@ -68,7 +68,9 @@ impl MigrationDecisionQueue {
 
 impl Default for MigrationDecisionQueue {
     fn default() -> Self {
-        Self::new(DEFAULT_MIGRATION_DECISION_CAPACITY)
-            .expect("default migration decision queue capacity is positive")
+        Self {
+            capacity: DEFAULT_MIGRATION_DECISION_CAPACITY,
+            pending: VecDeque::with_capacity(DEFAULT_MIGRATION_DECISION_CAPACITY),
+        }
     }
 }

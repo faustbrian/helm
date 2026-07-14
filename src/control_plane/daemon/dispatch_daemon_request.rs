@@ -277,8 +277,11 @@ where
                     )],
                 );
             }
-            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-                .expect("accepted event serialization is infallible");
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
                 kind: "migration_decision".to_owned(),
@@ -566,8 +569,11 @@ where
                     )],
                 );
             }
-            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-                .expect("accepted event serialization is infallible");
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
                 kind: "postgres_prune".to_owned(),
@@ -766,8 +772,11 @@ where
                     )],
                 );
             }
-            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-                .expect("accepted event serialization is infallible");
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
                 kind: "project_command".to_owned(),
@@ -801,8 +810,10 @@ where
                     code: "event_journal_failed".to_owned(),
                     message: error.to_string(),
                 };
-                let failed_json = serde_json::to_string(&failed)
-                    .expect("event journal failure serialization is infallible");
+                let failed_json = match serialize_event_kind(request.request_id(), &failed) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
                 if let Ok(Some(event)) =
                     control_plane.transition_daemon_operation(DaemonOperationTransitionOptions {
                         operation_id: request.request_id(),
@@ -870,8 +881,11 @@ where
                     )],
                 );
             }
-            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-                .expect("accepted event serialization is infallible");
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
                 kind: "project_backup".to_owned(),
@@ -964,8 +978,11 @@ where
                     )],
                 );
             }
-            let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-                .expect("accepted event serialization is infallible");
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
                 kind: "project_restore".to_owned(),
@@ -1817,4 +1834,17 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
             arguments: arguments.clone(),
         },
     }
+}
+
+fn serialize_event_kind(request_id: &str, kind: &IpcEventKind) -> Result<String, IpcResponse> {
+    serde_json::to_string(kind).map_err(|error| {
+        IpcResponse::failure(
+            request_id,
+            vec![IpcDiagnostic::new(
+                "event_serialization_failed",
+                error.to_string(),
+                false,
+            )],
+        )
+    })
 }

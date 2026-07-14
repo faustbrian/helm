@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed control-plane panic paths from bounded queue defaults, IPC event
+  serialization, retry jitter, gateway port binding construction, and
+  migration operation setup. Fallible serialization now returns structured
+  errors, while compile-time-valid defaults construct directly.
 - Replaced the gateway's host-mounted Caddy admin socket with an
   ownership-checked Engine exec to a container-private admin endpoint. Complete
   native JSON snapshots now stream over stdin without publishing an admin port,

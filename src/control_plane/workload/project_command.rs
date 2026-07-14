@@ -38,14 +38,13 @@ impl Debug for ProjectCommand {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         let (kind, name, argument_count) = match self {
             Self::Composer { arguments } => ("composer", None, arguments.len()),
-            Self::NodePackageManager {
-                package_manager: _,
-                arguments,
-            } => ("node_package_manager", None, arguments.len()),
+            Self::NodePackageManager { arguments, .. } => {
+                ("node_package_manager", None, arguments.len())
+            }
             Self::Bun { arguments } => ("bun", None, arguments.len()),
             Self::Artisan { arguments } => ("artisan", None, arguments.len()),
             Self::Exec { arguments } => ("exec", None, arguments.len()),
-            Self::PhpTool { tool: _, arguments } => ("php_tool", None, arguments.len()),
+            Self::PhpTool { arguments, .. } => ("php_tool", None, arguments.len()),
             Self::Deno { arguments } => ("deno", None, arguments.len()),
             Self::Hook { name, arguments } => ("hook", Some(name), arguments.len()),
         };

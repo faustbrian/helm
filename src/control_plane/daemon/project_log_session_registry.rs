@@ -214,8 +214,13 @@ impl ProjectLogSessionRegistry {
 
 impl Default for ProjectLogSessionRegistry {
     fn default() -> Self {
-        Self::new(DEFAULT_MAX_SESSIONS, DEFAULT_BUFFER_CHUNKS)
-            .expect("default project log session capacities are valid")
+        Self {
+            max_sessions: DEFAULT_MAX_SESSIONS,
+            buffer_chunks: DEFAULT_BUFFER_CHUNKS,
+            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            sessions: BTreeMap::new(),
+            pending: VecDeque::new(),
+        }
     }
 }
 

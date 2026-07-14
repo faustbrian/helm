@@ -573,7 +573,7 @@ where
         updated_at_unix_seconds: options.updated_at_unix_seconds,
     })
     .map_err(|error| error.to_string())?;
-    let retirement = EnginePostgresSourceRetirement::new(
+    let mut retirement = EnginePostgresSourceRetirement::new(
         engine,
         PostgresSourceRetirementOptions {
             source_container: &source_container,
@@ -585,7 +585,6 @@ where
         },
     )
     .map_err(|error| error.to_string())?;
-    let mut retirement = retirement;
     let mut operations = PostgresMigrationOperations::new(
         engine,
         &mut retirement,

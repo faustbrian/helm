@@ -64,6 +64,9 @@ impl PostgresPruneQueue {
 
 impl Default for PostgresPruneQueue {
     fn default() -> Self {
-        Self::new(DEFAULT_CAPACITY).expect("default logical prune queue capacity is positive")
+        Self {
+            capacity: DEFAULT_CAPACITY,
+            pending: VecDeque::with_capacity(DEFAULT_CAPACITY),
+        }
     }
 }

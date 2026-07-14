@@ -68,7 +68,9 @@ impl ProjectRestoreQueue {
 
 impl Default for ProjectRestoreQueue {
     fn default() -> Self {
-        Self::new(DEFAULT_PROJECT_RESTORE_CAPACITY)
-            .expect("default project restore queue capacity is positive")
+        Self {
+            capacity: DEFAULT_PROJECT_RESTORE_CAPACITY,
+            pending: VecDeque::with_capacity(DEFAULT_PROJECT_RESTORE_CAPACITY),
+        }
     }
 }

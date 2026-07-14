@@ -49,8 +49,8 @@ where
         ));
     }
     queue.enqueue(queued).map_err(|error| error.to_string())?;
-    let accepted_kind_json = serde_json::to_string(&IpcEventKind::Accepted)
-        .expect("accepted event serialization is infallible");
+    let accepted_kind_json =
+        serde_json::to_string(&IpcEventKind::Accepted).map_err(|error| error.to_string())?;
     let accepted = match control_plane.retry_failed_daemon_operation(DaemonOperationRetryOptions {
         operation_id: &operation_id,
         expected_kind: "postgres_prune",

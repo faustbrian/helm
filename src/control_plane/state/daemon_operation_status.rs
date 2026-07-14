@@ -28,8 +28,8 @@ impl DaemonOperationStatus {
             "completed" => Ok(Self::Completed),
             "failed" => Ok(Self::Failed),
             "cancelled" => Ok(Self::Cancelled),
-            value => Err(StateStoreError::CorruptState {
-                detail: format!("daemon operation has unknown status '{value}'"),
+            unknown => Err(StateStoreError::CorruptState {
+                detail: format!("daemon operation has unknown status '{unknown}'"),
             }),
         }
     }

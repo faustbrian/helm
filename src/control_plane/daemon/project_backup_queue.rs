@@ -68,7 +68,9 @@ impl ProjectBackupQueue {
 
 impl Default for ProjectBackupQueue {
     fn default() -> Self {
-        Self::new(DEFAULT_PROJECT_BACKUP_CAPACITY)
-            .expect("default project backup queue capacity is positive")
+        Self {
+            capacity: DEFAULT_PROJECT_BACKUP_CAPACITY,
+            pending: VecDeque::with_capacity(DEFAULT_PROJECT_BACKUP_CAPACITY),
+        }
     }
 }

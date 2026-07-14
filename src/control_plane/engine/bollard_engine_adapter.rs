@@ -1855,8 +1855,7 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         let bindings = port_bindings
             .entry(format!("{}/tcp", binding.container_port()))
             .or_insert_with(|| Some(Vec::new()))
-            .as_mut()
-            .expect("new port binding list");
+            .get_or_insert_with(Vec::new);
         bindings.push(PortBinding {
             host_ip: Some("127.0.0.1".to_owned()),
             host_port: Some(binding.host_port().to_string()),
