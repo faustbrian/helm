@@ -51,6 +51,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added exact accepted-v7 named-volume source resolution from immutable
+  execution checkpoints. Configured and Engine-observed volume sets must agree,
+  and missing containers, missing services, duplicates, and identity drift fail
+  before archive-provider composition.
 - Added daemon-side accepted-v7 logical provider composition for PostgreSQL,
   MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, MinIO, and RabbitMQ. Every
   source now binds exactly one prepared instance, tenant plan, active logical

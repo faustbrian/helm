@@ -104,6 +104,7 @@ mod register_accepted_v7_logical_data_adapters_options;
 mod register_accepted_v7_recreated_adapters;
 mod requires_followup_reconciliation;
 mod resolve_accepted_v7_logical_data_inputs;
+mod resolve_accepted_v7_named_volume_sources;
 mod resource_health_registry;
 mod resource_health_registry_error;
 mod restore_daemon_operation_queues;
@@ -262,6 +263,7 @@ pub(crate) use register_accepted_v7_logical_data_adapters_options::RegisterAccep
 pub(crate) use register_accepted_v7_recreated_adapters::register_accepted_v7_recreated_adapters;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
 pub(crate) use resolve_accepted_v7_logical_data_inputs::resolve_accepted_v7_logical_data_inputs;
+pub(crate) use resolve_accepted_v7_named_volume_sources::resolve_accepted_v7_named_volume_sources;
 pub(crate) use resource_health_registry::ResourceHealthRegistry;
 pub(crate) use resource_health_registry_error::ResourceHealthRegistryError;
 pub(crate) use restore_daemon_operation_queues::restore_daemon_operation_queues;

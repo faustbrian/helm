@@ -308,7 +308,9 @@ container with the prepared compatibility metadata. Missing or ambiguous state
 fails before the driver provider enters the execution registry.
 Named-volume adapters use the same execution ownership rule: they retain a
 validated clone of the exact accepted container and volume set and own their
-archive provider for the lifetime of the registry.
+archive provider for the lifetime of the registry. Source resolution starts
+from immutable named-volume execution checkpoints and requires the configured
+and Engine-observed volume sets in accepted inventory to agree exactly.
 Selected no-op strategies are still concrete registry entries and advance
 through target verification, cutover, and confirmation. They cover absent
 routes, trust, generated environments, and named volumes, plus volume state

@@ -19,8 +19,8 @@ use super::{
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     register_accepted_v7_logical_data_adapters, register_accepted_v7_recreated_adapters,
     requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
-    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
-    select_accepted_v7_migration_adapters,
+    resolve_accepted_v7_named_volume_sources, restore_daemon_operation_queues,
+    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -6884,6 +6884,113 @@ fn accepted_v7_logical_adapters_bind_real_prepared_targets_and_reject_ambiguity(
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove composition fixture");
+}
+
+#[test]
+fn accepted_v7_named_volume_sources_bind_exact_execution_checkpoints() {
+    use crate::control_plane::state::V7MigrationAdapterCheckpoint;
+
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let inventory = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": "/work/bill",
+        "source_revision": source_revision,
+        "schema_version": 1,
+        "services": [{
+            "service_id": "app",
+            "kind": "app",
+            "driver": "frankenphp",
+            "configured_image": "ghcr.io/stackctl/php:8.4",
+            "observed_image": "sha256:app",
+            "container_name": "bill-app",
+            "observed_container_id": "legacy-app",
+            "configured_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-cache",
+                "target": "/app/cache",
+                "read_only": false
+            }, {
+                "source_kind": "named_volume",
+                "source": "bill-storage",
+                "target": "/app/storage",
+                "read_only": false
+            }],
+            "observed_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-storage",
+                "target": "/app/storage",
+                "read_only": false
+            }, {
+                "source_kind": "named_volume",
+                "source": "bill-cache",
+                "target": "/app/cache",
+                "read_only": false
+            }],
+            "logical_data": {},
+            "credential_fields": [],
+            "environment_keys": [],
+            "environment_mapping": {},
+            "runtime_features": []
+        }],
+        "routes": [],
+        "blockers": [],
+        "requires_legacy_ca_capture": false
+    });
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision,
+        inventory_json: inventory.to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+    let execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: vec![
+            V7MigrationAdapterCheckpoint::pending("volume/app", "named-volume-archive", true, 10)
+                .expect("volume checkpoint"),
+        ],
+        updated_at_unix_seconds: 10,
+    })
+    .expect("migration execution");
+
+    let sources = resolve_accepted_v7_named_volume_sources(&accepted, &execution)
+        .expect("exact named-volume sources");
+    assert_eq!(sources.len(), 1);
+    assert_eq!(sources[0].service_id(), "app");
+    assert_eq!(sources[0].container_id(), "legacy-app");
+    assert_eq!(sources[0].volume_names(), ["bill-cache", "bill-storage"]);
+
+    let mut drifted_inventory = inventory;
+    drifted_inventory["services"][0]["observed_mounts"][1]["source"] =
+        serde_json::json!("bill-other");
+    let drifted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: accepted.source_revision().to_owned(),
+        inventory_json: drifted_inventory.to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("drifted accepted inventory");
+    let drifted_execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: drifted.evidence_revision().to_owned(),
+        adapter_plan_revision: "c".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: execution.checkpoints().to_vec(),
+        updated_at_unix_seconds: 10,
+    })
+    .expect("drifted execution");
+    let error = resolve_accepted_v7_named_volume_sources(&drifted, &drifted_execution)
+        .expect_err("configured and observed volume drift must block");
+    assert!(error.contains("configured and observed volumes differ"));
 }
 
 struct LogicalCompositionEngine;
