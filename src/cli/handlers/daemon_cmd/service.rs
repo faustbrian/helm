@@ -64,6 +64,9 @@ fn handle_print(args: &DaemonServicePrintArgs) -> Result<()> {
 
 fn handle_uninstall(args: &DaemonServiceUninstallArgs) -> Result<()> {
     validate_uninstall_mode(args)?;
+    if args.delete_data {
+        return handle_delete_data_uninstall();
+    }
     let status = daemon::uninstall_service()?;
     let message = if status.installed {
         format!(
@@ -89,16 +92,37 @@ fn handle_uninstall(args: &DaemonServiceUninstallArgs) -> Result<()> {
     Ok(())
 }
 
+fn handle_delete_data_uninstall() -> Result<()> {
+    let service_before = daemon::service_status()?;
+    let Some(runtime_directory) =
+        super::delete_data_uninstall::prepare_delete_data_uninstall(service_before.installed)?
+    else {
+        return Ok(());
+    };
+    let status = daemon::uninstall_service()?;
+    super::delete_data_uninstall::remove_deleted_runtime_directory(&runtime_directory)?;
+    let action = if status.installed {
+        "Removed"
+    } else {
+        "Found no"
+    };
+    output::event(
+        "daemon",
+        LogLevel::Success,
+        &format!(
+            "{action} {} daemon watch service {}; deleted verified backups, state, trust material, and exact Engine resources",
+            manager_name(status.manager),
+            status.label,
+        ),
+        Persistence::Persistent,
+    );
+
+    Ok(())
+}
+
 fn validate_uninstall_mode(args: &DaemonServiceUninstallArgs) -> Result<()> {
     if args.delete_data && !args.confirm_delete_data {
         anyhow::bail!("delete-data uninstall requires --confirm-delete-data");
-    }
-    if args.delete_data {
-        anyhow::bail!(
-            "delete-data uninstall is unavailable: prune every retained service through its \
-             verified adapter first; Stackctl will not remove the daemon, backups, or Engine \
-             resources while complete deletion coverage is unproven"
-        );
     }
     Ok(())
 }
@@ -122,19 +146,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delete_data_fails_closed_before_service_removal() {
-        let error = validate_uninstall_mode(&DaemonServiceUninstallArgs {
+    fn confirmed_delete_data_is_an_available_uninstall_mode() {
+        validate_uninstall_mode(&DaemonServiceUninstallArgs {
             keep_data: false,
             delete_data: true,
             confirm_delete_data: true,
         })
-        .expect_err("delete-data must remain unavailable");
-
-        assert!(
-            error
-                .to_string()
-                .contains("delete-data uninstall is unavailable")
-        );
+        .expect("confirmed delete-data mode");
     }
 
     #[test]

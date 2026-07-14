@@ -9,12 +9,13 @@ use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
 use super::{
     CredentialLifecycle, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
-    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
-    EngineProvider, EnvironmentLifecycle, InstallationLifecycle, InstallationRecord,
-    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, ProjectAdoptionPlan,
-    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
-    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
+    DaemonOperationRecordOptions, DaemonOperationRetryOptions, DaemonOperationStatus,
+    DaemonOperationTransitionOptions, EngineProvider, EnvironmentLifecycle, InstallationLifecycle,
+    InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
+    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
+    StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1900,6 +1901,66 @@ impl StateStore for SqliteStateStore {
             .optional()?;
 
         persisted.map(parse_daemon_operation).transpose()
+    }
+
+    fn retry_failed_daemon_operation(
+        &mut self,
+        options: DaemonOperationRetryOptions<'_>,
+    ) -> Result<DaemonEventRecord, StateStoreError> {
+        let DaemonOperationRetryOptions {
+            operation_id,
+            expected_kind,
+            expected_payload_json,
+            updated_at_unix_seconds,
+            accepted_kind_json,
+            event_retention_limit,
+        } = options;
+        if operation_id.is_empty()
+            || expected_kind.is_empty()
+            || expected_payload_json.is_empty()
+            || updated_at_unix_seconds < 0
+            || accepted_kind_json.is_empty()
+            || event_retention_limit == 0
+        {
+            return Err(StateStoreError::InvalidDaemonOperation {
+                detail: "failed operation retry identity is incomplete".to_owned(),
+            });
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = transaction.execute(
+            "UPDATE daemon_operations
+             SET status = 'queued', updated_at_unix_seconds = ?1
+             WHERE operation_id = ?2
+               AND kind = ?3
+               AND payload_json = ?4
+               AND status = 'failed'
+               AND updated_at_unix_seconds <= ?1",
+            params![
+                updated_at_unix_seconds,
+                operation_id,
+                expected_kind,
+                expected_payload_json,
+            ],
+        )?;
+        if updated != 1 {
+            return Err(StateStoreError::InvalidDaemonOperation {
+                detail: format!(
+                    "daemon operation '{operation_id}' is not the exact failed intent requested for retry"
+                ),
+            });
+        }
+        let event = append_daemon_event_in_transaction(
+            &transaction,
+            operation_id,
+            accepted_kind_json,
+            event_retention_limit,
+        )?;
+        prune_terminal_daemon_operations(&transaction, event_retention_limit)?;
+        transaction.commit()?;
+
+        Ok(event)
     }
 
     fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError> {

@@ -16,6 +16,7 @@ use super::{
     plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
+    retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -6817,6 +6818,70 @@ fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
     assert_eq!(operation.operation_id(), operation_id);
     assert!(!operation.payload_json().contains("runtime-only-secret"));
     assert!(!operation.payload_json().contains(&recovery.reference()));
+    let failed_json = serde_json::to_string(&IpcEventKind::Failed {
+        code: "engine_unavailable".to_owned(),
+        message: "retry explicitly".to_owned(),
+    })
+    .expect("failed event");
+    let failed = control_plane
+        .transition_daemon_operation(DaemonOperationTransitionOptions {
+            operation_id: &operation_id,
+            expected: DaemonOperationStatus::Queued,
+            next: DaemonOperationStatus::Failed,
+            updated_at_unix_seconds: 40_004,
+            event_kind_json: Some(&failed_json),
+            event_retention_limit: journal.capacity(),
+        })
+        .expect("terminalize failed deletion prune")
+        .expect("failed event record");
+    journal.append_record(failed).expect("append failed event");
+    let status_request = IpcRequest::new(
+        "failed-delete-status",
+        IpcPayload::InstallationDeletionStatus,
+    );
+    let status_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &status_request,
+        event_journal: &mut journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut queue,
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_005,
+    });
+    let IpcOutcome::Success {
+        result: IpcResult::InstallationDeletionStatus { status },
+    } = status_response.outcome()
+    else {
+        panic!("expected failed installation deletion status: {status_response:?}");
+    };
+    assert_eq!(status.failed_operation_id(), Some(operation_id.as_str()));
+    assert_eq!(status.blocking_error(), None);
+    assert_eq!(
+        retry_failed_installation_deletion_prune(
+            &mut control_plane,
+            &mut queue,
+            &mut journal,
+            40_006,
+        )
+        .expect("retry exact failed prune"),
+        Some(operation_id.clone())
+    );
+    assert_eq!(queue.len(), 1);
+    assert_eq!(
+        control_plane
+            .daemon_operation(&operation_id)
+            .expect("read retried operation")
+            .expect("retried operation")
+            .status(),
+        DaemonOperationStatus::Queued
+    );
 
     std::fs::remove_dir_all(root).expect("remove deletion prune fixture");
 }
@@ -7014,6 +7079,8 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
     assert_eq!(status.lifecycle(), IpcInstallationLifecycle::Deleting);
     assert_eq!(status.remaining_logical_resources(), 0);
     assert!(status.active_operation_ids().is_empty());
+    assert_eq!(status.failed_operation_id(), None);
+    assert_eq!(status.blocking_error(), None);
 
     std::fs::remove_dir_all(root).expect("remove deletion IPC fixture");
 }

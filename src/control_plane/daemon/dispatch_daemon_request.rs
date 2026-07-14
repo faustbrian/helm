@@ -4,7 +4,7 @@ use super::{
     ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
     ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
-    reconcile_watched_roots,
+    reconcile_watched_roots, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -389,21 +389,39 @@ where
                 )],
             ),
         },
-        IpcPayload::ExecuteInstallationDeletion { confirmation_token } => control_plane
-            .begin_confirmed_installation_deletion(confirmation_token, now_unix_seconds)
-            .map(|_| {
-                IpcResponse::success(request.request_id(), IpcResult::InstallationDeletionStarted)
-            })
-            .unwrap_or_else(|message| {
-                IpcResponse::failure(
+        IpcPayload::ExecuteInstallationDeletion { confirmation_token } => {
+            match control_plane
+                .begin_confirmed_installation_deletion(confirmation_token, now_unix_seconds)
+            {
+                Ok(_) => match retry_failed_installation_deletion_prune(
+                    control_plane,
+                    postgres_prunes,
+                    event_journal,
+                    now_unix_seconds,
+                ) {
+                    Ok(_) => IpcResponse::success(
+                        request.request_id(),
+                        IpcResult::InstallationDeletionStarted,
+                    ),
+                    Err(message) => IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "installation_deletion_retry_failed",
+                            message,
+                            true,
+                        )],
+                    ),
+                },
+                Err(message) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new(
                         "installation_deletion_confirmation_failed",
                         message,
                         false,
                     )],
-                )
-            }),
+                ),
+            }
+        }
         IpcPayload::InstallationDeletionStatus => {
             let status = control_plane
                 .installation_lifecycle()
@@ -412,20 +430,44 @@ where
                     lifecycle.ok_or_else(|| "installation identity is not initialized".to_owned())
                 })
                 .and_then(|lifecycle| {
-                    let remaining_logical_resources = control_plane
+                    let logical_resources = control_plane
                         .logical_resources()
-                        .map_err(|error| error.to_string())?
-                        .len();
+                        .map_err(|error| error.to_string())?;
+                    let remaining_logical_resources = logical_resources.len();
                     let active_operation_ids = control_plane
                         .active_daemon_operations()
                         .map_err(|error| error.to_string())?
                         .into_iter()
                         .map(|operation| operation.operation_id().to_owned())
                         .collect();
+                    let (failed_operation_id, blocking_error) = if lifecycle
+                        == crate::control_plane::state::InstallationLifecycle::Deleting
+                        && remaining_logical_resources > 0
+                    {
+                        match control_plane.plan_installation_deletion() {
+                            Ok(plan) => {
+                                let operation_id =
+                                    format!("installation-delete-{}", plan.confirmation_token());
+                                let failed = control_plane
+                                    .daemon_operation(&operation_id)
+                                    .map_err(|error| error.to_string())?
+                                    .filter(|operation| {
+                                        operation.status() == DaemonOperationStatus::Failed
+                                    })
+                                    .map(|operation| operation.operation_id().to_owned());
+                                (failed, None)
+                            }
+                            Err(error) => (None, Some(error)),
+                        }
+                    } else {
+                        (None, None)
+                    };
                     IpcInstallationDeletionStatus::new(
                         IpcInstallationLifecycle::from(lifecycle),
                         remaining_logical_resources,
                         active_operation_ids,
+                        failed_operation_id,
+                        blocking_error,
                     )
                 });
             match status {

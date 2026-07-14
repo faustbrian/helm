@@ -1,7 +1,7 @@
 use super::ControlPlane;
 use crate::control_plane::state::{
-    DaemonEventRecord, DaemonOperationRecord, DaemonOperationTransitionOptions, StateStore,
-    StateStoreError,
+    DaemonEventRecord, DaemonOperationRecord, DaemonOperationRetryOptions,
+    DaemonOperationTransitionOptions, StateStore, StateStoreError,
 };
 
 impl<Store> ControlPlane<Store>
@@ -39,5 +39,12 @@ where
         &self,
     ) -> Result<Vec<DaemonOperationRecord>, StateStoreError> {
         self.state_store.active_daemon_operations()
+    }
+
+    pub(crate) fn retry_failed_daemon_operation(
+        &mut self,
+        options: DaemonOperationRetryOptions<'_>,
+    ) -> Result<DaemonEventRecord, StateStoreError> {
+        self.state_store.retry_failed_daemon_operation(options)
     }
 }

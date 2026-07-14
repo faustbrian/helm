@@ -45,6 +45,36 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
     }
 }
 
+/// Removes only the trust entry matching the persisted Stackctl CA.
+#[cfg(unix)]
+pub(super) fn remove_persisted_daemon_trust() -> Result<()> {
+    let runtime_directory = crate::control_plane::default_unix_daemon_runtime_directory()?;
+    let certificates = FilesystemCertificateStore::new(runtime_directory.join("tls"));
+
+    #[cfg(target_os = "macos")]
+    {
+        drop(remove_current_ca_trust(
+            &certificates,
+            &crate::control_plane::MacOsCertificateTrustStore::new(ProcessHostCommandExecutor),
+        )?);
+
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        drop(remove_current_ca_trust(
+            &certificates,
+            &crate::control_plane::DebianCertificateTrustStore::new(ProcessHostCommandExecutor),
+        )?);
+
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    bail!("singleton CA trust removal is not implemented for this Unix platform")
+}
+
 fn handle_with_store(
     command: DaemonTrustCommands,
     certificates: &FilesystemCertificateStore,

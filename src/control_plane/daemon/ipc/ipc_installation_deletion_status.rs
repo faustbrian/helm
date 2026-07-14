@@ -8,6 +8,8 @@ pub(crate) struct IpcInstallationDeletionStatus {
     lifecycle: IpcInstallationLifecycle,
     remaining_logical_resources: usize,
     active_operation_ids: Vec<String>,
+    failed_operation_id: Option<String>,
+    blocking_error: Option<String>,
 }
 
 impl IpcInstallationDeletionStatus {
@@ -15,15 +17,22 @@ impl IpcInstallationDeletionStatus {
         lifecycle: IpcInstallationLifecycle,
         remaining_logical_resources: usize,
         active_operation_ids: Vec<String>,
+        failed_operation_id: Option<String>,
+        blocking_error: Option<String>,
     ) -> Result<Self, String> {
-        if active_operation_ids.iter().any(String::is_empty) {
-            return Err("installation deletion operation IDs must not be empty".to_owned());
+        if active_operation_ids.iter().any(String::is_empty)
+            || failed_operation_id.as_ref().is_some_and(String::is_empty)
+            || blocking_error.as_ref().is_some_and(String::is_empty)
+        {
+            return Err("installation deletion status fields must not be empty".to_owned());
         }
 
         Ok(Self {
             lifecycle,
             remaining_logical_resources,
             active_operation_ids,
+            failed_operation_id,
+            blocking_error,
         })
     }
 
@@ -37,5 +46,13 @@ impl IpcInstallationDeletionStatus {
 
     pub(crate) fn active_operation_ids(&self) -> &[String] {
         &self.active_operation_ids
+    }
+
+    pub(crate) fn failed_operation_id(&self) -> Option<&str> {
+        self.failed_operation_id.as_deref()
+    }
+
+    pub(crate) fn blocking_error(&self) -> Option<&str> {
+        self.blocking_error.as_deref()
     }
 }

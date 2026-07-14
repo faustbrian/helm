@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refused delete-data cleanup for unmarked runtime directories, malformed
+  terminal markers, missing installed-service state, and runtime symlinks so
+  local filesystem cleanup cannot follow or infer ownership.
 - Refused installation-deletion freeze while any durable daemon operation is
   queued or running, preventing backup, restore, command, or migration work
   from racing the serialized teardown sequence.
@@ -26,6 +29,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `daemon service uninstall --delete-data --confirm-delete-data` execution
+  that plans and confirms exact teardown, resumes interrupted deletion, polls
+  durable terminal state, removes matching CA trust, stops the login service,
+  and only then removes marked runtime state and verified backups.
 - Added typed daemon IPC for token-confirmed installation deletion and durable
   lifecycle progress, including remaining logical-resource counts and active
   operation IDs for deterministic terminal polling.

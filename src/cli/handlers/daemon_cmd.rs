@@ -4,6 +4,7 @@
 
 mod backup;
 mod benchmark;
+mod delete_data_uninstall;
 mod migration_decision;
 mod prune;
 mod restore;
@@ -339,6 +340,14 @@ fn handle_daemon_reconcile() -> Result<()> {
 fn send_singleton_request(
     payload: crate::control_plane::IpcPayload,
 ) -> Result<crate::control_plane::IpcResponse> {
+    send_singleton_request_with_timeout(payload, Duration::from_secs(5))
+}
+
+#[cfg(unix)]
+fn send_singleton_request_with_timeout(
+    payload: crate::control_plane::IpcPayload,
+    timeout: Duration,
+) -> Result<crate::control_plane::IpcResponse> {
     use crate::control_plane::{IpcRequest, default_unix_daemon_runtime_directory};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -353,8 +362,7 @@ fn send_singleton_request(
     let request = IpcRequest::new(request_id, payload);
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
 
-    crate::control_plane::send_unix_request(&socket_path, &request, Duration::from_secs(5))
-        .map_err(Into::into)
+    crate::control_plane::send_unix_request(&socket_path, &request, timeout).map_err(Into::into)
 }
 
 #[cfg(test)]

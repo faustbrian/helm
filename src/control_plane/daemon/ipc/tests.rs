@@ -147,6 +147,8 @@ fn installation_deletion_plans_round_trip_as_secret_free_exact_intent() {
         IpcInstallationLifecycle::Deleting,
         2,
         vec!["installation-delete-a".to_owned()],
+        None,
+        None,
     )
     .expect("deletion status");
     let status_response = IpcResponse::success(

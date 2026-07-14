@@ -1,8 +1,8 @@
 use super::{
-    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationTransitionOptions,
-    InstallationLifecycle, InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord,
-    MigrationRecord, ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord,
-    StateStoreError,
+    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationRetryOptions,
+    DaemonOperationTransitionOptions, InstallationLifecycle, InstallationRecord,
+    LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan,
+    ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -207,6 +207,12 @@ pub(crate) trait StateStore: Send {
         &self,
         operation_id: &str,
     ) -> Result<Option<DaemonOperationRecord>, StateStoreError>;
+
+    /// Atomically requeues one exact failed intent and appends acceptance.
+    fn retry_failed_daemon_operation(
+        &mut self,
+        options: DaemonOperationRetryOptions<'_>,
+    ) -> Result<DaemonEventRecord, StateStoreError>;
 
     /// Loads non-terminal operations in creation order for restart recovery.
     fn active_daemon_operations(&self) -> Result<Vec<DaemonOperationRecord>, StateStoreError>;

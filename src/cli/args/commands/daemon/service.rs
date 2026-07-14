@@ -26,7 +26,7 @@ pub(crate) struct DaemonServiceUninstallArgs {
     /// Stop the daemon service while preserving all state and Engine resources
     #[arg(long, conflicts_with = "delete_data")]
     pub(crate) keep_data: bool,
-    /// Request deletion of all owned data (fails closed until fully supported)
+    /// Delete verified backups, state, trust material, and exact owned Engine resources
     #[arg(long, conflicts_with = "keep_data", requires = "confirm_delete_data")]
     pub(crate) delete_data: bool,
     /// Acknowledge that delete-data is irreversible

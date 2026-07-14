@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 1,470 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 1,472 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -44,7 +44,7 @@ identified below.
 | AC-15 | Incompatible profiles split with an exact explanation | Implemented | compatibility fingerprint and shared resolver tests | Live mixed-version/profile artifact |
 | AC-16 | Logical resources and credentials converge idempotently | Implemented | PostgreSQL, MySQL/MariaDB, MongoDB, Redis/Valkey, object-store, RabbitMQ, Mailpit, and SQL Server preparation/reconciliation tests | Live authenticated readiness and drift records per advertised service |
 | AC-17 | Credentials remain stable across daemon and Engine restarts | Implemented | SQLite insert-if-absent, redaction, restart, and shared bootstrap credential tests | Live restart artifact |
-| AC-18 | Persistent resources are never pruned implicitly | Implemented | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, RabbitMQ, and MinIO prune execution with immediate stored-artifact reverification; keep-data-default uninstall, typed secret-free whole-installation plan/confirm/status IPC, idle artifact-reverified confirmed freeze, restart-safe one-at-a-time logical prune scheduling, durable deleting/deleted reconciliation freeze, daemon-owned dependency-ordered exact Engine cleanup, and logical-and-operation-empty terminal deletion invariant | Complete recovery/deletion coverage and uninstall delete-data execution remain incomplete |
+| AC-18 | Persistent resources are never pruned implicitly | Implemented | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, RabbitMQ, and MinIO prune execution with immediate stored-artifact reverification; keep-data-default and terminal-marker-gated delete-data uninstall, typed secret-free whole-installation plan/confirm/status IPC, idle artifact-reverified confirmed freeze, restart-safe one-at-a-time logical prune scheduling, durable deleting/deleted reconciliation freeze, daemon-owned dependency-ordered exact Engine cleanup, and logical-and-operation-empty terminal deletion invariant | Complete recovery/deletion coverage and live uninstall acceptance remain incomplete |
 
 ## Engine, daemon recovery, and lifecycle
 
@@ -53,7 +53,7 @@ identified below.
 | AC-19 | Normal operation uses typed Engine APIs, not CLI parsing | Implemented | capability traits, Bollard adapter, v8 host-dependency audit, strict legacy guard | Live Engine compatibility negotiation record |
 | AC-20 | Engine unavailability and restart recover automatically | Implemented at unit/integration level | event supervisor, bounded backoff, health invalidation, and rescan recovery tests | Docker Desktop/Engine restart and sleep/wake records per claimed platform |
 | AC-21 | Daemon restart, login, reboot, service crash, sleep, and wake recover | Partial | queue/state restore, idempotent reconciliation, restart, and crash tests | Login, reboot, sleep/wake, and service-crash platform artifacts |
-| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup and crash-replayable prune, daemon-owned Redis/Valkey prefix backup, prune, and safety-backed in-place restore, recovery-bound RabbitMQ prune plus safety-backed in-place topology restore for empty vhosts, recovery-bound MinIO current-object backup, exact tenant prune, and safety-backed in-place restore for unversioned buckets, disposable GC, reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server restore/cutover/confirm/rollback, and explicit safe uninstall-mode tests | RabbitMQ non-empty message backup and restore, delete-data uninstall execution, and live rename/remove/restore acceptance |
+| AC-22 | Removing/restoring config follows retention rules | Partial | atomic orphaning, credential disablement, adoption, PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup and crash-replayable prune, daemon-owned Redis/Valkey prefix backup, prune, and safety-backed in-place restore, recovery-bound RabbitMQ prune plus safety-backed in-place topology restore for empty vhosts, recovery-bound MinIO current-object backup, exact tenant prune, and safety-backed in-place restore for unversioned buckets, disposable GC, reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server restore/cutover/confirm/rollback, and explicit keep-data/delete-data paths with terminal-marker and failed-operation retry tests | RabbitMQ non-empty message backup and restore plus live rename/remove/restore/uninstall acceptance |
 | AC-23 | Existing v7 projects have tested migration and rollback | Partial | TOML-to-YAML semantic migration; reversible PostgreSQL, MySQL/MariaDB, MongoDB, and SQL Server backup/restore/cutover/confirm/rollback tests | Complete v7 inventory and adapters for remaining data services, routes, trust, app runtimes, volumes, and generated environment |
 
 ## Supply chain, platforms, and efficiency
@@ -64,7 +64,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | `scripts/audit-v8-host-dependencies.sh` and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable v7, Engine baseline, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,470 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, migration, chaos, platform, build, and lint checks pass | Partial | 1,472 local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, migration breadth, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 
@@ -72,7 +72,7 @@ The current audit therefore blocks a v8 completion claim on:
 
 1. Windows named-pipe IPC, login service, and live Windows recovery evidence.
 2. Live macOS and Linux install/login/reboot/sleep/Engine recovery records.
-3. Explicit persistent deletion and uninstall keep-data/delete-data execution.
+3. Live persistent deletion and uninstall keep-data/delete-data acceptance.
 4. Complete v7 resource inventory and non-PostgreSQL migration adapters.
 5. Published runtime image SBOM, provenance, signature, and architecture proof.
 6. Gateway protocol and failure acceptance against the real pinned image.
