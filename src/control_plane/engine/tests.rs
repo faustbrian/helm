@@ -4,15 +4,16 @@ use super::{
     ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerHealthCheck, ContainerId,
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
     ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
-    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
-    ImageReferenceResolver, ImageResolver, ImmutableImageReference,
-    InstallationResourceDeletionOptions, LogChunk, LogSource, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
-    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
-    OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
-    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
-    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
+    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder,
+    ImageDiscovery, ImageId, ImageManager, ImageReferenceResolver, ImageResolver,
+    ImmutableImageReference, InstallationResourceDeletionOptions, LogChunk, LogSource,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedImage, ObservedNetwork,
+    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedImage, OwnedNetwork,
+    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
+    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
+    VolumeManager, VolumeMount, classify_observed_resource, delete_owned_installation_resources,
+    gateway_container_request, reconstruct_owned_container, reconstruct_owned_image,
     reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
@@ -21,7 +22,7 @@ use bollard::models::{
     ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats, ContainerNetworkStats,
     ContainerPidsStats, ContainerState as EngineContainerState, ContainerStatsResponse,
     ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Health, HealthStatusEnum,
-    MountPoint, Network, PortSummary, PortSummaryTypeEnum, Volume,
+    ImageSummary, MountPoint, Network, PortSummary, PortSummaryTypeEnum, Volume,
 };
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
@@ -33,12 +34,12 @@ use super::bollard_engine_adapter::{
     build_image_options, command_create_request, container_event, container_health,
     container_resource_metrics, create_request, exact_volume_mount_target, image_pull_request,
     log_chunk, log_request, managed_container_events_request, managed_container_list_request,
-    managed_network_list_request, managed_volume_list_request, network_create_request,
-    observed_container, observed_network, observed_volume, published_port_bindings,
-    published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
-    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
-    volume_archive_subpath_target, volume_archive_subpath_upload_target,
-    volume_archive_upload_target, volume_create_request,
+    managed_image_list_request, managed_network_list_request, managed_volume_list_request,
+    network_create_request, observed_container, observed_image, observed_network, observed_volume,
+    published_port_bindings, published_port_list_request, validate_engine_api_version,
+    validate_volume_archive_identity, verify_owned_container_labels, verify_owned_network_labels,
+    verify_owned_volume_labels, volume_archive_subpath_target,
+    volume_archive_subpath_upload_target, volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1522,7 +1523,8 @@ fn managed_container_rescan_includes_stopped_objects_and_filters_by_marker() {
 }
 
 #[test]
-fn managed_network_and_volume_rescans_filter_by_the_reserved_marker() {
+fn managed_image_network_and_volume_rescans_filter_by_the_reserved_marker() {
+    let image_request = managed_image_list_request();
     let network_request = managed_network_list_request();
     let volume_request = managed_volume_list_request();
     let expected = Some(std::collections::HashMap::from([(
@@ -1530,8 +1532,27 @@ fn managed_network_and_volume_rescans_filter_by_the_reserved_marker() {
         vec!["dev.stackctl.managed=true".to_owned()],
     )]));
 
+    assert!(image_request.all);
+    assert_eq!(image_request.filters, expected);
     assert_eq!(network_request.filters, expected);
     assert_eq!(volume_request.filters, expected);
+}
+
+#[test]
+fn image_observations_reconstruct_owned_handles_from_labels() {
+    let metadata = build_cache_metadata();
+    let id = format!("sha256:{}", "c".repeat(64));
+    let observed = observed_image(ImageSummary {
+        id: id.clone(),
+        labels: metadata.labels().into_iter().collect(),
+        ..ImageSummary::default()
+    })
+    .expect("observed image");
+
+    let owned = reconstruct_owned_image(&observed, "install-1", 8).expect("owned image");
+
+    assert_eq!(owned.id().as_str(), id);
+    assert_eq!(owned.metadata(), &metadata);
 }
 
 #[test]
@@ -1671,6 +1692,7 @@ fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order()
     let container_metadata = global_metadata(ResourceKind::Gateway);
     let volume_metadata = global_metadata(ResourceKind::Volume);
     let network_metadata = global_metadata(ResourceKind::Network);
+    let image_metadata = build_cache_metadata();
     let mut foreign_labels = container_metadata.labels();
     foreign_labels.insert(
         "dev.stackctl.installation".to_owned(),
@@ -1691,6 +1713,10 @@ fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order()
         observed_networks: vec![ObservedNetwork::new(
             NetworkId::new("owned-network"),
             network_metadata.labels(),
+        )],
+        observed_images: vec![ObservedImage::new(
+            ImageId::new(format!("sha256:{}", "a".repeat(64))).expect("image ID"),
+            image_metadata.labels(),
         )],
         ..RecordingContainerBackend::default()
     };
@@ -1714,10 +1740,39 @@ fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order()
         [
             "stop:owned-container",
             "container:owned-container",
+            &format!("image:sha256:{}", "a".repeat(64)),
             "volume:owned-volume",
             "network:owned-network",
         ]
     );
+}
+
+#[test]
+fn installation_cleanup_refuses_non_build_cache_images_before_mutation() {
+    let mut backend = RecordingContainerBackend {
+        observed_images: vec![ObservedImage::new(
+            ImageId::new(format!("sha256:{}", "b".repeat(64))).expect("image ID"),
+            global_metadata(ResourceKind::Gateway).labels(),
+        )],
+        ..RecordingContainerBackend::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(delete_owned_installation_resources(
+            &mut backend,
+            InstallationResourceDeletionOptions {
+                installation_id: "install-1",
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
+        ))
+        .expect_err("non-build image must fail closed");
+
+    assert!(error.to_string().contains("resource kind"));
+    assert!(backend.removals.is_empty());
 }
 
 #[test]
@@ -1859,6 +1914,19 @@ fn global_metadata(kind: ResourceKind) -> ManagedResourceMetadata {
         retention: RetentionClass::Disposable,
     })
     .expect("valid global metadata")
+}
+
+fn build_cache_metadata() -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Build,
+        project_id: Some("bill".to_owned()),
+        compatibility_fingerprint: "runtime-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "desired-v1".to_owned(),
+        retention: RetentionClass::BuildCache,
+    })
+    .expect("valid build-cache metadata")
 }
 
 fn create_through_strategy<'operation>(
@@ -2056,7 +2124,26 @@ struct RecordingContainerBackend {
     observed: Vec<ObservedContainer>,
     observed_networks: Vec<ObservedNetwork>,
     observed_volumes: Vec<ObservedVolume>,
+    observed_images: Vec<ObservedImage>,
     removals: Vec<String>,
+}
+
+impl ImageDiscovery for RecordingContainerBackend {
+    fn discover_managed_images(&self) -> EngineFuture<'_, Vec<ObservedImage>> {
+        Box::pin(async { Ok(self.observed_images.clone()) })
+    }
+}
+
+impl ImageManager for RecordingContainerBackend {
+    fn remove_image<'operation>(
+        &'operation mut self,
+        image: &'operation OwnedImage,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removals.push(format!("image:{}", image.id().as_str()));
+            Ok(())
+        })
+    }
 }
 
 impl ContainerDiscovery for RecordingContainerBackend {

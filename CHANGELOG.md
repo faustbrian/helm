@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added typed Engine image discovery and ownership reconstruction. Full data
+  removal now deletes only exact installation-owned derived build-cache images,
+  after dependent containers, and refuses malformed or incorrectly classified
+  image labels before mutating any Engine resource.
 - Replaced PID-suffixed shared-service staging files with stable private pending
   paths that are removed on the next reconciliation. Interrupted credential,
   Redis/Valkey ACL, RabbitMQ definition, Mailpit authentication, and object-store

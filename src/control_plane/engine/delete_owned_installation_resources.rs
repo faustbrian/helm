@@ -1,9 +1,9 @@
 use super::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
-    InstallationResourceDeletionOptions, NetworkDiscovery, NetworkManager,
-    ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind,
+    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ImageDiscovery,
+    ImageManager, InstallationResourceDeletionOptions, NetworkDiscovery, NetworkManager,
+    ObservedResourceOwnership, OwnedContainer, OwnedImage, OwnedNetwork, OwnedVolume, ResourceKind,
     RetentionClass, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
-    reconstruct_owned_network, reconstruct_owned_volume,
+    reconstruct_owned_image, reconstruct_owned_network, reconstruct_owned_volume,
 };
 
 /// Deletes exact installation-owned Engine objects in dependency-safe order.
@@ -14,6 +14,8 @@ pub(crate) async fn delete_owned_installation_resources<E>(
 where
     E: ContainerDiscovery
         + ContainerLifecycle
+        + ImageDiscovery
+        + ImageManager
         + VolumeDiscovery
         + VolumeManager
         + NetworkDiscovery
@@ -58,6 +60,18 @@ where
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let mut images = engine
+        .discover_managed_images()
+        .await?
+        .iter()
+        .filter_map(|observed| {
+            owned_or_foreign(
+                reconstruct_owned_image(observed, options.installation_id, options.schema_version),
+                "image",
+                observed.id().as_str(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut networks = engine
         .discover_managed_networks()
         .await?
@@ -76,9 +90,11 @@ where
         .collect::<Result<Vec<_>, _>>()?;
     containers.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
     volumes.sort_by(|left, right| left.name().cmp(right.name()));
+    images.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
     networks.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
     validate_kinds(
         &containers,
+        &images,
         &volumes,
         &networks,
         options.authorized_persistent_volumes,
@@ -91,6 +107,9 @@ where
             ContainerState::Missing => continue,
         }
         engine.remove(container).await?;
+    }
+    for image in &images {
+        engine.remove_image(image).await?;
     }
     for volume in &volumes {
         engine.remove_volume(volume).await?;
@@ -123,6 +142,7 @@ fn owned_or_foreign<T>(
 
 fn validate_kinds(
     containers: &[OwnedContainer],
+    images: &[OwnedImage],
     volumes: &[OwnedVolume],
     networks: &[OwnedNetwork],
     authorized_persistent_volumes: &[String],
@@ -139,7 +159,15 @@ fn validate_kinds(
     let invalid_network = networks
         .iter()
         .find(|network| network.metadata().kind() != ResourceKind::Network);
-    if invalid_container.is_some() || invalid_volume.is_some() || invalid_network.is_some() {
+    let invalid_image = images.iter().find(|image| {
+        image.metadata().kind() != ResourceKind::Build
+            || image.metadata().retention() != RetentionClass::BuildCache
+    });
+    if invalid_container.is_some()
+        || invalid_image.is_some()
+        || invalid_volume.is_some()
+        || invalid_network.is_some()
+    {
         return Err(EngineError::InvalidRequest {
             detail: "installation cleanup resource kind does not match its Engine object"
                 .to_owned(),

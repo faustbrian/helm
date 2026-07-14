@@ -8802,6 +8802,7 @@ fn remove_lock(lock_path: &Path) {
 #[derive(Clone)]
 struct RecordingProjectCommandEngine {
     observed: Vec<crate::control_plane::engine::ObservedContainer>,
+    observed_images: Vec<crate::control_plane::engine::ObservedImage>,
     observed_volumes: Vec<crate::control_plane::engine::ObservedVolume>,
     observed_networks: Vec<crate::control_plane::engine::ObservedNetwork>,
     execution: std::sync::Arc<RecordingProjectCommandExecution>,
@@ -8819,6 +8820,7 @@ struct RecordingProjectCommandExecution {
     lifecycle_started: std::sync::Mutex<Vec<String>>,
     stopped: std::sync::Mutex<Vec<String>>,
     removed: std::sync::Mutex<Vec<String>>,
+    removed_images: std::sync::Mutex<Vec<String>>,
     created_volumes: std::sync::Mutex<Vec<String>>,
     removed_volumes: std::sync::Mutex<Vec<String>>,
     rabbitmq_queue_output: std::sync::Mutex<Vec<u8>>,
@@ -8835,6 +8837,7 @@ impl RecordingProjectCommandEngine {
     fn new(observed: Vec<crate::control_plane::engine::ObservedContainer>) -> Self {
         Self {
             observed,
+            observed_images: Vec::new(),
             observed_volumes: Vec::new(),
             observed_networks: Vec::new(),
             execution: std::sync::Arc::new(RecordingProjectCommandExecution::default()),
@@ -8970,6 +8973,32 @@ impl RecordingProjectCommandEngine {
             .lock()
             .expect("volume subpath uploads")
             .clone()
+    }
+}
+
+impl crate::control_plane::engine::ImageDiscovery for RecordingProjectCommandEngine {
+    fn discover_managed_images(
+        &self,
+    ) -> crate::control_plane::engine::EngineFuture<
+        '_,
+        Vec<crate::control_plane::engine::ObservedImage>,
+    > {
+        let images = self.observed_images.clone();
+        Box::pin(async move { Ok(images) })
+    }
+}
+
+impl crate::control_plane::engine::ImageManager for RecordingProjectCommandEngine {
+    fn remove_image<'operation>(
+        &'operation mut self,
+        image: &'operation crate::control_plane::engine::OwnedImage,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .removed_images
+            .lock()
+            .expect("removed images")
+            .push(image.id().as_str().to_owned());
+        Box::pin(async { Ok(()) })
     }
 }
 

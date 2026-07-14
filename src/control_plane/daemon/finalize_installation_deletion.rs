@@ -1,7 +1,8 @@
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, InstallationResourceDeletionOptions, NetworkDiscovery,
-    NetworkManager, VolumeDiscovery, VolumeManager, delete_owned_installation_resources,
+    ContainerDiscovery, ContainerLifecycle, ImageDiscovery, ImageManager,
+    InstallationResourceDeletionOptions, NetworkDiscovery, NetworkManager, VolumeDiscovery,
+    VolumeManager, delete_owned_installation_resources,
 };
 use crate::control_plane::state::{InstallationLifecycle, StateStore};
 
@@ -16,6 +17,8 @@ where
     Store: StateStore,
     Engine: ContainerDiscovery
         + ContainerLifecycle
+        + ImageDiscovery
+        + ImageManager
         + VolumeDiscovery
         + VolumeManager
         + NetworkDiscovery

@@ -6,13 +6,13 @@ use super::{
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
     ContainerNetworkIsolation, ContainerResourceMetrics, ContainerState, ContainerVolumeArchive,
-    EngineError, EngineFuture, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
-    ImageReferenceResolver, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
-    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
-    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
-    OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
-    RegistryImageReference, ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery,
-    VolumeManager, classify_observed_resource,
+    EngineError, EngineFuture, HealthObserver, ImageBuildRequest, ImageBuilder, ImageDiscovery,
+    ImageId, ImageManager, ImageReferenceResolver, ImageResolver, ImmutableImageReference,
+    LogChunk, LogSource, LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedImage, ObservedNetwork, ObservedResourceOwnership,
+    ObservedVolume, OwnedContainer, OwnedImage, OwnedNetwork, OwnedVolume, PublishedPortBinding,
+    PublishedPortDiscovery, RegistryImageReference, ResourceKind, ResourceMetrics,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -28,9 +28,10 @@ use bollard::models::{
 use bollard::query_parameters::{
     BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
     CreateImageOptionsBuilder, DownloadFromContainerOptionsBuilder, EventsOptions,
-    EventsOptionsBuilder, ListContainersOptionsBuilder, ListNetworksOptionsBuilder,
-    ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions,
-    StatsOptionsBuilder, UploadToContainerOptionsBuilder, WaitContainerOptionsBuilder,
+    EventsOptionsBuilder, ListContainersOptionsBuilder, ListImagesOptionsBuilder,
+    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder,
+    RemoveImageOptionsBuilder, RemoveVolumeOptions, StatsOptionsBuilder,
+    UploadToContainerOptionsBuilder, WaitContainerOptionsBuilder,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full, body_try_stream};
 use futures_util::{StreamExt, TryStreamExt};
@@ -1418,6 +1419,50 @@ impl NetworkDiscovery for BollardEngineAdapter {
     }
 }
 
+impl ImageDiscovery for BollardEngineAdapter {
+    fn discover_managed_images(&self) -> EngineFuture<'_, Vec<ObservedImage>> {
+        Box::pin(async move {
+            bounded_engine_operation("list managed images", request_timeout(), async {
+                self.docker
+                    .list_images(Some(managed_image_list_request()))
+                    .await
+                    .map_err(|error| backend_error("list managed images", error))
+            })
+            .await?
+            .into_iter()
+            .map(observed_image)
+            .collect()
+        })
+    }
+}
+
+impl ImageManager for BollardEngineAdapter {
+    fn remove_image<'operation>(
+        &'operation mut self,
+        image: &'operation OwnedImage,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            bounded_engine_operation("remove owned image", request_timeout(), async {
+                self.docker
+                    .remove_image(
+                        image.id().as_str(),
+                        Some(
+                            RemoveImageOptionsBuilder::default()
+                                .force(false)
+                                .noprune(false)
+                                .build(),
+                        ),
+                        None,
+                    )
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| backend_error("remove owned image", error))
+            })
+            .await
+        })
+    }
+}
+
 impl VolumeDiscovery for BollardEngineAdapter {
     fn discover_managed_volumes(&self) -> EngineFuture<'_, Vec<ObservedVolume>> {
         Box::pin(async move {
@@ -1975,6 +2020,15 @@ pub(super) fn managed_network_list_request() -> bollard::query_parameters::ListN
         .build()
 }
 
+pub(super) fn managed_image_list_request() -> bollard::query_parameters::ListImagesOptions {
+    let filters = managed_resource_filters();
+
+    ListImagesOptionsBuilder::default()
+        .all(true)
+        .filters(&filters)
+        .build()
+}
+
 pub(super) fn managed_volume_list_request() -> bollard::query_parameters::ListVolumesOptions {
     let filters = managed_resource_filters();
 
@@ -2003,6 +2057,15 @@ pub(super) fn observed_container(
         .collect::<BTreeMap<_, _>>();
 
     Ok(ObservedContainer::new(ContainerId::new(id), labels))
+}
+
+pub(super) fn observed_image(
+    image: bollard::models::ImageSummary,
+) -> Result<ObservedImage, EngineError> {
+    let id = ImageId::new(image.id)?;
+    let labels = image.labels.into_iter().collect::<BTreeMap<_, _>>();
+
+    Ok(ObservedImage::new(id, labels))
 }
 
 pub(super) fn observed_network(network: Network) -> Result<ObservedNetwork, EngineError> {
