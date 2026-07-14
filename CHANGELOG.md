@@ -13,7 +13,8 @@ All notable changes to this project are documented in this file.
 - Made runtime-image publication retain a revision-specific tag and verify the
   signed digest, Linux amd64/arm64 manifest entries, SBOM, and provenance before
   uploading one raw evidence bundle. A publication run now produces the
-  artifacts required for release review instead of only pushing and signing.
+  artifacts required for release review instead of only pushing and signing;
+  null or empty attestation payloads fail publication.
 - Corrected the v8 architecture, lifecycle, and operations documents to match
   the clean-slate security boundary. The current schema rejects unsupported
   privilege expansion before planning and has no approval or state-schema

@@ -89,8 +89,10 @@ jobs:
             --format '{{ json .SBOM }}' > "${evidence}/sbom.json"
           docker buildx imagetools inspect "${reference}" \
             --format '{{ json .Provenance }}' > "${evidence}/provenance.json"
-          test -s "${evidence}/sbom.json"
-          test -s "${evidence}/provenance.json"
+          jq -e '. != null and . != {} and . != []' \
+            "${evidence}/sbom.json"
+          jq -e '. != null and . != {} and . != []' \
+            "${evidence}/provenance.json"
           cosign verify \
             --certificate-identity "${certificate_identity}" \
             --certificate-oidc-issuer \
