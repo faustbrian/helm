@@ -3,10 +3,11 @@ use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::retention::{
-    DataLifecycleStrategy, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
-    PostgresLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
-    RabbitMqLogicalPruneOptions, SqlServerLogicalPruneOptions, prune_mongodb_logical_resource,
-    prune_mysql_logical_resource, prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
+    DataLifecycleStrategy, MinioLogicalPruneOptions, MongoDbLogicalPruneOptions,
+    MySqlLogicalPruneOptions, PostgresLogicalPruneOptions, PostgresLogicalPrunePlan,
+    PostgresLogicalPrunePlanOptions, RabbitMqLogicalPruneOptions, SqlServerLogicalPruneOptions,
+    prune_minio_logical_resource, prune_mongodb_logical_resource, prune_mysql_logical_resource,
+    prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
     prune_sql_server_logical_resource,
 };
 use crate::control_plane::shared_infrastructure::MySqlFlavor;
@@ -174,6 +175,21 @@ where
             .await
             .map_err(|error| error.to_string())?;
         }
+        DataLifecycleStrategy::ObjectStoreBucketExport => {
+            prune_minio_logical_resource(
+                engine,
+                MinioLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator: required_administrator(administrator)?,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no destructive adapter"
@@ -223,14 +239,15 @@ fn exact_administrator<'state>(
         .compatibility_fingerprint()
         .strip_prefix("sha256:")
         .ok_or_else(|| "logical prune compatibility fingerprint is malformed".to_owned())?;
-    let (implementation, username) = match operation.strategy() {
-        DataLifecycleStrategy::PostgreSqlLogical => ("postgresql", "stackctl_admin"),
+    let (implementation, username, suffix) = match operation.strategy() {
+        DataLifecycleStrategy::PostgreSqlLogical => ("postgresql", "stackctl_admin", "bootstrap"),
         DataLifecycleStrategy::MySqlLogical => match mysql_flavor(logical)? {
-            MySqlFlavor::MySql => ("mysql", "root"),
-            MySqlFlavor::MariaDb => ("mariadb", "root"),
+            MySqlFlavor::MySql => ("mysql", "root", "bootstrap"),
+            MySqlFlavor::MariaDb => ("mariadb", "root", "bootstrap"),
         },
-        DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin"),
-        DataLifecycleStrategy::SqlServerNative => ("sqlserver", "sa"),
+        DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin", "bootstrap"),
+        DataLifecycleStrategy::SqlServerNative => ("sqlserver", "sa", "bootstrap"),
+        DataLifecycleStrategy::ObjectStoreBucketExport => ("minio", "stackctl_admin", "root"),
         DataLifecycleStrategy::RabbitMqDefinitions => return Ok(None),
         strategy => {
             return Err(format!(
@@ -238,7 +255,7 @@ fn exact_administrator<'state>(
             ));
         }
     };
-    let administrator_id = format!("shared/{fingerprint}/{implementation}-bootstrap");
+    let administrator_id = format!("shared/{fingerprint}/{implementation}-{suffix}");
     one(
         credentials
             .iter()

@@ -122,6 +122,7 @@ fn one_logical<'state>(
             | DataLifecycleStrategy::MongoDbLogical
             | DataLifecycleStrategy::SqlServerNative
             | DataLifecycleStrategy::RabbitMqDefinitions
+            | DataLifecycleStrategy::ObjectStoreBucketExport
     ) {
         return Err(format!(
             "logical resource kind '{}' has no implemented destructive prune adapter",

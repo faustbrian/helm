@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Extended recovery-bound logical prune execution to MinIO with exact
+  machine-readable bucket, user, and policy inventories, administrator-only
+  deletion, and idempotent crash replay without touching the shared instance.
 - Added daemon-owned MinIO bucket backups with runtime-only tenant credentials,
   machine-readable versioning checks, fail-closed rejection of version history,
   streamed current-object archives, and immutable checksum verification.

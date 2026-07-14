@@ -1,14 +1,15 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
     DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
-    MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions, PostgresLogicalPrunePlan,
-    PostgresLogicalPrunePlanOptions, PruneAuthorization, RabbitMqLogicalPruneOptions,
-    RestoreTarget, RestoreTargetError, SqlServerLogicalPruneOptions, evaluate_deletion,
-    open_stored_backup_artifact, prune_mongodb_logical_resource, prune_mysql_logical_resource,
-    prune_rabbitmq_logical_resource, prune_sql_server_logical_resource,
-    resolve_data_lifecycle_strategy, restore_verified_backup, store_backup_artifact,
-    store_backup_artifact_for_identity, store_backup_artifact_from_async_reader,
-    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
+    MinioLogicalPruneOptions, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
+    PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, PruneAuthorization,
+    RabbitMqLogicalPruneOptions, RestoreTarget, RestoreTargetError, SqlServerLogicalPruneOptions,
+    evaluate_deletion, open_stored_backup_artifact, prune_minio_logical_resource,
+    prune_mongodb_logical_resource, prune_mysql_logical_resource, prune_rabbitmq_logical_resource,
+    prune_sql_server_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
+    store_backup_artifact, store_backup_artifact_for_identity,
+    store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
+    verify_backup_artifact, verify_stored_backup_artifact,
 };
 
 #[test]
@@ -499,6 +500,128 @@ fn rabbitmq_logical_prune_revokes_user_then_deletes_only_the_exact_vhost() {
         ))
         .expect("replay already deleted RabbitMQ tenant");
     assert_eq!(replay.argument_calls().len(), 2);
+}
+
+#[test]
+fn minio_logical_prune_deletes_only_exact_bucket_identity_and_policy() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use std::time::Duration;
+
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: fingerprint.clone(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("MinIO metadata");
+    let observed = ObservedContainer::new(ContainerId::new("minio-1"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned MinIO container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/files/object-store".to_owned(),
+        shared_resource_id: "minio-1".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "files".to_owned(),
+        kind: "minio_bucket_policy".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/files/object-store".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "files".to_owned(),
+        username: "st_bill_files".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!(
+            "shared/{}/minio-root",
+            fingerprint.strip_prefix("sha256:").expect("fingerprint")
+        ),
+        project_id: None,
+        service_id: "minio".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPruneExecutor::with_outputs(vec![
+        br#"{"status":"success","accessKey":"st_bill_files"}"#.to_vec(),
+        Vec::new(),
+        br#"{"status":"success","type":"folder","key":"stackctl-bill-files/"}"#.to_vec(),
+        Vec::new(),
+        br#"{"status":"success","policy":"stackctl-bill-files"}"#.to_vec(),
+        Vec::new(),
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_minio_logical_resource(
+            &executor,
+            MinioLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("prune MinIO tenant");
+
+    let calls = executor.argument_calls();
+    assert_eq!(calls[0][..4], ["mc", "admin", "user", "list"]);
+    assert_eq!(
+        calls[1],
+        ["mc", "admin", "user", "remove", "stackctl", "st_bill_files"]
+    );
+    assert_eq!(calls[2][..2], ["mc", "ls"]);
+    assert_eq!(
+        calls[3],
+        ["mc", "rb", "--force", "stackctl/stackctl-bill-files"]
+    );
+    assert_eq!(calls[4][..4], ["mc", "admin", "policy", "list"]);
+    assert_eq!(
+        calls[5],
+        [
+            "mc",
+            "admin",
+            "policy",
+            "remove",
+            "stackctl",
+            "stackctl-bill-files"
+        ]
+    );
+    assert!(executor.environment()["MC_HOST_stackctl"].contains("administrator-secret"));
+    assert!(!format!("{calls:?}").contains("project-secret"));
+
+    let replay = RecordingPruneExecutor::with_outputs(vec![Vec::new(), Vec::new(), Vec::new()]);
+    runtime
+        .block_on(prune_minio_logical_resource(
+            &replay,
+            MinioLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("replay missing MinIO tenant prune");
+    assert_eq!(replay.argument_calls().len(), 3);
 }
 
 #[test]
