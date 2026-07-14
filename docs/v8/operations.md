@@ -176,12 +176,18 @@ Both stop and remove only the login service definition; SQLite state, verified
 backups, trust material, and Engine resources remain intact.
 
 The destructive spelling is deliberately separate and requires both
-`--delete-data` and `--confirm-delete-data`. It currently fails before removing
-the login service or mutating any retained resource. Stackctl will enable that
-mode only after every persistent service family has an ownership-verified,
-backup-gated deletion adapter and the complete installation inventory can be
-deleted transactionally. Until then, projects must be pruned individually
-through their verified adapters, and unsupported service kinds fail closed.
+`--delete-data` and `--confirm-delete-data`. The CLI asks the authoritative
+daemon for an exact deletion plan, confirms its content-derived token, and
+waits for durable terminal state. The daemon freezes ordinary reconciliation,
+re-verifies every recovery artifact immediately before mutation, serializes
+logical pruning, and removes only Engine objects carrying exact installation
+ownership. The CLI removes matching OS trust, stops the login service, and
+deletes runtime state only after writing a terminal marker. An interruption can
+resume from durable lifecycle state; a failed prune requires the user to rerun
+the confirmed command so Stackctl revalidates and retries the same exact
+operation. Unsupported service kinds, missing evidence, ownership drift, and
+ambiguous runtime paths fail closed without removing the login service or
+runtime state.
 
 ## V7 migration
 

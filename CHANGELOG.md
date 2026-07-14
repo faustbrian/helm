@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Updated v8 operations guidance to describe the confirmed daemon-owned
+  delete-data lifecycle instead of the former unavailable-mode behavior.
 - Refused delete-data cleanup for unmarked runtime directories, malformed
   terminal markers, missing installed-service state, and runtime symlinks so
   local filesystem cleanup cannot follow or infer ownership.
