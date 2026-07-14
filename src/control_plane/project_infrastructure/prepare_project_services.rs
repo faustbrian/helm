@@ -1,5 +1,6 @@
 use super::{
-    PreparedProjectService, ProjectServicePreparationError, plan_meilisearch_project_resources,
+    PreparedProjectService, ProjectServicePreparationError, opensearch_initial_admin_password,
+    plan_meilisearch_project_resources, plan_opensearch_project_resources,
     plan_soketi_project_resources, plan_typesense_project_resources,
 };
 use crate::control_plane::shared_infrastructure::{
@@ -25,13 +26,19 @@ where
             service.strategy() == ServiceDeploymentStrategy::DedicatedRoutableProject
                 || matches!(
                     service.desired().preset(),
-                    Some("meilisearch" | "typesense")
+                    Some("meilisearch" | "opensearch" | "typesense")
                 )
         })
         .map(|service| {
             let generated = generate_credential_secret(entropy).map_err(invalid)?;
+            let generated = if service.desired().preset() == Some("opensearch") {
+                opensearch_initial_admin_password(generated)
+            } else {
+                generated
+            };
             let candidate = match service.desired().preset() {
                 Some("meilisearch") => plan_meilisearch_project_resources(service, generated)?,
+                Some("opensearch") => plan_opensearch_project_resources(service, generated)?,
                 Some("soketi") => plan_soketi_project_resources(service, generated)?,
                 Some("typesense") => plan_typesense_project_resources(service, generated)?,
                 preset => {
@@ -54,6 +61,7 @@ where
             let stable = CredentialSecret::new(credential.secret().to_owned());
             match service.desired().preset() {
                 Some("meilisearch") => plan_meilisearch_project_resources(service, stable),
+                Some("opensearch") => plan_opensearch_project_resources(service, stable),
                 Some("soketi") => plan_soketi_project_resources(service, stable),
                 Some("typesense") => plan_typesense_project_resources(service, stable),
                 _ => unreachable!("candidate preparation accepted only registered presets"),

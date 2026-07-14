@@ -232,6 +232,95 @@ fn meilisearch_preparation_rejects_reserved_environment_before_storing_a_secret(
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn opensearch_preparation_replays_a_policy_compatible_admin_identity() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  search:\n    preset: opensearch\n    version: '3'\n    image: opensearchproject/opensearch@sha256:{}\n",
+            "d".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-opensearch-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x77))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0x88))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    let password = first[0].credential().secret();
+    assert_eq!(password, replayed[0].credential().secret());
+    assert!(password.starts_with("Aa1!"));
+    assert!(password.len() >= 12);
+    assert_eq!(
+        first[0]
+            .container_environment()
+            .get("OPENSEARCH_INITIAL_ADMIN_PASSWORD"),
+        Some(&password.to_owned())
+    );
+    assert_eq!(
+        first[0].container_environment().get("discovery.type"),
+        Some(&"single-node".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("OPENSEARCH_URL"),
+        Some(&"https://stackctl-bill-search:9200".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("OPENSEARCH_USERNAME"),
+        Some(&"admin".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("OPENSEARCH_PASSWORD"),
+        Some(&password.to_owned())
+    );
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn opensearch_preparation_rejects_reserved_environment_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  search:\n",
+                "    preset: opensearch\n    version: '3'\n",
+                "    image: opensearchproject/opensearch@sha256:{}\n",
+                "    environment:\n      OPENSEARCH_INITIAL_ADMIN_PASSWORD: override\n"
+            ),
+            "d".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-opensearch-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0x77))
+            .expect_err("reserved environment conflict")
+            .to_string(),
+        "OpenSearch service 'bill-search' cannot replace generated environment key \
+         'OPENSEARCH_INITIAL_ADMIN_PASSWORD'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {

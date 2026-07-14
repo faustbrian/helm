@@ -74,7 +74,7 @@ pub(crate) fn plan_engine_reconciliation(
                 == ServiceDeploymentStrategy::DedicatedRoutableProject
                 || matches!(
                     service.desired().preset(),
-                    Some("meilisearch" | "typesense")
+                    Some("meilisearch" | "opensearch" | "typesense")
                 );
             if requires_preparation && prepared.is_none() {
                 return Err(invalid(format!(

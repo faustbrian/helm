@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
 - Added stable Meilisearch master credentials, explicit private-network binding,
   and generated application endpoint values so the dedicated preset starts
   protected without project-maintained secrets or host port publication.
+- Added policy-compatible OpenSearch administrator credentials and required
+  single-node discovery settings so the dedicated preset boots deterministically
+  instead of relying on project-maintained demo-installer configuration.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.
