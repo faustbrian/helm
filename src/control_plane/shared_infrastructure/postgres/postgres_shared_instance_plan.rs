@@ -160,6 +160,9 @@ fn materialize(
         PersistenceMode::Persistent => RetentionClass::Persistent,
         PersistenceMode::Ephemeral => RetentionClass::Disposable,
     };
+    let platform = profile.platform_architecture().ok_or_else(|| {
+        PostgresPlanError::new("PostgreSQL compatibility profile has no Linux platform")
+    })?;
     let container_metadata = metadata(&options, options.kind, retention, fingerprint)?;
     let mut container = ContainerCreateOptions::new(
         &options.container_name,
@@ -167,13 +170,7 @@ fn materialize(
         container_metadata,
     )
     .and_then(|request| request.with_network(&options.network_name))
-    .and_then(|request| {
-        request.with_platform(
-            profile
-                .platform_architecture()
-                .expect("validated PostgreSQL profile has a Linux platform"),
-        )
-    })
+    .and_then(|request| request.with_platform(platform))
     .and_then(|request| {
         request.with_environment(BTreeMap::from([
             ("POSTGRES_DB".to_owned(), "postgres".to_owned()),

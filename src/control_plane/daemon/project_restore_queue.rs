@@ -48,6 +48,10 @@ impl ProjectRestoreQueue {
         self.pending.pop_front()
     }
 
+    pub(crate) fn requeue_front(&mut self, operation: QueuedProjectRestore) {
+        self.pending.push_front(operation);
+    }
+
     pub(crate) fn front(&self) -> Option<&QueuedProjectRestore> {
         self.pending.front()
     }

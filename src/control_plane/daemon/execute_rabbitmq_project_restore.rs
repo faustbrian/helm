@@ -290,7 +290,9 @@ fn validate_options(options: &ProjectRestoreExecutionOptions) -> Result<(), Stri
 
 fn one<T>(mut matches: Vec<T>, description: &str) -> Result<T, String> {
     match matches.len() {
-        1 => Ok(matches.pop().expect("single match exists")),
+        1 => matches
+            .pop()
+            .ok_or_else(|| format!("project restore lost its exact {description}")),
         0 => Err(format!("project restore found no exact {description}")),
         count => Err(format!(
             "project restore found {count} matches for {description}; refusing to guess"

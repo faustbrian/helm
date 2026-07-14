@@ -186,6 +186,9 @@ fn materialize(
         PersistenceMode::Persistent => RetentionClass::Persistent,
         PersistenceMode::Ephemeral => RetentionClass::Disposable,
     };
+    let platform = profile.platform_architecture().ok_or_else(|| {
+        MongoDbPlanError::new("MongoDB compatibility profile has no Linux platform")
+    })?;
     let secret_mount = BindMount::read_only(secret_file, BOOTSTRAP_SECRET_TARGET)
         .map_err(|error| MongoDbPlanError::new(error.to_string()))?;
     let container_metadata = metadata(&options, options.kind, retention, fingerprint)?;
@@ -195,13 +198,7 @@ fn materialize(
         container_metadata,
     )
     .and_then(|request| request.with_network(&options.network_name))
-    .and_then(|request| {
-        request.with_platform(
-            profile
-                .platform_architecture()
-                .expect("validated MongoDB profile has a Linux platform"),
-        )
-    })
+    .and_then(|request| request.with_platform(platform))
     .and_then(|request| {
         request.with_environment(BTreeMap::from([
             (

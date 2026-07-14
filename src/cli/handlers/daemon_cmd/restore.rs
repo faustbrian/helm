@@ -132,11 +132,14 @@ fn diagnostics_message(diagnostics: &[crate::control_plane::IpcDiagnostic]) -> S
         .join("; ")
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::decode_evidence;
+    #[cfg(unix)]
     use base64::Engine as _;
 
+    #[cfg(unix)]
     #[test]
     fn restore_evidence_requires_the_complete_typed_payload() {
         let encoded = base64::engine::general_purpose::STANDARD

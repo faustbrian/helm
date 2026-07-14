@@ -1,4 +1,3 @@
-use super::ipc::IpcEventKind;
 use super::{
     ActiveProjectRestore, EngineConnectionOutcome, ProjectRestoreExecutionOptions,
     ProjectRestoreTargetPlan, UnixDaemonRuntime, execute_queued_project_restore,
@@ -71,6 +70,9 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
+        let Some(operation) = self.project_restores.pop_front() else {
+            return;
+        };
         if let Err(error) =
             self.control_plane
                 .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -87,13 +89,10 @@ impl UnixDaemonRuntime {
                 error = %error,
                 "project restore could not claim its durable queue entry"
             );
+            self.project_restores.requeue_front(operation);
 
             return;
         }
-        let operation = self
-            .project_restores
-            .pop_front()
-            .expect("durably claimed project restore remains queued");
         let task = self.engine_runtime.spawn(execute_queued_project_restore(
             engine,
             OsCredentialEntropy,
@@ -213,12 +212,8 @@ impl UnixDaemonRuntime {
         message: &str,
         now_unix_seconds: i64,
     ) {
-        let event = IpcEventKind::Failed {
-            code: "project_restore_plan_invalid".to_owned(),
-            message: message.to_owned(),
-        };
-        let kind_json = serde_json::to_string(&event)
-            .expect("project restore plan failure serialization is infallible");
+        let kind_json =
+            super::failed_event_json("project_restore_plan_invalid", message, operation_id);
         match self
             .control_plane
             .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -252,10 +247,9 @@ impl UnixDaemonRuntime {
         {
             return;
         }
-        let active = self
-            .active_project_restore
-            .take()
-            .expect("finished project restore was present");
+        let Some(active) = self.active_project_restore.take() else {
+            return;
+        };
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
@@ -269,12 +263,11 @@ impl UnixDaemonRuntime {
                 }
             }
             Err(error) => {
-                let event = IpcEventKind::Failed {
-                    code: "project_restore_task_failed".to_owned(),
-                    message: error.to_string(),
-                };
-                let kind_json = serde_json::to_string(&event)
-                    .expect("project restore task failure serialization is infallible");
+                let kind_json = super::failed_event_json(
+                    "project_restore_task_failed",
+                    &error.to_string(),
+                    &operation_id,
+                );
                 if let Err(persistence_error) = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,

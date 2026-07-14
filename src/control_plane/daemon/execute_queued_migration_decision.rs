@@ -1100,7 +1100,9 @@ fn validate(options: &MigrationDecisionExecutionOptions) -> Result<(), String> {
 
 fn one<T>(mut matches: Vec<T>, description: &str) -> Result<T, String> {
     match matches.len() {
-        1 => Ok(matches.pop().expect("single match exists")),
+        1 => matches
+            .pop()
+            .ok_or_else(|| format!("migration decision lost its exact {description}")),
         0 => Err(format!("migration decision found no exact {description}")),
         count => Err(format!(
             "migration decision found {count} matches for {description}; refusing to guess"

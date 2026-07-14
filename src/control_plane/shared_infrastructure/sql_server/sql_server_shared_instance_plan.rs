@@ -237,19 +237,16 @@ fn materialize(
             options.bootstrap_credential.secret().to_owned(),
         ),
     ]);
+    let platform = profile.platform_architecture().ok_or_else(|| {
+        SqlServerPlanError::new("SQL Server compatibility profile has no Linux platform")
+    })?;
     let mut container = ContainerCreateOptions::new(
         &options.container_name,
         profile.image_digest(),
         container_metadata,
     )
     .and_then(|request| request.with_network(&options.network_name))
-    .and_then(|request| {
-        request.with_platform(
-            profile
-                .platform_architecture()
-                .expect("validated SQL Server profile has a Linux platform"),
-        )
-    })
+    .and_then(|request| request.with_platform(platform))
     .and_then(|request| request.with_environment(environment))
     .map_err(|error| SqlServerPlanError::new(error.to_string()))?
     .with_health_check(health_check)

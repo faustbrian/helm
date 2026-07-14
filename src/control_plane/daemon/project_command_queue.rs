@@ -48,8 +48,8 @@ impl ProjectCommandQueue {
         self.pending.pop_front()
     }
 
-    pub(crate) fn front(&self) -> Option<&QueuedProjectCommand> {
-        self.pending.front()
+    pub(crate) fn requeue_front(&mut self, operation: QueuedProjectCommand) {
+        self.pending.push_front(operation);
     }
 
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedProjectCommand> {

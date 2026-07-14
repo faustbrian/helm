@@ -94,7 +94,7 @@ where
 
         let preset = service
             .preset()
-            .expect("lockable source without an explicit image is a preset");
+            .with_context(|| format!("service '{service_id}' has neither an image nor a preset"))?;
         let Some(artifact) = resolve_preset_artifact(preset, service.version())? else {
             continue;
         };
@@ -112,10 +112,9 @@ where
             if !is_immutable_registry_reference(&resolved) {
                 bail!("daemon returned a mutable image resolution for service '{service_id}'");
             }
-            let source = lock_sources
-                .get(&service_id)
-                .expect("validated response key remains requested")
-                .clone();
+            let source = lock_sources.get(&service_id).cloned().with_context(|| {
+                format!("daemon returned unrequested service key '{service_id}'")
+            })?;
             images.insert(service_id, ArtifactLockImage::new(source, resolved));
         }
     }
@@ -241,9 +240,11 @@ fn expected_sources(
                 }
             };
             if service.image().is_none() {
-                let preset = service
-                    .preset()
-                    .expect("lockable source without an explicit image is a preset");
+                let Some(preset) = service.preset() else {
+                    return Some(Err(anyhow::anyhow!(
+                        "service '{service_id}' has neither an image nor a preset"
+                    )));
+                };
                 match resolve_preset_artifact(preset, service.version()) {
                     Ok(Some(_)) => {}
                     Ok(None) => return None,

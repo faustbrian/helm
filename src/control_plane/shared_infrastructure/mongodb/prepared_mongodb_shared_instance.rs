@@ -49,11 +49,7 @@ impl PreparedMongoDbSharedInstance {
         LogicalResourceRecord::new(LogicalResourceRecordOptions {
             logical_resource_id: project.credential().credential_id().to_owned(),
             shared_resource_id: shared_resource_id.to_owned(),
-            project_id: project
-                .credential()
-                .project_id()
-                .expect("project MongoDB credential owner")
-                .to_owned(),
+            project_id: project.environment().project_id().to_owned(),
             service_id: project.credential().service_id().to_owned(),
             kind: "mongodb_database".to_owned(),
             compatibility_fingerprint: self

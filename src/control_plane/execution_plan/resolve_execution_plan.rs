@@ -12,9 +12,12 @@ pub(crate) fn resolve_execution_plan(
 
     for project in registry.projects() {
         for service_name in project.startup_order() {
-            let service = project
-                .service(service_name)
-                .expect("validated startup order must reference a desired service");
+            let service = project.service(service_name).ok_or_else(|| {
+                ServiceStrategyError::invalid_plan(format!(
+                    "project '{}' startup order references missing service '{service_name}'",
+                    project.identity().as_str()
+                ))
+            })?;
             let strategy = service
                 .preset()
                 .map(resolve_service_deployment_strategy)

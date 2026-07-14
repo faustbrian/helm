@@ -1,4 +1,3 @@
-use super::ipc::IpcEventKind;
 use super::{
     ActivePostgresPrune, EngineConnectionOutcome, PostgresPruneExecutionOptions, UnixDaemonRuntime,
     execute_queued_postgres_prune, publish_postgres_prune_result,
@@ -69,13 +68,10 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine().cloned() else {
             return;
         };
-        let Some(operation_id) = self
-            .postgres_prunes
-            .front()
-            .map(|operation| operation.operation_id().to_owned())
-        else {
+        let Some(operation) = self.postgres_prunes.pop_front() else {
             return;
         };
+        let operation_id = operation.operation_id().to_owned();
         if let Err(error) =
             self.control_plane
                 .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -88,13 +84,10 @@ impl UnixDaemonRuntime {
                 })
         {
             tracing::error!(operation_id, error = %error, "PostgreSQL prune could not claim durable work");
+            self.postgres_prunes.requeue_front(operation);
 
             return;
         }
-        let operation = self
-            .postgres_prunes
-            .pop_front()
-            .expect("durably claimed PostgreSQL prune remains queued");
         let task = self.engine_runtime.spawn(execute_queued_postgres_prune(
             engine,
             PostgresPruneExecutionOptions {
@@ -122,10 +115,9 @@ impl UnixDaemonRuntime {
         {
             return;
         }
-        let active = self
-            .active_postgres_prune
-            .take()
-            .expect("finished PostgreSQL prune was present");
+        let Some(active) = self.active_postgres_prune.take() else {
+            return;
+        };
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
@@ -139,12 +131,11 @@ impl UnixDaemonRuntime {
                 }
             }
             Err(error) => {
-                let event = IpcEventKind::Failed {
-                    code: "postgres_prune_task_failed".to_owned(),
-                    message: error.to_string(),
-                };
-                let kind_json = serde_json::to_string(&event)
-                    .expect("PostgreSQL prune task failure serialization is infallible");
+                let kind_json = super::failed_event_json(
+                    "postgres_prune_task_failed",
+                    &error.to_string(),
+                    &operation_id,
+                );
                 if let Err(persistence_error) = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,

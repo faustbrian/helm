@@ -60,10 +60,7 @@ where
             .iter()
             .map(|project| {
                 plan_mailpit_project_resources(
-                    project
-                        .credential()
-                        .project_id()
-                        .expect("project Mailpit credential owner"),
+                    project.environment().project_id(),
                     project.credential().service_id(),
                     &instance,
                     CredentialSecret::new(project.credential().secret().to_owned()),

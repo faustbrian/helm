@@ -44,11 +44,11 @@ impl PostgresPruneQueue {
         Ok(())
     }
 
-    pub(crate) fn front(&self) -> Option<&QueuedPostgresPrune> {
-        self.pending.front()
-    }
     pub(crate) fn pop_front(&mut self) -> Option<QueuedPostgresPrune> {
         self.pending.pop_front()
+    }
+    pub(crate) fn requeue_front(&mut self, operation: QueuedPostgresPrune) {
+        self.pending.push_front(operation);
     }
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedPostgresPrune> {
         let index = self

@@ -562,10 +562,12 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
-            let container_resource = logical
-                .physical_resources()
-                .first()
-                .expect("shared reconciliation always returns its container first");
+            let Some(container_resource) = logical.physical_resources().first() else {
+                self.engine_reconciliation.complete();
+                tracing::error!("shared reconciliation returned no physical container");
+
+                return;
+            };
             if let Err(error) = health_snapshot.record(
                 container_resource.resource_id(),
                 logical.health(),
@@ -915,7 +917,16 @@ impl UnixDaemonRuntime {
                 ));
                 match result {
                     Ok(result) => {
-                        workload_resources.push(project_volume_resource_record(&result));
+                        let record = match project_volume_resource_record(&result) {
+                            Ok(record) => record,
+                            Err(error) => {
+                                self.engine_reconciliation.complete();
+                                tracing::error!(error = %error, "project volume ownership state is invalid");
+
+                                return;
+                            }
+                        };
+                        workload_resources.push(record);
                         tracing::debug!(
                             project = volume.metadata().project_id().unwrap_or_default(),
                             service = volume.metadata().resource_id().unwrap_or_default(),

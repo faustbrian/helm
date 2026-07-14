@@ -164,13 +164,17 @@ fn materialize(
     options: InstanceMaterializationOptions,
 ) -> Result<MySqlSharedInstancePlan, MySqlPlanError> {
     let profile = shared.profile();
-    let flavor = MySqlFlavor::from_implementation(profile.implementation())
-        .expect("validated MySQL-family profile");
+    let flavor = MySqlFlavor::from_implementation(profile.implementation()).ok_or_else(|| {
+        MySqlPlanError::new("MySQL-family compatibility profile has an invalid implementation")
+    })?;
     let fingerprint = profile.fingerprint().as_str();
     let retention = match profile.persistence() {
         PersistenceMode::Persistent => RetentionClass::Persistent,
         PersistenceMode::Ephemeral => RetentionClass::Disposable,
     };
+    let platform = profile.platform_architecture().ok_or_else(|| {
+        MySqlPlanError::new("MySQL-family compatibility profile has no Linux platform")
+    })?;
     let container_metadata = metadata(&options, options.kind, retention, fingerprint)?;
     let mut container = ContainerCreateOptions::new(
         &options.container_name,
@@ -178,13 +182,7 @@ fn materialize(
         container_metadata,
     )
     .and_then(|request| request.with_network(&options.network_name))
-    .and_then(|request| {
-        request.with_platform(
-            profile
-                .platform_architecture()
-                .expect("validated MySQL-family profile has a Linux platform"),
-        )
-    })
+    .and_then(|request| request.with_platform(platform))
     .and_then(|request| {
         request.with_environment(BTreeMap::from([(
             flavor.root_password_key().to_owned(),

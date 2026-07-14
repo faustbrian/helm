@@ -37,11 +37,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project MySQL credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -51,11 +47,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project Redis credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -65,11 +57,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project object-store credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -79,11 +67,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project RabbitMQ credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -93,11 +77,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project Mailpit credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -107,11 +87,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project MongoDB credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })
@@ -121,11 +97,7 @@ impl PreparedSharedInstance {
                 .iter()
                 .map(|project| {
                     (
-                        project
-                            .credential()
-                            .project_id()
-                            .expect("project SQL Server credential owner")
-                            .to_owned(),
+                        project.environment().project_id().to_owned(),
                         project.credential().service_id().to_owned(),
                     )
                 })

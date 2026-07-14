@@ -94,10 +94,9 @@ impl UnixDaemonRuntime {
             .map(|(session_id, _)| session_id.clone())
             .collect::<Vec<_>>();
         for session_id in finished {
-            let active = self
-                .active_project_logs
-                .remove(&session_id)
-                .expect("finished project log session remains active");
+            let Some(active) = self.active_project_logs.remove(&session_id) else {
+                continue;
+            };
             let (mut receiver, task) = active.into_parts();
             let outcome = self.engine_runtime.block_on(task);
             while let Ok(message) = receiver.try_recv() {

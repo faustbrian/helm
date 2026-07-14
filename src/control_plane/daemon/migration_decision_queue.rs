@@ -48,6 +48,10 @@ impl MigrationDecisionQueue {
         self.pending.pop_front()
     }
 
+    pub(crate) fn requeue_front(&mut self, operation: QueuedMigrationDecision) {
+        self.pending.push_front(operation);
+    }
+
     pub(crate) fn front(&self) -> Option<&QueuedMigrationDecision> {
         self.pending.front()
     }

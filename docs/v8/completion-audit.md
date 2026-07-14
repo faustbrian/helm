@@ -8,7 +8,8 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 681 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 683 passed, 0 failed. `just lint` (format plus all-target
+Clippy with the repository's configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -64,7 +65,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, manifest-pinned PHP image definition, commit-pinned multi-architecture publication workflow with SBOM/provenance/signing, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 683 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 

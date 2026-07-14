@@ -15,6 +15,7 @@ build-dev: fmt
 
 lint:
     rustup run nightly cargo fmt --check
+    cargo clippy --all-targets --all-features
 
 audit-v8-host-dependencies:
     ./scripts/audit-v8-host-dependencies.sh

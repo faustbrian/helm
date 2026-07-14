@@ -1,4 +1,3 @@
-use super::ipc::IpcEventKind;
 use super::{
     ActiveMigrationDecision, EngineConnectionOutcome, MigrationDecisionExecutionOptions,
     UnixDaemonRuntime, execute_queued_migration_decision, publish_migration_decision_result,
@@ -67,6 +66,9 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
+        let Some(operation) = self.migration_decisions.pop_front() else {
+            return;
+        };
         if let Err(error) =
             self.control_plane
                 .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -83,13 +85,10 @@ impl UnixDaemonRuntime {
                 error = %error,
                 "migration decision could not claim its durable queue entry"
             );
+            self.migration_decisions.requeue_front(operation);
 
             return;
         }
-        let operation = self
-            .migration_decisions
-            .pop_front()
-            .expect("durably claimed migration decision remains queued");
         let task = self.engine_runtime.spawn(execute_queued_migration_decision(
             engine,
             OsCredentialEntropy,
@@ -179,12 +178,8 @@ impl UnixDaemonRuntime {
         message: &str,
         now_unix_seconds: i64,
     ) {
-        let event = IpcEventKind::Failed {
-            code: "migration_decision_plan_invalid".to_owned(),
-            message: message.to_owned(),
-        };
-        let kind_json = serde_json::to_string(&event)
-            .expect("migration decision plan failure serialization is infallible");
+        let kind_json =
+            super::failed_event_json("migration_decision_plan_invalid", message, operation_id);
         match self
             .control_plane
             .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -218,10 +213,9 @@ impl UnixDaemonRuntime {
         {
             return;
         }
-        let active = self
-            .active_migration_decision
-            .take()
-            .expect("finished migration decision was present");
+        let Some(active) = self.active_migration_decision.take() else {
+            return;
+        };
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
@@ -235,12 +229,11 @@ impl UnixDaemonRuntime {
                 }
             }
             Err(error) => {
-                let event = IpcEventKind::Failed {
-                    code: "migration_decision_task_failed".to_owned(),
-                    message: error.to_string(),
-                };
-                let kind_json = serde_json::to_string(&event)
-                    .expect("migration decision task failure serialization is infallible");
+                let kind_json = super::failed_event_json(
+                    "migration_decision_task_failed",
+                    &error.to_string(),
+                    &operation_id,
+                );
                 if let Err(persistence_error) = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,

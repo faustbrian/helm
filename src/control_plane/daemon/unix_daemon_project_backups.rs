@@ -1,4 +1,3 @@
-use super::ipc::IpcEventKind;
 use super::{
     ActiveProjectBackup, EngineConnectionOutcome, ProjectBackupExecutionOptions, UnixDaemonRuntime,
     execute_queued_project_backup, publish_project_backup_result,
@@ -52,13 +51,10 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine().cloned() else {
             return;
         };
-        let Some(operation_id) = self
-            .project_backups
-            .front()
-            .map(|operation| operation.operation_id().to_owned())
-        else {
+        let Some(operation) = self.project_backups.pop_front() else {
             return;
         };
+        let operation_id = operation.operation_id().to_owned();
         if let Err(error) =
             self.control_plane
                 .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -75,13 +71,10 @@ impl UnixDaemonRuntime {
                 error = %error,
                 "project backup could not claim its durable queue entry"
             );
+            self.project_backups.requeue_front(operation);
 
             return;
         }
-        let operation = self
-            .project_backups
-            .pop_front()
-            .expect("durably claimed project backup remains queued");
         let logical_resource = self.project_backup_logical_resource(&operation);
         let credential = self.project_backup_credential(&operation);
         let administrator = self.project_backup_administrator(&operation);
@@ -244,10 +237,9 @@ impl UnixDaemonRuntime {
         {
             return;
         }
-        let active = self
-            .active_project_backup
-            .take()
-            .expect("finished project backup was present");
+        let Some(active) = self.active_project_backup.take() else {
+            return;
+        };
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
@@ -261,12 +253,11 @@ impl UnixDaemonRuntime {
                 }
             }
             Err(error) => {
-                let event = IpcEventKind::Failed {
-                    code: "project_backup_task_failed".to_owned(),
-                    message: error.to_string(),
-                };
-                let kind_json = serde_json::to_string(&event)
-                    .expect("project backup task failure serialization is infallible");
+                let kind_json = super::failed_event_json(
+                    "project_backup_task_failed",
+                    &error.to_string(),
+                    &operation_id,
+                );
                 if let Err(persistence_error) = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,

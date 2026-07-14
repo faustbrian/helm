@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made the declared Cargo lint policy executable across production and test
+  targets. Removed every enforced `expect()` path from v8 production code,
+  propagated invalid plans, preserved FIFO work on durable-claim failures, and
+  guaranteed terminal fallback events when detailed failures cannot serialize.
+  CI now respects explicit warn-versus-deny severities instead of promoting all
+  warnings.
 - Removed control-plane panic paths from bounded queue defaults, IPC event
   serialization, retry jitter, gateway port binding construction, and
   migration operation setup. Fallible serialization now returns structured

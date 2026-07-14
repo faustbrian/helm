@@ -163,12 +163,16 @@ fn diagnostics_message(diagnostics: &[crate::control_plane::IpcDiagnostic]) -> S
         .join("; ")
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::{decode_evidence, verify_evidence};
+    #[cfg(unix)]
     use crate::control_plane::IpcMigrationDecision;
+    #[cfg(unix)]
     use base64::Engine as _;
 
+    #[cfg(unix)]
     #[test]
     fn migration_decision_evidence_requires_exact_identity_and_state() {
         let encoded = base64::engine::general_purpose::STANDARD

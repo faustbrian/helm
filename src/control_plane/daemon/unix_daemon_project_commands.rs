@@ -1,4 +1,3 @@
-use super::ipc::IpcEventKind;
 use super::{
     ActiveProjectCommand, EngineConnectionOutcome, ProjectCommandExecutionOptions,
     UnixDaemonRuntime, execute_queued_project_command, publish_project_command_result,
@@ -52,13 +51,10 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine().cloned() else {
             return;
         };
-        let Some(operation_id) = self
-            .project_commands
-            .front()
-            .map(|operation| operation.operation_id().to_owned())
-        else {
+        let Some(operation) = self.project_commands.pop_front() else {
             return;
         };
+        let operation_id = operation.operation_id().to_owned();
         if let Err(error) =
             self.control_plane
                 .transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -75,13 +71,10 @@ impl UnixDaemonRuntime {
                 error = %error,
                 "project command could not claim its durable queue entry"
             );
+            self.project_commands.requeue_front(operation);
 
             return;
         }
-        let operation = self
-            .project_commands
-            .pop_front()
-            .expect("durably claimed project command remains queued");
         let ephemeral_browser = self.ephemeral_browser_plan(&operation);
         let installation_id = self
             .global_network_request
@@ -183,10 +176,9 @@ impl UnixDaemonRuntime {
         {
             return;
         }
-        let active = self
-            .active_project_command
-            .take()
-            .expect("finished project command was present");
+        let Some(active) = self.active_project_command.take() else {
+            return;
+        };
         let (operation_id, task) = active.into_parts();
         match self.engine_runtime.block_on(task) {
             Ok(result) => {
@@ -204,12 +196,11 @@ impl UnixDaemonRuntime {
                 }
             }
             Err(error) => {
-                let event = IpcEventKind::Failed {
-                    code: "project_command_task_failed".to_owned(),
-                    message: error.to_string(),
-                };
-                let kind_json = serde_json::to_string(&event)
-                    .expect("project command task failure serialization is infallible");
+                let kind_json = super::failed_event_json(
+                    "project_command_task_failed",
+                    &error.to_string(),
+                    &operation_id,
+                );
                 let persistence = self.control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
                         operation_id: &operation_id,
