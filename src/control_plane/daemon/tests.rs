@@ -28,7 +28,9 @@ use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
     MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
-    MySqlRestoreOptions, restore_mongodb_database, restore_mysql_database, verify_mongodb_target,
+    MySqlRestoreOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
+    restore_mongodb_database, restore_mysql_database, restore_sql_server_database,
+    verify_mongodb_target, verify_sql_server_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -1358,8 +1360,8 @@ fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
         engine.clone(),
         ProjectBackupExecutionOptions {
             operation,
-            logical_resource: Ok(logical_resource),
-            credential: Ok(credential),
+            logical_resource: Ok(logical_resource.clone()),
+            credential: Ok(credential.clone()),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1390,6 +1392,99 @@ fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
     let recovery_point = Path::new(backup.reference());
     assert!(recovery_point.join("artifact.bin").is_file());
     assert!(recovery_point.join("manifest.json").is_file());
+
+    let checkpoint = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: "restore-sqlserver".to_owned(),
+        project_id: "bill".to_owned(),
+        source_revision: "sha256:desired".to_owned(),
+        target_revision: "sha256:target".to_owned(),
+        source_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: logical_resource.compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::TargetProvisioned,
+        backup_reference: Some(backup.reference().to_owned()),
+        backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+        backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+        target_resource_id: Some("stackctl_bill_database".to_owned()),
+        rollback_reference: Some("sqlserver-2022".to_owned()),
+        updated_at_unix_seconds: 42_001,
+    })
+    .expect("SQL Server restore checkpoint");
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "migration/restore-sqlserver/sqlserver-bootstrap".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "sqlserver".to_owned(),
+        username: "sa".to_owned(),
+        secret: "AdministratorSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let target = observed_migration_target(
+        "sqlserver-target",
+        "install-1",
+        "bill",
+        "restore-sqlserver",
+        logical_resource.compatibility_fingerprint(),
+    );
+    let target = crate::control_plane::engine::reconstruct_owned_container(&target, "install-1", 8)
+        .expect("owned SQL Server target");
+
+    runtime
+        .block_on(restore_sql_server_database(
+            &engine,
+            &target,
+            &SqlServerRestoreOptions {
+                checkpoint: &checkpoint,
+                source_logical_resource: &logical_resource,
+                credential: &credential,
+                administrator: &administrator,
+                installation_id: "install-1",
+                target_database_name: "stackctl_bill_database",
+                verified_at_unix_seconds: 42_002,
+                timeout: Duration::from_secs(120),
+            },
+        ))
+        .expect("verified native SQL Server restore");
+
+    assert_eq!(engine.command_arguments()[1][0], "sh");
+    assert!(engine.command_arguments()[1][2].contains("STACKCTL_RESTORE_FILE"));
+    assert_eq!(engine.command_inputs()[1], b"installed\n");
+    let restored_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: checkpoint.migration_id().to_owned(),
+        project_id: checkpoint.project_id().to_owned(),
+        source_revision: checkpoint.source_revision().to_owned(),
+        target_revision: checkpoint.target_revision().to_owned(),
+        source_compatibility_fingerprint: checkpoint.source_compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: checkpoint.target_compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::DataRestored,
+        backup_reference: checkpoint.backup_reference().map(str::to_owned),
+        backup_artifact_sha256: checkpoint.backup_artifact_sha256().map(str::to_owned),
+        backup_artifact_size_bytes: checkpoint.backup_artifact_size_bytes(),
+        target_resource_id: checkpoint.target_resource_id().map(str::to_owned),
+        rollback_reference: checkpoint.rollback_reference().map(str::to_owned),
+        updated_at_unix_seconds: 42_003,
+    })
+    .expect("restored SQL Server checkpoint");
+    runtime
+        .block_on(verify_sql_server_target(
+            &engine,
+            &target,
+            &SqlServerVerifyTargetOptions {
+                checkpoint: &restored_checkpoint,
+                credential: &credential,
+                installation_id: "install-1",
+                target_database_name: "stackctl_bill_database",
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("tenant-authenticated SQL Server target verification");
+
+    assert_eq!(
+        engine.command_arguments()[2][0],
+        "/opt/mssql-tools18/bin/sqlcmd"
+    );
+    assert_eq!(
+        engine.command_environments()[2].get("SQLCMDPASSWORD"),
+        Some(&"ProjectSecret1".to_owned())
+    );
 
     std::fs::remove_dir_all(backup_root).expect("remove SQL Server backup fixture");
 }
@@ -5957,9 +6052,28 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
 
                 format!("{database}\n1\n").into_bytes()
             });
+        let sql_server_verification_output = request
+            .arguments()
+            .iter()
+            .any(|argument| {
+                argument == "SET NOCOUNT ON; SELECT DB_NAME() + CHAR(9) + SUSER_SNAME()"
+            })
+            .then(|| {
+                let arguments = request.arguments();
+                let database = arguments
+                    .windows(2)
+                    .find_map(|pair| (pair[0] == "-d").then_some(pair[1].as_str()))
+                    .expect("SQL Server verification database");
+                let username = arguments
+                    .windows(2)
+                    .find_map(|pair| (pair[0] == "-U").then_some(pair[1].as_str()))
+                    .expect("SQL Server verification login");
+                format!("{database}\t{username}\n").into_bytes()
+            });
         let verification_output = postgres_verification_output
             .or(mysql_verification_output)
-            .or(mongodb_verification_output);
+            .or(mongodb_verification_output)
+            .or(sql_server_verification_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added separately owned persistent SQL Server migration targets with durable
+  SA replay, native backup verification and restore, database-user remapping,
+  and exact tenant-authenticated target verification.
 - Added daemon-owned SQL Server native backups using exact active tenant
   ownership, in-container checksummed `.bak` creation, runtime-only login
   credentials, streamed immutable storage, and checksum verification.

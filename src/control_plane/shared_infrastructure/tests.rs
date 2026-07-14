@@ -16,27 +16,30 @@ use super::{
     RabbitMqSharedInstancePlanOptions, RedisAclProject, RedisAclSnapshot, RedisFlavor,
     RedisSharedInstancePlan, RedisSharedInstancePlanOptions, SharedPreparationOptions,
     SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
-    SharedVolumeReconcileAction, SharedVolumeReconcileOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
-    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    SqlServerMigrationInstancePlanOptions, SqlServerMigrationPreparationOptions,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_mongodb_migration_target,
     prepare_mysql_migration_target, prepare_postgres_migration_target,
     prepare_postgres_shared_instances, prepare_shared_instances,
-    provision_mongodb_logical_resource, provision_mysql_logical_resource,
-    provision_object_store_project_resources, provision_postgres_logical_resource,
-    provision_sql_server_logical_resource, reconcile_mailpit_authentication,
-    reconcile_mongodb_migration_target, reconcile_mongodb_project_resources,
-    reconcile_mysql_project_resources, reconcile_object_store_project_resources,
-    reconcile_postgres_migration_target, reconcile_postgres_project_resources,
-    reconcile_prepared_postgres_instance, reconcile_prepared_shared_instance,
-    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
-    reconcile_shared_volume, reconcile_sql_server_project_resources, reload_rabbitmq_definitions,
-    reload_redis_acl, resolve_execution_shared_instances, revoke_rabbitmq_project_access,
-    run_provisioning_job, stop_unreferenced_shared_services, store_credential_secret,
-    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    prepare_sql_server_migration_target, provision_mongodb_logical_resource,
+    provision_mysql_logical_resource, provision_object_store_project_resources,
+    provision_postgres_logical_resource, provision_sql_server_logical_resource,
+    reconcile_mailpit_authentication, reconcile_mongodb_migration_target,
+    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
+    reconcile_object_store_project_resources, reconcile_postgres_migration_target,
+    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
+    reconcile_prepared_shared_instance, reconcile_rabbitmq_definitions,
+    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
+    reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
+    reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
+    revoke_rabbitmq_project_access, run_provisioning_job, stop_unreferenced_shared_services,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -4907,6 +4910,129 @@ fn sql_server_instances_are_private_persistent_and_secret_safe() {
     );
     assert_eq!(instance.bootstrap_credential().secret(), "StrongRoot1");
     assert!(!format!("{instance:?}").contains("StrongRoot1"));
+}
+
+#[test]
+fn sql_server_migration_target_is_separate_owned_and_retained() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("sqlserver", "2022"),
+    )])
+    .pop()
+    .expect("shared SQL Server plan");
+    let target = SqlServerSharedInstancePlan::new_migration_target(
+        &shared,
+        SqlServerMigrationInstancePlanOptions {
+            migration_id: "restore-42".to_owned(),
+            project_id: "bill".to_owned(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:sqlserver-target".to_owned(),
+            bootstrap_secret: CredentialSecret::new("StrongTarget1".to_owned()),
+            accept_eula: true,
+            sqlcmd_path: "/opt/mssql-tools18/bin/sqlcmd".to_owned(),
+        },
+    )
+    .expect("SQL Server migration target");
+
+    assert_eq!(target.container().name(), "stackctl-migration-restore-42");
+    assert_eq!(target.container().metadata().project_id(), Some("bill"));
+    assert_eq!(
+        target.container().metadata().resource_id(),
+        Some("restore-42")
+    );
+    assert_eq!(
+        target.container().metadata().retention(),
+        crate::control_plane::engine::RetentionClass::Persistent
+    );
+    assert_eq!(
+        target.bootstrap_credential().credential_id(),
+        "migration/restore-42/sqlserver-bootstrap"
+    );
+    assert_eq!(target.bootstrap_credential().project_id(), Some("bill"));
+    assert!(target.volume().is_some());
+    assert!(!format!("{target:?}").contains("StrongTarget1"));
+}
+
+#[test]
+fn sql_server_migration_target_reuses_credential_and_converges_retained_service() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-sqlserver-migration-target-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create SQL Server target state directory");
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("sqlserver", "2022"),
+    )])
+    .pop()
+    .expect("shared SQL Server plan");
+    let options = SqlServerMigrationPreparationOptions {
+        migration_id: "restore-42",
+        project_id: "bill",
+        installation_id: "install-1",
+        network_name: "stackctl",
+        schema_version: 8,
+        desired_revision: "sha256:sqlserver-target",
+    };
+    let first = prepare_sql_server_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        options,
+    )
+    .expect("first SQL Server target preparation");
+    let second = prepare_sql_server_migration_target(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x22),
+        options,
+    )
+    .expect("replayed SQL Server target preparation");
+    assert_eq!(first.container(), second.container());
+    assert_eq!(first.volume(), second.volume());
+    assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
+    assert_eq!(store.credentials().expect("credentials").len(), 1);
+
+    let mut engine = RecordingSharedVolumeEngine {
+        health: crate::control_plane::engine::ContainerHealth::Healthy,
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+    let result = runtime
+        .block_on(reconcile_sql_server_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x33),
+            options,
+        ))
+        .expect("SQL Server target reconciliation");
+
+    assert_eq!(
+        result.container().metadata().resource_id(),
+        Some("restore-42")
+    );
+    assert_eq!(result.volume().name(), "stackctl-migration-restore-42-data");
+    assert_eq!(
+        engine.operations,
+        vec!["create-volume", "create-container", "start-container"]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove SQL Server target state");
 }
 
 #[test]

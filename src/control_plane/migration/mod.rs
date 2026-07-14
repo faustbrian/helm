@@ -41,4 +41,7 @@ pub(crate) use postgres::{
 };
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};
-pub(crate) use sql_server::{SqlServerBackupOptions, backup_sql_server_database};
+pub(crate) use sql_server::{
+    SqlServerBackupOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
+    backup_sql_server_database, restore_sql_server_database, verify_sql_server_target,
+};
