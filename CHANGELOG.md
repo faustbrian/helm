@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made first-time CA trust installation transactional through post-install
+  verification and active certificate-generation selection. If either final
+  step fails, newly introduced OS trust is removed and verified absent;
+  rollback failures are reported alongside the original setup failure.
 - Made every login-service installation validate and canonicalize its distinct
   watched roots before writing a launchd or systemd definition. Missing files,
   non-directories, and duplicate canonical roots now fail without invoking the

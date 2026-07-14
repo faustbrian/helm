@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 705 passed, 0 failed. `just lint` (format plus all-target
+`cargo test --quiet`: 706 passed, 0 failed. `just lint` (format plus all-target
 Clippy with the repository's configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
@@ -29,7 +29,7 @@ identified below.
 
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
-| AC-07 | HTTPS is trusted after one-time setup | Pending live evidence | Stackctl CA/leaf tests, cross-process certificate transaction locking, atomic active-generation selection, gateway-acknowledged zero-outage CA rotation rollback, and OS trust adapters | Install, renewal, rotation, removal, and browser trust records per claimed platform |
+| AC-07 | HTTPS is trusted after one-time setup | Pending live evidence | Stackctl CA/leaf tests, cross-process certificate transaction locking, transactional initial trust finalization, atomic active-generation selection, gateway-acknowledged zero-outage CA rotation rollback, and OS trust adapters | Install, renewal, rotation, removal, and browser trust records per claimed platform |
 | AC-08 | No host Caddy or nginx is required | Implemented | pinned gateway container request; host-dependency audit | Live clean-host installation record |
 | AC-09 | One managed gateway routes all projects | Implemented | gateway plane, atomic full-snapshot, readiness, rollback, and port-conflict tests; `docs/v8/evidence/gateway-protocol-macos-arm64.md` proves the pinned image's HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, atomic reload, and restart contract | Equivalent raw records on the remaining claimed platforms |
 | AC-10 | Application containers own no separate trusted CA | Implemented | gateway terminates TLS; app upstream plans are internal plain HTTP; dependency audit | Live container inspection artifact |
@@ -65,7 +65,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, manifest-pinned PHP image definition, commit-pinned multi-architecture publication workflow with SBOM/provenance/signing, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 705 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 706 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 

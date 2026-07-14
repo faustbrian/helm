@@ -1,3 +1,4 @@
+use super::install_current_ca_trust::install_and_activate_trust;
 use super::{
     CertificateTrustStore, CurrentCaTrustStatus, DebianCertificateTrustStore,
     FilesystemCertificateStore, HostCommand, HostCommandExecutor, HostCommandOutput,
@@ -216,6 +217,21 @@ fn current_ca_trust_install_recovers_one_persisted_identity_idempotently() {
     );
 
     std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn failed_initial_certificate_activation_removes_new_os_trust() {
+    let (identity, certificate_path) = trust_fixture();
+    let trust = RecordingTrustStore::default();
+
+    let error = install_and_activate_trust(&trust, &identity, &certificate_path, || {
+        Err(TrustStoreError::new("certificate activation failed").into())
+    })
+    .expect_err("failed certificate activation");
+
+    assert_eq!(error.to_string(), "certificate activation failed");
+    assert!(!trust.trusted.get());
+    assert_eq!(trust.removed.borrow().as_slice(), &[identity]);
 }
 
 #[test]

@@ -142,6 +142,12 @@ the login service. If service installation fails, setup removes trust only when
 that invocation added it; existing trust is retained. A trust rollback failure
 is reported together with the service failure.
 
+Initial CA trust installation also remains transactional through exact trust
+verification and active certificate-generation selection. A failure after new
+OS trust is added removes that exact identity and verifies it absent. Existing
+trust is never removed by this rollback, and rollback failure is reported with
+the original finalization error.
+
 `stackctl daemon service status` checks the selected service manager in
 addition to the definition file. A stale launchd plist or systemd user unit is
 reported as installed but not running, with an explicit reinstall command; it
