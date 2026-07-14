@@ -10,8 +10,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::macros::datetime;
 use x509_parser::extensions::GeneralName;
@@ -309,7 +309,11 @@ fn failed_gateway_certificate_activation_rolls_back_ca_rotation() {
         &certificates,
         &trust,
         datetime!(2026-07-14 12:00 UTC),
-        |_identity, _paths| Err(TrustStoreError::new("gateway did not serve replacement leaf")),
+        |_identity, _paths| {
+            Err(TrustStoreError::new(
+                "gateway did not serve replacement leaf",
+            ))
+        },
     )
     .expect_err("gateway acknowledgement must gate rotation");
     let (current, _) = certificates
@@ -318,7 +322,11 @@ fn failed_gateway_certificate_activation_rolls_back_ca_rotation() {
         .expect("active CA");
     let current = LocalCaIdentity::from_pem(current.ca_certificate_pem()).expect("CA identity");
 
-    assert!(error.to_string().contains("gateway did not serve replacement leaf"));
+    assert!(
+        error
+            .to_string()
+            .contains("gateway did not serve replacement leaf")
+    );
     assert_eq!(&current, initial.identity());
     assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
 
@@ -712,8 +720,8 @@ fn certificate_store_lock_serializes_generation_transactions() {
     let root = temporary_certificate_root();
     let store = FilesystemCertificateStore::new(root.clone());
     let first = store.lock().expect("acquire first certificate lock");
-    let (started_tx, started_rx) = std::sync::mpsc::channel();
-    let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (acquired_tx, acquired_rx) = mpsc::channel();
     let contender_root = root.clone();
     let contender = std::thread::spawn(move || {
         started_tx.send(()).expect("announce lock attempt");
@@ -724,15 +732,13 @@ fn certificate_store_lock_serializes_generation_transactions() {
     started_rx.recv().expect("contender started");
 
     assert!(
-        acquired_rx
-            .recv_timeout(std::time::Duration::from_millis(50))
-            .is_err(),
+        acquired_rx.recv_timeout(Duration::from_millis(50)).is_err(),
         "the second transaction must wait while the first lock is held"
     );
 
     drop(first);
     acquired_rx
-        .recv_timeout(std::time::Duration::from_secs(1))
+        .recv_timeout(Duration::from_secs(1))
         .expect("contender acquired released lock");
     contender.join().expect("lock contender completed");
     std::fs::remove_dir_all(root).expect("remove certificate test root");

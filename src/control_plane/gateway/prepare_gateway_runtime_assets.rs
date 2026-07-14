@@ -5,6 +5,7 @@ use super::{
     store_caddy_bootstrap,
 };
 use crate::control_plane::tls::{FilesystemCertificateStore, reconcile_local_certificates};
+use std::path::Path;
 
 /// Recovers or creates all private host assets before gateway reconciliation.
 pub(crate) fn prepare_gateway_runtime_assets(

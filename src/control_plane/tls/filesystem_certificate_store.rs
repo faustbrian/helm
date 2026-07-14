@@ -1,7 +1,6 @@
 use super::{
     CertificateRotationLock, CertificateStoreLock, LocalCertificateBundle, LocalCertificateError,
-    StoredCertificatePaths,
-    certificate_rotation_lock::CERTIFICATE_ROTATION_LOCK_FILE,
+    StoredCertificatePaths, certificate_rotation_lock::CERTIFICATE_ROTATION_LOCK_FILE,
     certificate_store_lock::CERTIFICATE_STORE_LOCK_FILE,
 };
 use sha2::{Digest, Sha256};
@@ -39,9 +38,7 @@ impl FilesystemCertificateStore {
 
     /// Excludes other trust operations for the full CA rotation transaction.
     #[cfg(unix)]
-    pub(crate) fn lock_rotation(
-        &self,
-    ) -> Result<CertificateRotationLock, LocalCertificateError> {
+    pub(crate) fn lock_rotation(&self) -> Result<CertificateRotationLock, LocalCertificateError> {
         CertificateRotationLock::acquire_exclusive(&self.root)
     }
 

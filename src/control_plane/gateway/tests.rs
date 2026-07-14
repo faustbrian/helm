@@ -132,7 +132,11 @@ fn gateway_certificate_activation_wait_rejects_a_stale_generation() {
     )
     .expect_err("stale gateway generation must time out");
 
-    assert!(error.to_string().contains("did not activate certificate generation"));
+    assert!(
+        error
+            .to_string()
+            .contains("did not activate certificate generation")
+    );
 
     std::fs::remove_dir_all(root).expect("remove stale activation fixture");
 }

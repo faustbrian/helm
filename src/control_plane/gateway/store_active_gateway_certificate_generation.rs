@@ -3,8 +3,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-pub(super) const ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE: &str =
-    "active-certificate-generation";
+pub(super) const ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE: &str = "active-certificate-generation";
 
 /// Atomically publishes the certificate generation served by the ready gateway.
 #[cfg(unix)]
