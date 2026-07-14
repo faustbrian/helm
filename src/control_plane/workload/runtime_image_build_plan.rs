@@ -1,66 +1,109 @@
+use super::RuntimeImageBuildOptions;
 use crate::control_plane::engine::{
-    EngineError, ImageBuildRequest, ManagedResourceMetadata, ManagedResourceMetadataOptions,
-    ResourceKind, RetentionClass,
+    EngineError, ImageBuildRequest, ImmutableImageReference, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
-/// A deterministic Engine build for one reusable Linux PHP extension runtime.
+/// A deterministic Engine build for one reusable Linux application runtime.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RuntimeImageBuildPlan {
     request: ImageBuildRequest,
     compatibility_fingerprint: String,
+    input_images: Vec<ImmutableImageReference>,
 }
 
 impl RuntimeImageBuildPlan {
-    pub(crate) fn for_php_extensions(
-        installation_id: &str,
-        schema_version: u32,
-        base_image_digest: &str,
-        platform: &str,
-        mut php_extensions: Vec<String>,
+    pub(crate) fn for_application_runtime(
+        options: RuntimeImageBuildOptions<'_>,
     ) -> Result<Self, EngineError> {
+        let mut php_extensions = options.php_extensions;
         normalize_unique(&mut php_extensions)?;
-        if php_extensions.is_empty() {
+        if php_extensions.is_empty()
+            && options.composer_image.is_none()
+            && options.node_image.is_none()
+            && options.bun_image.is_none()
+        {
             return Err(invalid_request(
-                "derived PHP runtime requires at least one extension",
+                "derived application runtime requires at least one declared tool or PHP extension",
             ));
         }
 
-        let manifest_json = serde_json::to_string(&PhpExtensionRuntimeManifest {
+        let manifest_json = serde_json::to_string(&ApplicationRuntimeManifest {
             schema_version: 1,
             php_extensions: &php_extensions,
+            composer_image: options.composer_image,
+            node_image: options.node_image,
+            bun_image: options.bun_image,
         })
         .map_err(|error| invalid_request(format!("failed to encode runtime manifest: {error}")))?;
-        let compatibility_fingerprint = fingerprint(base_image_digest, platform, &manifest_json);
+        let compatibility_fingerprint =
+            fingerprint(options.base_image_digest, options.platform, &manifest_json);
         let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
-            installation_id: installation_id.to_owned(),
+            installation_id: options.installation_id.to_owned(),
             kind: ResourceKind::Build,
             project_id: None,
             compatibility_fingerprint: compatibility_fingerprint.clone(),
-            schema_version,
+            schema_version: options.schema_version,
             desired_revision: compatibility_fingerprint.clone(),
             retention: RetentionClass::BuildCache,
         })?;
-        let mut command = vec!["install-php-extensions".to_owned()];
-        command.extend(php_extensions);
-        let command = serde_json::to_string(&command).map_err(|error| {
-            invalid_request(format!(
-                "failed to encode extension installer command: {error}"
-            ))
-        })?;
+        let input_images = [
+            Some(options.base_image_digest),
+            options.composer_image,
+            options.node_image,
+            options.bun_image,
+        ]
+        .into_iter()
+        .flatten()
+        .map(ImmutableImageReference::new)
+        .collect::<Result<Vec<_>, _>>()?;
+        let mut dockerfile = String::new();
+        if let Some(image) = options.composer_image {
+            dockerfile.push_str(&format!("FROM {image} AS stackctl_composer\n"));
+        }
+        if let Some(image) = options.node_image {
+            dockerfile.push_str(&format!("FROM {image} AS stackctl_node\n"));
+        }
+        if let Some(image) = options.bun_image {
+            dockerfile.push_str(&format!("FROM {image} AS stackctl_bun\n"));
+        }
+        dockerfile.push_str(&format!("FROM {}\n", options.base_image_digest));
+        if options.composer_image.is_some() {
+            dockerfile.push_str(
+                "COPY --from=stackctl_composer /usr/bin/composer /usr/local/bin/composer\n",
+            );
+        }
+        if options.node_image.is_some() {
+            dockerfile.push_str("COPY --from=stackctl_node /usr/local/ /usr/local/\n");
+        }
+        if options.bun_image.is_some() {
+            dockerfile.push_str("COPY --from=stackctl_bun /usr/local/bin/bun /usr/local/bin/bun\n");
+        }
+        if !php_extensions.is_empty() {
+            let mut command = vec!["install-php-extensions".to_owned()];
+            command.extend(php_extensions);
+            let command = serde_json::to_string(&command).map_err(|error| {
+                invalid_request(format!(
+                    "failed to encode extension installer command: {error}"
+                ))
+            })?;
+            dockerfile.push_str(&format!("RUN {command}\n"));
+        }
         let request = ImageBuildRequest::new(
             BTreeMap::new(),
             "Dockerfile".to_owned(),
-            format!("FROM {base_image_digest}\nRUN {command}\n"),
-            platform.to_owned(),
+            dockerfile,
+            options.platform.to_owned(),
             metadata,
         )?;
 
         Ok(Self {
             request,
             compatibility_fingerprint,
+            input_images,
         })
     }
 
@@ -71,12 +114,19 @@ impl RuntimeImageBuildPlan {
     pub(crate) fn compatibility_fingerprint(&self) -> &str {
         &self.compatibility_fingerprint
     }
+
+    pub(crate) fn input_images(&self) -> &[ImmutableImageReference] {
+        &self.input_images
+    }
 }
 
 #[derive(Serialize)]
-struct PhpExtensionRuntimeManifest<'value> {
+struct ApplicationRuntimeManifest<'value> {
     schema_version: u32,
     php_extensions: &'value [String],
+    composer_image: Option<&'value str>,
+    node_image: Option<&'value str>,
+    bun_image: Option<&'value str>,
 }
 
 fn normalize_unique(values: &mut [String]) -> Result<(), EngineError> {

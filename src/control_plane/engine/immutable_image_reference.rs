@@ -23,9 +23,21 @@ impl ImmutableImageReference {
 }
 
 fn has_sha256_digest(image: &str) -> bool {
-    let Some((_, digest)) = image.rsplit_once("@sha256:") else {
+    let Some((repository, digest)) = image.rsplit_once("@sha256:") else {
         return false;
     };
 
-    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    valid_repository(repository)
+        && digest.len() == 64
+        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn valid_repository(repository: &str) -> bool {
+    repository
+        .bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphanumeric())
+        && repository.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'/' | b'-')
+        })
 }

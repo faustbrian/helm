@@ -4916,7 +4916,9 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
         concat!(
             "schema_version: 8\nproject: bill\nservices:\n  app:\n",
             "    image: ghcr.io/acme/bill@sha256:",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            "    composer_image: composer@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
         )
         .to_owned(),
     );
@@ -4939,6 +4941,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
 
     assert_eq!(plan.applications().len(), 1);
     assert_eq!(plan.applications()[0].request().name(), "stackctl-bill-app");
+    assert!(plan.applications()[0].runtime_image().is_some());
     assert_eq!(plan.gateway().routes().len(), 1);
     assert_eq!(
         plan.gateway().routes()[0].domain(),

@@ -178,6 +178,10 @@ fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {
         "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
     );
     assert_eq!(
+        schema["$defs"]["immutableImage"]["pattern"],
+        "^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-fA-F]{64}$"
+    );
+    assert_eq!(
         schema["properties"]["services"]["propertyNames"]["$ref"],
         "#/$defs/dnsLabel"
     );
@@ -238,6 +242,9 @@ services:
     preset: laravel
     image: ghcr.io/stackctl/php:8.4
     php_extensions: [redis, intl]
+    composer_image: composer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    node_image: node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    bun_image: oven/bun@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
     command: [php, artisan, octane:start]
     environment:
       APP_ENV: local
@@ -260,6 +267,27 @@ services:
     assert_eq!(app.preset(), Some("laravel"));
     assert_eq!(app.image(), Some("ghcr.io/stackctl/php:8.4"));
     assert_eq!(app.php_extensions(), ["intl", "redis"]);
+    assert_eq!(
+        app.composer_image(),
+        Some(concat!(
+            "composer@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ))
+    );
+    assert_eq!(
+        app.node_image(),
+        Some(concat!(
+            "node@sha256:",
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        ))
+    );
+    assert_eq!(
+        app.bun_image(),
+        Some(concat!(
+            "oven/bun@sha256:",
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        ))
+    );
     assert_eq!(
         app.command().expect("application command"),
         ["php", "artisan", "octane:start"]
@@ -321,6 +349,65 @@ services:
             .expect_err("invalid environment key")
             .to_string(),
         "service 'worker' declares invalid environment key 'BAD=KEY'"
+    );
+}
+
+#[test]
+fn desired_state_rejects_mutable_runtime_tool_images() {
+    let error = desired_from(
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n    composer_image: composer:2\n",
+    )
+    .expect_err("mutable Composer image");
+
+    assert!(error.to_string().contains("composer_image"));
+    assert!(error.to_string().contains("immutable sha256 digest"));
+}
+
+#[test]
+fn desired_state_rejects_runtime_tool_image_dockerfile_injection() {
+    let error = desired_from(concat!(
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+        "    node_image: 'node AS injected\nRUN exploit@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n"
+    ))
+    .expect_err("unsafe runtime tool image");
+
+    assert!(error.to_string().contains("node_image"));
+    assert!(error.to_string().contains("immutable sha256 digest"));
+}
+
+#[test]
+fn desired_state_allows_immutable_tool_images_for_custom_applications() {
+    let desired = desired_from(concat!(
+        "schema_version: 8\nservices:\n  app:\n",
+        "    image: ghcr.io/acme/app@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "    composer_image: composer@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+    ))
+    .expect("custom application runtime");
+
+    assert_eq!(
+        desired.service("app").expect("app").composer_image(),
+        Some(concat!(
+            "composer@sha256:",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        ))
+    );
+}
+
+#[test]
+fn desired_state_rejects_runtime_tool_images_for_infrastructure() {
+    let error = desired_from(concat!(
+        "schema_version: 8\nservices:\n  db:\n    preset: postgres\n",
+        "    composer_image: composer@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+    ))
+    .expect_err("infrastructure runtime tools");
+
+    assert_eq!(
+        error.to_string(),
+        "service 'db' runtime tool images are supported only by project application services"
     );
 }
 

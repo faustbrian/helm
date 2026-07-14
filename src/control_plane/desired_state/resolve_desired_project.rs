@@ -1,8 +1,11 @@
-use super::{DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions};
+use super::{
+    DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions,
+    resolve_runtime_image_reference::resolve_runtime_image_reference,
+};
 use crate::control_plane::configuration::RawProjectConfig;
 use crate::control_plane::{
-    ProjectIdentity, RouteClaim, ServiceIdentity, is_valid_environment_variable_key,
-    resolve_service_deployment_strategy,
+    ProjectIdentity, RouteClaim, ServiceDeploymentStrategy, ServiceIdentity,
+    is_valid_environment_variable_key, resolve_service_deployment_strategy,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -84,6 +87,23 @@ pub(crate) fn resolve_desired_project(
                 ),
             ));
         }
+        let composer_image =
+            resolve_runtime_image_reference(name, "composer_image", raw_service.composer_image())?;
+        let node_image =
+            resolve_runtime_image_reference(name, "node_image", raw_service.node_image())?;
+        let bun_image =
+            resolve_runtime_image_reference(name, "bun_image", raw_service.bun_image())?;
+        let is_project_application = deployment_strategy
+            == Some(ServiceDeploymentStrategy::ProjectApplication)
+            || (deployment_strategy.is_none() && image.is_some());
+        if (composer_image.is_some() || node_image.is_some() || bun_image.is_some())
+            && !is_project_application
+        {
+            return Err(invalid_service(
+                name,
+                "runtime tool images are supported only by project application services",
+            ));
+        }
 
         services.insert(
             name.clone(),
@@ -94,6 +114,9 @@ pub(crate) fn resolve_desired_project(
                 image,
                 version,
                 php_extensions,
+                composer_image,
+                node_image,
+                bun_image,
                 database,
                 command,
                 environment,
@@ -189,7 +212,7 @@ fn valid_php_extension(extension: &str) -> bool {
         })
 }
 
-fn invalid_service(service: &str, detail: impl Into<String>) -> DesiredProjectError {
+pub(super) fn invalid_service(service: &str, detail: impl Into<String>) -> DesiredProjectError {
     DesiredProjectError::InvalidService {
         service: service.to_owned(),
         detail: detail.into(),

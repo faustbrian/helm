@@ -199,6 +199,11 @@ fn image_resolution_accepts_only_immutable_digest_references() {
     let local_id = format!("sha256:{}", "a".repeat(64));
     let local_id_error =
         ImmutableImageReference::new(local_id.clone()).expect_err("local content ID pull");
+    let unsafe_reference = ImmutableImageReference::new(format!(
+        "php AS injected\nRUN exploit@sha256:{}",
+        "a".repeat(64)
+    ))
+    .expect_err("Dockerfile control text");
     let mut resolver = RecordingImageResolver::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -218,6 +223,11 @@ fn image_resolution_accepts_only_immutable_digest_references() {
     assert_eq!(
         local_id_error.to_string(),
         format!("managed image '{local_id}' must use an immutable sha256 digest")
+    );
+    assert!(
+        unsafe_reference
+            .to_string()
+            .contains("must use an immutable sha256 digest")
     );
 }
 

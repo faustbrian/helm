@@ -1,7 +1,7 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, WorkloadPlanError,
+    RuntimeEnvironmentOptions, RuntimeImageBuildOptions, RuntimeImageBuildPlan, WorkloadPlanError,
     application_container_request,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
@@ -37,17 +37,24 @@ pub(crate) fn plan_immutable_project_application(
         managed: options.managed_environment,
     })
     .map_err(invalid)?;
-    let runtime_image = if service.desired().php_extensions().is_empty() {
+    let runtime_image = if service.desired().php_extensions().is_empty()
+        && service.desired().composer_image().is_none()
+        && service.desired().node_image().is_none()
+        && service.desired().bun_image().is_none()
+    {
         None
     } else {
         Some(
-            RuntimeImageBuildPlan::for_php_extensions(
-                options.installation_id,
-                options.schema_version,
-                image,
-                options.platform,
-                service.desired().php_extensions().to_vec(),
-            )
+            RuntimeImageBuildPlan::for_application_runtime(RuntimeImageBuildOptions {
+                installation_id: options.installation_id,
+                schema_version: options.schema_version,
+                base_image_digest: image,
+                platform: options.platform,
+                php_extensions: service.desired().php_extensions().to_vec(),
+                composer_image: service.desired().composer_image(),
+                node_image: service.desired().node_image(),
+                bun_image: service.desired().bun_image(),
+            })
             .map_err(invalid)?,
         )
     };
@@ -63,6 +70,9 @@ pub(crate) fn plan_immutable_project_application(
         options.internal_http_port,
         &environment,
         service.desired().php_extensions(),
+        service.desired().composer_image(),
+        service.desired().node_image(),
+        service.desired().bun_image(),
     )?;
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id.to_owned(),
@@ -113,6 +123,9 @@ fn desired_revision(
     internal_http_port: u16,
     environment: &RuntimeEnvironment,
     php_extensions: &[String],
+    composer_image: Option<&str>,
+    node_image: Option<&str>,
+    bun_image: Option<&str>,
 ) -> Result<String, WorkloadPlanError> {
     let manifest = serde_json::to_vec(&ProjectApplicationRevision {
         schema_version: 1,
@@ -126,6 +139,9 @@ fn desired_revision(
         managed_environment_revision: environment.managed_revision(),
         environment: environment.values(),
         php_extensions,
+        composer_image,
+        node_image,
+        bun_image,
     })
     .map_err(invalid)?;
 
@@ -145,6 +161,9 @@ struct ProjectApplicationRevision<'value> {
     managed_environment_revision: &'value str,
     environment: &'value BTreeMap<String, String>,
     php_extensions: &'value [String],
+    composer_image: Option<&'value str>,
+    node_image: Option<&'value str>,
+    bun_image: Option<&'value str>,
 }
 
 fn fingerprint<'value>(values: impl IntoIterator<Item = &'value str>) -> String {

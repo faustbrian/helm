@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 643 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 648 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -32,8 +32,8 @@ identified below.
 | AC-08 | No host Caddy or nginx is required | Implemented | pinned gateway container request; host-dependency audit | Live clean-host installation record |
 | AC-09 | One managed gateway routes all projects | Implemented | gateway plane, atomic full-snapshot, readiness, rollback, and port-conflict tests | Full HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, and crash acceptance artifact |
 | AC-10 | Application containers own no separate trusted CA | Implemented | gateway terminates TLS; app upstream plans are internal plain HTTP; dependency audit | Live container inspection artifact |
-| AC-11 | Project runtimes and hooks execute in Linux containers | Partial | immutable application, project command, worker, scheduler, Reverb, and Engine exec paths | Representative live runtime/hook acceptance on each claimed platform |
-| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed extension-image planning, daemon build-before-start reconciliation, exact worker/scheduler image inheritance, and extension-capable preset validation tests | Built-image and application acceptance for the supported extension catalog on amd64 and arm64 |
+| AC-11 | Project runtimes and hooks execute in Linux containers | Partial | immutable application, digest-pinned Composer/Node/Bun stages, project command, worker, scheduler, Reverb, and Engine exec paths | Representative live runtime/tool/hook acceptance on each claimed platform |
+| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed application-runtime planning, Engine resolution of every immutable input, offline build-before-start reconciliation, exact worker/scheduler image inheritance, and extension-capable preset validation tests | Built-image and application acceptance for the supported extension and tool catalog on amd64 and arm64 |
 | AC-13 | App containers publish no routine web ports | Implemented | application plan and gateway network tests | Live Engine inventory artifact |
 
 ## Shared services and state
@@ -61,7 +61,7 @@ identified below.
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
 | AC-24 | macOS and Linux claims have platform evidence | Pending live evidence | `docs/v8/platform-support.md`; Unix architecture CI matrix | Complete live macOS and Linux records |
-| AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, installer checksum, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
+| AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, artifact lock, safe immutable tool-image references, offline content-addressed runtime builds, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
 | AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | local tests plus lint/build at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |

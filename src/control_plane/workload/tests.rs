@@ -16,10 +16,10 @@ use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
     ContainerLogStream, ContainerRestartPolicy, ContainerState, EngineError, EngineFuture,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, LogChunk, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, ObservedContainer, ObservedVolume, OwnedContainer, OwnedVolume,
-    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    reconstruct_owned_container,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageResolver,
+    ImmutableImageReference, LogChunk, ManagedResourceMetadata, ManagedResourceMetadataOptions,
+    ObservedContainer, ObservedVolume, OwnedContainer, OwnedVolume, ResourceKind, RetentionClass,
+    VolumeCreateOptions, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -456,6 +456,89 @@ fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
 }
 
 #[test]
+fn declared_tool_images_produce_one_content_addressed_application_runtime() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    preset: laravel\n    version: \"8.5\"\n",
+        "    image: dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "    composer_image: composer@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n",
+        "    node_image: node@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n",
+        "    bun_image: oven/bun@sha256:",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n"
+    ));
+
+    let plan = plan_immutable_project_application(ImmutableProjectApplicationOptions {
+        service: &application,
+        managed_environment: managed_environment(
+            "bill",
+            BTreeMap::new(),
+            EnvironmentLifecycle::Active,
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("tool-aware application plan");
+
+    let dockerfile = plan
+        .runtime_image()
+        .expect("declared tools require a derived runtime image")
+        .request()
+        .dockerfile_contents();
+    assert!(dockerfile.contains(concat!(
+        "FROM composer@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb AS stackctl_composer"
+    )));
+    assert!(dockerfile.contains(concat!(
+        "FROM node@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc AS stackctl_node"
+    )));
+    assert!(dockerfile.contains(concat!(
+        "FROM oven/bun@sha256:",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd AS stackctl_bun"
+    )));
+    assert!(
+        dockerfile
+            .contains("COPY --from=stackctl_composer /usr/bin/composer /usr/local/bin/composer")
+    );
+    assert!(dockerfile.contains("COPY --from=stackctl_node /usr/local/ /usr/local/"));
+    assert!(dockerfile.contains("COPY --from=stackctl_bun /usr/local/bin/bun /usr/local/bin/bun"));
+
+    let mut engine = RecordingWorkloadEngine::default();
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime")
+        .block_on(materialize_application_request(&mut engine, &plan))
+        .expect("materialized tool runtime");
+    assert_eq!(
+        *engine.resolved_images.lock().expect("resolved images"),
+        [
+            concat!(
+                "dunglas/frankenphp@sha256:",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            concat!(
+                "composer@sha256:",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ),
+            concat!(
+                "node@sha256:",
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            ),
+            concat!(
+                "oven/bun@sha256:",
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            ),
+        ]
+    );
+}
+
+#[test]
 fn extension_aware_application_requests_use_the_built_image_identity() {
     let application = resolved_application(concat!(
         "schema_version: 8\nproject: bill\nservices:\n  app:\n",
@@ -478,13 +561,13 @@ fn extension_aware_application_requests_use_the_built_image_identity() {
         internal_http_port: 8080,
     })
     .expect("extension-aware application plan");
-    let engine = RecordingWorkloadEngine::default();
+    let mut engine = RecordingWorkloadEngine::default();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("test runtime");
 
     let request = runtime
-        .block_on(materialize_application_request(&engine, &plan))
+        .block_on(materialize_application_request(&mut engine, &plan))
         .expect("materialized application request");
 
     assert_eq!(request.image(), format!("sha256:{}", "b".repeat(64)));
@@ -1301,6 +1384,7 @@ fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOpti
 
 struct RecordingWorkloadEngine {
     built: Mutex<Vec<ImageBuildRequest>>,
+    resolved_images: Mutex<Vec<String>>,
     build_failure: Option<String>,
     observed: Vec<ObservedContainer>,
     state: ContainerState,
@@ -1315,6 +1399,7 @@ impl Default for RecordingWorkloadEngine {
     fn default() -> Self {
         Self {
             built: Mutex::new(Vec::new()),
+            resolved_images: Mutex::new(Vec::new()),
             build_failure: None,
             observed: Vec::new(),
             state: ContainerState::Missing,
@@ -1344,6 +1429,19 @@ impl ImageBuilder for RecordingWorkloadEngine {
 
             ImageId::new(format!("sha256:{}", "b".repeat(64)))
         })
+    }
+}
+
+impl ImageResolver for RecordingWorkloadEngine {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        self.resolved_images
+            .lock()
+            .expect("resolved images")
+            .push(reference.as_str().to_owned());
+        Box::pin(async { ImageId::new(format!("sha256:{}", "a".repeat(64))) })
     }
 }
 

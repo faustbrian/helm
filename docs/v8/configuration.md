@@ -19,6 +19,8 @@ services:
     php_extensions:
       - intl
       - redis
+    composer_image: composer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    node_image: node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     depends_on:
       - db
       - cache
@@ -112,6 +114,23 @@ from the locked base and the sorted extension set before starting the app.
 Workers and schedulers use that exact built image. Images without one of these
 presets cannot declare extensions implicitly; they must contain their
 requirements already.
+
+Application services may declare `composer_image`, `node_image`, and
+`bun_image`. Each value must already be an exact registry reference of the form
+`repository@sha256:<64 hex characters>`; Stackctl does not resolve mutable tool
+tags or download an installer during unattended reconciliation. The daemon
+derives one content-addressed Linux runtime from the locked application base,
+the target platform, normalized PHP extensions, and all declared tool-image
+digests. It makes every input available through the selected Engine before an
+offline build, then starts the application from that derived image. Workers and
+schedulers inherit the same resulting image.
+
+Project system libraries are part of the immutable application base image.
+Stackctl does not accept arbitrary package names and run a distribution package
+manager during reconciliation, because that would make results depend on
+mutable repositories. A project requiring additional libraries must publish a
+digest-pinned custom application base containing them; Composer, Node, or Bun
+may then be layered from their separately pinned images as above.
 
 ## Project identity and routes
 

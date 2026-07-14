@@ -12,6 +12,9 @@ pub(crate) struct DesiredService {
     image: Option<String>,
     version: Option<String>,
     php_extensions: Vec<String>,
+    composer_image: Option<String>,
+    node_image: Option<String>,
+    bun_image: Option<String>,
     database: Option<String>,
     command: Option<Vec<String>>,
     environment: BTreeMap<String, String>,
@@ -27,6 +30,9 @@ impl Debug for DesiredService {
             .field("image", &self.image)
             .field("version", &self.version)
             .field("php_extensions", &self.php_extensions)
+            .field("composer_image", &self.composer_image)
+            .field("node_image", &self.node_image)
+            .field("bun_image", &self.bun_image)
             .field("database", &self.database)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
@@ -43,6 +49,9 @@ impl DesiredService {
             image: options.image,
             version: options.version,
             php_extensions: options.php_extensions,
+            composer_image: options.composer_image,
+            node_image: options.node_image,
+            bun_image: options.bun_image,
             database: options.database,
             command: options.command,
             environment: options.environment,
@@ -73,6 +82,18 @@ impl DesiredService {
 
     pub(crate) fn php_extensions(&self) -> &[String] {
         &self.php_extensions
+    }
+
+    pub(crate) fn composer_image(&self) -> Option<&str> {
+        self.composer_image.as_deref()
+    }
+
+    pub(crate) fn node_image(&self) -> Option<&str> {
+        self.node_image.as_deref()
+    }
+
+    pub(crate) fn bun_image(&self) -> Option<&str> {
+        self.bun_image.as_deref()
     }
 
     pub(crate) fn database(&self) -> Option<&str> {

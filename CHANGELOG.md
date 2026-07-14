@@ -62,6 +62,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added digest-pinned Composer, Node, and Bun application-runtime inputs. The
+  daemon resolves every base and tool image through the selected Engine, builds
+  one network-disabled content-addressed Linux runtime, and propagates it to
+  dependent workers and schedulers. Additional system libraries remain an
+  explicit responsibility of the immutable custom application base.
 - Bound project-owned persistent volumes into installation delete-data plans
   with user-visible resource and recovery identities, confirmation tokens that
   include exact artifact evidence, reverification at freeze and immediately

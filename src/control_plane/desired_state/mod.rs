@@ -3,6 +3,7 @@ mod desired_project_error;
 mod desired_service;
 mod desired_service_options;
 mod resolve_desired_project;
+mod resolve_runtime_image_reference;
 
 pub(crate) use desired_project::DesiredProject;
 pub(crate) use desired_project_error::DesiredProjectError;

@@ -19,12 +19,19 @@ ask users to trust their own CAs.
 
 ## Supply chain and upgrades
 
-Built-in images use immutable digests. PHP extension runtime images are
+Built-in images use immutable digests. Application runtime images are
 content-addressed by the locked base digest, target Linux platform, normalized
-extension set, and immutable ownership metadata. Equivalent projects reuse the
-verified Engine build cache. Composer, JavaScript, and additional system
-package variants remain separate incomplete runtime-image work and are not
-claimed by this path.
+PHP extension set, exact Composer, Node, and Bun image digests, and immutable
+ownership metadata. Equivalent projects reuse the verified Engine build cache.
+Every referenced image is made available through the typed `ImageResolver`
+before the daemon submits a network-disabled Engine build. Workers and
+schedulers are rebound to the exact derived image used by their application.
+
+Additional system libraries belong in a digest-pinned custom application base.
+Normal reconciliation never runs a host package manager or performs an online
+`apt`, `apk`, or equivalent install from mutable package repositories. Stackctl
+therefore treats the custom base digest as the complete system-library contract
+rather than pretending arbitrary package names are reproducible inputs.
 
 Project-local `.stackctl.lock.yaml` records bind exact configured image or
 preset sources to immutable sha256 digests. Registry planning validates and
@@ -43,11 +50,11 @@ same key set. The CLI rejects missing, additional, or mutable results before an
 atomic YAML lock publication.
 
 Extension generation invokes the `install-php-extensions` executable already
-contained in the digest-pinned application base. It does not download or inject
-a new installer script. Built-in generation never executes mutable remote
-installer pipelines such as `curl | sh` or `curl | php`. Downloaded tools
-require a pinned source and checksum or signature. Releases include SBOM and
-provenance.
+contained in the digest-pinned application base. Composer, Node, and Bun are
+copied from separately digest-pinned image stages. Generation does not download
+or inject installer scripts and never executes mutable remote installer
+pipelines such as `curl | sh` or `curl | php`. Other downloaded tools require a
+pinned source and checksum or signature. Releases include SBOM and provenance.
 
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.

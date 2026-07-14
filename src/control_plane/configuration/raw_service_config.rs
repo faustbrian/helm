@@ -11,6 +11,9 @@ pub(crate) struct RawServiceConfig {
     version: Option<String>,
     #[serde(default)]
     php_extensions: Vec<String>,
+    composer_image: Option<String>,
+    node_image: Option<String>,
+    bun_image: Option<String>,
     #[serde(default)]
     depends_on: Vec<String>,
     database: Option<String>,
@@ -27,6 +30,9 @@ impl Debug for RawServiceConfig {
             .field("image", &self.image)
             .field("version", &self.version)
             .field("php_extensions", &self.php_extensions)
+            .field("composer_image", &self.composer_image)
+            .field("node_image", &self.node_image)
+            .field("bun_image", &self.bun_image)
             .field("depends_on", &self.depends_on)
             .field("database", &self.database)
             .field("command", &self.command)
@@ -67,6 +73,21 @@ impl RawServiceConfig {
     /// Returns exact declared PHP extensions.
     pub(crate) fn php_extensions(&self) -> &[String] {
         &self.php_extensions
+    }
+
+    /// Returns the immutable Composer tool image when declared.
+    pub(crate) fn composer_image(&self) -> Option<&str> {
+        self.composer_image.as_deref()
+    }
+
+    /// Returns the immutable Node tool image when declared.
+    pub(crate) fn node_image(&self) -> Option<&str> {
+        self.node_image.as_deref()
+    }
+
+    /// Returns the immutable Bun tool image when declared.
+    pub(crate) fn bun_image(&self) -> Option<&str> {
+        self.bun_image.as_deref()
     }
 
     /// Returns the exact requested logical database name.
