@@ -321,6 +321,117 @@ fn opensearch_preparation_rejects_reserved_environment_before_storing_a_secret()
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn elasticsearch_preparation_replays_stable_credentials_and_private_http_endpoint() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  search:\n    preset: elasticsearch\n    version: '9'\n    image: docker.elastic.co/elasticsearch/elasticsearch@sha256:{}\n",
+            "e".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-elasticsearch-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x99))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0xaa))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    let password = first[0].credential().secret();
+    assert_eq!(password, replayed[0].credential().secret());
+    assert_eq!(first[0].credential().username(), "elastic");
+    assert_eq!(
+        first[0].container_environment().get("ELASTIC_PASSWORD"),
+        Some(&password.to_owned())
+    );
+    assert_eq!(
+        first[0].container_environment().get("discovery.type"),
+        Some(&"single-node".to_owned())
+    );
+    assert_eq!(
+        first[0]
+            .container_environment()
+            .get("xpack.security.enabled"),
+        Some(&"true".to_owned())
+    );
+    assert_eq!(
+        first[0]
+            .container_environment()
+            .get("xpack.security.autoconfiguration.enabled"),
+        Some(&"false".to_owned())
+    );
+    assert_eq!(
+        first[0]
+            .container_environment()
+            .get("xpack.security.http.ssl.enabled"),
+        Some(&"false".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("ELASTICSEARCH_URL"),
+        Some(&"http://stackctl-bill-search:9200".to_owned())
+    );
+    assert_eq!(
+        first[0]
+            .environment()
+            .values()
+            .get("ELASTICSEARCH_USERNAME"),
+        Some(&"elastic".to_owned())
+    );
+    assert_eq!(
+        first[0]
+            .environment()
+            .values()
+            .get("ELASTICSEARCH_PASSWORD"),
+        Some(&password.to_owned())
+    );
+    assert_eq!(first[0].route(), None);
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn elasticsearch_preparation_rejects_reserved_environment_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  search:\n",
+                "    preset: elasticsearch\n    version: '9'\n",
+                "    image: docker.elastic.co/elasticsearch/elasticsearch@sha256:{}\n",
+                "    environment:\n      ELASTIC_PASSWORD: override\n"
+            ),
+            "e".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-elasticsearch-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0x99))
+            .expect_err("reserved environment conflict")
+            .to_string(),
+        "Elasticsearch service 'bill-search' cannot replace generated environment key \
+         'ELASTIC_PASSWORD'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {

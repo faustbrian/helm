@@ -25,6 +25,9 @@ All notable changes to this project are documented in this file.
 - Centralized dedicated service preparation selection, credential shaping, and
   resource planning behind one strategy adapter so Engine requirements cannot
   drift from daemon state preparation as new presets are added.
+- Added stable Elasticsearch administrator credentials and explicit single-node
+  security settings with private-network HTTP, avoiding generated per-project
+  certificate authorities while keeping the dedicated service authenticated.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.
