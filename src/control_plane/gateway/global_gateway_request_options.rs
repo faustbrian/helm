@@ -8,5 +8,4 @@ pub(crate) struct GlobalGatewayRequestOptions {
     pub(crate) private_key_path: PathBuf,
     pub(crate) certificate_revision: String,
     pub(crate) bootstrap_config_path: PathBuf,
-    pub(crate) admin_runtime_directory: PathBuf,
 }

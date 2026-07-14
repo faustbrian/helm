@@ -19,6 +19,9 @@ lint:
 audit-v8-host-dependencies:
     ./scripts/audit-v8-host-dependencies.sh
 
+accept-v8-gateway output="target/gateway-acceptance-record.txt":
+    ./scripts/accept-v8-gateway.sh {{output}}
+
 benchmark-v8 scenario output samples="12" interval="5":
     ./scripts/benchmark-v8.sh {{scenario}} {{output}} {{samples}} {{interval}}
 

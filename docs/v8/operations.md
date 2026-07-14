@@ -13,6 +13,12 @@ One gateway publishes loopback 80/443 and receives a complete route set from
 the daemon. Caddy is acceptable initially only as a pinned, invisible container
 implementation. The daemon applies one complete serialized configuration,
 retains the last good revision, and verifies both config and traffic readiness.
+The admin endpoint listens only on `localhost:2019` inside the gateway network
+namespace. Stackctl reaches it through an ownership-checked Engine exec and
+streams the complete native JSON document over stdin; no admin port or Unix
+socket is published or mounted onto the host. Disposable `/config`, `/data`,
+and `/tmp` state uses bounded tmpfs mounts so the image cannot leave anonymous
+volumes behind.
 
 Stackctl owns the CA and a renewable wildcard leaf for
 `*.stackctl.localhost`. Key material is user-private and mounted read-only into

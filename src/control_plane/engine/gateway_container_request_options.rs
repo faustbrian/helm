@@ -10,7 +10,6 @@ pub(crate) struct GatewayContainerRequestOptions {
     pub(super) certificate_path: PathBuf,
     pub(super) private_key_path: PathBuf,
     pub(super) bootstrap_config_path: PathBuf,
-    pub(super) admin_runtime_directory: PathBuf,
     pub(super) metadata: ManagedResourceMetadata,
 }
 
@@ -22,7 +21,6 @@ impl GatewayContainerRequestOptions {
         certificate_path: PathBuf,
         private_key_path: PathBuf,
         bootstrap_config_path: PathBuf,
-        admin_runtime_directory: PathBuf,
         metadata: ManagedResourceMetadata,
     ) -> Self {
         Self {
@@ -32,7 +30,6 @@ impl GatewayContainerRequestOptions {
             certificate_path,
             private_key_path,
             bootstrap_config_path,
-            admin_runtime_directory,
             metadata,
         }
     }

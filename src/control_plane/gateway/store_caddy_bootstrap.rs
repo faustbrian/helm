@@ -1,12 +1,11 @@
 use super::{CaddyGatewayDocument, GatewayError, StoredGatewayBootstrapPaths};
 use std::path::Path;
 
-/// Atomically persists one immutable bootstrap document and private runtime.
+/// Atomically persists one immutable bootstrap document.
 #[cfg(unix)]
 pub(crate) fn store_caddy_bootstrap(
     document: &CaddyGatewayDocument,
     config_path: &Path,
-    runtime_directory: &Path,
 ) -> Result<StoredGatewayBootstrapPaths, GatewayError> {
     use std::fs::{self, File, OpenOptions};
     use std::io::Write;
@@ -21,22 +20,17 @@ pub(crate) fn store_caddy_bootstrap(
             ),
         })?;
 
-    for directory in [config_directory, runtime_directory] {
-        fs::create_dir_all(directory)
-            .map_err(|error| io_error("create gateway directory", directory, error))?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .map_err(|error| io_error("restrict gateway directory", directory, error))?;
-    }
+    fs::create_dir_all(config_directory)
+        .map_err(|error| io_error("create gateway directory", config_directory, error))?;
+    fs::set_permissions(config_directory, fs::Permissions::from_mode(0o700))
+        .map_err(|error| io_error("restrict gateway directory", config_directory, error))?;
 
     if config_path.exists() {
         verify_existing(config_path, document.bytes())?;
         fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
             .map_err(|error| io_error("restrict gateway bootstrap", config_path, error))?;
 
-        return Ok(StoredGatewayBootstrapPaths::new(
-            config_path.to_path_buf(),
-            runtime_directory.to_path_buf(),
-        ));
+        return Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()));
     }
 
     let temporary_path = config_directory.join(format!(
@@ -60,10 +54,7 @@ pub(crate) fn store_caddy_bootstrap(
         .and_then(|directory| directory.sync_all())
         .map_err(|error| io_error("sync gateway config directory", config_directory, error))?;
 
-    Ok(StoredGatewayBootstrapPaths::new(
-        config_path.to_path_buf(),
-        runtime_directory.to_path_buf(),
-    ))
+    Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()))
 }
 
 #[cfg(unix)]

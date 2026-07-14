@@ -1,6 +1,6 @@
 use super::{
     BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ManagedResourceMetadata,
-    PortBinding, VolumeMount, is_immutable_image_identity,
+    PortBinding, TmpfsMount, VolumeMount, is_immutable_image_identity,
 };
 use crate::control_plane::is_valid_environment_variable_key;
 use std::collections::BTreeMap;
@@ -18,6 +18,7 @@ pub(crate) struct ContainerCreateOptions {
     port_bindings: Vec<PortBinding>,
     bind_mounts: Vec<BindMount>,
     volume_mounts: Vec<VolumeMount>,
+    tmpfs_mounts: Vec<TmpfsMount>,
     shared_memory_bytes: Option<i64>,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
@@ -57,6 +58,7 @@ impl ContainerCreateOptions {
             port_bindings: Vec::new(),
             bind_mounts: Vec::new(),
             volume_mounts: Vec::new(),
+            tmpfs_mounts: Vec::new(),
             shared_memory_bytes: None,
             command: Vec::new(),
             environment: BTreeMap::new(),
@@ -151,6 +153,11 @@ impl ContainerCreateOptions {
 
     pub(crate) fn with_volume_mount(mut self, mount: VolumeMount) -> Self {
         self.volume_mounts.push(mount);
+        self
+    }
+
+    pub(crate) fn with_tmpfs_mount(mut self, mount: TmpfsMount) -> Self {
+        self.tmpfs_mounts.push(mount);
         self
     }
 
@@ -256,6 +263,10 @@ impl ContainerCreateOptions {
         &self.volume_mounts
     }
 
+    pub(crate) fn tmpfs_mounts(&self) -> &[TmpfsMount] {
+        &self.tmpfs_mounts
+    }
+
     pub(crate) const fn shared_memory_bytes(&self) -> Option<i64> {
         self.shared_memory_bytes
     }
@@ -290,6 +301,7 @@ impl Debug for ContainerCreateOptions {
             .field("port_bindings", &self.port_bindings)
             .field("bind_mounts", &self.bind_mounts)
             .field("volume_mounts", &self.volume_mounts)
+            .field("tmpfs_mounts", &self.tmpfs_mounts)
             .field("shared_memory_bytes", &self.shared_memory_bytes)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())

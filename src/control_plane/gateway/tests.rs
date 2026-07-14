@@ -31,12 +31,6 @@ use std::time::Duration;
 use std::os::unix::fs::PermissionsExt;
 
 #[cfg(unix)]
-use super::CaddyUnixAdminClient;
-
-#[cfg(unix)]
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-#[cfg(unix)]
 #[test]
 fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
     let root = std::env::temp_dir().join(format!(
@@ -60,11 +54,10 @@ fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
     assert_eq!(initial.request(), recovered.request());
     assert_eq!(initial.bootstrap_paths(), recovered.bootstrap_paths());
     assert!(initial.bootstrap_paths().config_path().is_file());
-    assert!(initial.bootstrap_paths().runtime_directory().is_dir());
     assert_eq!(
         initial.request().bind_mounts().len(),
-        4,
-        "leaf certificate, leaf key, bootstrap, and admin runtime only"
+        3,
+        "leaf certificate, leaf key, and bootstrap only"
     );
     assert!(
         initial
@@ -150,7 +143,6 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
         private_key_path: "/state/tls/bundle/wildcard.key".into(),
         certificate_revision: "bundle-v1".to_owned(),
         bootstrap_config_path: "/state/gateway/config.json".into(),
-        admin_runtime_directory: "/state/gateway/run".into(),
     })
     .expect("production gateway request");
 
@@ -179,14 +171,38 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
         private_key_path: "/state/tls/renewed/wildcard.key".into(),
         certificate_revision: "bundle-v2".to_owned(),
         bootstrap_config_path: "/state/gateway/config.json".into(),
-        admin_runtime_directory: "/state/gateway/run".into(),
     })
     .expect("renewed gateway request");
     assert_ne!(renewed.metadata(), request.metadata());
 }
 
-#[cfg(unix)]
-use tokio::net::UnixListener;
+#[test]
+fn live_gateway_acceptance_contract_covers_protocols_and_restart() {
+    let script = include_str!("../../../scripts/accept-v8-gateway.sh");
+    let fixture = include_str!("../../../acceptance/gateway/main.go");
+    let workflow = include_str!("../../../.github/workflows/ci.yml");
+
+    assert!(script.contains("af5fdcd76f2db5e4e974ee92f96ee8c0fc3edb55bd4ba5032547cbf3f65e486d"));
+    for contract in [
+        "http1",
+        "http2",
+        "redirect",
+        "websocket",
+        "streaming",
+        "large_body",
+        "graceful_reload",
+        "restart",
+    ] {
+        assert!(
+            fixture.contains(contract) || script.contains(contract),
+            "gateway acceptance must cover {contract}"
+        );
+    }
+    assert!(workflow.contains("Gateway Protocol Acceptance"));
+    assert!(workflow.contains("gateway-acceptance-record"));
+    assert!(fixture.contains("continuity"));
+    assert!(script.contains("continuity_probe"));
+}
 
 #[test]
 fn complete_route_snapshots_are_sorted_before_provider_application() {
@@ -952,7 +968,7 @@ fn gateway_configuration_reconciliation_fails_when_revision_cannot_be_verified()
 }
 
 #[test]
-fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
+fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_endpoint() {
     let snapshot = GatewaySnapshot::new(vec![
         GatewayRoute::new("shop-app.stackctl.localhost", "http://shop-app:8080")
             .expect("app route"),
@@ -963,14 +979,14 @@ fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
         &snapshot,
         Path::new("/etc/stackctl/tls/leaf.pem"),
         Path::new("/etc/stackctl/tls/leaf-key.pem"),
-        Path::new("/run/stackctl/admin.sock"),
+        "localhost:2019",
     )
     .expect("valid Caddy document");
     let json: Value = serde_json::from_slice(document.bytes()).expect("Caddy JSON");
 
     assert_eq!(
         json.pointer("/admin/listen").and_then(Value::as_str),
-        Some("unix//run/stackctl/admin.sock|0600")
+        Some("localhost:2019")
     );
     assert_eq!(
         json.pointer("/admin/config/persist")
@@ -1015,6 +1031,12 @@ fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_socket() {
         json.pointer("/apps/http/servers/stackctl_https/tls_connection_policies/0"),
         Some(&serde_json::json!({}))
     );
+    assert_eq!(
+        json.pointer("/apps/http/grace_period")
+            .and_then(Value::as_str),
+        Some("30s")
+    );
+    assert!(json.pointer("/grace_period").is_none());
     assert!(json.pointer("/apps/pki").is_none());
     assert_eq!(document.revision(), snapshot.revision());
 }
@@ -1028,26 +1050,19 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
         unique_test_value()
     ));
     let config_path = root.join("config/config.json");
-    let runtime_directory = root.join("run");
     let snapshot = GatewaySnapshot::new(Vec::new()).unwrap();
     let document = render_caddy_document(
         &snapshot,
         Path::new("/etc/stackctl/tls/leaf.pem"),
         Path::new("/etc/stackctl/tls/leaf-key.pem"),
-        Path::new("/run/stackctl/admin.sock"),
+        "localhost:2019",
     )
     .unwrap();
 
-    let stored = store_caddy_bootstrap(&document, &config_path, &runtime_directory)
-        .expect("store bootstrap");
-    store_caddy_bootstrap(&document, &config_path, &runtime_directory).expect("repeat bootstrap");
+    let stored = store_caddy_bootstrap(&document, &config_path).expect("store bootstrap");
+    store_caddy_bootstrap(&document, &config_path).expect("repeat bootstrap");
 
     assert_eq!(stored.config_path(), config_path);
-    assert_eq!(stored.runtime_directory(), runtime_directory);
-    assert_eq!(
-        stored.admin_socket_path(),
-        runtime_directory.join("admin.sock")
-    );
     assert_eq!(std::fs::read(&config_path).unwrap(), document.bytes());
 
     #[cfg(unix)]
@@ -1059,14 +1074,6 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
                 .mode()
                 & 0o777,
             0o600
-        );
-        assert_eq!(
-            std::fs::metadata(&runtime_directory)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o700
         );
     }
 
@@ -1085,7 +1092,7 @@ fn caddy_provider_advances_revision_only_after_atomic_load_succeeds() {
         loader,
         "/etc/stackctl/tls/leaf.pem",
         "/etc/stackctl/tls/leaf-key.pem",
-        "/run/stackctl/admin.sock",
+        "localhost:2019",
     );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -1113,7 +1120,7 @@ fn caddy_provider_keeps_previous_revision_when_load_fails() {
         loader,
         "/etc/stackctl/tls/leaf.pem",
         "/etc/stackctl/tls/leaf-key.pem",
-        "/run/stackctl/admin.sock",
+        "localhost:2019",
     );
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -1125,50 +1132,6 @@ fn caddy_provider_keeps_previous_revision_when_load_fails() {
 
     assert_eq!(error.to_string(), "Caddy rejected configuration");
     assert_eq!(runtime.block_on(provider.active_revision()).unwrap(), None);
-}
-
-#[cfg(unix)]
-#[test]
-fn caddy_admin_client_loads_complete_json_over_private_unix_http() {
-    let socket_path = std::env::temp_dir().join(format!(
-        "stackctl-caddy-admin-{}-{}.sock",
-        std::process::id(),
-        unique_test_value()
-    ));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .enable_time()
-        .build()
-        .expect("test runtime");
-
-    runtime.block_on(async {
-        let listener = UnixListener::bind(&socket_path).expect("bind admin socket");
-        let server = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.expect("accept request");
-            let mut request = vec![0; 4096];
-            let length = stream.read(&mut request).await.expect("read request");
-            request.truncate(length);
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-                .await
-                .expect("write response");
-            request
-        });
-        let mut client = CaddyUnixAdminClient::new(&socket_path);
-
-        client
-            .load_document(br#"{"apps":{}}"#)
-            .await
-            .expect("atomic Caddy load");
-        let request = server.await.expect("server task");
-        let request = String::from_utf8(request).expect("HTTP request");
-
-        assert!(request.starts_with("POST /load HTTP/1.1\r\n"));
-        assert!(request.contains("Content-Type: application/json\r\n"));
-        assert!(request.ends_with(r#"{"apps":{}}"#));
-    });
-
-    std::fs::remove_file(&socket_path).expect("remove admin socket");
 }
 
 fn unique_test_value() -> u128 {
@@ -1325,7 +1288,6 @@ fn gateway_request(metadata: ManagedResourceMetadata) -> ContainerCreateOptions 
         std::path::PathBuf::from("/state/tls/wildcard.crt"),
         std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
-        std::path::PathBuf::from("/state/gateway/run"),
         metadata,
     ))
     .expect("gateway request")

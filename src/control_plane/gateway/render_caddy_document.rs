@@ -7,12 +7,15 @@ pub(crate) fn render_caddy_document(
     snapshot: &GatewaySnapshot,
     certificate_path: &Path,
     private_key_path: &Path,
-    admin_socket_path: &Path,
+    admin_address: &str,
 ) -> Result<CaddyGatewayDocument, GatewayError> {
     let certificate_path = absolute_utf8_path("certificate", certificate_path)?;
     let private_key_path = absolute_utf8_path("private key", private_key_path)?;
-    let admin_socket_path = absolute_utf8_path("admin socket", admin_socket_path)?;
-    let admin_address = format!("unix/{admin_socket_path}|0600");
+    if admin_address != "localhost:2019" {
+        return Err(GatewayError::InvalidPlan {
+            detail: "gateway admin address must remain private inside the container".to_owned(),
+        });
+    }
     let proxy_routes = snapshot
         .routes()
         .iter()
@@ -28,7 +31,6 @@ pub(crate) fn render_caddy_document(
             "listen": admin_address,
             "config": { "persist": false }
         },
-        "grace_period": "30s",
         "apps": {
             "tls": {
                 "certificates": {
@@ -40,6 +42,7 @@ pub(crate) fn render_caddy_document(
                 }
             },
             "http": {
+                "grace_period": "30s",
                 "servers": {
                     "stackctl_http": {
                         "listen": [":80"],

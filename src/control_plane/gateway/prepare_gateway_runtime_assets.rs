@@ -1,5 +1,5 @@
 use super::{
-    CONTAINER_ADMIN_SOCKET_PATH, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
+    CONTAINER_ADMIN_ADDRESS, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
     GatewayRuntimeAssetError, GatewayRuntimeAssetOptions, GatewayRuntimeAssets, GatewaySnapshot,
     GlobalGatewayRequestOptions, global_gateway_request, render_caddy_document,
     store_caddy_bootstrap,
@@ -27,15 +27,14 @@ pub(crate) fn prepare_gateway_runtime_assets(
 
     let gateway_directory = options.runtime_directory.join("gateway");
     let config_path = gateway_directory.join("bootstrap.json");
-    let admin_runtime_directory = gateway_directory.join("run");
     let snapshot = GatewaySnapshot::new(Vec::new())?;
     let document = render_caddy_document(
         &snapshot,
         Path::new(CONTAINER_CERTIFICATE_PATH),
         Path::new(CONTAINER_PRIVATE_KEY_PATH),
-        Path::new(CONTAINER_ADMIN_SOCKET_PATH),
+        CONTAINER_ADMIN_ADDRESS,
     )?;
-    let bootstrap_paths = store_caddy_bootstrap(&document, &config_path, &admin_runtime_directory)?;
+    let bootstrap_paths = store_caddy_bootstrap(&document, &config_path)?;
     let request = global_gateway_request(GlobalGatewayRequestOptions {
         installation_id: options.installation_id.to_owned(),
         container_user: options.container_user.to_owned(),
@@ -43,7 +42,6 @@ pub(crate) fn prepare_gateway_runtime_assets(
         private_key_path: certificate_paths.leaf_private_key(),
         certificate_revision: certificate_revision.clone(),
         bootstrap_config_path: bootstrap_paths.config_path().to_path_buf(),
-        admin_runtime_directory: bootstrap_paths.runtime_directory().to_path_buf(),
     })?;
 
     Ok(GatewayRuntimeAssets::new(

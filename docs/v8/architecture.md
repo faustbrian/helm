@@ -96,9 +96,11 @@ The Engine integration is composed from `ContainerLifecycle`,
 `LogSource`, `HealthObserver`, `EventSource`, and `ResourceMetrics`.
 
 The gateway accepts a complete route and certificate plan and applies it
-atomically. Project resource provisioning is distinct from service-instance
-lifecycle: starting PostgreSQL and ensuring a project database/role are
-separate reconciliation steps.
+atomically through an ownership-checked Engine exec to a container-private
+admin endpoint. No gateway admin port or socket is exposed on the host. Project
+resource provisioning is distinct from service-instance lifecycle: starting
+PostgreSQL and ensuring a project database/role are separate reconciliation
+steps.
 
 ## Singleton daemon and IPC
 

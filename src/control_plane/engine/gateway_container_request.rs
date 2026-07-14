@@ -1,6 +1,6 @@
 use super::{
     BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
-    GatewayContainerRequestOptions, PortBinding,
+    GatewayContainerRequestOptions, PortBinding, TmpfsMount,
 };
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ const GATEWAY_CONTAINER_NAME: &str = "stackctl-gateway";
 const GATEWAY_CERTIFICATE_PATH: &str = "/etc/stackctl/tls/wildcard.crt";
 const GATEWAY_PRIVATE_KEY_PATH: &str = "/etc/stackctl/tls/wildcard.key";
 const GATEWAY_CONFIG_PATH: &str = "/etc/stackctl/config.json";
-const GATEWAY_RUNTIME_DIRECTORY: &str = "/run/stackctl";
+const GATEWAY_TMPFS_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Produces the complete Engine mutation request for the singleton gateway.
 pub(crate) fn gateway_container_request(
@@ -17,9 +17,6 @@ pub(crate) fn gateway_container_request(
     let certificate_path = utf8_path("certificate", &options.certificate_path)?;
     let private_key_path = utf8_path("private key", &options.private_key_path)?;
     let bootstrap_config_path = utf8_path("bootstrap config", &options.bootstrap_config_path)?;
-    let admin_runtime_directory =
-        utf8_path("admin runtime directory", &options.admin_runtime_directory)?;
-
     let request =
         ContainerCreateOptions::new(GATEWAY_CONTAINER_NAME, options.image, options.metadata)?
             .with_user(options.user)?
@@ -38,10 +35,9 @@ pub(crate) fn gateway_container_request(
                 bootstrap_config_path,
                 GATEWAY_CONFIG_PATH,
             )?)
-            .with_bind_mount(BindMount::read_write(
-                admin_runtime_directory,
-                GATEWAY_RUNTIME_DIRECTORY,
-            )?)
+            .with_tmpfs_mount(TmpfsMount::new("/config", GATEWAY_TMPFS_BYTES)?)
+            .with_tmpfs_mount(TmpfsMount::new("/data", GATEWAY_TMPFS_BYTES)?)
+            .with_tmpfs_mount(TmpfsMount::new("/tmp", GATEWAY_TMPFS_BYTES)?)
             .with_command(vec![
                 "caddy".to_owned(),
                 "run".to_owned(),

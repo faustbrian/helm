@@ -9,7 +9,7 @@ pub(crate) struct CaddyGatewayProvider<Loader> {
     loader: Loader,
     certificate_path: PathBuf,
     private_key_path: PathBuf,
-    admin_socket_path: PathBuf,
+    admin_address: String,
     active_revision: Option<String>,
 }
 
@@ -18,13 +18,13 @@ impl<Loader> CaddyGatewayProvider<Loader> {
         loader: Loader,
         certificate_path: impl Into<PathBuf>,
         private_key_path: impl Into<PathBuf>,
-        admin_socket_path: impl Into<PathBuf>,
+        admin_address: impl Into<String>,
     ) -> Self {
         Self {
             loader,
             certificate_path: certificate_path.into(),
             private_key_path: private_key_path.into(),
-            admin_socket_path: admin_socket_path.into(),
+            admin_address: admin_address.into(),
             active_revision: None,
         }
     }
@@ -47,7 +47,7 @@ where
                 snapshot,
                 &self.certificate_path,
                 &self.private_key_path,
-                &self.admin_socket_path,
+                &self.admin_address,
             )?;
             self.loader.load_document(document.bytes()).await?;
             self.active_revision = Some(document.revision().to_owned());

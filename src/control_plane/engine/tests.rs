@@ -1019,7 +1019,6 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
         std::path::PathBuf::from("/state/tls/wildcard.crt"),
         std::path::PathBuf::from("/state/tls/wildcard.key"),
         std::path::PathBuf::from("/state/gateway/config.json"),
-        std::path::PathBuf::from("/state/gateway/run"),
         metadata,
     ))
     .expect("immutable gateway options");
@@ -1078,11 +1077,23 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
             && mount.target.as_deref() == Some("/etc/stackctl/config.json")
             && mount.read_only == Some(true)
     }));
-    assert!(mounts.iter().any(|mount| {
-        mount.source.as_deref() == Some("/state/gateway/run")
-            && mount.target.as_deref() == Some("/run/stackctl")
-            && mount.read_only == Some(false)
-    }));
+    assert_eq!(
+        host.tmpfs.expect("gateway ephemeral filesystems"),
+        std::collections::HashMap::from([
+            (
+                "/config".to_owned(),
+                "rw,noexec,nosuid,size=16777216".to_owned(),
+            ),
+            (
+                "/data".to_owned(),
+                "rw,noexec,nosuid,size=16777216".to_owned(),
+            ),
+            (
+                "/tmp".to_owned(),
+                "rw,noexec,nosuid,size=16777216".to_owned(),
+            ),
+        ])
+    );
     assert_eq!(
         body.cmd,
         Some(vec![

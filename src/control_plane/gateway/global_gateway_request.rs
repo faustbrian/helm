@@ -42,7 +42,6 @@ pub(crate) fn global_gateway_request(
         options.certificate_path,
         options.private_key_path,
         options.bootstrap_config_path,
-        options.admin_runtime_directory,
         metadata,
     ))
 }

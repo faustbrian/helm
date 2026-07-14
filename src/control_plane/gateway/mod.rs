@@ -1,10 +1,9 @@
 #[cfg(test)]
 mod tests;
 
+mod caddy_engine_admin_client;
 mod caddy_gateway_document;
 mod caddy_gateway_provider;
-#[cfg(unix)]
-mod caddy_unix_admin_client;
 mod engine_gateway_port_probe;
 mod gateway_configuration;
 mod gateway_configuration_action;
@@ -42,10 +41,9 @@ mod verify_stackctl_localhost_resolution;
 mod wait_for_gateway_certificate_generation;
 mod wait_for_gateway_ready;
 
+pub(crate) use caddy_engine_admin_client::CaddyEngineAdminClient;
 pub(crate) use caddy_gateway_document::CaddyGatewayDocument;
 pub(crate) use caddy_gateway_provider::CaddyGatewayProvider;
-#[cfg(unix)]
-pub(crate) use caddy_unix_admin_client::CaddyUnixAdminClient;
 pub(crate) use engine_gateway_port_probe::EngineGatewayPortProbe;
 pub(crate) use gateway_configuration::{GatewayConfiguration, GatewayFuture};
 pub(crate) use gateway_configuration_action::GatewayConfigurationAction;
@@ -64,7 +62,7 @@ pub(crate) use gateway_runtime_asset_error::GatewayRuntimeAssetError;
 pub(crate) use gateway_runtime_asset_options::GatewayRuntimeAssetOptions;
 pub(crate) use gateway_runtime_assets::GatewayRuntimeAssets;
 pub(super) use gateway_runtime_assets::{
-    CONTAINER_ADMIN_SOCKET_PATH, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
+    CONTAINER_ADMIN_ADDRESS, CONTAINER_CERTIFICATE_PATH, CONTAINER_PRIVATE_KEY_PATH,
 };
 pub(crate) use gateway_snapshot::GatewaySnapshot;
 pub(crate) use global_gateway_request::global_gateway_request;

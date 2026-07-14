@@ -1099,7 +1099,15 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let mut provider = assets.configuration_provider();
+        let mut provider = match assets.configuration_provider((*engine).clone()) {
+            Ok(provider) => provider,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "gateway provider preparation blocked");
+
+                return;
+            }
+        };
         let gateway_options = match GatewayPlaneOptions::new(
             GatewayReconcileOptions {
                 request: assets.request(),

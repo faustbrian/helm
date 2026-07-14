@@ -6,6 +6,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced the gateway's host-mounted Caddy admin socket with an
+  ownership-checked Engine exec to a container-private admin endpoint. Complete
+  native JSON snapshots now stream over stdin without publishing an admin port,
+  and bounded tmpfs mounts prevent the disposable gateway from leaving image
+  data or config volumes behind.
+- Added a pinned-image gateway acceptance harness covering HTTP/1.1, HTTP/2,
+  redirects, WebSockets, streaming, large request bodies, complete atomic
+  configuration replacement, and destruction/recreation. CI publishes its raw
+  record, and macOS arm64 evidence is retained in the v8 acceptance inventory.
 - Added safety-backed RabbitMQ recovery for non-empty persistent classic queues.
   Backup suspends listeners, closes clients, exports exact vhost definitions,
   stops the broker, and archives only that vhost's owned message-store path.
@@ -562,7 +571,7 @@ All notable changes to this project are documented in this file.
   physical instance while any material difference produces a separate group.
 - Connected complete immutable-application Engine plans to the singleton daemon,
   reconciling every workload before atomically publishing its content-derived
-  route snapshot through the containerized gateway's private admin socket.
+  route snapshot through the containerized gateway's private admin endpoint.
 - Added immutable custom-application planning from resolved services to exact
   per-service Engine ownership, content-derived revisions, and gateway routes,
   rejecting mutable or unresolved image artifacts before mutation.
@@ -699,9 +708,8 @@ All notable changes to this project are documented in this file.
 - Wired the singleton daemon to prepare restart-safe TLS/bootstrap assets,
   resolve the pinned gateway image, and reconcile one loopback-only gateway
   container after the global network and a complete valid registry scan.
-- Run the gateway as the daemon user's numeric UID and GID so its private
-  `0600` admin socket remains accessible to the owning user on native Linux
-  while the image's low-port capability still permits loopback ports 80/443.
+- Run the gateway as the daemon user's numeric UID and GID while the image's
+  low-port capability still permits loopback ports 80/443.
 - Added `daemon trust <install|status|remove>` as the explicit one-time trust
   lifecycle for the exact immutable CA shared with the singleton gateway.
 - Changed macOS trust setup from privileged System Keychain mutation to
@@ -830,8 +838,9 @@ All notable changes to this project are documented in this file.
   schema/database users provisioned through bounded attached Engine commands.
 - Added atomic Redis/Valkey ACL snapshot reconciliation with exact read-only mount
   validation, shared process convergence, and authenticated in-container reload.
-- Added a native-JSON Caddy gateway provider that atomically loads complete route
-  snapshots over a private Unix socket while using only Stackctl-owned TLS files.
+- Added a native-JSON Caddy gateway provider that atomically loads complete
+  route snapshots through a container-private endpoint while using only
+  Stackctl-owned TLS files.
 - Changed the gateway HTTP listener to deterministic 308 redirects so application
   traffic is never proxied in plaintext while HTTPS remains the only upstream path.
 - Added an explicit non-shell gateway health check that validates the mounted
@@ -854,10 +863,9 @@ All notable changes to this project are documented in this file.
   the trusted CA while renewing wildcard gateway leaf material when due.
 - Persisted certificate renewal deadlines inside atomic private bundle revisions
   and added validated bundle loading for daemon restart recovery.
-- Extended the singleton gateway container plan with an immutable bootstrap config,
-  a private writable admin-socket mount, and an explicit in-container Caddy command.
-- Added atomic user-private persistence for immutable gateway bootstrap JSON and
-  the host runtime directory used by the mounted Caddy admin socket.
+- Extended the singleton gateway container plan with an immutable bootstrap
+  config and an explicit in-container Caddy command.
+- Added atomic user-private persistence for immutable gateway bootstrap JSON.
 - Added a replaceable `.stackctl.localhost` setup preflight that fails closed
   when the operating system returns no address or any non-loopback address.
 - Added direct v8 volume lifecycle management with deterministic local volumes,

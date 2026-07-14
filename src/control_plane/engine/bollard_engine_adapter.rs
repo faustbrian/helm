@@ -1890,6 +1890,13 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         network_mode: options.network().map(str::to_owned),
         port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
         mounts: (!mounts.is_empty()).then_some(mounts),
+        tmpfs: (!options.tmpfs_mounts().is_empty()).then(|| {
+            options
+                .tmpfs_mounts()
+                .iter()
+                .map(|mount| (mount.target().to_owned(), mount.options().to_owned()))
+                .collect()
+        }),
         shm_size: options.shared_memory_bytes(),
         restart_policy: options.restart_policy().map(|policy| match policy {
             super::ContainerRestartPolicy::UnlessStopped => RestartPolicy {
