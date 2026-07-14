@@ -126,22 +126,37 @@ impl UnixDaemonRuntime {
             Ok(shared) => shared,
             Err(error) => return Some(Err(error.to_string())),
         };
+        let implementation = match operation.kind() {
+            "postgres_database_and_role" => "postgresql",
+            "mysql_database" => "mysql",
+            "mariadb_database" => "mariadb",
+            "mongodb_database" => "mongodb",
+            "sqlserver_database" => "sqlserver",
+            "redis_acl_prefix" => "redis",
+            "valkey_acl_prefix" => "valkey",
+            kind => {
+                return Some(Err(format!(
+                    "recovery point '{}' has unsupported resource kind '{kind}'",
+                    operation.recovery_point_id()
+                )));
+            }
+        };
         let matches = shared
             .into_iter()
             .filter(|plan| {
-                plan.profile().implementation() == "postgresql"
+                plan.profile().implementation() == implementation
                     && plan.fingerprint().as_str() == operation.compatibility_fingerprint()
             })
             .collect::<Vec<_>>();
         Some(match matches.as_slice() {
             [shared] => Ok(shared.clone()),
             [] => Err(format!(
-                "recovery point '{}' has no exact PostgreSQL compatibility plan",
-                operation.recovery_point_id()
+                "recovery point '{}' has no exact {implementation} compatibility plan",
+                operation.recovery_point_id(),
             )),
             _ => Err(format!(
-                "recovery point '{}' matched multiple PostgreSQL compatibility plans",
-                operation.recovery_point_id()
+                "recovery point '{}' matched multiple {implementation} compatibility plans",
+                operation.recovery_point_id(),
             )),
         })
     }

@@ -89,6 +89,8 @@ impl QueuedProjectRestore {
                 | "mariadb_database"
                 | "mongodb_database"
                 | "sqlserver_database"
+                | "redis_acl_prefix"
+                | "valkey_acl_prefix"
         ) {
             return Err(format!(
                 "project restore kind '{}' is not implemented",

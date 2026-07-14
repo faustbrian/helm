@@ -3,7 +3,7 @@ use crate::control_plane::shared_infrastructure::SharedInstancePlan;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Complete owned context for one asynchronous PostgreSQL restore worker.
+/// Complete owned context for one asynchronous project restore worker.
 pub(crate) struct ProjectRestoreExecutionOptions {
     pub(crate) operation: QueuedProjectRestore,
     pub(crate) shared: SharedInstancePlan,

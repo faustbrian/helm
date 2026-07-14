@@ -1,4 +1,6 @@
-use super::{ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult};
+use super::{
+    ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult, execute_redis_project_restore,
+};
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind,
     VolumeDiscovery, VolumeManager, reconstruct_owned_container,
@@ -25,7 +27,7 @@ use crate::control_plane::state::{
     MigrationRecord, MigrationRecordOptions, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 
-/// Resolves authoritative state and restores one exact cataloged PostgreSQL point.
+/// Resolves authoritative state and restores one exact cataloged recovery point.
 pub(crate) async fn execute_queued_project_restore<E, Entropy>(
     mut engine: E,
     entropy: Entropy,
@@ -64,6 +66,9 @@ where
     Entropy: CredentialEntropy,
 {
     match options.operation.kind() {
+        "redis_acl_prefix" | "valkey_acl_prefix" => {
+            execute_redis_project_restore(engine, options).await
+        }
         "mongodb_database" => execute_mongodb(engine, entropy, options).await,
         "sqlserver_database" => execute_sql_server(engine, entropy, options).await,
         "mysql_database" | "mariadb_database" => execute_mysql(engine, entropy, options).await,

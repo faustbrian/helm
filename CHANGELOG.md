@@ -16,6 +16,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integrated Redis and Valkey recovery points into the daemon restore queue with
+  exact compatibility-plan selection, a verified pre-restore safety snapshot,
+  in-place tenant-prefix replacement, and crash replay that reuses the durable
+  safety evidence instead of taking another snapshot.
 - Added a verified Redis and Valkey prefix restore adapter that stages opaque
   values before atomically replacing only the exact tenant namespace, preserves
   remaining TTLs, omits expired records, and keeps administrator secrets out of

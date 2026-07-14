@@ -3941,6 +3941,200 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
     std::fs::remove_dir_all(root).expect("remove SQL Server restore fixture");
 }
 
+#[test]
+fn queued_redis_restore_records_one_safety_snapshot_and_replays_in_place() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-redis-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "redis@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path,
+        root.join("bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  cache:\n    preset: redis\n    version: \"8\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("Redis instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let container_name = format!(
+        "stackctl-shared-{}",
+        fingerprint.strip_prefix("sha256:").expect("fingerprint")
+    );
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &container_name,
+        "install-1",
+        "redis-source",
+        &fingerprint,
+    )]);
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/cache/redis".to_owned(),
+        shared_resource_id: container_name,
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        kind: "redis_acl_prefix".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: logical.logical_resource_id().to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "st_bill_cache".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!(
+            "shared/{}/redis-bootstrap",
+            fingerprint.strip_prefix("sha256:").expect("fingerprint")
+        ),
+        project_id: None,
+        service_id: "redis".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let backup_root = root.join("backups");
+    let snapshot = concat!(
+        r#"{"format":1,"created_at_unix_seconds":40000,"prefix_hex":"737461636b63746c3a62696c6c3a63616368653a","records":["#,
+        r#"{"key_hex":"737461636b63746c3a62696c6c3a63616368653a666f6f","dump_hex":"0001ff","ttl_milliseconds":-1}]}"#,
+    );
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let stored =
+        store_backup_artifact_for_identity(&identity, snapshot.as_bytes(), 40_000, &backup_root)
+            .expect("stored Redis snapshot");
+    let evidence = verify_stored_backup_artifact(&stored, 40_001).expect("verified snapshot");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-redis".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: evidence.artifact_sha256().to_owned(),
+        artifact_size_bytes: evidence.artifact_size_bytes(),
+        created_at_unix_seconds: 40_000,
+        verified_at_unix_seconds: 40_001,
+    })
+    .expect("Redis recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical ownership");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator");
+    store
+        .record_recovery_point(&recovery)
+        .expect("recovery point");
+    drop(store);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let execute = || {
+        runtime.block_on(execute_queued_project_restore(
+            engine.clone(),
+            FixedRestoreEntropy(0xaa),
+            ProjectRestoreExecutionOptions {
+                operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                    operation_id: "restore-redis".to_owned(),
+                    recovery_point_id: "backup-redis".to_owned(),
+                    project_id: "bill".to_owned(),
+                    service_id: "cache".to_owned(),
+                    logical_resource_id: logical.logical_resource_id().to_owned(),
+                    kind: logical.kind().to_owned(),
+                    compatibility_fingerprint: fingerprint.clone(),
+                })
+                .expect("restore intent"),
+                shared: shared.clone(),
+                installation_id: "install-1".to_owned(),
+                network_name: "stackctl".to_owned(),
+                schema_version: 8,
+                state_database_path: database_path.clone(),
+                backup_root: backup_root.clone(),
+                updated_at_unix_seconds: 40_002,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+    };
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let first_calls = engine.command_arguments();
+    assert_eq!(first_calls.len(), 3);
+    assert!(first_calls[0].iter().any(|value| value.contains("DUMP")));
+    assert!(first_calls[1].iter().any(|value| value.contains("RESTORE")));
+    assert!(first_calls[2].iter().any(|value| value.contains("RENAME")));
+    assert!(!format!("{first_calls:?}").contains("administrator-secret"));
+    assert!(
+        engine.command_environments()[..3]
+            .iter()
+            .all(|environment| environment["REDISCLI_AUTH"] == "administrator-secret")
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    let points = store.recovery_points("bill").expect("recovery catalog");
+    assert_eq!(points.len(), 2);
+    let safety = points
+        .iter()
+        .find(|point| point.recovery_point_id() == "restore-redis-pre-restore")
+        .expect("safety recovery point");
+    assert_eq!(safety.created_at_unix_seconds(), 40_002);
+    drop(store);
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    assert_eq!(engine.command_arguments().len(), 5);
+    assert_eq!(
+        engine
+            .command_arguments()
+            .iter()
+            .filter(|arguments| arguments.iter().any(|value| value.contains("DUMP")))
+            .count(),
+        1
+    );
+    assert_eq!(
+        SqliteStateStore::open(&database_path)
+            .expect("reopen replayed state")
+            .recovery_points("bill")
+            .expect("replayed recovery catalog")
+            .len(),
+        2
+    );
+    assert!(engine.created().is_empty());
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    std::fs::remove_dir_all(root).expect("remove Redis restore fixture");
+}
+
 struct FixedRestoreEntropy(u8);
 
 impl CredentialEntropy for FixedRestoreEntropy {
@@ -3984,6 +4178,22 @@ fn project_backup_queue_accepts_redis_and_valkey_prefixes() {
             format!("sha256:{}", "a".repeat(64)),
         )
         .expect("Redis-compatible backup intent");
+    }
+}
+
+#[test]
+fn project_restore_queue_accepts_redis_and_valkey_prefixes() {
+    for kind in ["redis_acl_prefix", "valkey_acl_prefix"] {
+        QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+            operation_id: format!("restore-{kind}"),
+            recovery_point_id: format!("backup-{kind}"),
+            project_id: "bill".to_owned(),
+            service_id: "cache".to_owned(),
+            logical_resource_id: format!("bill/cache/{}", kind.trim_end_matches("_acl_prefix")),
+            kind: kind.to_owned(),
+            compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        })
+        .expect("Redis-compatible restore intent");
     }
 }
 
