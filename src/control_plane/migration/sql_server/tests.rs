@@ -51,7 +51,7 @@ fn v7_sql_server_provider_is_recovery_bound_replayable_and_confirmed() {
     .expect("target plan");
     let administrator = administrator();
     let target_container = owned_target_container();
-    let mut retirement = RecordingRetirement::default();
+    let retirement = RecordingRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7SqlServerMigrationProviderOptions {
         accepted: &accepted,
@@ -72,7 +72,7 @@ fn v7_sql_server_provider_is_recovery_bound_replayable_and_confirmed() {
     assert!(!debug.contains("LegacyPass1"));
     assert!(!debug.contains("ProjectPass1"));
     assert!(!debug.contains("RootPass1"));
-    let mut provider = V7SqlServerMigrationProvider::new(&executor, &mut retirement, options)
+    let mut provider = V7SqlServerMigrationProvider::new(&executor, retirement, options)
         .expect("v7 SQL Server provider");
 
     let backup = runtime

@@ -54,7 +54,7 @@ fn v7_redis_provider_namespaces_recovery_replays_and_retires_on_confirmation() {
     .expect("target ACL");
     let administrator = administrator();
     let container = owned_container();
-    let mut retirement = ProviderRetirement::default();
+    let retirement = ProviderRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7RedisMigrationProviderOptions {
         accepted: &accepted,
@@ -76,8 +76,8 @@ fn v7_redis_provider_namespaces_recovery_replays_and_retires_on_confirmation() {
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
     assert!(!debug.contains("admin-secret"));
-    let mut provider = V7RedisMigrationProvider::new(&executor, &mut retirement, options)
-        .expect("v7 Redis provider");
+    let mut provider =
+        V7RedisMigrationProvider::new(&executor, retirement, options).expect("v7 Redis provider");
 
     let backup = runtime
         .block_on(provider.backup_source(&source))

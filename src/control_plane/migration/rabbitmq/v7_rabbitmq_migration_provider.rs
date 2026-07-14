@@ -23,7 +23,7 @@ const V7_DEFAULT_VHOST: &str = "/";
 
 pub(crate) struct V7RabbitMqMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: &'operation mut R,
+    retirement: R,
     options: V7RabbitMqMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -38,7 +38,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: &'operation mut R,
+        retirement: R,
         options: V7RabbitMqMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

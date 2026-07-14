@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made every accepted-v7 logical migration provider own its confirmation-only
+  retirement strategy, so daemon composition needs no external retirement
+  arena while all providers can still share one typed Engine connection.
 - Made accepted-v7 logical-data adapters own their validated source clone and
   execution-scoped provider, removing self-referential daemon composition
   requirements without introducing global handles.

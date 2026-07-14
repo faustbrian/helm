@@ -22,7 +22,7 @@ use crate::control_plane::state::{
 /// Live Engine-backed provider for one accepted v7 MongoDB database.
 pub(crate) struct V7MongoDbMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: &'operation mut R,
+    retirement: R,
     options: V7MongoDbMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -37,7 +37,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: &'operation mut R,
+        retirement: R,
         options: V7MongoDbMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

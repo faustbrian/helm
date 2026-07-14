@@ -21,7 +21,7 @@ use crate::control_plane::state::{
 
 pub(crate) struct V7MinioMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: &'operation mut R,
+    retirement: R,
     options: V7MinioMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -37,7 +37,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: &'operation mut R,
+        retirement: R,
         options: V7MinioMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         let source_bucket = validate_options(&options)?.to_owned();

@@ -23,7 +23,7 @@ use crate::control_plane::state::{
 /// Live Engine-backed provider for an accepted v7 MySQL-family database.
 pub(crate) struct V7MySqlMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: &'operation mut R,
+    retirement: R,
     options: V7MySqlMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -38,7 +38,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: &'operation mut R,
+        retirement: R,
         options: V7MySqlMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

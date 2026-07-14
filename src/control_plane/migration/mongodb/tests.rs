@@ -52,7 +52,7 @@ fn v7_mongodb_provider_is_namespace_safe_replayable_and_confirmed() {
     .expect("MongoDB target plan");
     let administrator = administrator();
     let target_container = owned_target_container();
-    let mut retirement = RecordingRetirement::default();
+    let retirement = RecordingRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7MongoDbMigrationProviderOptions {
         accepted: &accepted,
@@ -73,7 +73,7 @@ fn v7_mongodb_provider_is_namespace_safe_replayable_and_confirmed() {
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
     assert!(!debug.contains("root-secret"));
-    let mut provider = V7MongoDbMigrationProvider::new(&executor, &mut retirement, options)
+    let mut provider = V7MongoDbMigrationProvider::new(&executor, retirement, options)
         .expect("v7 MongoDB provider");
 
     let backup = runtime

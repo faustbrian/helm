@@ -55,7 +55,7 @@ fn v7_mysql_provider_is_recovery_bound_replay_safe_and_confirmed() {
     .expect("MySQL target plan");
     let administrator = administrator();
     let target_container = owned_target_container();
-    let mut retirement = RecordingRetirement::default();
+    let retirement = RecordingRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7MySqlMigrationProviderOptions {
         accepted: &accepted,
@@ -77,8 +77,8 @@ fn v7_mysql_provider_is_recovery_bound_replay_safe_and_confirmed() {
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
     assert!(!debug.contains("root-secret"));
-    let mut provider = V7MySqlMigrationProvider::new(&executor, &mut retirement, options)
-        .expect("v7 MySQL provider");
+    let mut provider =
+        V7MySqlMigrationProvider::new(&executor, retirement, options).expect("v7 MySQL provider");
 
     let backup = runtime
         .block_on(provider.backup_source(&source))

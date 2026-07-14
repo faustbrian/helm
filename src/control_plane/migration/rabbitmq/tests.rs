@@ -52,7 +52,7 @@ fn v7_rabbitmq_provider_remaps_replays_and_retires_only_after_confirmation() {
     )
     .expect("target definition");
     let container = owned_container();
-    let mut retirement = ProviderRetirement::default();
+    let retirement = ProviderRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7RabbitMqMigrationProviderOptions {
         accepted: &accepted,
@@ -71,7 +71,7 @@ fn v7_rabbitmq_provider_remaps_replays_and_retires_only_after_confirmation() {
     let debug = format!("{options:?}");
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
-    let mut provider = V7RabbitMqMigrationProvider::new(&executor, &mut retirement, options)
+    let mut provider = V7RabbitMqMigrationProvider::new(&executor, retirement, options)
         .expect("v7 RabbitMQ provider");
 
     let backup = runtime

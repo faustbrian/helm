@@ -21,7 +21,7 @@ use crate::control_plane::state::{
 
 pub(crate) struct V7RedisMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: &'operation mut R,
+    retirement: R,
     options: V7RedisMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -36,7 +36,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: &'operation mut R,
+        retirement: R,
         options: V7RedisMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

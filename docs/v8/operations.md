@@ -290,8 +290,9 @@ database engine retain separate source, target, credential, and recovery
 context. A registry is scoped to one execution and may borrow the daemon's live
 typed Engine, gateway, and service providers. Logical-data adapters own a
 validated clone of their accepted source and a boxed execution-scoped provider;
-that provider may itself borrow the shared typed Engine. Adapters do not
-require global handles or self-referential daemon storage. The registry must
+that provider owns its confirmation-only retirement strategy while both may
+borrow the shared typed Engine. Adapters do not require global handles or
+self-referential daemon storage. The registry must
 contain exactly the immutable checkpoint set and
 match every selected kind; missing, extra, duplicate, or mismatched bindings
 fail before persistence. The coordinator completes and
