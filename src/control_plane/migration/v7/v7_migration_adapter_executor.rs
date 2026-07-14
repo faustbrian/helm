@@ -13,4 +13,22 @@ pub(crate) trait V7MigrationAdapterExecutor: Send {
         &'operation mut self,
         checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, V7MigrationAdapterTarget>;
+
+    /// Idempotently publishes this adapter's prepared target.
+    fn cutover<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()>;
+
+    /// Idempotently restores source behavior and retains target evidence.
+    fn rollback<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()>;
+
+    /// Idempotently retires this adapter's source after explicit confirmation.
+    fn confirm<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()>;
 }

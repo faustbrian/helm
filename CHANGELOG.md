@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added project-wide v7 cutover, rollback, and confirmation coordinators to
+  the common adapter strategy boundary. Cutover journals only after every
+  idempotent strategy succeeds, route publication runs last, rollback reverses
+  that order, and source retirement remains behind explicit confirmation.
 - Added a resumable v7 adapter preparation coordinator behind a common
   strategy registry. It preflights the complete adapter set, verifies every
   required recovery artifact before provisioning targets, journals each

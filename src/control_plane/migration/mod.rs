@@ -71,8 +71,9 @@ pub(crate) use v7::{
     V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7PublicFileArtifact, V7RouteInventory,
     V7RouteMigrationAdapter, V7RuntimeFeature, V7ServiceInventory, V7TrustMigrationAdapter,
     V7VolumeInventory, V7VolumeMigrationAdapter, V7VolumeSource,
-    capture_v7_generated_environment_rollback, inventory_v7_host_artifacts, inventory_v7_project,
-    plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
+    capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
+    inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
+    prepare_v7_migration, read_v7_generated_environment_rollback, rollback_v7_migration,
     select_v7_migration_adapters,
 };
 pub(crate) use volume::{

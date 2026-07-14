@@ -6,8 +6,9 @@ use super::{
     V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
     V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
     V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
-    prepare_v7_migration, read_v7_generated_environment_rollback, select_v7_migration_adapters,
+    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
+    rollback_v7_migration, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -184,11 +185,13 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
             calls: Arc::clone(&calls),
             target_reference: Some("postgres-v8-bill"),
             fail_target_once: Arc::clone(&fail_database_target),
+            fail_cutover_once: Arc::new(AtomicBool::new(false)),
         });
         let route_executor: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
             calls: Arc::clone(&calls),
             target_reference: None,
             fail_target_once: Arc::new(AtomicBool::new(false)),
+            fail_cutover_once: Arc::new(AtomicBool::new(false)),
         });
         let mut executors = BTreeMap::from([
             ("postgres-logical-database".to_owned(), database_executor),
@@ -253,6 +256,92 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
             .expect("prepared replay");
         assert_eq!(replay, prepared);
         assert_eq!(calls.lock().expect("replay calls").len(), 4);
+    });
+}
+
+#[test]
+fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
+    run_test(async {
+        let database = V7MigrationAdapterCheckpoint::pending(
+            "service/database",
+            "postgres-logical-database",
+            true,
+            10,
+        )
+        .expect("database checkpoint");
+        let route = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+            .expect("route checkpoint");
+        let plan = v7_execution_record(
+            V7MigrationExecutionPhase::Planned,
+            vec![database.clone(), route.clone()],
+            10,
+        );
+        let database = database
+            .with_recovery_verified(
+                "backup:database",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                100,
+                11,
+            )
+            .expect("database recovery")
+            .with_target_verified(Some("postgres-v8-bill"), 12)
+            .expect("database target");
+        let route = route.with_target_verified(None, 12).expect("route target");
+        let prepared = v7_execution_record(
+            V7MigrationExecutionPhase::Prepared,
+            vec![database, route],
+            12,
+        );
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut executors = lifecycle_v7_executors(Arc::clone(&calls), true);
+        let mut journal = RecordingV7Journal {
+            current: Some(prepared.clone()),
+            writes: Vec::new(),
+        };
+
+        let error = cutover_v7_migration(&mut journal, &plan, &mut executors, 20)
+            .await
+            .expect_err("route cutover fails once");
+        assert_eq!(
+            error.to_string(),
+            "v7 migration adapter 'route' cutover failed: cutover unavailable"
+        );
+        assert_eq!(journal.current, Some(prepared));
+        assert_eq!(
+            calls.lock().expect("failed cutover calls").as_slice(),
+            ["cutover:service/database", "cutover:route"]
+        );
+
+        calls.lock().expect("clear calls").clear();
+        let cutover = cutover_v7_migration(&mut journal, &plan, &mut executors, 21)
+            .await
+            .expect("replayed cutover");
+        assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
+        assert_eq!(
+            calls.lock().expect("replayed cutover calls").as_slice(),
+            ["cutover:service/database", "cutover:route"]
+        );
+
+        let mut confirmation_journal = journal.clone();
+        calls.lock().expect("clear calls").clear();
+        let rolled_back = rollback_v7_migration(&mut journal, &plan, &mut executors, 22)
+            .await
+            .expect("rollback cutover");
+        assert_eq!(rolled_back.phase(), V7MigrationExecutionPhase::RolledBack);
+        assert_eq!(
+            calls.lock().expect("rollback calls").as_slice(),
+            ["rollback:route", "rollback:service/database"]
+        );
+
+        calls.lock().expect("clear calls").clear();
+        let confirmed = confirm_v7_migration(&mut confirmation_journal, &plan, &mut executors, 22)
+            .await
+            .expect("confirm cutover");
+        assert_eq!(confirmed.phase(), V7MigrationExecutionPhase::Confirmed);
+        assert_eq!(
+            calls.lock().expect("confirmation calls").as_slice(),
+            ["confirm:route", "confirm:service/database"]
+        );
     });
 }
 
@@ -950,7 +1039,49 @@ fn service(name: &str, kind: Kind, driver: Driver, image: &str) -> ServiceConfig
     }
 }
 
-#[derive(Default)]
+fn v7_execution_record(
+    phase: V7MigrationExecutionPhase,
+    checkpoints: Vec<V7MigrationAdapterCheckpoint>,
+    updated_at_unix_seconds: i64,
+) -> V7MigrationExecutionRecord {
+    V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: "/work/bill".into(),
+        evidence_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            .to_owned(),
+        adapter_plan_revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            .to_owned(),
+        phase,
+        checkpoints,
+        updated_at_unix_seconds,
+    })
+    .expect("v7 execution record")
+}
+
+fn lifecycle_v7_executors(
+    calls: Arc<Mutex<Vec<String>>>,
+    fail_route_cutover: bool,
+) -> BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>> {
+    let database: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
+        calls: Arc::clone(&calls),
+        target_reference: Some("postgres-v8-bill"),
+        fail_target_once: Arc::new(AtomicBool::new(false)),
+        fail_cutover_once: Arc::new(AtomicBool::new(false)),
+    });
+    let route: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
+        calls,
+        target_reference: None,
+        fail_target_once: Arc::new(AtomicBool::new(false)),
+        fail_cutover_once: Arc::new(AtomicBool::new(fail_route_cutover)),
+    });
+
+    BTreeMap::from([
+        ("postgres-logical-database".to_owned(), database),
+        ("no-routes".to_owned(), route),
+    ])
+}
+
+#[derive(Clone, Default)]
 struct RecordingV7Journal {
     current: Option<V7MigrationExecutionRecord>,
     writes: Vec<V7MigrationExecutionRecord>,
@@ -980,6 +1111,7 @@ struct RecordingV7Adapter {
     calls: Arc<Mutex<Vec<String>>>,
     target_reference: Option<&'static str>,
     fail_target_once: Arc<AtomicBool>,
+    fail_cutover_once: Arc<AtomicBool>,
 }
 
 impl V7MigrationAdapterExecutor for RecordingV7Adapter {
@@ -1021,6 +1153,46 @@ impl V7MigrationAdapterExecutor for RecordingV7Adapter {
                 None => Ok(V7MigrationAdapterTarget::NoExternalTarget),
             }
         })
+    }
+
+    fn cutover<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("cutover:{}", checkpoint.adapter_id()));
+        let fail = self.fail_cutover_once.swap(false, Ordering::SeqCst);
+        Box::pin(async move {
+            if fail {
+                Err(MigrationOperationError::new("cutover unavailable"))
+            } else {
+                Ok(())
+            }
+        })
+    }
+
+    fn rollback<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("rollback:{}", checkpoint.adapter_id()));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn confirm<'operation>(
+        &'operation mut self,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls
+            .lock()
+            .expect("calls")
+            .push(format!("confirm:{}", checkpoint.adapter_id()));
+        Box::pin(async { Ok(()) })
     }
 }
 

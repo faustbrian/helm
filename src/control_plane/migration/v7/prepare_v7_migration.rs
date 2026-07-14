@@ -118,7 +118,16 @@ fn validate_plan(
             detail: "preparation time predates the selected plan".to_owned(),
         });
     }
-    for checkpoint in plan.checkpoints() {
+    validate_executor_set(plan, executors)?;
+
+    Ok(())
+}
+
+pub(super) fn validate_executor_set(
+    execution: &V7MigrationExecutionRecord,
+    executors: &BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
+) -> Result<(), V7MigrationExecutionError> {
+    for checkpoint in execution.checkpoints() {
         if !executors.contains_key(checkpoint.adapter_kind()) {
             return Err(V7MigrationExecutionError::MissingAdapter {
                 adapter_kind: checkpoint.adapter_kind().to_owned(),
@@ -129,7 +138,10 @@ fn validate_plan(
     Ok(())
 }
 
-fn same_plan(execution: &V7MigrationExecutionRecord, plan: &V7MigrationExecutionRecord) -> bool {
+pub(super) fn same_plan(
+    execution: &V7MigrationExecutionRecord,
+    plan: &V7MigrationExecutionRecord,
+) -> bool {
     execution.project_id() == plan.project_id()
         && execution.canonical_project_path() == plan.canonical_project_path()
         && execution.evidence_revision() == plan.evidence_revision()
@@ -146,7 +158,7 @@ fn same_plan(execution: &V7MigrationExecutionRecord, plan: &V7MigrationExecution
             })
 }
 
-fn executor<'registry>(
+pub(super) fn executor<'registry>(
     executors: &'registry mut BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
     checkpoint: &crate::control_plane::state::V7MigrationAdapterCheckpoint,
 ) -> Result<&'registry mut Box<dyn V7MigrationAdapterExecutor>, V7MigrationExecutionError> {

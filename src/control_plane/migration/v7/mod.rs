@@ -2,11 +2,14 @@
 mod tests;
 
 mod capture_v7_generated_environment_rollback;
+mod confirm_v7_migration;
+mod cutover_v7_migration;
 mod inventory_v7_host_artifacts;
 mod inventory_v7_project;
 mod plan_v7_migration_execution;
 mod prepare_v7_migration;
 mod read_v7_generated_environment_rollback;
+mod rollback_v7_migration;
 mod select_v7_migration_adapters;
 mod v7_generated_environment_artifact;
 mod v7_generated_environment_rollback_material;
@@ -37,11 +40,14 @@ mod v7_volume_inventory;
 mod v7_volume_source;
 
 pub(crate) use capture_v7_generated_environment_rollback::capture_v7_generated_environment_rollback;
+pub(crate) use confirm_v7_migration::confirm_v7_migration;
+pub(crate) use cutover_v7_migration::cutover_v7_migration;
 pub(crate) use inventory_v7_host_artifacts::inventory_v7_host_artifacts;
 pub(crate) use inventory_v7_project::inventory_v7_project;
 pub(crate) use plan_v7_migration_execution::plan_v7_migration_execution;
 pub(crate) use prepare_v7_migration::prepare_v7_migration;
 pub(crate) use read_v7_generated_environment_rollback::read_v7_generated_environment_rollback;
+pub(crate) use rollback_v7_migration::rollback_v7_migration;
 pub(crate) use select_v7_migration_adapters::select_v7_migration_adapters;
 pub(crate) use v7_generated_environment_artifact::V7GeneratedEnvironmentArtifact;
 pub(crate) use v7_generated_environment_rollback_material::V7GeneratedEnvironmentRollbackMaterial;

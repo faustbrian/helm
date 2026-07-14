@@ -276,6 +276,14 @@ journals all required recovery artifacts before target work, prioritizes those
 recoverable targets, and stops at the last successful checkpoint on any
 adapter error. Reconciliation resumes from that exact checkpoint rather than
 repeating a verified backup or trusting unrecorded in-memory progress.
+Cutover invokes the prepared strategies in deterministic dependency order and
+publishes routes last. The journal advances the entire project to `cutover`
+only after every idempotent operation succeeds; interrupted side effects are
+therefore replayed from `prepared`, never mistaken for a complete cutover.
+Rollback invokes the reverse order so new routes are withdrawn first and then
+records one project-wide terminal rollback. Confirmation is accepted only
+from `cutover`; it retires retained sources through the same idempotent
+strategies before the irreversible `confirmed` record is written.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an

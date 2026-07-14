@@ -117,6 +117,35 @@ impl V7MigrationExecutionRecord {
         self.with_options(phase, self.checkpoints().to_vec(), updated_at_unix_seconds)
     }
 
+    pub(crate) fn transition_all(
+        &self,
+        phase: V7MigrationExecutionPhase,
+        updated_at_unix_seconds: i64,
+    ) -> Result<Self, String> {
+        let checkpoints = self
+            .checkpoints()
+            .iter()
+            .cloned()
+            .map(|checkpoint| match phase {
+                V7MigrationExecutionPhase::Cutover => {
+                    checkpoint.with_cutover(updated_at_unix_seconds)
+                }
+                V7MigrationExecutionPhase::Confirmed => {
+                    checkpoint.with_confirmed(updated_at_unix_seconds)
+                }
+                V7MigrationExecutionPhase::RolledBack => {
+                    checkpoint.with_rolled_back(updated_at_unix_seconds)
+                }
+                _ => Err(format!(
+                    "v7 migration execution cannot transition every adapter to '{}'",
+                    phase.label()
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.with_options(phase, checkpoints, updated_at_unix_seconds)
+    }
+
     pub(super) fn has_same_identity(&self, other: &Self) -> bool {
         self.project_id() == other.project_id()
             && self.canonical_project_path() == other.canonical_project_path()
