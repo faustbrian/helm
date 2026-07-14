@@ -1,16 +1,18 @@
 use super::{
-    V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
-    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
-    V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
-    V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
-    V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
-    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
-    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
-    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7EnvironmentMigrationAdapter, V7GatewaySnapshotMigrationAdapterOptions,
+    V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions, V7InventoryBlocker,
+    V7MigrationAdapterExecutor, V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions,
+    V7MigrationAdapterTarget, V7MigrationCutoverOptions, V7MigrationExecutionJournal,
+    V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions, V7MigrationRouteSource,
+    V7MigrationServiceAdapter, V7MigrationServiceSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
+    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
-    register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
+    register_v7_gateway_snapshot_migration_adapter, register_v7_no_op_migration_adapters,
+    register_v7_protected_environment_migration_adapter,
     register_v7_recreated_service_migration_adapter, rollback_v7_migration,
     select_v7_migration_adapters,
 };
@@ -20,6 +22,9 @@ use crate::config::{
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
     ContainerId, EngineFuture, LegacyContainerDiscovery, ObservedContainer, ObservedContainerMount,
+};
+use crate::control_plane::gateway::{
+    GatewayConfiguration, GatewayFuture, GatewayRoute, GatewaySnapshot,
 };
 use crate::control_plane::migration::{
     MigrationBackup, MigrationCutoverPlan, MigrationFuture, MigrationOperationError,
@@ -711,6 +716,111 @@ fn v7_registry_can_borrow_a_live_provider_for_one_execution() {
         }
 
         assert!(target_prepared);
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn v7_gateway_adapter_backs_up_and_replaces_complete_snapshots() {
+    run_test(async {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v7-gateway-adapter-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let rollback_snapshot = GatewaySnapshot::new(vec![
+            GatewayRoute::new("other-app.stackctl.localhost", "http://other-app:8080")
+                .expect("rollback route"),
+        ])
+        .expect("rollback snapshot");
+        let target_snapshot = GatewaySnapshot::new(vec![
+            GatewayRoute::new("bill-app.stackctl.localhost", "http://bill-app:8080")
+                .expect("target route"),
+            GatewayRoute::new("other-app.stackctl.localhost", "http://other-app:8080")
+                .expect("preserved route"),
+        ])
+        .expect("target snapshot");
+        let checkpoint =
+            V7MigrationAdapterCheckpoint::pending("route", "gateway-snapshot-cutover", true, 10)
+                .expect("gateway checkpoint");
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, vec![checkpoint], 10);
+        let mut provider = RecordingV7GatewayProvider::default();
+        let mut journal = RecordingV7Journal::default();
+        {
+            let mut registry = V7MigrationAdapterRegistry::default();
+            assert!(
+                register_v7_gateway_snapshot_migration_adapter(
+                    &mut registry,
+                    &plan,
+                    V7GatewaySnapshotMigrationAdapterOptions {
+                        provider: &mut provider,
+                        rollback_snapshot: &rollback_snapshot,
+                        target_snapshot: &target_snapshot,
+                        backup_root: &root,
+                        created_at_unix_seconds: 11,
+                        verified_at_unix_seconds: 12,
+                    },
+                )
+                .expect("register gateway adapter")
+            );
+            let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 12)
+                .await
+                .expect("prepare gateway snapshots");
+            let recovery_reference = prepared.checkpoints()[0]
+                .recovery_reference()
+                .expect("gateway recovery reference");
+            let recovery_artifact = Path::new(recovery_reference).join("artifact.bin");
+            assert!(recovery_artifact.is_file());
+            let recovery_bytes = std::fs::read(&recovery_artifact).expect("gateway recovery bytes");
+            assert_eq!(
+                prepared.checkpoints()[0].target_reference(),
+                Some(target_snapshot.revision())
+            );
+            let desired_state = v7_cutover_state();
+            cutover_v7_migration(V7MigrationCutoverOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                desired_state: &desired_state,
+                updated_at_unix_seconds: 13,
+            })
+            .await
+            .expect("cut over gateway snapshot");
+            let restored_state = v7_rollback_state();
+            std::fs::write(&recovery_artifact, b"tampered").expect("tamper gateway recovery");
+            let error = rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 14,
+            })
+            .await
+            .expect_err("tampered gateway recovery blocks rollback");
+            assert!(error.to_string().contains("verify gateway rollback"));
+            std::fs::write(&recovery_artifact, recovery_bytes).expect("restore gateway recovery");
+            rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 14,
+            })
+            .await
+            .expect("roll back gateway snapshot");
+        }
+
+        assert_eq!(
+            provider.applied_revisions,
+            vec![
+                target_snapshot.revision().to_owned(),
+                rollback_snapshot.revision().to_owned(),
+            ]
+        );
+        std::fs::remove_dir_all(root).expect("remove gateway fixture");
     });
 }
 
@@ -1704,6 +1814,28 @@ fn v7_rollback_state() -> MigrationRollbackPlan {
 
 struct BorrowingV7Adapter<'operation> {
     target_prepared: &'operation mut bool,
+}
+
+#[derive(Default)]
+struct RecordingV7GatewayProvider {
+    active_revision: Option<String>,
+    applied_revisions: Vec<String>,
+}
+
+impl GatewayConfiguration for RecordingV7GatewayProvider {
+    fn apply_snapshot<'operation>(
+        &'operation mut self,
+        snapshot: &'operation GatewaySnapshot,
+    ) -> GatewayFuture<'operation, ()> {
+        self.active_revision = Some(snapshot.revision().to_owned());
+        self.applied_revisions.push(snapshot.revision().to_owned());
+        Box::pin(async { Ok(()) })
+    }
+
+    fn active_revision(&self) -> GatewayFuture<'_, Option<String>> {
+        let revision = self.active_revision.clone();
+        Box::pin(async move { Ok(revision) })
+    }
 }
 
 impl V7MigrationAdapterExecutor for BorrowingV7Adapter<'_> {

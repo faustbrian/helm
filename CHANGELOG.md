@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a concrete full-snapshot v7 gateway adapter. It stores a private,
+  identity-bound rollback snapshot, publishes and verifies the complete target
+  route revision, and refuses rollback when the retained artifact is missing,
+  changed, or belongs to different accepted evidence.
 - Made the exact v7 adapter registry execution-scoped so stateful strategies
   can safely borrow live typed Engine and gateway providers without global
   handles, ownership transfer, or `'static` adapter workarounds.

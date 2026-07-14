@@ -311,6 +311,13 @@ or interrupted commit exposes none of those desired-state changes; external
 idempotent side effects are replayed from `prepared`, never mistaken for a
 complete cutover. Desired project identity and canonical path are checked
 against the immutable execution before any adapter side effect runs.
+The gateway strategy never edits one route in isolation. Preparation stores a
+private canonical artifact for the complete pre-cutover gateway snapshot and
+binds the complete target revision. Cutover atomically replaces and verifies
+the provider's full snapshot. Rollback first reopens the recovery point and
+checks its identity, manifest checksum, size, and canonical route bytes before
+atomically restoring and verifying the complete prior snapshot; tampering
+blocks route mutation.
 Rollback invokes the reverse order so new routes are withdrawn first and then
 atomically restores prior route ownership, project intent, and the managed
 environment while retaining target logical resources and recording one
