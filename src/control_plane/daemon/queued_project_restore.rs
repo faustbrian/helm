@@ -88,6 +88,7 @@ impl QueuedProjectRestore {
                 | "mysql_database"
                 | "mariadb_database"
                 | "mongodb_database"
+                | "sqlserver_database"
         ) {
             return Err(format!(
                 "project restore kind '{}' is not implemented",

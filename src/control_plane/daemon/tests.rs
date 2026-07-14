@@ -3031,6 +3031,299 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
     std::fs::remove_dir_all(root).expect("remove MongoDB restore fixture");
 }
 
+#[test]
+fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-sqlserver-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "mcr.microsoft.com/mssql/server@sha256:",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path.clone(),
+        project_path.join(".stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: sqlserver\n    version: \"2022\"\n    image: {image}\n    environment:\n      ACCEPT_EULA: \"Y\"\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/amd64")
+        .expect("shared instances")
+        .pop()
+        .expect("SQL Server instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
+    let source_container_name = format!("stackctl-shared-{fingerprint_id}");
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &source_container_name,
+        "install-1",
+        "sqlserver-source",
+        &fingerprint,
+    )]);
+    let source = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: source_container_name.clone(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "sqlserver_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:source".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let source_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/sqlserver".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "ProjectSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{fingerprint_id}/sqlserver-bootstrap"),
+        project_id: None,
+        service_id: "sqlserver".to_owned(),
+        username: "sa".to_owned(),
+        secret: "AdministratorSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let source_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:source".to_owned(),
+        values: BTreeMap::from([
+            ("DB_CONNECTION".to_owned(), "sqlsrv".to_owned()),
+            (
+                "DB_DATABASE".to_owned(),
+                source.logical_resource_id().to_owned(),
+            ),
+            ("DB_HOST".to_owned(), source_container_name.clone()),
+            (
+                "DB_PASSWORD".to_owned(),
+                source_credential.secret().to_owned(),
+            ),
+            ("DB_PORT".to_owned(), "1433".to_owned()),
+            (
+                "DB_USERNAME".to_owned(),
+                source_credential.username().to_owned(),
+            ),
+        ]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let backup_root = root.join("backups");
+    let backup = runtime
+        .block_on(execute_queued_project_backup(
+            engine.clone(),
+            ProjectBackupExecutionOptions {
+                operation: QueuedProjectBackup::new(
+                    "backup-sqlserver".to_owned(),
+                    "bill".to_owned(),
+                    "database".to_owned(),
+                    source.logical_resource_id().to_owned(),
+                    source.kind().to_owned(),
+                    fingerprint.clone(),
+                )
+                .expect("backup intent"),
+                logical_resource: Ok(source.clone()),
+                credential: Ok(source_credential.clone()),
+                installation_id: "install-1".to_owned(),
+                schema_version: 8,
+                backup_root: backup_root.clone(),
+                created_at_unix_seconds: 70_000,
+                timeout: Duration::from_secs(120),
+            },
+        ))
+        .outcome()
+        .as_ref()
+        .expect("verified backup")
+        .clone();
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-sqlserver".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: source.logical_resource_id().to_owned(),
+        resource_kind: source.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: backup.reference().to_owned(),
+        artifact_sha256: backup.artifact_sha256().to_owned(),
+        artifact_size_bytes: backup.artifact_size_bytes(),
+        created_at_unix_seconds: 70_000,
+        verified_at_unix_seconds: 70_001,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_project(&ProjectRecord::new(
+            project_path,
+            "bill".to_owned(),
+            Vec::new(),
+        ))
+        .expect("project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&source))
+        .expect("source ownership");
+    store
+        .insert_credential_if_absent(&source_credential)
+        .expect("source credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator");
+    store
+        .replace_managed_environment(&source_environment)
+        .expect("source environment");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    drop(store);
+
+    let result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0xdd),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                operation_id: "restore-sqlserver".to_owned(),
+                recovery_point_id: "backup-sqlserver".to_owned(),
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                logical_resource_id: source.logical_resource_id().to_owned(),
+                kind: source.kind().to_owned(),
+                compatibility_fingerprint: fingerprint,
+            })
+            .expect("restore intent"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 70_002,
+            timeout: Duration::from_secs(120),
+        },
+    ));
+
+    assert_eq!(
+        result.outcome(),
+        &Ok(MigrationExecutionResult::AwaitingConfirmation)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert_eq!(
+        store.migrations().expect("migrations")[0].phase(),
+        MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.managed_environments().expect("environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&"stackctl-migration-restore-sqlserver".to_owned())
+    );
+    assert!(
+        engine
+            .created()
+            .contains(&"stackctl-migration-restore-sqlserver".to_owned())
+    );
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    let rollback_database_path = root.join("rollback-state.sqlite3");
+    std::fs::copy(&database_path, &rollback_database_path)
+        .expect("snapshot SQL Server cutover state for rollback");
+    let confirmed = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0xee),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "confirm-sqlserver".to_owned(),
+                "restore-sqlserver".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Confirm,
+            )
+            .expect("SQL Server confirmation"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 70_003,
+            timeout: Duration::from_secs(120),
+        },
+    ));
+
+    assert_eq!(
+        confirmed.outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("confirmed SQL Server state");
+    assert_eq!(
+        store.migrations().expect("confirmed migration")[0].phase(),
+        MigrationPhase::Confirmed
+    );
+    let retirement_sql = String::from_utf8(
+        engine
+            .command_inputs()
+            .last()
+            .expect("SQL Server retirement SQL")
+            .clone(),
+    )
+    .expect("retirement SQL UTF-8");
+    assert!(retirement_sql.contains("DROP DATABASE [stackctl_bill_database]"));
+    assert!(retirement_sql.contains("DROP LOGIN [st_bill_database]"));
+
+    drop(store);
+    let rolled_back = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0xff),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "rollback-sqlserver".to_owned(),
+                "restore-sqlserver".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Rollback,
+            )
+            .expect("SQL Server rollback"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: rollback_database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 70_004,
+            timeout: Duration::from_secs(120),
+        },
+    ));
+
+    assert_eq!(
+        rolled_back.outcome(),
+        &Ok(MigrationExecutionResult::RolledBack)
+    );
+    let store = SqliteStateStore::open(&rollback_database_path).expect("rolled-back state");
+    assert_eq!(
+        store.migrations().expect("rolled-back migration")[0].phase(),
+        MigrationPhase::RolledBack
+    );
+    assert_eq!(
+        store.managed_environments().expect("source environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&source_container_name)
+    );
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove SQL Server restore fixture");
+}
+
 struct FixedRestoreEntropy(u8);
 
 impl CredentialEntropy for FixedRestoreEntropy {

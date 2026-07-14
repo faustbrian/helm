@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned reversible SQL Server recovery execution with exact
+  catalog selection, isolated persistent targets, native restore verification,
+  atomic cutover, explicit source retirement, and retained-target rollback.
 - Added separately owned persistent SQL Server migration targets with durable
   SA replay, native backup verification and restore, database-user remapping,
   and exact tenant-authenticated target verification.

@@ -8,14 +8,17 @@ use crate::control_plane::migration::{
     MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, MySqlMigrationOperations,
     MySqlMigrationOperationsOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions,
-    RecoveryPointRestoreOptions, execute_recovery_point_restore,
+    RecoveryPointRestoreOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
+    execute_recovery_point_restore,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, MongoDbMigrationPreparationOptions, MySqlFlavor,
     MySqlMigrationPreparationOptions, PostgresMigrationPreparationOptions,
-    plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
-    reconcile_mongodb_migration_target, reconcile_mysql_migration_target,
-    reconcile_postgres_migration_target,
+    SqlServerMigrationPreparationOptions, plan_mongodb_project_resources,
+    plan_mysql_project_resources, plan_postgres_project_resources,
+    plan_sql_server_project_resources, reconcile_mongodb_migration_target,
+    reconcile_mysql_migration_target, reconcile_postgres_migration_target,
+    reconcile_sql_server_migration_target,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, LogicalResourceRecord, LogicalResourceRecordOptions, MigrationPhase,
@@ -62,9 +65,191 @@ where
 {
     match options.operation.kind() {
         "mongodb_database" => execute_mongodb(engine, entropy, options).await,
+        "sqlserver_database" => execute_sql_server(engine, entropy, options).await,
         "mysql_database" | "mariadb_database" => execute_mysql(engine, entropy, options).await,
         _ => execute_postgres(engine, entropy, options).await,
     }
+}
+
+async fn execute_sql_server<E, Entropy>(
+    engine: &mut E,
+    entropy: &Entropy,
+    options: &ProjectRestoreExecutionOptions,
+) -> Result<crate::control_plane::migration::MigrationExecutionResult, String>
+where
+    E: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + VolumeDiscovery
+        + VolumeManager
+        + Sync,
+    Entropy: CredentialEntropy,
+{
+    validate(options)?;
+    let mut store = SqliteStateStore::open(&options.state_database_path)
+        .map_err(|error| format!("could not open restore state: {error}"))?;
+    let project = one(
+        store
+            .projects()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|project| project.project_name() == options.operation.project_id())
+            .collect(),
+        "registered project",
+    )?;
+    let source = one(
+        store
+            .logical_resources()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|logical| source_matches(logical, options))
+            .collect(),
+        "active source logical resource",
+    )?;
+    let credentials = store.credentials().map_err(|error| error.to_string())?;
+    let source_credential = one(
+        credentials
+            .iter()
+            .filter(|credential| {
+                credential.project_id() == Some(options.operation.project_id())
+                    && credential.service_id() == options.operation.service_id()
+                    && credential.lifecycle() == CredentialLifecycle::Active
+            })
+            .cloned()
+            .collect(),
+        "active source credential",
+    )?;
+    let fingerprint_id = options
+        .operation
+        .compatibility_fingerprint()
+        .strip_prefix("sha256:")
+        .ok_or_else(|| "restore compatibility fingerprint is malformed".to_owned())?;
+    let administrator_id = format!("shared/{fingerprint_id}/sqlserver-bootstrap");
+    let source_administrator = one(
+        credentials
+            .into_iter()
+            .filter(|credential| {
+                credential.credential_id() == administrator_id
+                    && credential.project_id().is_none()
+                    && credential.lifecycle() == CredentialLifecycle::Active
+            })
+            .collect(),
+        "active source administrator",
+    )?;
+    let source_environment = one(
+        store
+            .managed_environments()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|environment| environment.project_id() == options.operation.project_id())
+            .collect(),
+        "active source environment",
+    )?;
+    let source_container = owned_source_container(engine, options).await?;
+    let target = reconcile_sql_server_migration_target(
+        &mut store,
+        engine,
+        &options.shared,
+        entropy,
+        SqlServerMigrationPreparationOptions {
+            migration_id: options.operation.operation_id(),
+            project_id: options.operation.project_id(),
+            installation_id: &options.installation_id,
+            network_name: &options.network_name,
+            schema_version: options.schema_version,
+            desired_revision: source.desired_revision(),
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let target_resources = plan_sql_server_project_resources(
+        options.operation.project_id(),
+        options.operation.service_id(),
+        target.plan(),
+        CredentialSecret::new(source_credential.secret().to_owned()),
+    )
+    .map_err(|error| error.to_string())?;
+    let target_logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: format!(
+            "{}/{}",
+            options.operation.project_id(),
+            options.operation.service_id()
+        ),
+        shared_resource_id: target.volume().name().to_owned(),
+        project_id: options.operation.project_id().to_owned(),
+        service_id: options.operation.service_id().to_owned(),
+        kind: options.operation.kind().to_owned(),
+        compatibility_fingerprint: options.operation.compatibility_fingerprint().to_owned(),
+        desired_revision: target_resources.environment().revision().to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let cutover =
+        MigrationCutoverPlan::new(project.clone(), target_resources.environment().clone())
+            .map_err(|error| error.to_string())?;
+    let rollback = MigrationRollbackPlan::new(
+        project,
+        source_environment.clone(),
+        vec![logical_with_lifecycle(
+            &target_logical,
+            ResourceLifecycle::Retained,
+        )],
+    )
+    .map_err(|error| error.to_string())?;
+    let inventory = MigrationRecord::new(MigrationRecordOptions {
+        migration_id: options.operation.operation_id().to_owned(),
+        project_id: options.operation.project_id().to_owned(),
+        source_revision: source.desired_revision().to_owned(),
+        target_revision: target_resources.environment().revision().to_owned(),
+        source_compatibility_fingerprint: source.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: target_logical.compatibility_fingerprint().to_owned(),
+        phase: MigrationPhase::Inventoried,
+        backup_reference: None,
+        backup_artifact_sha256: None,
+        backup_artifact_size_bytes: None,
+        target_resource_id: None,
+        rollback_reference: Some(source.shared_resource_id().to_owned()),
+        updated_at_unix_seconds: options.updated_at_unix_seconds,
+    })
+    .map_err(|error| error.to_string())?;
+    let mut operations = SqlServerMigrationOperations::new(
+        engine,
+        SqlServerMigrationOperationsOptions {
+            source_container: &source_container,
+            target_container: target.container(),
+            source_logical_resource: &source,
+            target_logical_resource: &target_logical,
+            source_credential: &source_credential,
+            target_credential: target_resources.credential(),
+            source_administrator: &source_administrator,
+            target_instance: target.plan(),
+            source_environment: &source_environment,
+            target_plan: target_resources.logical(),
+            installation_id: &options.installation_id,
+            backup_root: &options.backup_root,
+            operation_unix_seconds: options.updated_at_unix_seconds,
+            timeout: options.timeout,
+            cutover,
+            rollback,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    execute_recovery_point_restore(
+        &mut store,
+        &inventory,
+        &mut operations,
+        &RecoveryPointRestoreOptions {
+            recovery_point_id: options.operation.recovery_point_id(),
+            service_id: options.operation.service_id(),
+            logical_resource_id: options.operation.logical_resource_id(),
+            resource_kind: options.operation.kind(),
+            updated_at_unix_seconds: options.updated_at_unix_seconds,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 async fn execute_mongodb<E, Entropy>(
