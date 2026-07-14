@@ -6,6 +6,7 @@ mod daemon_events;
 mod daemon_operations;
 mod desired_registry;
 mod installation;
+mod installation_deletion;
 mod logical_resources;
 mod migrations;
 mod plan_project_registry;

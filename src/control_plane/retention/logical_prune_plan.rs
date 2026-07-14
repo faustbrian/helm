@@ -21,9 +21,19 @@ pub(crate) struct LogicalPrunePlan {
 
 impl LogicalPrunePlan {
     pub(crate) fn new(options: LogicalPrunePlanOptions<'_>) -> Result<Self, String> {
+        Self::build(options, false)
+    }
+
+    pub(super) fn for_installation_deletion(
+        options: LogicalPrunePlanOptions<'_>,
+    ) -> Result<Self, String> {
+        Self::build(options, true)
+    }
+
+    fn build(options: LogicalPrunePlanOptions<'_>, allow_active: bool) -> Result<Self, String> {
         validate_request(&options)?;
-        let (logical, strategy) = one_logical(&options)?;
-        let credential = one_credential(&options)?;
+        let (logical, strategy) = one_logical(&options, allow_active)?;
+        let credential = one_credential(&options, allow_active)?;
         let recovery = one_recovery_point(&options, logical)?;
         let confirmation_token =
             confirmation_token(options.installation_id, logical, credential, recovery);
@@ -98,6 +108,7 @@ fn validate_request(options: &LogicalPrunePlanOptions<'_>) -> Result<(), String>
 
 fn one_logical<'state>(
     options: &LogicalPrunePlanOptions<'state>,
+    allow_active: bool,
 ) -> Result<(&'state LogicalResourceRecord, DataLifecycleStrategy), String> {
     let matches = options
         .logical_resources
@@ -130,8 +141,9 @@ fn one_logical<'state>(
             logical.kind()
         ));
     }
-    if logical.lifecycle() == ResourceLifecycle::Active
-        || logical.orphaned_at_unix_seconds().is_none()
+    if !allow_active
+        && (logical.lifecycle() == ResourceLifecycle::Active
+            || logical.orphaned_at_unix_seconds().is_none())
     {
         return Err(format!(
             "logical resource '{}' must be orphaned before destructive prune",
@@ -144,6 +156,7 @@ fn one_logical<'state>(
 
 fn one_credential<'state>(
     options: &LogicalPrunePlanOptions<'state>,
+    allow_active: bool,
 ) -> Result<&'state CredentialRecord, String> {
     let matches = options
         .credentials
@@ -161,7 +174,7 @@ fn one_credential<'state>(
             matches.len()
         ));
     };
-    if credential.lifecycle() != CredentialLifecycle::Disabled {
+    if !allow_active && credential.lifecycle() != CredentialLifecycle::Disabled {
         return Err(format!(
             "credential '{}' must be disabled before destructive prune",
             credential.credential_id()

@@ -18,6 +18,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a deterministic installation-deletion preflight that refuses teardown
+  unless every retained logical tenant has one supported destructive adapter,
+  one exact credential, and a latest matching verified recovery-point record.
 - Added a durable installation-deletion lifecycle barrier that atomically
   clears watched roots, orphans every registered project, disables its managed
   credentials and environment, and prevents reconciliation from recreating

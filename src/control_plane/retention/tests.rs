@@ -1,6 +1,7 @@
 use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
-    DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
+    DataLifecycleStrategyError, DeletionDecision, InstallationDeletionPlan,
+    InstallationDeletionPlanOptions, LogicalPrunePlan, LogicalPrunePlanOptions,
     MinioLogicalPruneOptions, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
     PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions, PruneAuthorization,
     RabbitMqLogicalPruneOptions, RedisLogicalPruneOptions, RestoreTarget, RestoreTargetError,
@@ -767,6 +768,29 @@ fn postgres_prune_plan_binds_exact_retained_state_backup_and_confirmation() {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     );
+}
+
+#[test]
+fn installation_deletion_plan_selects_latest_exact_recovery_before_freeze() {
+    let logical = prune_logical(ResourceLifecycle::Active, None);
+    let credential = prune_credential(CredentialLifecycle::Active);
+    let older = prune_recovery_point_at("backup-41", "a", 8_000);
+    let latest = prune_recovery_point_at("backup-42", "b", 9_000);
+
+    let plan = InstallationDeletionPlan::new(InstallationDeletionPlanOptions {
+        installation_id: "install-1",
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: &[older, latest],
+    })
+    .expect("complete installation deletion plan");
+
+    let [item] = plan.logical_prunes() else {
+        panic!("expected one logical prune");
+    };
+    assert_eq!(item.project_id(), "bill");
+    assert_eq!(item.service_id(), "database");
+    assert_eq!(item.recovery_point_id(), "backup-42");
 }
 
 #[test]
@@ -1765,6 +1789,14 @@ fn prune_credential(lifecycle: CredentialLifecycle) -> CredentialRecord {
 }
 
 fn prune_recovery_point(id: &str, checksum_character: &str) -> RecoveryPointRecord {
+    prune_recovery_point_at(id, checksum_character, 9_000)
+}
+
+fn prune_recovery_point_at(
+    id: &str,
+    checksum_character: &str,
+    created_at_unix_seconds: i64,
+) -> RecoveryPointRecord {
     RecoveryPointRecord::new(RecoveryPointRecordOptions {
         recovery_point_id: id.to_owned(),
         project_id: "bill".to_owned(),
@@ -1775,8 +1807,8 @@ fn prune_recovery_point(id: &str, checksum_character: &str) -> RecoveryPointReco
         reference: format!("/backups/{id}"),
         artifact_sha256: checksum_character.repeat(64),
         artifact_size_bytes: 1_024,
-        created_at_unix_seconds: 9_000,
-        verified_at_unix_seconds: 9_001,
+        created_at_unix_seconds,
+        verified_at_unix_seconds: created_at_unix_seconds + 1,
     })
     .expect("valid recovery point")
 }

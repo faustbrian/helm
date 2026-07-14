@@ -1,9 +1,10 @@
 use super::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::state::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
-    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
-    ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle, ResourceRecord,
-    ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+    EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord, RecoveryPointRecord,
+    RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
+    ResourceRetention, SqliteStateStore, StateStore,
 };
 use crate::control_plane::{ServiceDeploymentStrategy, resolve_execution_plan};
 use std::collections::BTreeMap;
@@ -17,6 +18,70 @@ fn repeated_discovery_of_one_canonical_project_is_planned_once() {
     let registry = plan_project_registry(&[source.clone(), source]).expect("valid registry");
 
     assert_eq!(registry.projects().len(), 1);
+}
+
+#[test]
+fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
+    let database_path = temporary_database_path();
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:database".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "bill".to_owned(),
+        secret: "retained-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "bill/database".to_owned(),
+        resource_kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        reference: "/backups/backup-42".to_owned(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 1_024,
+        created_at_unix_seconds: 9_000,
+        verified_at_unix_seconds: 9_001,
+    })
+    .expect("valid recovery point");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "unix:///engine.sock",
+        ))
+        .expect("initialize installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("persist credential");
+    store
+        .record_recovery_point(&recovery)
+        .expect("persist recovery point");
+    let control_plane = ControlPlane::new(store);
+
+    let plan = control_plane
+        .plan_installation_deletion()
+        .expect("complete deletion preflight");
+
+    assert_eq!(plan.logical_prunes().len(), 1);
+    assert_eq!(plan.logical_prunes()[0].recovery_point_id(), "backup-42");
+    remove_database(&database_path);
 }
 
 #[test]
