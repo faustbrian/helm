@@ -19,9 +19,12 @@ ask users to trust their own CAs.
 
 ## Supply chain and upgrades
 
-Built-in images use immutable digests. Runtime images are content-addressed by
-base digest, runtime version, PHP extensions, system packages, JavaScript
-runtime, and immutable configuration. Equivalent projects reuse layers.
+Built-in images use immutable digests. PHP extension runtime images are
+content-addressed by the locked base digest, target Linux platform, normalized
+extension set, and immutable ownership metadata. Equivalent projects reuse the
+verified Engine build cache. Composer, JavaScript, and additional system
+package variants remain separate incomplete runtime-image work and are not
+claimed by this path.
 
 Project-local `.stackctl.lock.yaml` records bind exact configured image or
 preset sources to immutable sha256 digests. Registry planning validates and
@@ -39,9 +42,12 @@ daemon resolves them using the persisted Engine selection and returns the exact
 same key set. The CLI rejects missing, additional, or mutable results before an
 atomic YAML lock publication.
 
-Built-in generation never executes mutable remote installer pipelines such as
-`curl | sh` or `curl | php`. Downloaded tools require a pinned source and
-checksum or signature. Releases include SBOM and provenance.
+Extension generation invokes the `install-php-extensions` executable already
+contained in the digest-pinned application base. It does not download or inject
+a new installer script. Built-in generation never executes mutable remote
+installer pipelines such as `curl | sh` or `curl | php`. Downloaded tools
+require a pinned source and checksum or signature. Releases include SBOM and
+provenance.
 
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.

@@ -5150,18 +5150,22 @@ fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
 
     assert_eq!(plan.applications().len(), 1);
     assert_eq!(plan.processes().len(), 1);
-    assert_eq!(plan.processes()[0].name(), "stackctl-bill-worker");
-    assert_eq!(plan.processes()[0].image(), image);
+    assert_eq!(plan.processes()[0].application_service(), "app");
+    assert_eq!(plan.processes()[0].request().name(), "stackctl-bill-worker");
+    assert_eq!(plan.processes()[0].request().image(), image);
     assert_eq!(
-        plan.processes()[0].command(),
+        plan.processes()[0].request().command(),
         ["php", "artisan", "queue:work", "--no-interaction"]
     );
     assert_eq!(
-        plan.processes()[0].environment().get("APP_MODE"),
+        plan.processes()[0].request().environment().get("APP_MODE"),
         Some(&"local".to_owned())
     );
     assert_eq!(
-        plan.processes()[0].environment().get("WORKER_MODE"),
+        plan.processes()[0]
+            .request()
+            .environment()
+            .get("WORKER_MODE"),
         Some(&"steady".to_owned())
     );
     assert_eq!(plan.gateway().routes().len(), 1);

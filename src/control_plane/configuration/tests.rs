@@ -352,6 +352,24 @@ services:
 }
 
 #[test]
+fn desired_state_requires_an_extension_capable_application_preset() {
+    let source = r#"
+schema_version: 8
+services:
+  app:
+    image: ghcr.io/acme/php@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    php_extensions: [intl]
+"#;
+
+    assert_eq!(
+        desired_from(source)
+            .expect_err("custom extension installer contract")
+            .to_string(),
+        "service 'app' declares PHP extensions but preset '<none>' does not provide the pinned install-php-extensions runtime contract"
+    );
+}
+
+#[test]
 fn desired_state_rejects_presets_without_an_explicit_v8_strategy() {
     let source = r#"
 schema_version: 8

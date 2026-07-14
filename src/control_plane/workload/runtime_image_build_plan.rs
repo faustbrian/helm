@@ -12,7 +12,7 @@ const INSTALLER_CONTEXT_PATH: &str = "runtime-installer.sh";
 const INSTALLER_PATH: &str = "/opt/stackctl/runtime-installer.sh";
 
 /// A deterministic, offline Engine build for one reusable Linux runtime.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RuntimeImageBuildPlan {
     request: ImageBuildRequest,
     compatibility_fingerprint: String,
@@ -20,6 +20,58 @@ pub(crate) struct RuntimeImageBuildPlan {
 }
 
 impl RuntimeImageBuildPlan {
+    pub(crate) fn for_php_extensions(
+        installation_id: &str,
+        schema_version: u32,
+        base_image_digest: &str,
+        platform: &str,
+        mut php_extensions: Vec<String>,
+    ) -> Result<Self, EngineError> {
+        normalize_unique(&mut php_extensions, "PHP extension", valid_php_extension)?;
+        if php_extensions.is_empty() {
+            return Err(invalid_request(
+                "derived PHP runtime requires at least one extension",
+            ));
+        }
+
+        let manifest_json = serde_json::to_string(&PhpExtensionRuntimeManifest {
+            schema_version: 1,
+            php_extensions: &php_extensions,
+        })
+        .map_err(|error| invalid_request(format!("failed to encode runtime manifest: {error}")))?;
+        let compatibility_fingerprint = fingerprint(base_image_digest, platform, &manifest_json);
+        let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: ResourceKind::Build,
+            project_id: None,
+            compatibility_fingerprint: compatibility_fingerprint.clone(),
+            schema_version,
+            desired_revision: compatibility_fingerprint.clone(),
+            retention: RetentionClass::BuildCache,
+        })?;
+        let mut command = vec!["install-php-extensions".to_owned()];
+        command.extend(php_extensions);
+        let command = serde_json::to_string(&command).map_err(|error| {
+            invalid_request(format!(
+                "failed to encode extension installer command: {error}"
+            ))
+        })?;
+        let dockerfile = format!("FROM {base_image_digest}\nRUN {command}\n");
+        let request = ImageBuildRequest::new(
+            BTreeMap::new(),
+            "Dockerfile".to_owned(),
+            dockerfile,
+            platform.to_owned(),
+            metadata,
+        )?;
+
+        Ok(Self {
+            request,
+            compatibility_fingerprint,
+            manifest_json,
+        })
+    }
+
     pub(crate) fn new(mut options: RuntimeImageBuildPlanOptions) -> Result<Self, EngineError> {
         validate_exact_version("PHP", &options.php_version)?;
         validate_exact_version("Composer", &options.composer_version)?;
@@ -108,6 +160,12 @@ impl RuntimeImageBuildPlan {
     pub(crate) fn manifest_json(&self) -> &str {
         &self.manifest_json
     }
+}
+
+#[derive(Serialize)]
+struct PhpExtensionRuntimeManifest<'value> {
+    schema_version: u32,
+    php_extensions: &'value [String],
 }
 
 #[derive(Serialize)]

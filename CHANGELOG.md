@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Connected declared PHP extensions to daemon reconciliation through
+  content-addressed images derived from locked application bases, propagated
+  the resulting image to project processes, and rejected custom images without
+  the pinned extension-installer contract.
 - Corrected the v8 completion audit to report the verified post-cleanup test
   count, the disconnected runtime-image reconciliation path, and incomplete
   persistent-deletion coverage without overstating implementation status.

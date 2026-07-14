@@ -74,6 +74,16 @@ pub(crate) fn resolve_desired_project(
                 ));
             }
         }
+        if !php_extensions.is_empty() && !preset.as_deref().is_some_and(extension_capable_preset) {
+            return Err(invalid_service(
+                name,
+                format!(
+                    "declares PHP extensions but preset '{}' does not provide the pinned \
+                     install-php-extensions runtime contract",
+                    preset.as_deref().unwrap_or("<none>")
+                ),
+            ));
+        }
 
         services.insert(
             name.clone(),
@@ -105,6 +115,10 @@ pub(crate) fn resolve_desired_project(
         startup_order,
         route_claims,
     ))
+}
+
+fn extension_capable_preset(preset: &str) -> bool {
+    matches!(preset, "frankenphp" | "laravel" | "reverb")
 }
 
 fn validate_command(

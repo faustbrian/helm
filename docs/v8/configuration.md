@@ -15,7 +15,7 @@ project: bill
 services:
   app:
     preset: laravel
-    image: ghcr.io/stackctl/php:8.4
+    version: "8.5"
     php_extensions:
       - intl
       - redis
@@ -70,8 +70,8 @@ schema_version: 1
 catalog_revision: 2026-07-13.1
 images:
   app:
-    source: ghcr.io/stackctl/php:8.4
-    resolved: ghcr.io/stackctl/php@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    source: preset:laravel:8.5
+    resolved: dunglas/frankenphp@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   db:
     source: preset:postgres:17
     resolved: postgres@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -100,6 +100,14 @@ default version invalidates existing locks instead of silently changing the
 runtime artifact. An unknown preset version fails explicitly. Horizon, queue
 workers, queues, and schedulers inherit their application artifact and never
 receive redundant lock entries.
+
+`php_extensions` is available only on the `laravel`, `frankenphp`, and `reverb`
+application presets, whose digest-pinned base image provides the pinned
+`install-php-extensions` contract. The daemon derives a content-addressed image
+from the locked base and the sorted extension set before starting the app.
+Workers and schedulers use that exact built image. Images without one of these
+presets cannot declare extensions implicitly; they must contain their
+requirements already.
 
 ## Project identity and routes
 

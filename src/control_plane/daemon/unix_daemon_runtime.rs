@@ -36,10 +36,10 @@ use crate::control_plane::state::{InstallationLifecycle, SqliteStateStore, State
 use crate::control_plane::workload::{
     DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
     ProjectVolumeReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
-    garbage_collect_disposable_containers, project_volume_resource_record,
-    reconcile_project_application, reconcile_project_process, reconcile_project_service,
-    reconcile_project_volume, remove_stale_ephemeral_services, stop_orphaned_project_workloads,
-    workload_resource_record,
+    garbage_collect_disposable_containers, materialize_application_request,
+    project_volume_resource_record, reconcile_project_application, reconcile_project_process,
+    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -732,11 +732,39 @@ impl UnixDaemonRuntime {
         }
 
         let mut workload_resources = Vec::new();
+        let mut project_runtime_images = BTreeMap::new();
         for application in engine_plan.applications() {
+            let request = match self
+                .engine_runtime
+                .block_on(materialize_application_request(engine, application))
+            {
+                Ok(request) => request,
+                Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "application runtime build lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+                Err(error) => {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(error = %error, "application runtime build blocked");
+
+                    return;
+                }
+            };
             let result = self.engine_runtime.block_on(reconcile_project_application(
                 engine,
                 WorkloadReconcileOptions {
-                    request: application.request(),
+                    request: &request,
                     installation_id: self.global_network_request.metadata().installation_id(),
                     schema_version: self.global_network_request.metadata().schema_version(),
                 },
@@ -754,17 +782,20 @@ impl UnixDaemonRuntime {
                         return;
                     }
                     workload_resources.push(workload_resource_record(&result));
+                    if application.runtime_image().is_some()
+                        && let (Some(project_id), Some(service_id)) = (
+                            request.metadata().project_id(),
+                            request.metadata().resource_id(),
+                        )
+                    {
+                        project_runtime_images.insert(
+                            (project_id.to_owned(), service_id.to_owned()),
+                            request.image().to_owned(),
+                        );
+                    }
                     tracing::debug!(
-                        project = application
-                            .request()
-                            .metadata()
-                            .project_id()
-                            .unwrap_or_default(),
-                        service = application
-                            .request()
-                            .metadata()
-                            .resource_id()
-                            .unwrap_or_default(),
+                        project = request.metadata().project_id().unwrap_or_default(),
+                        service = request.metadata().resource_id().unwrap_or_default(),
                         action = ?result.action(),
                         "project application reconciliation completed"
                     );
@@ -889,10 +920,30 @@ impl UnixDaemonRuntime {
         }
 
         for process in engine_plan.processes() {
+            let planned_request = process.request();
+            let runtime_key = planned_request
+                .metadata()
+                .project_id()
+                .map(|project| (project.to_owned(), process.application_service().to_owned()));
+            let request = match runtime_key
+                .as_ref()
+                .and_then(|key| project_runtime_images.get(key))
+            {
+                Some(image) => match planned_request.clone().with_image(image) {
+                    Ok(request) => request,
+                    Err(error) => {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "project process runtime binding blocked");
+
+                        return;
+                    }
+                },
+                None => planned_request.clone(),
+            };
             let result = self.engine_runtime.block_on(reconcile_project_process(
                 engine,
                 WorkloadReconcileOptions {
-                    request: process,
+                    request: &request,
                     installation_id: self.global_network_request.metadata().installation_id(),
                     schema_version: self.global_network_request.metadata().schema_version(),
                 },
@@ -911,8 +962,8 @@ impl UnixDaemonRuntime {
                     }
                     workload_resources.push(workload_resource_record(&result));
                     tracing::debug!(
-                        project = process.metadata().project_id().unwrap_or_default(),
-                        service = process.metadata().resource_id().unwrap_or_default(),
+                        project = request.metadata().project_id().unwrap_or_default(),
+                        service = request.metadata().resource_id().unwrap_or_default(),
                         action = ?result.action(),
                         "project process reconciliation completed"
                     );

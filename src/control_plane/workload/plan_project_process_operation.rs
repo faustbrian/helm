@@ -1,12 +1,11 @@
 use super::{
-    ProjectProcessOperationOptions, ProjectProcessPlan, ProjectProcessPlanOptions,
-    ProjectProcessRequestOptions, RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadPlanError,
-    project_process_request,
+    ProjectProcessOperationOptions, ProjectProcessOperationPlan, ProjectProcessPlan,
+    ProjectProcessPlanOptions, ProjectProcessRequestOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, WorkloadPlanError, project_process_request,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
-    ContainerCreateOptions, ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind,
-    RetentionClass,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -15,7 +14,7 @@ use std::collections::BTreeMap;
 /// Plans one worker or scheduler against its application's exact runtime image.
 pub(crate) fn plan_project_process_operation(
     options: ProjectProcessOperationOptions<'_>,
-) -> Result<ContainerCreateOptions, WorkloadPlanError> {
+) -> Result<ProjectProcessOperationPlan, WorkloadPlanError> {
     let service = options.service;
     let application_service = options.application_service;
     if service.strategy() != ServiceDeploymentStrategy::ProjectProcess {
@@ -75,8 +74,21 @@ pub(crate) fn plan_project_process_operation(
         "project-process-runtime-v1",
         plan.image_digest(),
         options.platform,
+        options
+            .application
+            .request()
+            .metadata()
+            .compatibility_fingerprint(),
     ]);
-    let desired_revision = desired_revision(&plan, options.platform)?;
+    let desired_revision = desired_revision(
+        &plan,
+        options.platform,
+        options
+            .application
+            .request()
+            .metadata()
+            .compatibility_fingerprint(),
+    )?;
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id.to_owned(),
         kind: ResourceKind::ProjectProcess,
@@ -89,12 +101,17 @@ pub(crate) fn plan_project_process_operation(
     .and_then(|metadata| metadata.with_resource_id(service.service().as_str()))
     .map_err(invalid)?;
 
-    project_process_request(ProjectProcessRequestOptions {
+    let request = project_process_request(ProjectProcessRequestOptions {
         plan,
         metadata,
         platform: options.platform.to_owned(),
     })
-    .map_err(invalid)
+    .map_err(invalid)?;
+
+    Ok(ProjectProcessOperationPlan::new(
+        request,
+        application_service.service().clone(),
+    ))
 }
 
 fn merged_declared_environment(
@@ -134,6 +151,7 @@ fn default_command(preset: &str) -> Vec<String> {
 fn desired_revision(
     plan: &ProjectProcessPlan,
     platform: &str,
+    application_runtime_fingerprint: &str,
 ) -> Result<String, WorkloadPlanError> {
     let manifest = serde_json::to_vec(&ProjectProcessRevision {
         schema_version: 1,
@@ -145,6 +163,7 @@ fn desired_revision(
         command: plan.command(),
         managed_environment_revision: plan.environment().managed_revision(),
         environment: plan.environment().values(),
+        application_runtime_fingerprint,
     })
     .map_err(invalid)?;
 
@@ -162,6 +181,7 @@ struct ProjectProcessRevision<'value> {
     command: &'value [String],
     managed_environment_revision: &'value str,
     environment: &'value BTreeMap<String, String>,
+    application_runtime_fingerprint: &'value str,
 }
 
 fn fingerprint<'value>(values: impl IntoIterator<Item = &'value str>) -> String {

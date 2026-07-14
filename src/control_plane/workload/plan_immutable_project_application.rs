@@ -1,7 +1,8 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, WorkloadPlanError, application_container_request,
+    RuntimeEnvironmentOptions, RuntimeImageBuildPlan, WorkloadPlanError,
+    application_container_request,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
@@ -36,7 +37,24 @@ pub(crate) fn plan_immutable_project_application(
         managed: options.managed_environment,
     })
     .map_err(invalid)?;
-    let compatibility_fingerprint = compatibility_fingerprint(image, options.platform);
+    let runtime_image = if service.desired().php_extensions().is_empty() {
+        None
+    } else {
+        Some(
+            RuntimeImageBuildPlan::for_php_extensions(
+                options.installation_id,
+                options.schema_version,
+                image,
+                options.platform,
+                service.desired().php_extensions().to_vec(),
+            )
+            .map_err(invalid)?,
+        )
+    };
+    let compatibility_fingerprint = runtime_image.as_ref().map_or_else(
+        || compatibility_fingerprint(image, options.platform),
+        |runtime| runtime.compatibility_fingerprint().to_owned(),
+    );
     let desired_revision = desired_revision(
         service,
         image,
@@ -44,6 +62,7 @@ pub(crate) fn plan_immutable_project_application(
         options.network_name,
         options.internal_http_port,
         &environment,
+        service.desired().php_extensions(),
     )?;
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id.to_owned(),
@@ -75,7 +94,11 @@ pub(crate) fn plan_immutable_project_application(
     })
     .map_err(invalid)?;
 
-    Ok(ImmutableProjectApplicationPlan::new(request, route))
+    Ok(ImmutableProjectApplicationPlan::new(
+        request,
+        route,
+        runtime_image,
+    ))
 }
 
 fn compatibility_fingerprint(image: &str, platform: &str) -> String {
@@ -89,6 +112,7 @@ fn desired_revision(
     network_name: &str,
     internal_http_port: u16,
     environment: &RuntimeEnvironment,
+    php_extensions: &[String],
 ) -> Result<String, WorkloadPlanError> {
     let manifest = serde_json::to_vec(&ProjectApplicationRevision {
         schema_version: 1,
@@ -101,6 +125,7 @@ fn desired_revision(
         command: service.desired().command().unwrap_or_default(),
         managed_environment_revision: environment.managed_revision(),
         environment: environment.values(),
+        php_extensions,
     })
     .map_err(invalid)?;
 
@@ -119,6 +144,7 @@ struct ProjectApplicationRevision<'value> {
     command: &'value [String],
     managed_environment_revision: &'value str,
     environment: &'value BTreeMap<String, String>,
+    php_extensions: &'value [String],
 }
 
 fn fingerprint<'value>(values: impl IntoIterator<Item = &'value str>) -> String {

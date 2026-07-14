@@ -7,7 +7,7 @@ use super::{
     ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, RuntimeEnvironment,
     RuntimeEnvironmentOptions, RuntimeImageBuildPlan, RuntimeImageBuildPlanOptions,
     WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
-    garbage_collect_disposable_containers, plan_ephemeral_browser,
+    garbage_collect_disposable_containers, materialize_application_request, plan_ephemeral_browser,
     plan_immutable_project_application, project_process_request, reconcile_project_application,
     reconcile_project_process, reconcile_project_runtime, reconcile_project_service,
     reconcile_project_volume, remove_stale_ephemeral_services, run_project_command,
@@ -635,6 +635,80 @@ fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
     assert!(plan.request().command().is_empty());
     assert_eq!(plan.route().domain(), "bill-app.stackctl.localhost");
     assert_eq!(plan.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    preset: laravel\n    version: \"8.5\"\n",
+        "    image: dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "    php_extensions: [redis, intl]\n"
+    ));
+
+    let plan = plan_immutable_project_application(ImmutableProjectApplicationOptions {
+        service: &application,
+        managed_environment: managed_environment(
+            "bill",
+            BTreeMap::new(),
+            EnvironmentLifecycle::Active,
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("extension-aware application plan");
+
+    let runtime = plan
+        .runtime_image()
+        .expect("declared extensions require a derived runtime image");
+    assert!(runtime.request().dockerfile_contents().contains(concat!(
+        "RUN [\"install-php-extensions\",\"intl\",\"redis\"]"
+    )));
+    assert_eq!(runtime.request().metadata().installation_id(), "install-1");
+    assert_eq!(
+        runtime.request().metadata().retention(),
+        RetentionClass::BuildCache
+    );
+}
+
+#[test]
+fn extension_aware_application_requests_use_the_built_image_identity() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    preset: laravel\n    version: \"8.5\"\n",
+        "    image: dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "    php_extensions: [intl]\n"
+    ));
+    let plan = plan_immutable_project_application(ImmutableProjectApplicationOptions {
+        service: &application,
+        managed_environment: managed_environment(
+            "bill",
+            BTreeMap::new(),
+            EnvironmentLifecycle::Active,
+        ),
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("extension-aware application plan");
+    let engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let request = runtime
+        .block_on(materialize_application_request(&engine, &plan))
+        .expect("materialized application request");
+
+    assert_eq!(request.image(), format!("sha256:{}", "b".repeat(64)));
+    assert_eq!(engine.built.lock().expect("built images").len(), 1);
 }
 
 #[test]

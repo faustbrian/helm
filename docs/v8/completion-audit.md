@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 1,476 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 1,479 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -33,7 +33,7 @@ identified below.
 | AC-09 | One managed gateway routes all projects | Implemented | gateway plane, atomic full-snapshot, readiness, rollback, and port-conflict tests | Full HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, and crash acceptance artifact |
 | AC-10 | Application containers own no separate trusted CA | Implemented | gateway terminates TLS; app upstream plans are internal plain HTTP; dependency audit | Live container inspection artifact |
 | AC-11 | Project runtimes and hooks execute in Linux containers | Partial | immutable application, project command, worker, scheduler, Reverb, and Engine exec paths | Representative live runtime/hook acceptance on each claimed platform |
-| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed runtime-image planning and extension validation tests | Runtime-image reconciliation is not connected to the daemon application path; built-image and application acceptance for the supported extension catalog on amd64 and arm64 |
+| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed extension-image planning, daemon build-before-start reconciliation, exact worker/scheduler image inheritance, and extension-capable preset validation tests | Built-image and application acceptance for the supported extension catalog on amd64 and arm64 |
 | AC-13 | App containers publish no routine web ports | Implemented | application plan and gateway network tests | Live Engine inventory artifact |
 
 ## Shared services and state
