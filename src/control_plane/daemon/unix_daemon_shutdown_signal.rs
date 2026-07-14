@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Process-lifetime SIGINT and SIGTERM observation for the Unix daemon.
 pub(crate) struct UnixDaemonShutdownSignal {
     requested: Arc<AtomicBool>,
-    registrations: Vec<SigId>,
 }
 
 impl UnixDaemonShutdownSignal {
@@ -23,23 +22,16 @@ impl UnixDaemonShutdownSignal {
 
             return Err(error);
         }
+        // Keep successful handlers armed through runtime and ownership teardown.
+        drop(registrations);
 
-        Ok(Self {
-            requested,
-            registrations,
-        })
+        Ok(Self { requested })
     }
 }
 
 impl DaemonShutdownSignal for UnixDaemonShutdownSignal {
     fn is_requested(&self) -> bool {
         self.requested.load(Ordering::Acquire)
-    }
-}
-
-impl Drop for UnixDaemonShutdownSignal {
-    fn drop(&mut self) {
-        unregister_all(&self.registrations);
     }
 }
 
