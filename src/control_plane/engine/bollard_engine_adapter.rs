@@ -5,13 +5,14 @@ use super::{
     ContainerCompletion, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerResourceMetrics, ContainerState, EngineError, EngineFuture, HealthObserver,
-    ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver, ImageResolver,
-    ImmutableImageReference, LogChunk, LogSource, LogStreamKind, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceMetrics,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    ContainerResourceMetrics, ContainerState, ContainerVolumeArchive, EngineError, EngineFuture,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
+    ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
+    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
+    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
+    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
+    ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -19,21 +20,23 @@ use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
     ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
     ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary, EventMessage,
-    EventMessageTypeEnum, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountType, Network,
-    NetworkCreateRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy, RestartPolicyNameEnum,
-    Volume, VolumeCreateRequest,
+    EventMessageTypeEnum, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountPoint, MountType,
+    Network, NetworkCreateRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy,
+    RestartPolicyNameEnum, Volume, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
-    CreateImageOptionsBuilder, EventsOptions, EventsOptionsBuilder, ListContainersOptionsBuilder,
-    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder,
-    RemoveVolumeOptions, StatsOptionsBuilder, WaitContainerOptionsBuilder,
+    CreateImageOptionsBuilder, DownloadFromContainerOptionsBuilder, EventsOptions,
+    EventsOptionsBuilder, ListContainersOptionsBuilder, ListNetworksOptionsBuilder,
+    ListVolumesOptionsBuilder, LogsOptions, LogsOptionsBuilder, RemoveVolumeOptions,
+    StatsOptionsBuilder, WaitContainerOptionsBuilder,
 };
 use bollard::{API_DEFAULT_VERSION, ClientVersion, Docker, body_full};
 use futures_util::{StreamExt, TryStreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 const REQUEST_TIMEOUT_SECONDS: u64 = 120;
 const IMAGE_BUILD_TIMEOUT_SECONDS: u64 = 1_800;
@@ -216,6 +219,123 @@ impl ContainerLifecycle for BollardEngineAdapter {
                     }) => Ok(ContainerState::Missing),
                     Err(error) => Err(backend_error("inspect container", error)),
                 }
+            })
+            .await
+        })
+    }
+}
+
+pub(super) fn validate_volume_archive_identity(
+    container: &OwnedContainer,
+    volume: &OwnedVolume,
+) -> Result<(), EngineError> {
+    let container_metadata = container.metadata();
+    let volume_metadata = volume.metadata();
+    let valid = volume_metadata.kind() == ResourceKind::Volume
+        && !matches!(
+            container_metadata.kind(),
+            ResourceKind::Volume | ResourceKind::Network
+        )
+        && container_metadata.installation_id() == volume_metadata.installation_id()
+        && container_metadata.schema_version() == volume_metadata.schema_version()
+        && container_metadata.project_id() == volume_metadata.project_id()
+        && container_metadata.resource_id() == volume_metadata.resource_id()
+        && container_metadata.compatibility_fingerprint()
+            == volume_metadata.compatibility_fingerprint();
+    if !valid {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "container '{}' and volume '{}' do not share exact archive ownership",
+                container.id().as_str(),
+                volume.name()
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+pub(super) fn exact_volume_mount_target(
+    mounts: &[MountPoint],
+    volume_name: &str,
+) -> Result<String, EngineError> {
+    let targets = mounts
+        .iter()
+        .filter(|mount| mount.typ.as_deref() == Some("volume"))
+        .filter(|mount| mount.name.as_deref() == Some(volume_name))
+        .filter_map(|mount| mount.destination.as_deref())
+        .collect::<Vec<_>>();
+    let [target] = targets.as_slice() else {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "owned volume '{volume_name}' must have exactly one named-volume mount in its owning container"
+            ),
+        });
+    };
+    if !Path::new(target).is_absolute() || *target == "/" {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "owned volume '{volume_name}' has unsafe container mount target '{target}'"
+            ),
+        });
+    }
+
+    Ok((*target).to_owned())
+}
+
+impl ContainerVolumeArchive for BollardEngineAdapter {
+    fn download_volume_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_volume_archive_identity(container, volume)?;
+            bounded_engine_operation("download owned volume archive", request_timeout(), async {
+                let observed = self
+                    .docker
+                    .inspect_container(container.id().as_str(), None)
+                    .await
+                    .map_err(|error| backend_error("verify archive container ownership", error))?;
+                verify_owned_container_labels(
+                    container,
+                    &observed
+                        .config
+                        .as_ref()
+                        .and_then(|config| config.labels.as_ref())
+                        .cloned()
+                        .unwrap_or_default(),
+                )?;
+                let observed_volume = self
+                    .docker
+                    .inspect_volume(volume.name())
+                    .await
+                    .map_err(|error| backend_error("verify archive volume ownership", error))?;
+                verify_owned_volume_labels(volume, &observed_volume.labels)?;
+                let mount_target = exact_volume_mount_target(
+                    observed.mounts.as_deref().unwrap_or_default(),
+                    volume.name(),
+                )?;
+                let options = DownloadFromContainerOptionsBuilder::default()
+                    .path(&mount_target)
+                    .build();
+                let mut archive = self
+                    .docker
+                    .download_from_container(container.id().as_str(), Some(options));
+                while let Some(chunk) = archive.next().await {
+                    output
+                        .write_all(&chunk.map_err(|error| {
+                            backend_error("download owned volume archive", error)
+                        })?)
+                        .await
+                        .map_err(|error| EngineError::Backend {
+                            detail: format!("write owned volume archive: {error}"),
+                        })?;
+                }
+                output.flush().await.map_err(|error| EngineError::Backend {
+                    detail: format!("flush owned volume archive: {error}"),
+                })
             })
             .await
         })

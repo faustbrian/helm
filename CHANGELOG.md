@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned backups for dedicated project-service volumes that resolve
+  exact live container and volume ownership, quiesce only the matching service,
+  stream the named volume through the Engine API into immutable checksummed
+  recovery storage, and restore the prior running state after success or
+  failure. Restore and deletion authorization remain fail-closed.
 - Added `daemon service uninstall --delete-data --confirm-delete-data` execution
   that plans and confirms exact teardown, resumes interrupted deletion, polls
   durable terminal state, removes matching CA trust, stops the login service,

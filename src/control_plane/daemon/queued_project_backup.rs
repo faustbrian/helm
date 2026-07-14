@@ -93,6 +93,7 @@ impl QueuedProjectBackup {
                 | "valkey_acl_prefix"
                 | "rabbitmq_vhost_user"
                 | "minio_bucket_policy"
+                | "volume"
         ) {
             return Err(format!(
                 "project backup kind '{}' is not implemented",

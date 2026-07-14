@@ -59,8 +59,13 @@ RustFS, OpenSearch, Elasticsearch, Meilisearch, and Typesense at the preset's
 canonical data directory. The volume is persistent, project-owned, and keyed by
 the same exact implementation, major version, image digest, and platform
 identity as its container. Existing identity drift fails before container
-replacement and requires explicit migration. Memcached, MailHog, and Soketi
-remain volume-free because their current dedicated contracts are stateless.
+replacement and requires explicit migration. A project backup resolves the
+exact live service and named volume again, stops the service when necessary,
+streams an Engine archive into immutable checksummed recovery storage, and
+restores its prior running state. Dedicated-volume restore and destructive
+authorization remain unavailable until empty-volume recreation and verified
+restore are implemented. Memcached, MailHog, and Soketi remain volume-free
+because their current dedicated contracts are stateless.
 
 Dusk and Selenium are never steady project services. Each browser-test command
 gets a deterministic operation-scoped container using the locked immutable

@@ -21,7 +21,7 @@ use bollard::models::{
     ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats, ContainerNetworkStats,
     ContainerPidsStats, ContainerState as EngineContainerState, ContainerStatsResponse,
     ContainerSummary, EventActor, EventMessage, EventMessageTypeEnum, Health, HealthStatusEnum,
-    Network, PortSummary, PortSummaryTypeEnum, Volume,
+    MountPoint, Network, PortSummary, PortSummaryTypeEnum, Volume,
 };
 use futures_util::StreamExt;
 use std::collections::BTreeMap;
@@ -31,12 +31,13 @@ use std::time::Duration;
 
 use super::bollard_engine_adapter::{
     build_image_options, command_create_request, container_event, container_health,
-    container_resource_metrics, create_request, image_pull_request, log_chunk, log_request,
-    managed_container_events_request, managed_container_list_request, managed_network_list_request,
-    managed_volume_list_request, network_create_request, observed_container, observed_network,
-    observed_volume, published_port_bindings, published_port_list_request,
-    validate_engine_api_version, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_create_request,
+    container_resource_metrics, create_request, exact_volume_mount_target, image_pull_request,
+    log_chunk, log_request, managed_container_events_request, managed_container_list_request,
+    managed_network_list_request, managed_volume_list_request, network_create_request,
+    observed_container, observed_network, observed_volume, published_port_bindings,
+    published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
+    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1259,6 +1260,71 @@ fn volume_deletion_rejects_missing_or_changed_ownership_labels() {
         error.to_string(),
         "refusing to delete volume 'stackctl-postgres-17-data' because its Engine ownership labels no longer match"
     );
+}
+
+#[test]
+fn volume_archive_requires_exact_container_ownership_and_mount() {
+    let container_metadata = project_metadata(ResourceKind::ProjectService)
+        .with_resource_id("search")
+        .expect("service identity");
+    let volume_metadata = project_metadata(ResourceKind::Volume)
+        .with_resource_id("search")
+        .expect("volume identity");
+    let container = OwnedContainer::new(ContainerId::new("search-container"), container_metadata);
+    let volume = OwnedVolume::new("stackctl-bill-search-data", volume_metadata);
+    let mounts = vec![MountPoint {
+        typ: Some("volume".to_owned()),
+        name: Some("stackctl-bill-search-data".to_owned()),
+        destination: Some("/var/lib/search".to_owned()),
+        ..MountPoint::default()
+    }];
+
+    validate_volume_archive_identity(&container, &volume).expect("exact archive ownership");
+    assert_eq!(
+        exact_volume_mount_target(&mounts, volume.name()).expect("exact named-volume mount"),
+        "/var/lib/search"
+    );
+}
+
+#[test]
+fn volume_archive_rejects_unrelated_or_ambiguous_mounts() {
+    let container = OwnedContainer::new(
+        ContainerId::new("search-container"),
+        project_metadata(ResourceKind::ProjectService)
+            .with_resource_id("search")
+            .expect("service identity"),
+    );
+    let unrelated = OwnedVolume::new(
+        "stackctl-bill-cache-data",
+        project_metadata(ResourceKind::Volume)
+            .with_resource_id("cache")
+            .expect("volume identity"),
+    );
+    let identity_error = validate_volume_archive_identity(&container, &unrelated)
+        .expect_err("unrelated volume must not be archived through this container");
+    assert!(
+        identity_error
+            .to_string()
+            .contains("exact archive ownership")
+    );
+
+    let duplicate_mounts = vec![
+        MountPoint {
+            typ: Some("volume".to_owned()),
+            name: Some("stackctl-bill-search-data".to_owned()),
+            destination: Some("/data-a".to_owned()),
+            ..MountPoint::default()
+        },
+        MountPoint {
+            typ: Some("volume".to_owned()),
+            name: Some("stackctl-bill-search-data".to_owned()),
+            destination: Some("/data-b".to_owned()),
+            ..MountPoint::default()
+        },
+    ];
+    let mount_error = exact_volume_mount_target(&duplicate_mounts, "stackctl-bill-search-data")
+        .expect_err("ambiguous volume mounts must fail closed");
+    assert!(mount_error.to_string().contains("exactly one"));
 }
 
 #[test]

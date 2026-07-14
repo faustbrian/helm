@@ -85,6 +85,7 @@ impl UnixDaemonRuntime {
         let logical_resource = self.project_backup_logical_resource(&operation);
         let credential = self.project_backup_credential(&operation);
         let administrator = self.project_backup_administrator(&operation);
+        let physical_resource = self.project_backup_physical_resource(&operation);
         let installation_id = self
             .global_network_request
             .metadata()
@@ -98,6 +99,7 @@ impl UnixDaemonRuntime {
                 logical_resource,
                 credential,
                 administrator,
+                physical_resource,
                 installation_id,
                 schema_version,
                 backup_root: self.runtime_directory.join("backups"),
@@ -196,6 +198,40 @@ impl UnixDaemonRuntime {
             )),
             _ => Err(invalid(
                 "project backup matched multiple active shared administrators",
+            )),
+        }
+    }
+
+    fn project_backup_physical_resource(
+        &self,
+        operation: &super::QueuedProjectBackup,
+    ) -> Result<Option<crate::control_plane::state::ResourceRecord>, EngineError> {
+        if operation.kind() != "volume" {
+            return Ok(None);
+        }
+        let matches = self
+            .control_plane
+            .resources()
+            .map_err(invalid)?
+            .into_iter()
+            .filter(|resource| {
+                resource.resource_id() == operation.logical_resource_id()
+                    && resource.project_id() == Some(operation.project_id())
+                    && resource.scope_id() == Some(operation.service_id())
+                    && resource.kind() == operation.kind()
+                    && resource.compatibility_fingerprint() == operation.compatibility_fingerprint()
+                    && resource.retention()
+                        == crate::control_plane::state::ResourceRetention::Persistent
+                    && resource.lifecycle() == ResourceLifecycle::Active
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [resource] => Ok(Some(resource.clone())),
+            [] => Err(invalid(
+                "project backup has no exact active persistent volume",
+            )),
+            _ => Err(invalid(
+                "project backup matched multiple active persistent volumes",
             )),
         }
     }

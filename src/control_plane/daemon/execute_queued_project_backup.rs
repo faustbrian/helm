@@ -1,33 +1,40 @@
 use super::{ProjectBackupExecutionOptions, ProjectBackupExecutionResult};
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerVolumeArchive, ResourceKind,
+    VolumeDiscovery, reconstruct_owned_container, reconstruct_owned_volume,
 };
 use crate::control_plane::migration::{
     MinioBackupOptions, MongoDbBackupOptions, MySqlBackupOptions, PostgresBackupOptions,
-    RabbitMqBackupOptions, RedisBackupOptions, SqlServerBackupOptions, backup_minio_bucket,
-    backup_mongodb_database, backup_mysql_database, backup_postgres_database,
-    backup_rabbitmq_vhost, backup_redis_prefix, backup_sql_server_database,
+    ProjectVolumeBackupOptions, RabbitMqBackupOptions, RedisBackupOptions, SqlServerBackupOptions,
+    backup_minio_bucket, backup_mongodb_database, backup_mysql_database, backup_postgres_database,
+    backup_project_volume, backup_rabbitmq_vhost, backup_redis_prefix, backup_sql_server_database,
 };
 use crate::control_plane::shared_infrastructure::{MySqlFlavor, RedisFlavor};
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 
-/// Resolves exact live ownership and creates one verified logical recovery point.
+/// Resolves exact live ownership and creates one verified recovery point.
 pub(crate) async fn execute_queued_project_backup<E>(
-    engine: E,
+    mut engine: E,
     options: ProjectBackupExecutionOptions,
 ) -> ProjectBackupExecutionResult
 where
-    E: CommandExecutor + ContainerDiscovery,
+    E: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + ContainerVolumeArchive
+        + VolumeDiscovery,
 {
     let created_at_unix_seconds = options.created_at_unix_seconds;
-    let outcome = execute(&engine, &options)
-        .await
-        .map_err(|error| error.to_string());
+    let outcome = if options.operation.kind() == "volume" {
+        Box::pin(execute_project_volume_backup(&mut engine, &options)).await
+    } else {
+        Box::pin(execute_logical_project_backup(&engine, &options)).await
+    };
 
     ProjectBackupExecutionResult::new(options.operation, created_at_unix_seconds, outcome)
 }
 
-async fn execute<E>(
+async fn execute_logical_project_backup<E>(
     engine: &E,
     options: &ProjectBackupExecutionOptions,
 ) -> Result<crate::control_plane::migration::MigrationBackup, String>
@@ -189,6 +196,98 @@ where
         .map_err(|error| error.to_string()),
         kind => Err(format!("project backup kind '{kind}' is not implemented")),
     }
+}
+
+async fn execute_project_volume_backup<E>(
+    engine: &mut E,
+    options: &ProjectBackupExecutionOptions,
+) -> Result<crate::control_plane::migration::MigrationBackup, String>
+where
+    E: ContainerDiscovery + ContainerLifecycle + ContainerVolumeArchive + VolumeDiscovery,
+{
+    let resource = options
+        .physical_resource
+        .as_ref()
+        .map_err(ToString::to_string)?
+        .as_ref()
+        .ok_or_else(|| "project volume backup has no exact physical resource".to_owned())?;
+    let containers = engine
+        .discover_managed()
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut container_matches = containers
+        .iter()
+        .filter_map(|container| {
+            reconstruct_owned_container(container, &options.installation_id, options.schema_version)
+                .ok()
+        })
+        .filter(|container| {
+            container.metadata().kind() == ResourceKind::ProjectService
+                && container.metadata().project_id() == Some(options.operation.project_id())
+                && container.metadata().resource_id() == Some(options.operation.service_id())
+                && container.metadata().compatibility_fingerprint()
+                    == options.operation.compatibility_fingerprint()
+        });
+    let container = container_matches.next().ok_or_else(|| {
+        format!(
+            "project volume backup found no exact owned service '{}-{}'",
+            options.operation.project_id(),
+            options.operation.service_id()
+        )
+    })?;
+    if container_matches.next().is_some() {
+        return Err(format!(
+            "project volume backup found multiple owned services '{}-{}'",
+            options.operation.project_id(),
+            options.operation.service_id()
+        ));
+    }
+    let volumes = engine
+        .discover_managed_volumes()
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut volume_matches = volumes
+        .iter()
+        .filter_map(|volume| {
+            reconstruct_owned_volume(volume, &options.installation_id, options.schema_version).ok()
+        })
+        .filter(|volume| {
+            volume.name() == resource.resource_id()
+                && volume.metadata().kind() == ResourceKind::Volume
+                && volume.metadata().project_id() == Some(options.operation.project_id())
+                && volume.metadata().resource_id() == Some(options.operation.service_id())
+                && volume.metadata().compatibility_fingerprint()
+                    == options.operation.compatibility_fingerprint()
+        });
+    let volume = volume_matches.next().ok_or_else(|| {
+        format!(
+            "project volume backup found no exact owned volume '{}'",
+            resource.resource_id()
+        )
+    })?;
+    if volume_matches.next().is_some() {
+        return Err(format!(
+            "project volume backup found multiple owned volumes '{}'",
+            resource.resource_id()
+        ));
+    }
+
+    Box::pin(backup_project_volume(
+        engine,
+        &container,
+        &volume,
+        &ProjectVolumeBackupOptions {
+            resource,
+            installation_id: &options.installation_id,
+            project_id: options.operation.project_id(),
+            service_id: options.operation.service_id(),
+            created_at_unix_seconds: options.created_at_unix_seconds,
+            backup_root: &options.backup_root,
+            timeout: options.timeout,
+        },
+    ))
+    .await
+    .map_err(|error| error.to_string())
 }
 
 fn redis_flavor(kind: &str) -> Result<RedisFlavor, String> {

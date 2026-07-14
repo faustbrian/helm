@@ -989,6 +989,7 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1009,6 +1010,102 @@ fn queued_postgres_backup_resolves_exact_owned_state_and_verifies_an_artifact() 
     assert!(recovery_point.join("manifest.json").is_file());
 
     std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
+fn queued_project_volume_backup_resolves_owned_service_and_quiesces_it() {
+    let backup_root = temporary_directory("queued-project-volume-backup");
+    let service_metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::ProjectService,
+            project_id: Some("bill".to_owned()),
+            compatibility_fingerprint: "sha256:search-3".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("service metadata")
+    .with_resource_id("search")
+    .expect("service identity");
+    let volume_metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::Volume,
+            project_id: Some("bill".to_owned()),
+            compatibility_fingerprint: "sha256:search-3".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("volume metadata")
+    .with_resource_id("search")
+    .expect("volume identity");
+    let engine = RecordingProjectCommandEngine::new(vec![
+        crate::control_plane::engine::ObservedContainer::new(
+            crate::control_plane::engine::ContainerId::new("search-container"),
+            service_metadata.labels(),
+        ),
+    ])
+    .with_observed_volumes(vec![crate::control_plane::engine::ObservedVolume::new(
+        "stackctl-bill-search-data",
+        volume_metadata.labels(),
+    )])
+    .with_volume_archive(b"project volume tar".to_vec());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-search-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:search-3".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("search");
+    let operation = QueuedProjectBackup::new(
+        "backup-volume".to_owned(),
+        "bill".to_owned(),
+        "search".to_owned(),
+        resource.resource_id().to_owned(),
+        resource.kind().to_owned(),
+        resource.compatibility_fingerprint().to_owned(),
+    )
+    .expect("volume backup intent");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Err(crate::control_plane::engine::EngineError::InvalidRequest {
+                detail: "volume has no logical resource".to_owned(),
+            }),
+            credential: Err(crate::control_plane::engine::EngineError::InvalidRequest {
+                detail: "volume has no credential".to_owned(),
+            }),
+            administrator: Ok(None),
+            physical_resource: Ok(Some(resource)),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 40_100,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let backup = result.outcome().as_ref().expect("verified volume backup");
+    assert_eq!(backup.artifact_size_bytes(), 18);
+    assert_eq!(engine.stopped(), ["search-container"]);
+    assert_eq!(engine.lifecycle_started(), ["search-container"]);
+    std::fs::remove_dir_all(backup_root).expect("remove volume backup fixture");
 }
 
 #[test]
@@ -1066,6 +1163,7 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1163,6 +1261,7 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1239,6 +1338,7 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1326,6 +1426,7 @@ fn queued_redis_backup_uses_the_shared_administrator_and_exact_prefix() {
             logical_resource: Ok(logical_resource),
             credential: Ok(credential),
             administrator: Ok(Some(administrator)),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1402,6 +1503,7 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1532,6 +1634,7 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -1705,6 +1808,7 @@ fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
             logical_resource: Ok(logical_resource.clone()),
             credential: Ok(credential.clone()),
             administrator: Ok(None),
+            physical_resource: Ok(None),
             installation_id: "install-1".to_owned(),
             schema_version: 8,
             backup_root: backup_root.clone(),
@@ -2826,6 +2930,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
                 administrator: Ok(None),
+                physical_resource: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3127,6 +3232,7 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
                 administrator: Ok(None),
+                physical_resource: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3428,6 +3534,7 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
                 administrator: Ok(None),
+                physical_resource: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -3724,6 +3831,7 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
                 logical_resource: Ok(source.clone()),
                 credential: Ok(source_credential.clone()),
                 administrator: Ok(None),
+                physical_resource: Ok(None),
                 installation_id: "install-1".to_owned(),
                 schema_version: 8,
                 backup_root: backup_root.clone(),
@@ -6500,6 +6608,98 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
 }
 
 #[test]
+fn daemon_project_volume_backup_persists_exact_owned_volume_identity() {
+    let root = temporary_directory("ipc-project-volume-backup");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let volume = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-search-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:search-3".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("search");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(std::slice::from_ref(&volume))
+        .expect("persist owned volume");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "backup-volume-42",
+        IpcPayload::BackupProjectService {
+            canonical_path: project_path.clone(),
+            service: "search".to_owned(),
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_backups = ProjectBackupQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut project_backups,
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "backup-volume-42",
+            IpcResult::Accepted {
+                operation_id: "backup-volume-42".to_owned(),
+            },
+        )
+    );
+    let queued = project_backups.pop_front().expect("queued volume backup");
+    assert_eq!(queued.project_id(), "bill");
+    assert_eq!(queued.service_id(), "search");
+    assert_eq!(queued.kind(), "volume");
+    assert_eq!(queued.logical_resource_id(), volume.resource_id());
+
+    drop(control_plane);
+    let persisted = SqliteStateStore::open(&database_path)
+        .expect("reopen state store")
+        .active_daemon_operations()
+        .expect("load backup operation");
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].kind(), "project_backup");
+    assert_eq!(persisted[0].operation_id(), "backup-volume-42");
+    assert!(
+        persisted[0]
+            .payload_json()
+            .contains("stackctl-bill-search-data")
+    );
+    assert!(
+        !persisted[0]
+            .payload_json()
+            .contains(project_path.to_string_lossy().as_ref())
+    );
+
+    std::fs::remove_dir_all(root).expect("remove volume backup fixture");
+}
+
+#[test]
 fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
@@ -7677,6 +7877,7 @@ fn remove_lock(lock_path: &Path) {
 #[derive(Clone)]
 struct RecordingProjectCommandEngine {
     observed: Vec<crate::control_plane::engine::ObservedContainer>,
+    observed_volumes: Vec<crate::control_plane::engine::ObservedVolume>,
     execution: std::sync::Arc<RecordingProjectCommandExecution>,
 }
 
@@ -7694,14 +7895,33 @@ struct RecordingProjectCommandExecution {
     removed: std::sync::Mutex<Vec<String>>,
     created_volumes: std::sync::Mutex<Vec<String>>,
     rabbitmq_queue_output: std::sync::Mutex<Vec<u8>>,
+    volume_archive: std::sync::Mutex<Vec<u8>>,
 }
 
 impl RecordingProjectCommandEngine {
     fn new(observed: Vec<crate::control_plane::engine::ObservedContainer>) -> Self {
         Self {
             observed,
+            observed_volumes: Vec::new(),
             execution: std::sync::Arc::new(RecordingProjectCommandExecution::default()),
         }
+    }
+
+    fn with_observed_volumes(
+        mut self,
+        volumes: Vec<crate::control_plane::engine::ObservedVolume>,
+    ) -> Self {
+        self.observed_volumes = volumes;
+        self
+    }
+
+    fn with_volume_archive(self, archive: Vec<u8>) -> Self {
+        *self
+            .execution
+            .volume_archive
+            .lock()
+            .expect("volume archive") = archive;
+        self
     }
 
     fn with_command_exit_code(self, exit_code: i64) -> Self {
@@ -8149,7 +8369,31 @@ impl crate::control_plane::engine::VolumeDiscovery for RecordingProjectCommandEn
         '_,
         Vec<crate::control_plane::engine::ObservedVolume>,
     > {
-        Box::pin(async { Ok(Vec::new()) })
+        let volumes = self.observed_volumes.clone();
+        Box::pin(async move { Ok(volumes) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCommandEngine {
+    fn download_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        let archive = self
+            .execution
+            .volume_archive
+            .lock()
+            .expect("volume archive")
+            .clone();
+        Box::pin(async move {
+            tokio::io::AsyncWriteExt::write_all(output, &archive)
+                .await
+                .map_err(|error| crate::control_plane::engine::EngineError::Backend {
+                    detail: error.to_string(),
+                })
+        })
     }
 }
 

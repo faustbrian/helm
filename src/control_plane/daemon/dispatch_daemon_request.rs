@@ -17,7 +17,7 @@ use crate::control_plane::daemon::ipc::{
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
-    StateStore,
+    ResourceRetention, StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -1517,14 +1517,56 @@ where
                 && logical.lifecycle() == ResourceLifecycle::Active
         })
         .collect::<Vec<_>>();
-    let logical = match matches.as_slice() {
-        [logical] => logical,
+    match matches.as_slice() {
+        [logical] => {
+            return QueuedProjectBackup::new(
+                operation_id.to_owned(),
+                project.project_name().to_owned(),
+                service.as_str().to_owned(),
+                logical.logical_resource_id().to_owned(),
+                logical.kind().to_owned(),
+                logical.compatibility_fingerprint().to_owned(),
+            );
+        }
         [] => {
-            return Err(format!(
-                "project '{}' service '{}' has no active logical data resource",
-                project.project_name(),
-                service.as_str()
-            ));
+            let volumes = control_plane
+                .resources()
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .filter(|resource| {
+                    resource.project_id() == Some(project.project_name())
+                        && resource.scope_id() == Some(service.as_str())
+                        && resource.kind() == "volume"
+                        && resource.retention() == ResourceRetention::Persistent
+                        && resource.lifecycle() == ResourceLifecycle::Active
+                })
+                .collect::<Vec<_>>();
+            match volumes.as_slice() {
+                [volume] => {
+                    return QueuedProjectBackup::new(
+                        operation_id.to_owned(),
+                        project.project_name().to_owned(),
+                        service.as_str().to_owned(),
+                        volume.resource_id().to_owned(),
+                        volume.kind().to_owned(),
+                        volume.compatibility_fingerprint().to_owned(),
+                    );
+                }
+                [] => {
+                    return Err(format!(
+                        "project '{}' service '{}' has no active logical data resource or owned persistent volume",
+                        project.project_name(),
+                        service.as_str()
+                    ));
+                }
+                _ => {
+                    return Err(format!(
+                        "project '{}' service '{}' has multiple active persistent volumes",
+                        project.project_name(),
+                        service.as_str()
+                    ));
+                }
+            }
         }
         _ => {
             return Err(format!(
@@ -1533,16 +1575,7 @@ where
                 service.as_str()
             ));
         }
-    };
-
-    QueuedProjectBackup::new(
-        operation_id.to_owned(),
-        project.project_name().to_owned(),
-        service.as_str().to_owned(),
-        logical.logical_resource_id().to_owned(),
-        logical.kind().to_owned(),
-        logical.compatibility_fingerprint().to_owned(),
-    )
+    }
 }
 
 fn prepare_migration_decision<Store>(

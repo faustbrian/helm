@@ -1,6 +1,6 @@
 use super::QueuedProjectBackup;
 use crate::control_plane::engine::EngineError;
-use crate::control_plane::state::{CredentialRecord, LogicalResourceRecord};
+use crate::control_plane::state::{CredentialRecord, LogicalResourceRecord, ResourceRecord};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -10,6 +10,7 @@ pub(crate) struct ProjectBackupExecutionOptions {
     pub(crate) logical_resource: Result<LogicalResourceRecord, EngineError>,
     pub(crate) credential: Result<CredentialRecord, EngineError>,
     pub(crate) administrator: Result<Option<CredentialRecord>, EngineError>,
+    pub(crate) physical_resource: Result<Option<ResourceRecord>, EngineError>,
     pub(crate) installation_id: String,
     pub(crate) schema_version: u32,
     pub(crate) backup_root: PathBuf,
