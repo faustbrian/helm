@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an accepted-v7 MinIO logical migration provider. It refuses versioned
+  buckets that latest-object export cannot preserve, streams the exact legacy
+  bucket through accepted Engine authorization, binds recovery to accepted
+  evidence, rejects tampering before mutation, replay-safely mirrors into only
+  the deterministic v8 bucket, verifies both scoped credentials, and defers
+  exact Engine retirement to confirmation.
 - Added accepted-v7 Redis and Valkey logical migration providers. They export
   binary-safe values and TTLs from the exact legacy logical database, prepend
   the deterministic v8 tenant prefix without guessing application namespaces,

@@ -423,6 +423,19 @@ the restricted v8 ACL user and retained v7 credential must return their exact
 authenticated identities and a successful ping; confirmation alone delegates
 the accepted container and named volumes to exact Engine retirement.
 
+The MinIO logical-data provider binds the exact accepted bucket, credential,
+container, named-volume set, and recovery identity. It first queries bucket
+versioning and fails before export when version history is enabled, because a
+current-object mirror cannot preserve historical versions or delete markers.
+For an unversioned bucket, it streams a tar archive of the current object tree
+directly from the separately authorized v7 container into private,
+accepted-revision-bound recovery. Target preparation reverifies that artifact
+before mutation and mirrors it with overwrite and removal into only the
+pre-provisioned deterministic `stackctl-<project>-<service>` bucket. The
+complete replacement is safe to replay. Exact source and target credentials
+must each authenticate and stat their bound bucket; confirmation alone
+delegates exact accepted container and volume retirement to the Engine.
+
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

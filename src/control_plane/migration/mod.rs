@@ -45,7 +45,9 @@ pub(crate) use mysql::{
     backup_mysql_database, restore_mysql_database,
 };
 pub(crate) use object_store::{
-    MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket, restore_minio_bucket,
+    EngineV7MinioSourceRetirement, MinioBackupOptions, MinioRestoreOptions, V7MinioCredential,
+    V7MinioMigrationProvider, V7MinioMigrationProviderOptions, V7MinioSourceRetirement,
+    backup_minio_bucket, restore_minio_bucket,
 };
 pub(crate) use postgres::{
     EnginePostgresSourceRetirement, EngineV7PostgresSourceRetirement, PostgresBackupOptions,

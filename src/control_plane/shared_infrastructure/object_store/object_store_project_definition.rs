@@ -1,7 +1,9 @@
 use super::ObjectStorePlanError;
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
+use crate::control_plane::state::CredentialRecord;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::fmt::{Debug, Formatter};
 
 const MAXIMUM_BUCKET_BYTES: usize = 63;
@@ -91,9 +93,18 @@ impl ObjectStoreProjectDefinition {
         &self.policy_json
     }
 
+    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
+        credential.username() == self.username
+            && secret_hash(credential.secret()) == secret_hash(self.secret.expose())
+    }
+
     pub(super) const fn secret(&self) -> &CredentialSecret {
         &self.secret
     }
+}
+
+fn secret_hash(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
 }
 
 impl Debug for ObjectStoreProjectDefinition {
