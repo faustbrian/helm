@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a narrow typed Engine command boundary for accepted v7 containers.
+  Docker-compatible execution now re-inspects the immutable container ID and
+  requires exact legacy managed, container, service, and kind labels before
+  creating any attached command session.
 - Added one shared recovery-first v7 provider contract for named volumes and
   logical data, plus a logical-data adapter that binds the exact accepted
   driver, container, and logical identity for every supported database, cache,

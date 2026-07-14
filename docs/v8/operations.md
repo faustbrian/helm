@@ -328,6 +328,13 @@ the PostgreSQL, MySQL, MongoDB, SQL Server, Redis, Valkey, MinIO, or RabbitMQ
 providers. A driver-specific provider owns native backup, target provisioning,
 restore, and verification, but cannot bypass the common recovery-first barrier,
 rollback source verification, or confirmation-only retirement rule.
+Driver providers must not pass a v7 container through the v8 `OwnedContainer`
+API. The Engine exposes a separate narrow v7 command target containing the
+immutable accepted container ID plus its container, service, and kind labels.
+Before each attached command starts, the Docker-compatible adapter re-inspects
+that ID and requires `com.stackctl.managed=true` and exact values for all three
+identity labels. Drift refuses execution before the Engine creates an exec
+session; later status checks remain bound to that exact container ID.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

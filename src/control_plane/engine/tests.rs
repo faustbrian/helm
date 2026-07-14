@@ -11,10 +11,10 @@ use super::{
     NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
     ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
     PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceKind,
-    ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    VolumeMount, classify_observed_resource, delete_owned_installation_resources,
-    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
-    reconstruct_owned_volume,
+    ResourceMetrics, RetentionClass, V7ContainerCommandTarget, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -38,7 +38,8 @@ use super::bollard_engine_adapter::{
     network_create_request, observed_container, observed_network, observed_volume,
     published_port_bindings, published_port_list_request, validate_engine_api_version,
     validate_volume_archive_identity, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_archive_upload_target, volume_create_request,
+    verify_owned_volume_labels, verify_v7_container_command_labels, volume_archive_upload_target,
+    volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1475,6 +1476,34 @@ fn legacy_v7_container_rescan_is_isolated_to_the_legacy_marker() {
             vec!["com.stackctl.managed=true".to_owned()],
         )]))
     );
+}
+
+#[test]
+fn v7_command_target_requires_exact_legacy_ownership_labels() {
+    let target = V7ContainerCommandTarget::new(
+        ContainerId::new("legacy-container-id"),
+        "bill-database",
+        "database",
+        "database",
+    )
+    .expect("legacy command target");
+    let labels = std::collections::HashMap::from([
+        ("com.stackctl.managed".to_owned(), "true".to_owned()),
+        (
+            "com.stackctl.container".to_owned(),
+            "bill-database".to_owned(),
+        ),
+        ("com.stackctl.service".to_owned(), "database".to_owned()),
+        ("com.stackctl.kind".to_owned(), "database".to_owned()),
+    ]);
+
+    verify_v7_container_command_labels(&target, &labels).expect("exact legacy ownership");
+    let mut drifted = labels;
+    drifted.insert("com.stackctl.service".to_owned(), "other".to_owned());
+    let error = verify_v7_container_command_labels(&target, &drifted)
+        .expect_err("legacy service drift must block command execution");
+    assert!(error.to_string().contains("accepted v7"));
+    assert!(error.to_string().contains("ownership labels"));
 }
 
 #[test]

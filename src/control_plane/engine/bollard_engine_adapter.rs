@@ -12,7 +12,8 @@ use super::{
     ObservedContainer, ObservedContainerMount, ObservedNetwork, ObservedResourceOwnership,
     ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding,
     PublishedPortDiscovery, RegistryImageReference, ResourceKind, ResourceMetrics,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    V7ContainerCommandExecutor, V7ContainerCommandTarget, VolumeCreateOptions, VolumeDiscovery,
+    VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -718,6 +719,95 @@ impl CommandExecutor for BollardEngineAdapter {
     }
 }
 
+impl V7ContainerCommandExecutor for BollardEngineAdapter {
+    fn start_v7_command<'operation>(
+        &'operation self,
+        target: &'operation V7ContainerCommandTarget,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        Box::pin(async move {
+            let (execution_id, started) = bounded_engine_operation(
+                "start accepted v7 container command",
+                request_timeout(),
+                async {
+                    let observed = self
+                        .docker
+                        .inspect_container(target.container_id().as_str(), None)
+                        .await
+                        .map_err(|error| {
+                            backend_error("verify v7 container command ownership", error)
+                        })?;
+                    verify_v7_container_command_labels(
+                        target,
+                        &observed
+                            .config
+                            .and_then(|config| config.labels)
+                            .unwrap_or_default(),
+                    )?;
+                    let created = self
+                        .docker
+                        .create_exec(
+                            target.container_id().as_str(),
+                            command_create_request(request),
+                        )
+                        .await
+                        .map_err(|error| backend_error("create v7 container command", error))?;
+                    if created.id.is_empty() {
+                        return Err(EngineError::Backend {
+                            detail: "Engine created a v7 container command without an ID"
+                                .to_owned(),
+                        });
+                    }
+                    let started = self
+                        .docker
+                        .start_exec(
+                            &created.id,
+                            Some(StartExecOptions {
+                                detach: false,
+                                tty: false,
+                                output_capacity: None,
+                            }),
+                        )
+                        .await
+                        .map_err(|error| backend_error("start v7 container command", error))?;
+
+                    Ok((CommandExecutionId::new(created.id), started))
+                },
+            )
+            .await?;
+
+            match started {
+                StartExecResults::Attached { output, input } => {
+                    let output = output.map(|result| {
+                        result
+                            .map(log_chunk)
+                            .map_err(|error| backend_error("stream v7 container command", error))
+                    });
+                    let output: ContainerLogStream<'static> = Box::pin(output);
+
+                    Ok(CommandSession::new(
+                        execution_id,
+                        target.container_id().clone(),
+                        input,
+                        output,
+                    ))
+                }
+                StartExecResults::Detached => Err(EngineError::Backend {
+                    detail: "Engine detached an attached v7 container command".to_owned(),
+                }),
+            }
+        })
+    }
+
+    fn v7_command_status<'operation>(
+        &'operation self,
+        execution_id: &'operation CommandExecutionId,
+        container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        self.command_status(execution_id, container_id)
+    }
+}
+
 impl HealthObserver for BollardEngineAdapter {
     fn observe_health<'operation>(
         &'operation self,
@@ -1288,6 +1378,26 @@ fn verify_owned_container_labels_for(
         action,
         resource_kind: "container",
         resource_id: container.id().as_str().to_owned(),
+    })
+}
+
+pub(super) fn verify_v7_container_command_labels(
+    target: &V7ContainerCommandTarget,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
+    let exact = labels.get("com.stackctl.managed").map(String::as_str) == Some("true")
+        && labels.get("com.stackctl.container").map(String::as_str)
+            == Some(target.container_name())
+        && labels.get("com.stackctl.service").map(String::as_str) == Some(target.service_id())
+        && labels.get("com.stackctl.kind").map(String::as_str) == Some(target.kind());
+    if exact {
+        return Ok(());
+    }
+
+    Err(EngineError::OwnershipMismatch {
+        action: "execute a command in accepted v7",
+        resource_kind: "container",
+        resource_id: target.container_id().as_str().to_owned(),
     })
 }
 
