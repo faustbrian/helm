@@ -350,6 +350,9 @@ major version. A new installation creates its own state, trust, network,
 gateway, and ownership-labeled resources. Existing containers and volumes must
 be handled independently before or after installing v8; they are never attached
 to v8 services as an implicit upgrade.
+Durable project-command payloads also reject unknown fields. Removed payload
+shapes, including environment-bearing command records, are not silently decoded
+or revised in place.
 
 ## Failure and recovery
 

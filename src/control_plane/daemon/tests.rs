@@ -343,6 +343,24 @@ fn browser_session_intent_survives_durable_queue_round_trips() {
 }
 
 #[test]
+fn durable_project_commands_reject_removed_environment_payloads() {
+    let queued = queued_browser_command("operation-42", "bill", "app");
+    let mut payload: serde_json::Value =
+        serde_json::from_str(&queued.payload_json().expect("durable browser command"))
+            .expect("command JSON");
+    payload.as_object_mut().expect("command object").insert(
+        "environment".to_owned(),
+        serde_json::json!({"TOKEN": "legacy"}),
+    );
+
+    let error =
+        QueuedProjectCommand::from_payload_json("operation-42".to_owned(), &payload.to_string())
+            .expect_err("removed environment field");
+
+    assert!(error.contains("unknown field `environment`"));
+}
+
+#[test]
 fn failed_browser_commands_still_remove_the_ephemeral_sidecar() {
     let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
         "container-app",

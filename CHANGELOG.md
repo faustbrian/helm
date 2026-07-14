@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed the durable project-command decoder's compatibility field for old
+  serialized environments. V8 queue payloads now reject that unknown field
+  instead of silently discarding state from an earlier payload shape.
 - Removed the executable pre-v8 runtime-parity harnesses and their `just`
   targets. They generated TOML and invoked the deleted compatibility CLI, so
   retaining them contradicted the v8 clean-slate boundary.

@@ -375,7 +375,7 @@ mod tests {
     }
 
     #[test]
-    fn toml_projects_remain_on_the_legacy_dispatch_path() {
+    fn unsupported_toml_projects_do_not_resolve_as_v8_invocations() {
         let root = project(
             ".stackctl.toml",
             "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
