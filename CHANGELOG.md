@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Composed every selected v7 checkpoint through one exact adapter-set boundary
+  and rejected incomplete or identity-mixed strategy contexts.
 - Made the singleton control plane the durable journal boundary for atomic v7
   execution, cutover, and rollback publication.
 - Added a daemon-owned accepted-v7 phase dispatcher that resumes preparation,

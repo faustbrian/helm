@@ -10,15 +10,16 @@ use super::{
     ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    RegisterAcceptedV7LogicalDataAdaptersOptions, RegisterAcceptedV7NamedVolumeAdaptersOptions,
-    RegisterAcceptedV7ProjectWideAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
-    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
-    execute_accepted_v7_migration, execute_project_logs, execute_queued_migration_decision,
-    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
-    queue_next_installation_deletion_prune, reconcile_watched_roots,
+    RegisterAcceptedV7AdaptersOptions, RegisterAcceptedV7LogicalDataAdaptersOptions,
+    RegisterAcceptedV7NamedVolumeAdaptersOptions, RegisterAcceptedV7ProjectWideAdaptersOptions,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
+    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
+    dispatch_daemon_request, execute_accepted_v7_migration, execute_project_logs,
+    execute_queued_migration_decision, execute_queued_postgres_prune,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
+    queue_next_installation_deletion_prune, reconcile_watched_roots, register_accepted_v7_adapters,
     register_accepted_v7_logical_data_adapters, register_accepted_v7_named_volume_adapters,
     register_accepted_v7_project_wide_adapters, register_accepted_v7_recreated_adapters,
     requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
@@ -7242,10 +7243,117 @@ fn accepted_v7_named_volume_adapters_bind_one_exact_prepared_target() {
     )
     .expect_err("ambiguous owned volume must block");
     assert!(error.contains("exact v8 owned volume is ambiguous"));
+
+    let other = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "other".to_owned(),
+        canonical_project_path: PathBuf::from("/work/other"),
+        source_revision: format!("sha256:{}", "c".repeat(64)),
+        inventory_json: format!(
+            r#"{{"project_id":"other","canonical_project_path":"/work/other","source_revision":"sha256:{}","blockers":[],"services":[]}}"#,
+            "c".repeat(64)
+        ),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("other accepted inventory");
+    let mixed = register_accepted_v7_adapters(
+        &mut V7MigrationAdapterRegistry::default(),
+        &execution,
+        RegisterAcceptedV7AdaptersOptions {
+            resources: &[],
+            logical_resources: &[],
+            logical: RegisterAcceptedV7LogicalDataAdaptersOptions {
+                accepted: &accepted,
+                inputs: &[],
+                prepared: &[],
+                target_containers: &containers,
+                logical_resources: &[],
+                engine: &engine,
+                installation_id: "install-1",
+                backup_root: &root,
+                created_at_unix_seconds: 11,
+                verified_at_unix_seconds: 12,
+                timeout: Duration::from_secs(30),
+            },
+            named_volumes: RegisterAcceptedV7NamedVolumeAdaptersOptions {
+                accepted: &accepted,
+                sources: &sources,
+                reconciliation: &reconciliation,
+                target_containers: &containers,
+                target_volumes: &volumes,
+                engine: &engine,
+                backup_root: &root,
+                created_at_unix_seconds: 11,
+                verified_at_unix_seconds: 12,
+                timeout: Duration::from_secs(30),
+            },
+            project_wide: RegisterAcceptedV7ProjectWideAdaptersOptions {
+                accepted: &other,
+                gateway: None,
+                trust: None,
+                managed_environments: &[],
+                verified_at_unix_seconds: 12,
+                maximum_environment_bytes: 1024,
+            },
+        },
+    )
+    .expect_err("mixed accepted identities must block before strategy registration");
+    assert_eq!(
+        mixed,
+        "accepted v7 adapter contexts do not share one immutable identity"
+    );
 }
 
 #[derive(Clone, Copy)]
 struct NamedVolumeCompositionEngine;
+
+impl crate::control_plane::engine::CommandExecutor for NamedVolumeCompositionEngine {
+    fn start_command<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _request: &'operation crate::control_plane::engine::CommandRequest,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandSession,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation crate::control_plane::engine::CommandExecutionId,
+        _container_id: &'operation crate::control_plane::engine::ContainerId,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandStatus,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::V7ContainerCommandExecutor for NamedVolumeCompositionEngine {
+    fn start_v7_command<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _request: &'operation crate::control_plane::engine::CommandRequest,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandSession,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+
+    fn v7_command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation crate::control_plane::engine::CommandExecutionId,
+        _container_id: &'operation crate::control_plane::engine::ContainerId,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandStatus,
+    > {
+        Box::pin(async { Err(named_volume_composition_engine_error()) })
+    }
+}
 
 impl crate::control_plane::engine::ContainerLifecycle for NamedVolumeCompositionEngine {
     fn create<'operation>(
