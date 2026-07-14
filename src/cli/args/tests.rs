@@ -19,7 +19,6 @@ fn clean_slate_cli_rejects_removed_pre_v8_commands() {
         "preset",
         "profile",
         "doctor",
-        "setup",
         "start",
         "up",
         "apply",
@@ -59,6 +58,32 @@ fn clean_slate_cli_rejects_removed_pre_v8_commands() {
             "removed command '{removed}' remains exposed"
         );
     }
+}
+
+#[test]
+fn setup_accepts_one_or_more_watched_roots() {
+    let cli = Cli::parse_from([
+        "stackctl",
+        "setup",
+        "--dir",
+        "/Users/example/Developer",
+        "--dir",
+        "/Users/example/Work",
+        "--interval",
+        "45",
+    ]);
+
+    let Commands::Setup(args) = cli.command else {
+        panic!("setup command");
+    };
+    assert_eq!(
+        args.dir,
+        [
+            std::path::PathBuf::from("/Users/example/Developer"),
+            std::path::PathBuf::from("/Users/example/Work")
+        ]
+    );
+    assert_eq!(args.interval, 45);
 }
 
 #[test]

@@ -33,6 +33,7 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
             return Ok(());
         }
         Commands::Daemon(args) => return handlers::handle_daemon(args),
+        Commands::Setup(args) => return handlers::handle_setup(args),
         _ => {}
     }
 

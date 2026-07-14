@@ -21,16 +21,16 @@ services:
     version: "18"
 ```
 
-Validate it, install trust, and install the login service for one or more
-watched roots:
+Validate it, then perform the one-time setup for one or more watched roots:
 
 ```bash
 stackctl config validate .stackctl.yaml
-stackctl daemon trust install
-stackctl daemon service install --dir ~/Developer
+stackctl setup --dir ~/Developer
 ```
 
-The daemon discovers valid projects automatically. Inspect them with
+Setup validates the roots and `.localhost` resolution before host mutation,
+installs the singleton CA trust, and starts the login service transactionally.
+The daemon then discovers valid projects automatically. Inspect them with
 `stackctl status`, `stackctl logs`, and `stackctl url`.
 
 V8 does not upgrade, migrate, adopt, or execute pre-v8 project configuration.

@@ -18,14 +18,18 @@ record.
 ## Configure the control plane
 
 Create strict `.stackctl.yaml` projects under one or more watched roots, then
-run:
+run the one-time setup transaction:
 
 ```bash
-stackctl daemon trust install
-stackctl daemon service install --dir ~/Developer
+stackctl setup --dir ~/Developer
 stackctl daemon service status
 stackctl daemon status
 ```
+
+Setup validates and canonicalizes every watched root and verifies that
+Stackctl's `.localhost` names resolve to loopback before changing host state.
+It then installs CA trust and the login service. If service installation fails,
+newly added trust is removed; pre-existing trust is preserved.
 
 The login service owns project discovery and reconciliation. Routine project
 commands communicate with it over user-only local IPC; they do not invoke a

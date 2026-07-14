@@ -4,6 +4,7 @@ mod config_schema_cmd;
 mod config_validate_cmd;
 mod daemon_cmd;
 mod log;
+mod setup_cmd;
 #[cfg(unix)]
 mod strict_v8_dispatch_guard;
 #[cfg(unix)]
@@ -28,6 +29,7 @@ mod v8_url_cmd;
 pub(crate) use config_schema_cmd::handle_config_schema;
 pub(crate) use config_validate_cmd::handle_config_validate;
 pub(crate) use daemon_cmd::handle_daemon;
+pub(crate) use setup_cmd::handle_setup;
 #[cfg(unix)]
 pub(crate) use strict_v8_dispatch_guard::enforce_strict_v8_dispatch;
 #[cfg(unix)]

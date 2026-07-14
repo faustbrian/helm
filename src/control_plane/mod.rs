@@ -44,7 +44,10 @@ pub(crate) use desired_state::{
 use dns_label::DnsLabel;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;
 pub(crate) use execution_plan::{ExecutionPlan, ServiceExecutionPlan, resolve_execution_plan};
-pub(crate) use gateway::wait_for_gateway_certificate_generation;
+pub(crate) use gateway::{
+    SystemLocalhostResolver, verify_stackctl_localhost_resolution,
+    wait_for_gateway_certificate_generation,
+};
 pub(crate) use identity_error::IdentityError;
 pub(crate) use project_identity::ProjectIdentity;
 pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};

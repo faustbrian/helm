@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a single `stackctl setup --dir <DIR>...` transaction for initial v8
+  host setup. It validates and canonicalizes every watched root, verifies
+  `.localhost` loopback resolution, installs the singleton CA trust, and starts
+  the login service in order. A failed service install removes only trust that
+  the same setup attempt introduced and reports rollback failures explicitly.
 - Made login-service installation transactional across its atomically written
   host definition and launchd/systemd activation. A failed fresh install now
   removes partial manager state and its definition; a failed update restores

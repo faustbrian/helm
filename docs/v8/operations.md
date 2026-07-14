@@ -135,6 +135,13 @@ The selected Docker-compatible Engine is contacted over its Unix socket;
 Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
 Caddy is an immutable workload-plane image, not a host executable.
 
+`stackctl setup --dir <DIR>...` is the normal one-time installation path. It
+canonicalizes every distinct watched root and verifies `.localhost` loopback
+resolution before changing host state. It then installs singleton CA trust and
+the login service. If service installation fails, setup removes trust only when
+that invocation added it; existing trust is retained. A trust rollback failure
+is reported together with the service failure.
+
 `stackctl daemon service status` checks the selected service manager in
 addition to the definition file. A stale launchd plist or systemd user unit is
 reported as installed but not running, with an explicit reinstall command; it

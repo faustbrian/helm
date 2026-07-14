@@ -9,6 +9,8 @@ readonly BROWSER_OPENER="src/cli/support/open_in_browser.rs"
 readonly MACOS_TRUST="src/control_plane/tls/mac_os_certificate_trust_store.rs"
 readonly DEBIAN_TRUST="src/control_plane/tls/debian_certificate_trust_store.rs"
 readonly TRUST_TESTS="src/control_plane/tls/tests.rs"
+readonly DAEMON_SERVICE_HANDLER="src/cli/handlers/daemon_cmd/service.rs"
+readonly SETUP_HANDLER="src/cli/handlers/setup_cmd.rs"
 violations=0
 
 report_matches() {
@@ -51,7 +53,7 @@ audit_file() {
     'crate::(docker|serve|database)(::|[,{])' \
     "$file"
 
-  if [[ "$file" != "src/cli/handlers/daemon_cmd/service.rs" ]]; then
+  if [[ "$file" != "$DAEMON_SERVICE_HANDLER" && "$file" != "$SETUP_HANDLER" ]]; then
     report_matches \
       "strict v8 imports the legacy per-project daemon runtime" \
       'crate::daemon(::|[,{])' \

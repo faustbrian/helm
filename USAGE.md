@@ -33,6 +33,7 @@ configured sources to immutable sha256 digests.
 ## Daemon and installation
 
 ```text
+stackctl setup --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon watch --dir <DIR>... [--once] [--interval <SECONDS>]
 stackctl daemon service install --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon service status
@@ -44,6 +45,11 @@ stackctl daemon reconcile
 stackctl daemon benchmark
 stackctl daemon trust install|status|remove|rotate
 ```
+
+`setup` is the normal one-time path. It preflights canonical watched roots and
+`.localhost` resolution, then installs singleton CA trust and the login service
+as one rollback-aware transaction. The nested daemon commands remain explicit
+administrative and diagnostic operations.
 
 `daemon adopt`, `backup`, `backups`, `restore`, `prune`, and `migration`
 provide the explicit retained-data and reversible-migration workflows. Their

@@ -16,6 +16,7 @@ pub(crate) use commands::Commands;
 pub(crate) use commands::LogsArgs;
 pub(crate) use commands::OpenArgs;
 pub(crate) use commands::PhpToolArgs;
+pub(crate) use commands::SetupArgs;
 pub(crate) use commands::{
     BenchmarkEvidenceScenario, DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs,
     DaemonBenchmarkArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,

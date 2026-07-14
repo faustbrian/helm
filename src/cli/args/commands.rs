@@ -7,6 +7,7 @@ mod daemon;
 mod lifecycle;
 mod meta;
 mod operations;
+mod setup;
 
 pub(crate) use app::{
     ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs, OpenArgs, PhpToolArgs,
@@ -22,10 +23,13 @@ pub(crate) use daemon::{
 pub(crate) use lifecycle::UrlArgs;
 pub(crate) use meta::{CompletionsArgs, ConfigArgs, LockArgs};
 pub(crate) use operations::{EnvArgs, LogsArgs, PsArgs};
+pub(crate) use setup::SetupArgs;
 
 #[derive(Subcommand)]
 #[non_exhaustive]
 pub(crate) enum Commands {
+    /// Verify and install the per-user v8 control plane
+    Setup(SetupArgs),
     /// Inspect or validate strict v8 YAML configuration
     Config(ConfigArgs),
     /// Manage the immutable v8 artifact lock
