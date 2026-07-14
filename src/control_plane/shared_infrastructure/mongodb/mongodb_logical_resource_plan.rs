@@ -1,7 +1,6 @@
 use super::MongoDbPlanError;
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
-use crate::control_plane::state::CredentialRecord;
 use std::fmt::{Debug, Formatter};
 
 /// Idempotent MongoDB database-user provisioning input.
@@ -56,23 +55,6 @@ impl MongoDbLogicalResourcePlan {
 
     pub(crate) fn credential_id(&self) -> &str {
         &self.credential_id
-    }
-
-    pub(crate) fn matches_credential(
-        &self,
-        credential: &CredentialRecord,
-        bootstrap_secret: &str,
-    ) -> bool {
-        credential.credential_id() == self.credential_id()
-            && credential.username() == self.username()
-            && self.stdin_script
-                == provisioning_script(
-                    self.database_name(),
-                    self.username(),
-                    credential.secret(),
-                    bootstrap_secret,
-                )
-                .unwrap_or_default()
     }
 
     pub(crate) fn stdin_script(&self) -> &str {

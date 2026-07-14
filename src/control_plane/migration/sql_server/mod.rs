@@ -1,38 +1,17 @@
-#[cfg(test)]
-mod tests;
-
 mod backup_sql_server_database;
-mod backup_v7_sql_server_database;
-mod engine_v7_sql_server_source_retirement;
 mod restore_sql_server_database;
-mod restore_v7_sql_server_target;
 mod sql_server_backup_options;
 mod sql_server_migration_operations;
 mod sql_server_migration_operations_options;
 mod sql_server_restore_options;
 mod sql_server_verify_target_options;
-mod v7_sql_server_credential;
-mod v7_sql_server_migration_provider;
-mod v7_sql_server_migration_provider_options;
-mod v7_sql_server_source_retirement;
 mod verify_sql_server_target;
-mod verify_v7_sql_server_source;
-mod verify_v7_sql_server_target;
 
 pub(crate) use backup_sql_server_database::backup_sql_server_database;
-use backup_v7_sql_server_database::backup_v7_sql_server_database;
-pub(crate) use engine_v7_sql_server_source_retirement::EngineV7SqlServerSourceRetirement;
 pub(crate) use restore_sql_server_database::restore_sql_server_database;
-use restore_v7_sql_server_target::restore_v7_sql_server_target;
 pub(crate) use sql_server_backup_options::SqlServerBackupOptions;
 pub(crate) use sql_server_migration_operations::SqlServerMigrationOperations;
 pub(crate) use sql_server_migration_operations_options::SqlServerMigrationOperationsOptions;
 pub(crate) use sql_server_restore_options::SqlServerRestoreOptions;
 pub(crate) use sql_server_verify_target_options::SqlServerVerifyTargetOptions;
-pub(crate) use v7_sql_server_credential::V7SqlServerCredential;
-pub(crate) use v7_sql_server_migration_provider::V7SqlServerMigrationProvider;
-pub(crate) use v7_sql_server_migration_provider_options::V7SqlServerMigrationProviderOptions;
-pub(crate) use v7_sql_server_source_retirement::V7SqlServerSourceRetirement;
 pub(crate) use verify_sql_server_target::verify_sql_server_target;
-use verify_v7_sql_server_source::verify_v7_sql_server_source;
-use verify_v7_sql_server_target::verify_v7_sql_server_target;

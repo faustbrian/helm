@@ -3,7 +3,7 @@ use std::path::Path;
 
 /// Installs one exact Stackctl CA only when the OS trust store lacks it.
 pub(crate) fn ensure_ca_trusted(
-    store: &(impl CertificateTrustStore + ?Sized),
+    store: &impl CertificateTrustStore,
     identity: &LocalCaIdentity,
     certificate_path: &Path,
 ) -> Result<TrustChange, TrustStoreError> {

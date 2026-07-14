@@ -1,7 +1,6 @@
 use super::{
-    AttachedCommandOptions, AttachedCommandOutput, CommandExecutor, CommandSessionExecutor,
-    CommandStatus, EngineError, OwnedContainer, V7ContainerCommandExecutor,
-    V7ContainerCommandTarget,
+    AttachedCommandOptions, AttachedCommandOutput, CommandExecutor, CommandStatus, EngineError,
+    OwnedContainer,
 };
 use futures_util::StreamExt;
 use std::time::Duration;
@@ -38,40 +37,7 @@ pub(crate) async fn run_attached_command_output(
     container: &OwnedContainer,
     options: &AttachedCommandOptions,
 ) -> Result<AttachedCommandOutput, EngineError> {
-    run_attached_command_output_for(executor, container, options).await
-}
-
-/// Runs one bounded secret-safe command against an accepted v7 target.
-pub(crate) async fn run_v7_attached_command(
-    executor: &(impl V7ContainerCommandExecutor + ?Sized),
-    target: &V7ContainerCommandTarget,
-    options: &AttachedCommandOptions,
-) -> Result<(), EngineError> {
-    run_v7_attached_command_capture(executor, target, options)
-        .await
-        .map(|_| ())
-}
-
-/// Returns bounded stdout for a successful accepted-v7 command.
-pub(crate) async fn run_v7_attached_command_capture(
-    executor: &(impl V7ContainerCommandExecutor + ?Sized),
-    target: &V7ContainerCommandTarget,
-    options: &AttachedCommandOptions,
-) -> Result<Vec<u8>, EngineError> {
-    run_attached_command_output_for(executor, target, options)
-        .await
-        .map(AttachedCommandOutput::into_stdout)
-}
-
-async fn run_attached_command_output_for<E, Target>(
-    executor: &E,
-    target: &Target,
-    options: &AttachedCommandOptions,
-) -> Result<AttachedCommandOutput, EngineError>
-where
-    E: CommandSessionExecutor<Target> + ?Sized,
-{
-    tokio::time::timeout(options.timeout(), execute(executor, target, options))
+    tokio::time::timeout(options.timeout(), execute(executor, container, options))
         .await
         .map_err(|_| EngineError::Timeout {
             action: options.action().to_owned(),
@@ -79,15 +45,12 @@ where
         })?
 }
 
-async fn execute<E, Target>(
-    executor: &E,
-    target: &Target,
+async fn execute(
+    executor: &impl CommandExecutor,
+    container: &OwnedContainer,
     options: &AttachedCommandOptions,
-) -> Result<AttachedCommandOutput, EngineError>
-where
-    E: CommandSessionExecutor<Target> + ?Sized,
-{
-    let session = executor.start_session(target, options.request()).await?;
+) -> Result<AttachedCommandOutput, EngineError> {
+    let session = executor.start_command(container, options.request()).await?;
     let (execution_id, container_id, mut input, mut output) = session.into_parts();
 
     input
@@ -126,7 +89,7 @@ where
 
     loop {
         match executor
-            .session_status(&execution_id, &container_id)
+            .command_status(&execution_id, &container_id)
             .await?
         {
             CommandStatus::Running => {

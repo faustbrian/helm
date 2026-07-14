@@ -1,6 +1,3 @@
-mod accepted_v7_environment_rollback;
-mod accepted_v7_inventory_record;
-mod accepted_v7_inventory_record_options;
 mod credential_lifecycle;
 mod credential_persistence;
 mod credential_record;
@@ -27,7 +24,6 @@ mod migration_record_options;
 mod open_sqlite_state_store_with_backups;
 mod persist_managed_environment;
 mod persist_migration_record;
-mod persist_v7_migration_execution;
 mod persisted_migration;
 mod project_adoption_plan;
 mod project_adoption_plan_options;
@@ -41,14 +37,7 @@ mod resource_retention;
 mod sqlite_state_store;
 mod state_store;
 mod state_store_error;
-mod v7_migration_adapter_checkpoint;
-mod v7_migration_execution_phase;
-mod v7_migration_execution_record;
-mod v7_migration_execution_record_options;
 
-pub(crate) use accepted_v7_environment_rollback::AcceptedV7EnvironmentRollback;
-pub(crate) use accepted_v7_inventory_record::AcceptedV7InventoryRecord;
-pub(crate) use accepted_v7_inventory_record_options::AcceptedV7InventoryRecordOptions;
 pub(crate) use credential_lifecycle::CredentialLifecycle;
 pub(crate) use credential_record::CredentialRecord;
 pub(crate) use credential_record_options::CredentialRecordOptions;
@@ -82,12 +71,6 @@ pub(crate) use resource_retention::ResourceRetention;
 pub(crate) use sqlite_state_store::SqliteStateStore;
 pub(crate) use state_store::StateStore;
 pub(crate) use state_store_error::StateStoreError;
-pub(crate) use v7_migration_adapter_checkpoint::{
-    V7MigrationAdapterCheckpoint, V7MigrationAdapterCheckpointPhase,
-};
-pub(crate) use v7_migration_execution_phase::V7MigrationExecutionPhase;
-pub(crate) use v7_migration_execution_record::V7MigrationExecutionRecord;
-pub(crate) use v7_migration_execution_record_options::V7MigrationExecutionRecordOptions;
 
 #[cfg(test)]
 mod tests;

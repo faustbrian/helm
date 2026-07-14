@@ -1,9 +1,8 @@
 use super::{
-    AcceptedV7InventoryRecord, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
-    DaemonOperationRetryOptions, DaemonOperationTransitionOptions, InstallationLifecycle,
-    InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord,
-    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
-    V7MigrationExecutionRecord,
+    CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationRetryOptions,
+    DaemonOperationTransitionOptions, InstallationLifecycle, InstallationRecord,
+    LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan,
+    ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -165,55 +164,6 @@ pub(crate) trait StateStore: Send {
 
     /// Loads migration checkpoints in stable identity order.
     fn migrations(&self) -> Result<Vec<MigrationRecord>, StateStoreError>;
-
-    /// Accepts immutable secret-free v7 source evidence, allowing exact replay.
-    fn record_accepted_v7_inventory(
-        &mut self,
-        inventory: &AcceptedV7InventoryRecord,
-    ) -> Result<(), StateStoreError>;
-
-    /// Loads accepted evidence for one exact canonical legacy project path.
-    fn accepted_v7_inventory(
-        &self,
-        canonical_project_path: &Path,
-        evidence_revision: &str,
-    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError>;
-
-    /// Loads the most recently accepted immutable evidence for one path.
-    fn latest_accepted_v7_inventory(
-        &self,
-        canonical_project_path: &Path,
-    ) -> Result<Option<AcceptedV7InventoryRecord>, StateStoreError>;
-
-    /// Records one monotonic, project-wide v7 adapter execution barrier.
-    fn record_v7_migration_execution(
-        &mut self,
-        execution: &V7MigrationExecutionRecord,
-    ) -> Result<(), StateStoreError>;
-
-    /// Atomically publishes v8 project intent, environment, and v7 cutover proof.
-    fn record_v7_migration_cutover(
-        &mut self,
-        project: &ProjectRecord,
-        environment: &ManagedEnvironmentRecord,
-        execution: &V7MigrationExecutionRecord,
-    ) -> Result<(), StateStoreError>;
-
-    /// Atomically restores project intent and journals one v7 rollback.
-    fn record_v7_migration_rollback(
-        &mut self,
-        project: &ProjectRecord,
-        environment: &ManagedEnvironmentRecord,
-        retained_targets: &[LogicalResourceRecord],
-        execution: &V7MigrationExecutionRecord,
-    ) -> Result<(), StateStoreError>;
-
-    /// Loads exact execution state bound to one accepted evidence revision.
-    fn v7_migration_execution(
-        &self,
-        canonical_project_path: &Path,
-        evidence_revision: &str,
-    ) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError>;
 
     /// Inserts immutable verified recovery evidence, allowing exact replay only.
     fn record_recovery_point(

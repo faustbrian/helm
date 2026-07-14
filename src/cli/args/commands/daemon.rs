@@ -18,8 +18,8 @@ pub(crate) use adopt::DaemonAdoptArgs;
 pub(crate) use backup::DaemonBackupArgs;
 pub(crate) use backups::DaemonBackupsArgs;
 pub(crate) use migration::{
-    DaemonMigrationAcceptArgs, DaemonMigrationArgs, DaemonMigrationCommands,
-    DaemonMigrationDecisionArgs, DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs,
+    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
+    DaemonMigrationStatusArgs,
 };
 pub(crate) use prune::{
     DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,

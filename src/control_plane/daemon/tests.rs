@@ -2,22 +2,22 @@ use super::{
     BenchmarkSnapshotProvider, DaemonRequestDispatchOptions, DiscoveryScanReason,
     DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
     EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    EngineV7ProjectInventoryProvider, ImageReferenceResolution, IpcEventJournal,
-    MigrationDecisionExecutionOptions, MigrationDecisionQueue, PostgresPruneExecutionOptions,
-    PostgresPruneQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
-    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ImageReferenceResolution, IpcEventJournal, MigrationDecisionExecutionOptions,
+    MigrationDecisionQueue, PostgresPruneExecutionOptions, PostgresPruneQueue,
+    ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
+    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
+    ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
-    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
-    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
+    retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -25,27 +25,26 @@ use crate::control_plane::daemon::ipc::{
     IpcBenchmarkTcpPort, IpcDataLifecycle, IpcEventKind, IpcLogSessionState, IpcManagedEnvironment,
     IpcMigrationDecision, IpcMigrationStatus, IpcOutcome, IpcOutputStream, IpcPayload,
     IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth, IpcResourceLifecycle,
-    IpcResourceStatus, IpcResponse, IpcResult, IpcV7InventoryAcceptancePlan,
+    IpcResourceStatus, IpcResponse, IpcResult,
 };
-use crate::control_plane::engine::{ContainerHealth, LegacyContainerDiscovery};
+use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
     MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
     MySqlRestoreOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
-    read_v7_generated_environment_rollback, restore_mongodb_database, restore_mysql_database,
-    restore_sql_server_database, verify_mongodb_target, verify_sql_server_target,
+    restore_mongodb_database, restore_mysql_database, restore_sql_server_database,
+    verify_mongodb_target, verify_sql_server_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
 };
 use crate::control_plane::state::{
-    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, DaemonOperationRecord,
-    DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
-    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, RecoveryPointRecord,
-    RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, SqliteStateStore, StateStore,
+    DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
+    DaemonOperationTransitionOptions, EnvironmentLifecycle, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -5832,7 +5831,6 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -5868,7 +5866,6 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_001,
     });
     let IpcOutcome::Success {
@@ -5950,7 +5947,6 @@ fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: Some(&mut provider),
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -6039,7 +6035,6 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: Some(&mut resolver),
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -6063,575 +6058,6 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove IPC fixture");
-}
-
-#[test]
-fn daemon_inventory_provider_reads_only_explicit_legacy_config_and_engine_state() {
-    let root = temporary_directory("v7-inventory-provider");
-    let project_path = root.join("bill");
-    std::fs::create_dir(&project_path).expect("legacy project directory");
-    let project_path = std::fs::canonicalize(project_path).expect("canonical project path");
-    std::fs::write(
-        project_path.join(".stackctl.toml"),
-        r#"
-schema_version = 1
-project_type = "project"
-container_prefix = "bill"
-
-[[service]]
-name = "db"
-kind = "database"
-driver = "postgres"
-image = "postgres:17"
-host = "127.0.0.1"
-port = 5432
-database = "bill"
-username = "bill_user"
-password = "database-secret"
-"#,
-    )
-    .expect("legacy config");
-    std::fs::write(
-        project_path.join(".env"),
-        "DB_PASSWORD=generated-environment-secret\n",
-    )
-    .expect("legacy generated environment");
-    let hosts_path = root.join("hosts");
-    std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("legacy hosts");
-    let observed = crate::control_plane::engine::ObservedContainer::new(
-        crate::control_plane::engine::ContainerId::new("container-db"),
-        BTreeMap::from([
-            ("com.stackctl.managed".to_owned(), "true".to_owned()),
-            ("com.stackctl.container".to_owned(), "bill-db".to_owned()),
-            ("com.stackctl.service".to_owned(), "db".to_owned()),
-            ("com.stackctl.kind".to_owned(), "database".to_owned()),
-        ]),
-    )
-    .with_image_identity("sha256:image-db")
-    .with_mounts(vec![
-        crate::control_plane::engine::ObservedContainerMount::new(
-            "bill-db-data",
-            "/var/lib/postgresql/data",
-            true,
-            false,
-        ),
-    ]);
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("inventory runtime");
-    let rollback_root = root.join("backups");
-    let mut provider = EngineV7ProjectInventoryProvider::new(
-        &runtime,
-        RecordingLegacyContainerDiscovery { observed },
-    )
-    .with_host_artifact_paths(V7HostArtifactPaths::new(
-        project_path.join(".env"),
-        hosts_path,
-        root.join("sites.toml"),
-        Vec::new(),
-    ))
-    .with_rollback_root(rollback_root);
-
-    let inventory = provider
-        .inventory(&project_path, 1024 * 1024)
-        .expect("legacy inventory");
-
-    assert_eq!(inventory.project_id(), "bill");
-    assert_eq!(inventory.services().len(), 1);
-    assert_eq!(
-        inventory.services()[0].observed_image(),
-        Some("sha256:image-db")
-    );
-    assert!(inventory.ready_for_automatic_migration());
-    assert_eq!(
-        inventory
-            .host_artifacts()
-            .generated_environment()
-            .expect("generated environment metadata")
-            .keys(),
-        ["DB_PASSWORD"]
-    );
-    let json = serde_json::to_string(&inventory).expect("inventory JSON");
-    assert!(!json.contains("database-secret"));
-    assert!(!json.contains("generated-environment-secret"));
-    let plan = IpcV7InventoryAcceptancePlan::new(inventory.clone()).expect("acceptance plan");
-    let rollback = provider
-        .capture_generated_environment_rollback(
-            &inventory,
-            plan.evidence_revision(),
-            1024 * 1024,
-            40_000,
-        )
-        .expect("capture environment rollback")
-        .expect("generated environment rollback");
-    let restored = read_v7_generated_environment_rollback(
-        &rollback,
-        "bill",
-        plan.evidence_revision(),
-        40_001,
-        1024 * 1024,
-    )
-    .expect("read environment rollback");
-    assert_eq!(restored, b"DB_PASSWORD=generated-environment-secret\n");
-
-    std::fs::remove_dir_all(root).expect("remove inventory fixture");
-}
-
-#[test]
-fn daemon_exposes_v7_inventory_only_below_an_authoritative_watched_root() {
-    let root = temporary_directory("v7-inventory-ipc");
-    let project_path = root.join("bill");
-    std::fs::create_dir(&project_path).expect("legacy project directory");
-    let project_path = std::fs::canonicalize(project_path).expect("canonical project path");
-    let watched_root = std::fs::canonicalize(&root).expect("canonical watched root");
-    let database_path = root.join("state.sqlite3");
-    let mut store = SqliteStateStore::open(&database_path).expect("state store");
-    store
-        .replace_watched_roots(std::slice::from_ref(&watched_root))
-        .expect("watched root");
-    let mut control_plane = ControlPlane::new(store);
-    let request = IpcRequest::new(
-        "v7-inventory-42",
-        IpcPayload::InventoryV7Project {
-            canonical_path: project_path.clone(),
-        },
-    );
-    let mut provider = RecordingV7ProjectInventoryProvider::default();
-    let mut event_journal = IpcEventJournal::default();
-    let mut project_commands = ProjectCommandQueue::default();
-    let mut project_logs = ProjectLogSessionRegistry::default();
-
-    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_000,
-    });
-
-    assert_eq!(provider.paths, [project_path]);
-    assert!(matches!(
-        response.outcome(),
-        IpcOutcome::Success {
-            result: IpcResult::V7ProjectInventory { .. }
-        }
-    ));
-
-    let outside = root
-        .parent()
-        .expect("temporary root parent")
-        .join("outside-legacy-bill");
-    let outside_request = IpcRequest::new(
-        "v7-inventory-outside",
-        IpcPayload::InventoryV7Project {
-            canonical_path: outside,
-        },
-    );
-    let outside_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &outside_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_001,
-    });
-    assert_eq!(provider.paths.len(), 1);
-    assert!(matches!(
-        outside_response.outcome(),
-        IpcOutcome::Failure { .. }
-    ));
-
-    drop(control_plane);
-    std::fs::remove_dir_all(root).expect("remove inventory IPC fixture");
-}
-
-#[test]
-fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
-    let root = temporary_directory("v7-inventory-acceptance");
-    let project_path = root.join("bill");
-    std::fs::create_dir(&project_path).expect("legacy project directory");
-    let project_path = std::fs::canonicalize(project_path).expect("canonical project path");
-    let watched_root = std::fs::canonicalize(&root).expect("canonical watched root");
-    let database_path = root.join("state.sqlite3");
-    let mut store = SqliteStateStore::open(&database_path).expect("state store");
-    store
-        .replace_watched_roots(std::slice::from_ref(&watched_root))
-        .expect("watched root");
-    let mut control_plane = ControlPlane::new(store);
-    let mut provider = RecordingV7ProjectInventoryProvider::default();
-    let mut event_journal = IpcEventJournal::default();
-    let mut project_commands = ProjectCommandQueue::default();
-    let mut project_logs = ProjectLogSessionRegistry::default();
-    let plan_request = IpcRequest::new(
-        "v7-acceptance-plan",
-        IpcPayload::PlanV7InventoryAcceptance {
-            canonical_path: project_path.clone(),
-        },
-    );
-    let plan_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &plan_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_000,
-    });
-    let IpcOutcome::Success {
-        result: IpcResult::V7InventoryAcceptancePlan { plan },
-    } = plan_response.outcome()
-    else {
-        panic!("unexpected acceptance plan response: {plan_response:?}");
-    };
-    assert!(
-        control_plane
-            .latest_accepted_v7_inventory(&project_path)
-            .expect("accepted inventory state")
-            .is_none()
-    );
-    let confirmation_token = plan
-        .confirmation_token()
-        .expect("blocker-free confirmation token")
-        .to_owned();
-    let evidence_revision = plan.evidence_revision().to_owned();
-    let accept_request = IpcRequest::new(
-        "v7-acceptance-execute",
-        IpcPayload::AcceptV7Inventory {
-            canonical_path: project_path.clone(),
-            confirmation_token,
-        },
-    );
-    let accept_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &accept_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_001,
-    });
-
-    assert_eq!(provider.paths, [project_path.clone(), project_path.clone()]);
-    assert!(matches!(
-        accept_response.outcome(),
-        IpcOutcome::Success {
-            result: IpcResult::V7InventoryAccepted {
-                evidence_revision: accepted,
-                ..
-            }
-        } if accepted == &evidence_revision
-    ));
-    let accepted = control_plane
-        .accepted_v7_inventory(&project_path, &evidence_revision)
-        .expect("accepted inventory state")
-        .expect("durable accepted inventory");
-    assert_eq!(accepted.accepted_at_unix_seconds(), 10_001);
-    assert_eq!(provider.rollback_captures, 1);
-    let adapter_plan =
-        select_accepted_v7_migration_adapters(&accepted).expect("accepted adapter plan");
-    assert_eq!(adapter_plan.evidence_revision(), evidence_revision);
-    assert!(adapter_plan.services().is_empty());
-
-    let replay_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &accept_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_002,
-    });
-    assert!(matches!(
-        replay_response.outcome(),
-        IpcOutcome::Success {
-            result: IpcResult::V7InventoryAccepted {
-                accepted_at_unix_seconds: 10_001,
-                ..
-            }
-        }
-    ));
-    assert_eq!(provider.rollback_captures, 1);
-
-    provider.source_revision = format!("sha256:{}", "b".repeat(64));
-    let stale_request = IpcRequest::new(
-        "v7-acceptance-stale",
-        IpcPayload::AcceptV7Inventory {
-            canonical_path: project_path.clone(),
-            confirmation_token: plan
-                .confirmation_token()
-                .expect("confirmation token")
-                .to_owned(),
-        },
-    );
-    let stale_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &stale_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_003,
-    });
-    assert!(matches!(
-        stale_response.outcome(),
-        IpcOutcome::Failure { diagnostics }
-            if diagnostics.iter().any(|item| item.code() == "v7_inventory_confirmation_stale")
-    ));
-    assert_eq!(
-        control_plane
-            .latest_accepted_v7_inventory(&project_path)
-            .expect("latest accepted inventory")
-            .expect("original accepted inventory")
-            .evidence_revision(),
-        evidence_revision
-    );
-    provider.blockers = vec!["legacy source is ambiguous".to_owned()];
-    let blocked_request = IpcRequest::new(
-        "v7-acceptance-blocked",
-        IpcPayload::AcceptV7Inventory {
-            canonical_path: project_path.clone(),
-            confirmation_token: "not-authorized".to_owned(),
-        },
-    );
-    let blocked_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
-        control_plane: &mut control_plane,
-        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
-        request: &blocked_request,
-        event_journal: &mut event_journal,
-        project_commands: &mut project_commands,
-        project_backups: &mut ProjectBackupQueue::default(),
-        postgres_prunes: &mut PostgresPruneQueue::default(),
-        project_restores: &mut ProjectRestoreQueue::default(),
-        migration_decisions: &mut MigrationDecisionQueue::default(),
-        project_logs: &mut project_logs,
-        resource_health: &ResourceHealthRegistry::default(),
-        benchmark_snapshot: None,
-        image_reference_resolution: None,
-        v7_project_inventory: Some(&mut provider),
-        now_unix_seconds: 10_004,
-    });
-    assert!(matches!(
-        blocked_response.outcome(),
-        IpcOutcome::Failure { diagnostics }
-            if diagnostics.iter().any(|item| item.code() == "v7_inventory_acceptance_blocked")
-    ));
-    assert_eq!(
-        control_plane
-            .latest_accepted_v7_inventory(&project_path)
-            .expect("latest accepted inventory")
-            .expect("original accepted inventory")
-            .evidence_revision(),
-        evidence_revision
-    );
-
-    drop(control_plane);
-    std::fs::remove_dir_all(root).expect("remove acceptance fixture");
-}
-
-#[test]
-fn accepted_v7_adapter_selection_rejects_unprotected_environment_and_unsupported_mounts() {
-    let project_path = PathBuf::from("/work/bill");
-    let source_revision = format!("sha256:{}", "a".repeat(64));
-    let mut inventory = serde_json::json!({
-        "project_id": "bill",
-        "canonical_project_path": project_path,
-        "source_revision": source_revision,
-        "schema_version": 7,
-        "services": [],
-        "routes": [],
-        "blockers": [],
-        "requires_legacy_ca_capture": false,
-        "host_artifacts": {
-            "generated_environment": {
-                "path": "/work/bill/.env",
-                "size_bytes": 20,
-                "modified_at_unix_seconds": 10,
-                "keys": ["APP_URL"]
-            },
-            "hosts_path": "/etc/hosts",
-            "hosts_domains": [],
-            "caddy_state_path": "/work/caddy/sites.toml",
-            "caddy_routes": {},
-            "caddy_ca_certificates": []
-        }
-    });
-    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision: format!("sha256:{}", "a".repeat(64)),
-        inventory_json: inventory.to_string(),
-        generated_environment_rollback: None,
-        accepted_at_unix_seconds: 10,
-    })
-    .expect("legacy schema accepted record");
-
-    assert_eq!(
-        select_accepted_v7_migration_adapters(&accepted)
-            .expect_err("unprotected accepted environment must block")
-            .to_string(),
-        "v7 migration requires protected generated-environment rollback before adapter selection"
-    );
-
-    inventory["host_artifacts"]["generated_environment"] = serde_json::Value::Null;
-    inventory["services"] = serde_json::json!([{
-        "service_id": "app",
-        "kind": "app",
-        "driver": "frankenphp",
-        "configured_image": "ghcr.io/stackctl/php:8.4",
-        "observed_image": "sha256:app",
-        "container_name": "bill-app",
-        "observed_container_id": "container-app",
-        "configured_mounts": [{
-            "source_kind": "host_bind",
-            "source": "./app",
-            "target": "/app",
-            "read_only": false
-        }],
-        "observed_mounts": [],
-        "logical_data": {},
-        "credential_fields": [],
-        "environment_keys": [],
-        "environment_mapping": {},
-        "runtime_features": []
-    }]);
-    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision: format!("sha256:{}", "a".repeat(64)),
-        inventory_json: inventory.to_string(),
-        generated_environment_rollback: None,
-        accepted_at_unix_seconds: 10,
-    })
-    .expect("malformed historical accepted record");
-    assert_eq!(
-        select_accepted_v7_migration_adapters(&accepted)
-            .expect_err("unsupported accepted mount must block"),
-        "accepted v7 service 'app' mount './app:/app' has unsupported source kind 'host_bind'"
-    );
-}
-
-struct RecordingLegacyContainerDiscovery {
-    observed: crate::control_plane::engine::ObservedContainer,
-}
-
-impl LegacyContainerDiscovery for RecordingLegacyContainerDiscovery {
-    fn discover_v7_managed(
-        &self,
-    ) -> crate::control_plane::engine::EngineFuture<
-        '_,
-        Vec<crate::control_plane::engine::ObservedContainer>,
-    > {
-        Box::pin(async { Ok(vec![self.observed.clone()]) })
-    }
-}
-
-struct RecordingV7ProjectInventoryProvider {
-    paths: Vec<PathBuf>,
-    source_revision: String,
-    blockers: Vec<String>,
-    rollback_captures: usize,
-}
-
-impl Default for RecordingV7ProjectInventoryProvider {
-    fn default() -> Self {
-        Self {
-            paths: Vec::new(),
-            source_revision: format!("sha256:{}", "a".repeat(64)),
-            blockers: Vec::new(),
-            rollback_captures: 0,
-        }
-    }
-}
-
-impl V7ProjectInventoryProvider for RecordingV7ProjectInventoryProvider {
-    fn inventory(
-        &mut self,
-        canonical_project_path: &Path,
-        _maximum_config_bytes: usize,
-    ) -> Result<crate::control_plane::daemon::ipc::IpcV7ProjectInventory, String> {
-        self.paths.push(canonical_project_path.to_path_buf());
-        Ok(
-            crate::control_plane::daemon::ipc::IpcV7ProjectInventory::new(
-                crate::control_plane::daemon::ipc::IpcV7ProjectInventoryOptions {
-                    project_id: "bill".to_owned(),
-                    canonical_project_path: canonical_project_path.to_path_buf(),
-                    source_revision: self.source_revision.clone(),
-                    schema_version: 1,
-                    services: Vec::new(),
-                    routes: Vec::new(),
-                    blockers: self.blockers.clone(),
-                    requires_legacy_ca_capture: false,
-                },
-            ),
-        )
-    }
-
-    fn capture_generated_environment_rollback(
-        &mut self,
-        _inventory: &crate::control_plane::daemon::ipc::IpcV7ProjectInventory,
-        _evidence_revision: &str,
-        _maximum_environment_bytes: usize,
-        _created_at_unix_seconds: i64,
-    ) -> Result<
-        Option<crate::control_plane::migration::V7GeneratedEnvironmentRollbackMaterial>,
-        String,
-    > {
-        self.rollback_captures += 1;
-
-        Ok(None)
-    }
 }
 
 #[test]
@@ -6710,7 +6136,6 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         resource_health: &resource_health,
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -6843,7 +6268,6 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -6887,7 +6311,6 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_001,
     });
     assert_eq!(
@@ -6952,7 +6375,6 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 10_000,
     });
 
@@ -7031,7 +6453,6 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 20_000,
     });
 
@@ -7125,7 +6546,6 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 20_000,
     });
 
@@ -7206,7 +6626,6 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 30_000,
     });
 
@@ -7312,7 +6731,6 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_000,
     });
 
@@ -7395,7 +6813,6 @@ fn daemon_project_volume_backup_persists_exact_owned_volume_identity() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_000,
     });
 
@@ -7536,7 +6953,6 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_100,
     });
 
@@ -7596,7 +7012,6 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_101,
     });
     assert!(matches!(stale.outcome(), IpcOutcome::Failure { .. }));
@@ -7625,7 +7040,6 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_102,
     });
     assert_eq!(
@@ -7793,7 +7207,6 @@ fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_005,
     });
     let IpcOutcome::Success {
@@ -8092,7 +7505,6 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         resource_health: &health,
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_000,
     });
     let IpcOutcome::Success {
@@ -8121,7 +7533,6 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         resource_health: &health,
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_001,
     });
     assert_eq!(
@@ -8143,7 +7554,6 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         resource_health: &health,
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_002,
     });
     let IpcOutcome::Success {
@@ -8231,7 +7641,6 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_000,
     });
 
@@ -8335,7 +7744,6 @@ fn daemon_project_volume_restore_requires_exact_active_physical_ownership() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_000,
     });
 
@@ -8432,7 +7840,6 @@ fn daemon_migration_decision_persists_one_exact_operator_choice() {
         resource_health: &ResourceHealthRegistry::default(),
         benchmark_snapshot: None,
         image_reference_resolution: None,
-        v7_project_inventory: None,
         now_unix_seconds: 40_100,
     });
 

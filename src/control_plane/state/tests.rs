@@ -1,15 +1,12 @@
 use super::{
-    AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, DaemonEventRecord,
     EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
     LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
     MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
     ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
-    V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
+    StateStore,
 };
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,138 +17,8 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 18);
+    assert_eq!(store.schema_version().expect("schema version"), 15);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn accepted_v7_inventory_is_append_only_idempotent_and_path_scoped() {
-    let database_path = temporary_database_path("accepted-v7-inventory");
-    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
-    let accepted = accepted_v7_inventory("a", 40_000);
-
-    store
-        .record_accepted_v7_inventory(&accepted)
-        .expect("record accepted inventory");
-    store
-        .record_accepted_v7_inventory(&accepted)
-        .expect("idempotent replay");
-
-    assert_eq!(
-        store
-            .accepted_v7_inventory(Path::new("/work/bill"), accepted.evidence_revision())
-            .expect("load accepted inventory"),
-        Some(accepted)
-    );
-    assert!(
-        store
-            .latest_accepted_v7_inventory(Path::new("/work/other"))
-            .expect("other project inventory")
-            .is_none()
-    );
-    let replacement = accepted_v7_inventory("b", 40_001);
-    store
-        .record_accepted_v7_inventory(&replacement)
-        .expect("append newly accepted evidence");
-    assert_eq!(
-        store
-            .latest_accepted_v7_inventory(Path::new("/work/bill"))
-            .expect("latest accepted inventory"),
-        Some(replacement)
-    );
-    let collision = accepted_v7_inventory_at("bill", "/work/bill-copy", "c", 40_002);
-    let error = store
-        .record_accepted_v7_inventory(&collision)
-        .expect_err("duplicate project identity must fail loudly");
-    assert!(error.to_string().contains("already accepted at"));
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn accepted_v7_environment_requires_complete_protected_rollback_evidence() {
-    let database_path = temporary_database_path("accepted-v7-environment-rollback");
-    let source_revision = format!("sha256:{}", "a".repeat(64));
-    let inventory_json = format!(
-        r#"{{"project_id":"bill","canonical_project_path":"/work/bill","source_revision":"{source_revision}","blockers":[],"host_artifacts":{{"generated_environment":{{"path":"/work/bill/.env"}}}}}}"#,
-    );
-    let evidence_revision = hex::encode(Sha256::digest(inventory_json.as_bytes()));
-    let legacy = rusqlite::Connection::open(&database_path).expect("legacy state database");
-    legacy
-        .execute_batch(
-            "CREATE TABLE accepted_v7_inventories (
-                 canonical_project_path TEXT NOT NULL,
-                 project_id TEXT NOT NULL CHECK(length(project_id) > 0),
-                 source_revision TEXT NOT NULL CHECK(length(source_revision) = 71),
-                 evidence_revision TEXT NOT NULL CHECK(length(evidence_revision) = 64),
-                 inventory_json TEXT NOT NULL CHECK(length(inventory_json) > 0),
-                 accepted_at_unix_seconds INTEGER NOT NULL
-                     CHECK(accepted_at_unix_seconds >= 0),
-                 PRIMARY KEY(canonical_project_path, evidence_revision)
-             ) STRICT;
-             CREATE INDEX accepted_v7_inventories_project_idx
-                 ON accepted_v7_inventories(project_id, canonical_project_path);
-             PRAGMA user_version = 16;",
-        )
-        .expect("legacy accepted inventory schema");
-    legacy
-        .execute(
-            "INSERT INTO accepted_v7_inventories (
-                 canonical_project_path, project_id, source_revision,
-                 evidence_revision, inventory_json, accepted_at_unix_seconds
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params![
-                "/work/bill",
-                "bill",
-                source_revision,
-                evidence_revision,
-                inventory_json,
-                40_000_i64,
-            ],
-        )
-        .expect("legacy accepted inventory");
-    drop(legacy);
-    let mut store = SqliteStateStore::open(&database_path).expect("upgrade state store");
-
-    let incomplete = store
-        .accepted_v7_inventory(Path::new("/work/bill"), &evidence_revision)
-        .expect("load schema-16 accepted inventory")
-        .expect("legacy accepted inventory exists");
-    assert!(incomplete.requires_generated_environment_rollback());
-    let error = store
-        .record_accepted_v7_inventory(&incomplete)
-        .expect_err("new acceptance requires protected environment rollback");
-    assert!(error.to_string().contains("differs from durable evidence"));
-
-    let rollback = AcceptedV7EnvironmentRollback::new(
-        PathBuf::from("/private/backups/bill/environment"),
-        "b".repeat(64),
-        128,
-    )
-    .expect("environment rollback evidence");
-    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision: source_revision.clone(),
-        inventory_json: inventory_json.clone(),
-        generated_environment_rollback: Some(rollback.clone()),
-        accepted_at_unix_seconds: 40_000,
-    })
-    .expect("accepted inventory with environment rollback");
-    store
-        .record_accepted_v7_inventory(&accepted)
-        .expect("enrich accepted inventory with protected rollback");
-    let restored = store
-        .accepted_v7_inventory(Path::new("/work/bill"), accepted.evidence_revision())
-        .expect("load accepted inventory")
-        .expect("accepted inventory exists");
-
-    assert_eq!(restored.generated_environment_rollback(), Some(&rollback));
-    assert_eq!(restored.accepted_at_unix_seconds(), 40_000);
 
     drop(store);
     remove_database(&database_path);
@@ -534,303 +401,6 @@ fn migration_records_require_proof_before_destructive_phases() {
         rollback_error.to_string(),
         "migration phase 'cutover' requires retained rollback material"
     );
-}
-
-#[test]
-fn v7_migration_execution_records_require_a_complete_verified_barrier() {
-    let mutating =
-        V7MigrationAdapterCheckpoint::pending("service/app", "recreate-project-workload", true, 10)
-            .expect("pending mutating adapter");
-    let no_op = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
-        .expect("pending no-op adapter");
-    let error = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Prepared,
-        vec![mutating.clone(), no_op.clone()],
-        10,
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    ))
-    .expect_err("unverified prepared barrier");
-    assert_eq!(
-        error,
-        "v7 migration execution phase 'prepared' requires every adapter target to be verified"
-    );
-
-    let mutating = mutating
-        .with_recovery_verified(
-            "/backups/app",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            100,
-            11,
-        )
-        .expect("verified recovery")
-        .with_target_verified(Some("container-app"), 12)
-        .expect("verified target");
-    let no_op = no_op
-        .with_target_verified(None, 12)
-        .expect("verified no-op");
-    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Prepared,
-        vec![mutating, no_op],
-        12,
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    ))
-    .expect("complete prepared barrier");
-
-    assert_eq!(prepared.checkpoints().len(), 2);
-}
-
-#[test]
-fn v7_migration_execution_journal_is_atomic_monotonic_and_restart_safe() {
-    let database_path = temporary_database_path("v7-migration-execution");
-    let accepted = accepted_v7_inventory("a", 9);
-    let pending =
-        V7MigrationAdapterCheckpoint::pending("service/app", "recreate-project-workload", true, 10)
-            .expect("pending adapter");
-    let planned = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Planned,
-        vec![pending.clone()],
-        10,
-        accepted.evidence_revision(),
-    ))
-    .expect("planned execution");
-    let recovery = pending
-        .with_recovery_verified(
-            "/backups/app",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            100,
-            11,
-        )
-        .expect("verified recovery");
-    let preparing = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Preparing,
-        vec![recovery.clone()],
-        11,
-        accepted.evidence_revision(),
-    ))
-    .expect("preparing execution");
-    let target = recovery
-        .with_target_verified(Some("container-app"), 12)
-        .expect("verified target");
-    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Prepared,
-        vec![target],
-        12,
-        accepted.evidence_revision(),
-    ))
-    .expect("prepared execution");
-
-    {
-        let mut store = SqliteStateStore::open(&database_path).expect("open state store");
-        store
-            .record_accepted_v7_inventory(&accepted)
-            .expect("record accepted source");
-        store
-            .record_v7_migration_execution(&planned)
-            .expect("record planned execution");
-        store
-            .record_v7_migration_execution(&preparing)
-            .expect("record preparing execution");
-        let skipped = V7MigrationExecutionRecord::new(v7_execution_options(
-            V7MigrationExecutionPhase::Cutover,
-            vec![
-                prepared.checkpoints()[0]
-                    .clone()
-                    .with_cutover(13)
-                    .expect("cutover adapter"),
-            ],
-            13,
-            accepted.evidence_revision(),
-        ))
-        .expect("structurally valid cutover");
-        assert_eq!(
-            store
-                .record_v7_migration_execution(&skipped)
-                .expect_err("prepared barrier cannot be skipped")
-                .to_string(),
-            "v7 migration execution for '/work/bill' cannot advance from 'preparing' to 'cutover'"
-        );
-        store
-            .record_v7_migration_execution(&prepared)
-            .expect("record prepared execution");
-    }
-
-    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
-    assert_eq!(
-        store
-            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision(),)
-            .expect("load execution"),
-        Some(prepared)
-    );
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn v7_cutover_atomically_publishes_project_environment_and_execution() {
-    let database_path = temporary_database_path("v7-cutover-transaction");
-    let accepted = accepted_v7_inventory("a", 9);
-    let original_project =
-        project_record("/work/bill", "bill", &["bill-legacy.stackctl.localhost"]);
-    let cutover_project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
-    let original_environment = managed_environment(BTreeMap::from([(
-        "APP_STAGE".to_owned(),
-        "legacy".to_owned(),
-    )]));
-    let cutover_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
-        project_id: "bill".to_owned(),
-        revision: "sha256:v8-environment".to_owned(),
-        values: BTreeMap::from([("APP_STAGE".to_owned(), "v8".to_owned())]),
-        lifecycle: EnvironmentLifecycle::Active,
-    });
-    let pending = V7MigrationAdapterCheckpoint::pending(
-        "environment",
-        "protected-generated-environment",
-        false,
-        10,
-    )
-    .expect("pending adapter");
-    let target = pending
-        .clone()
-        .with_target_verified(Some("managed-environment:sha256:v8-environment"), 11)
-        .expect("verified target");
-    let planned = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Planned,
-        vec![pending],
-        10,
-        accepted.evidence_revision(),
-    ))
-    .expect("planned execution");
-    let prepared = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Prepared,
-        vec![target.clone()],
-        11,
-        accepted.evidence_revision(),
-    ))
-    .expect("prepared execution");
-    let preparing = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Preparing,
-        vec![target.clone()],
-        11,
-        accepted.evidence_revision(),
-    ))
-    .expect("preparing execution");
-    let cutover = V7MigrationExecutionRecord::new(v7_execution_options(
-        V7MigrationExecutionPhase::Cutover,
-        vec![target.with_cutover(12).expect("cutover adapter")],
-        12,
-        accepted.evidence_revision(),
-    ))
-    .expect("cutover execution");
-    let rolled_back = cutover
-        .transition_all(V7MigrationExecutionPhase::RolledBack, 13)
-        .expect("rolled-back execution");
-    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
-    store
-        .record_accepted_v7_inventory(&accepted)
-        .expect("record accepted source");
-    store
-        .replace_project(&original_project)
-        .expect("record original project");
-    store
-        .replace_managed_environment(&original_environment)
-        .expect("record original environment");
-    store
-        .record_v7_migration_execution(&planned)
-        .expect("record planned execution");
-
-    store
-        .record_v7_migration_cutover(&cutover_project, &cutover_environment, &cutover)
-        .expect_err("cannot skip prepared barrier");
-    assert_eq!(
-        store.projects().expect("load original project"),
-        vec![original_project]
-    );
-    assert_eq!(
-        store
-            .managed_environments()
-            .expect("load original environment"),
-        vec![original_environment]
-    );
-    assert_eq!(
-        store
-            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
-            .expect("load planned execution"),
-        Some(planned)
-    );
-
-    store
-        .record_v7_migration_execution(&preparing)
-        .expect("record preparing execution");
-    store
-        .record_v7_migration_execution(&prepared)
-        .expect("record prepared execution");
-    store
-        .record_v7_migration_cutover(&cutover_project, &cutover_environment, &cutover)
-        .expect("record atomic cutover");
-    assert_eq!(
-        store.projects().expect("load cutover project"),
-        vec![cutover_project.clone()]
-    );
-    assert_eq!(
-        store
-            .managed_environments()
-            .expect("load cutover environment"),
-        vec![cutover_environment.clone()]
-    );
-    assert_eq!(
-        store
-            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
-            .expect("load cutover execution"),
-        Some(cutover.clone())
-    );
-
-    let rollback_project =
-        project_record("/work/bill", "bill", &["bill-legacy.stackctl.localhost"]);
-    let rollback_environment = managed_environment(BTreeMap::from([(
-        "APP_STAGE".to_owned(),
-        "legacy".to_owned(),
-    )]));
-    store
-        .record_v7_migration_rollback(&rollback_project, &rollback_environment, &[], &rolled_back)
-        .expect("record atomic rollback");
-    assert_eq!(
-        store.projects().expect("load rollback project"),
-        vec![rollback_project]
-    );
-    assert_eq!(
-        store
-            .managed_environments()
-            .expect("load rollback environment"),
-        vec![rollback_environment]
-    );
-    assert_eq!(
-        store
-            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
-            .expect("load rolled-back execution"),
-        Some(rolled_back)
-    );
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-fn v7_execution_options(
-    phase: V7MigrationExecutionPhase,
-    checkpoints: Vec<V7MigrationAdapterCheckpoint>,
-    updated_at_unix_seconds: i64,
-    evidence_revision: &str,
-) -> V7MigrationExecutionRecordOptions {
-    V7MigrationExecutionRecordOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        evidence_revision: evidence_revision.to_owned(),
-        adapter_plan_revision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-            .to_owned(),
-        phase,
-        checkpoints,
-        updated_at_unix_seconds,
-    }
 }
 
 #[test]
@@ -2434,7 +2004,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 18);
+    assert_eq!(store.schema_version().expect("schema version"), 15);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -2490,7 +2060,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 18);
+    assert_eq!(store.schema_version().expect("schema version"), 15);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -2534,7 +2104,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 18);
+    assert_eq!(store.schema_version().expect("schema version"), 15);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);
@@ -2553,30 +2123,6 @@ fn project_record(path: &str, name: &str, domains: &[&str]) -> ProjectRecord {
         name.to_owned(),
         domains.iter().map(|domain| (*domain).to_owned()).collect(),
     )
-}
-
-fn accepted_v7_inventory(seed: &str, accepted_at_unix_seconds: i64) -> AcceptedV7InventoryRecord {
-    accepted_v7_inventory_at("bill", "/work/bill", seed, accepted_at_unix_seconds)
-}
-
-fn accepted_v7_inventory_at(
-    project_id: &str,
-    canonical_project_path: &str,
-    seed: &str,
-    accepted_at_unix_seconds: i64,
-) -> AcceptedV7InventoryRecord {
-    AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
-        project_id: project_id.to_owned(),
-        canonical_project_path: PathBuf::from(canonical_project_path),
-        source_revision: format!("sha256:{}", seed.repeat(64)),
-        inventory_json: format!(
-            r#"{{"project_id":"{project_id}","canonical_project_path":"{canonical_project_path}","source_revision":"sha256:{}","blockers":[],"seed":"{seed}"}}"#,
-            seed.repeat(64),
-        ),
-        generated_environment_rollback: None,
-        accepted_at_unix_seconds,
-    })
-    .expect("valid accepted v7 inventory")
 }
 
 fn resource_record(

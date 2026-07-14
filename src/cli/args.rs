@@ -32,12 +32,11 @@ pub(crate) use commands::TaskDepsArgs;
 pub(crate) use commands::TaskDepsCommands;
 pub(crate) use commands::{
     DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
-    DaemonMigrationAcceptArgs, DaemonMigrationArgs, DaemonMigrationCommands,
-    DaemonMigrationDecisionArgs, DaemonMigrationInventoryArgs, DaemonMigrationStatusArgs,
-    DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,
-    DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs,
-    DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands,
-    DaemonWatchArgs,
+    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
+    DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs,
+    DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands,
+    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
+    DaemonTrustCommands, DaemonWatchArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;

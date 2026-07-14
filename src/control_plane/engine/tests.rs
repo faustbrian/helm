@@ -6,15 +6,14 @@ use super::{
     ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
     GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
     ImageReferenceResolver, ImageResolver, ImmutableImageReference,
-    InstallationResourceDeletionOptions, LegacyContainerDiscovery, LogChunk, LogSource,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceKind,
-    ResourceMetrics, RetentionClass, V7ContainerCommandTarget, V7ContainerRetirement,
-    V7ContainerRetirementTarget, VolumeCreateOptions, VolumeDiscovery, VolumeManager, VolumeMount,
-    classify_observed_resource, delete_owned_installation_resources, gateway_container_request,
-    reconstruct_owned_container, reconstruct_owned_network, reconstruct_owned_volume,
+    InstallationResourceDeletionOptions, LogChunk, LogSource, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
+    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -33,17 +32,12 @@ use std::time::Duration;
 use super::bollard_engine_adapter::{
     build_image_options, command_create_request, container_event, container_health,
     container_resource_metrics, create_request, exact_volume_mount_target, image_pull_request,
-    legacy_v7_container_list_request, log_chunk, log_request, managed_container_events_request,
-    managed_container_list_request, managed_network_list_request, managed_volume_list_request,
-    network_create_request, observed_container, observed_network, observed_volume,
-    published_port_bindings, published_port_list_request, validate_engine_api_version,
-    validate_volume_archive_identity, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, verify_v7_container_command_labels, volume_archive_upload_target,
-    volume_create_request,
-};
-use super::bollard_v7_container_retirement::{
-    v7_volume_user_list_request, validate_missing_v7_container_retry,
-    verify_v7_container_retirement,
+    log_chunk, log_request, managed_container_events_request, managed_container_list_request,
+    managed_network_list_request, managed_volume_list_request, network_create_request,
+    observed_container, observed_network, observed_volume, published_port_bindings,
+    published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
+    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -1469,128 +1463,6 @@ fn managed_container_rescan_includes_stopped_objects_and_filters_by_marker() {
 }
 
 #[test]
-fn legacy_v7_container_rescan_is_isolated_to_the_legacy_marker() {
-    let request = legacy_v7_container_list_request();
-
-    assert!(request.all);
-    assert_eq!(
-        request.filters,
-        Some(std::collections::HashMap::from([(
-            "label".to_owned(),
-            vec!["com.stackctl.managed=true".to_owned()],
-        )]))
-    );
-}
-
-#[test]
-fn v7_command_target_requires_exact_legacy_ownership_labels() {
-    let target = V7ContainerCommandTarget::new(
-        ContainerId::new("legacy-container-id"),
-        "bill-database",
-        "database",
-        "database",
-    )
-    .expect("legacy command target");
-    let labels = std::collections::HashMap::from([
-        ("com.stackctl.managed".to_owned(), "true".to_owned()),
-        (
-            "com.stackctl.container".to_owned(),
-            "bill-database".to_owned(),
-        ),
-        ("com.stackctl.service".to_owned(), "database".to_owned()),
-        ("com.stackctl.kind".to_owned(), "database".to_owned()),
-    ]);
-
-    verify_v7_container_command_labels(&target, &labels).expect("exact legacy ownership");
-    let mut drifted = labels;
-    drifted.insert("com.stackctl.service".to_owned(), "other".to_owned());
-    let error = verify_v7_container_command_labels(&target, &drifted)
-        .expect_err("legacy service drift must block command execution");
-    assert!(error.to_string().contains("accepted v7"));
-    assert!(error.to_string().contains("ownership labels"));
-}
-
-#[test]
-fn v7_retirement_requires_exact_labels_and_named_volume_mounts() {
-    let container = V7ContainerCommandTarget::new(
-        ContainerId::new("legacy-container-id"),
-        "bill-database",
-        "database",
-        "database",
-    )
-    .expect("legacy container identity");
-    let target = V7ContainerRetirementTarget::new(container, vec!["bill-postgres-data".to_owned()])
-        .expect("legacy retirement target");
-    let labels = std::collections::HashMap::from([
-        ("com.stackctl.managed".to_owned(), "true".to_owned()),
-        (
-            "com.stackctl.container".to_owned(),
-            "bill-database".to_owned(),
-        ),
-        ("com.stackctl.service".to_owned(), "database".to_owned()),
-        ("com.stackctl.kind".to_owned(), "database".to_owned()),
-    ]);
-    let mounts = vec![MountPoint {
-        typ: Some("volume".to_owned()),
-        name: Some("bill-postgres-data".to_owned()),
-        destination: Some("/var/lib/postgresql/data".to_owned()),
-        rw: Some(true),
-        ..MountPoint::default()
-    }];
-
-    verify_v7_container_retirement(&target, &labels, &mounts)
-        .expect("exact accepted retirement identity");
-    let drifted_mounts = vec![MountPoint {
-        typ: Some("volume".to_owned()),
-        name: Some("other-data".to_owned()),
-        ..MountPoint::default()
-    }];
-    let error = verify_v7_container_retirement(&target, &labels, &drifted_mounts)
-        .expect_err("volume drift must block legacy retirement");
-    assert!(error.to_string().contains("no longer match"));
-}
-
-#[test]
-fn v7_retirement_retry_never_deletes_an_unprovable_remaining_volume() {
-    let container = V7ContainerCommandTarget::new(
-        ContainerId::new("legacy-container-id"),
-        "bill-database",
-        "database",
-        "database",
-    )
-    .expect("legacy container identity");
-    let target = V7ContainerRetirementTarget::new(container, vec!["bill-postgres-data".to_owned()])
-        .expect("legacy retirement target");
-
-    validate_missing_v7_container_retry(&target, &[]).expect("fully retired replay");
-    let error = validate_missing_v7_container_retry(&target, &["bill-postgres-data".to_owned()])
-        .expect_err("remaining volume identity is ambiguous after container removal");
-    assert!(error.to_string().contains("refusing ambiguous retry"));
-    assert!(error.to_string().contains("no immutable identity"));
-}
-
-#[test]
-fn v7_volume_user_scan_is_exact_and_includes_stopped_containers() {
-    let request = v7_volume_user_list_request("bill-postgres-data");
-
-    assert!(request.all);
-    assert_eq!(
-        request.filters,
-        Some(std::collections::HashMap::from([(
-            "volume".to_owned(),
-            vec!["bill-postgres-data".to_owned()],
-        )]))
-    );
-}
-
-#[test]
-fn v7_container_retirement_is_an_object_safe_narrow_strategy() {
-    fn accepts_retirement(_retirement: &mut dyn V7ContainerRetirement) {}
-
-    let _ = accepts_retirement;
-}
-
-#[test]
 fn managed_network_and_volume_rescans_filter_by_the_reserved_marker() {
     let network_request = managed_network_list_request();
     let volume_request = managed_volume_list_request();
@@ -1671,27 +1543,13 @@ fn engine_container_summaries_map_to_backend_independent_observations() {
         .collect();
     let summary = ContainerSummary {
         id: Some("container-1".to_owned()),
-        image_id: Some("sha256:image-1".to_owned()),
         labels: Some(labels),
-        mounts: Some(vec![MountPoint {
-            typ: Some("volume".to_owned()),
-            name: Some("bill-app-data".to_owned()),
-            destination: Some("/data".to_owned()),
-            rw: Some(true),
-            ..MountPoint::default()
-        }]),
         ..ContainerSummary::default()
     };
 
     let observed = observed_container(summary).expect("complete Engine summary");
 
     assert_eq!(observed.id().as_str(), "container-1");
-    assert_eq!(observed.image_identity(), Some("sha256:image-1"));
-    assert_eq!(observed.mounts().len(), 1);
-    assert_eq!(observed.mounts()[0].source(), "bill-app-data");
-    assert_eq!(observed.mounts()[0].target(), "/data");
-    assert!(observed.mounts()[0].is_named_volume());
-    assert!(!observed.mounts()[0].is_read_only());
     assert_eq!(
         classify_observed_resource(observed.labels(), "install-1", 8),
         ObservedResourceOwnership::Owned(project_metadata(ResourceKind::ProjectApplication))
@@ -2144,12 +2002,6 @@ struct RecordingContainerBackend {
 
 impl ContainerDiscovery for RecordingContainerBackend {
     fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
-        Box::pin(async { Ok(self.observed.clone()) })
-    }
-}
-
-impl LegacyContainerDiscovery for RecordingContainerBackend {
-    fn discover_v7_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
         Box::pin(async { Ok(self.observed.clone()) })
     }
 }

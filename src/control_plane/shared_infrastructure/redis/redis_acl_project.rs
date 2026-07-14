@@ -1,7 +1,6 @@
 use super::RedisPlanError;
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
-use crate::control_plane::state::CredentialRecord;
 use sha2::{Digest, Sha256};
 use std::fmt::{Debug, Formatter};
 
@@ -49,11 +48,6 @@ impl RedisAclProject {
 
     pub(crate) fn prefix(&self) -> &str {
         &self.prefix
-    }
-
-    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
-        credential.username() == self.username()
-            && password_hash(credential.secret()) == password_hash(self.secret.expose())
     }
 
     pub(super) fn acl_line(&self) -> String {

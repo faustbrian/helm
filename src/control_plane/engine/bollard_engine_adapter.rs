@@ -7,13 +7,12 @@ use super::{
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
     ContainerResourceMetrics, ContainerState, ContainerVolumeArchive, EngineError, EngineFuture,
     HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
-    ImageResolver, ImmutableImageReference, LegacyContainerDiscovery, LogChunk, LogSource,
-    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
-    ObservedContainer, ObservedContainerMount, ObservedNetwork, ObservedResourceOwnership,
-    ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding,
-    PublishedPortDiscovery, RegistryImageReference, ResourceKind, ResourceMetrics,
-    V7ContainerCommandExecutor, V7ContainerCommandTarget, VolumeCreateOptions, VolumeDiscovery,
-    VolumeManager, classify_observed_resource,
+    ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
+    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
+    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
+    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
+    ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -49,7 +48,7 @@ const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
 /// A direct Docker-compatible Engine API adapter used for Docker and Podman.
 #[derive(Clone)]
 pub(crate) struct BollardEngineAdapter {
-    pub(super) docker: Docker,
+    docker: Docker,
 }
 
 impl BollardEngineAdapter {
@@ -498,23 +497,6 @@ impl ContainerDiscovery for BollardEngineAdapter {
     }
 }
 
-impl LegacyContainerDiscovery for BollardEngineAdapter {
-    fn discover_v7_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
-        Box::pin(async move {
-            bounded_engine_operation("list v7 managed containers", request_timeout(), async {
-                self.docker
-                    .list_containers(Some(legacy_v7_container_list_request()))
-                    .await
-                    .map_err(|error| backend_error("list v7 managed containers", error))
-            })
-            .await?
-            .into_iter()
-            .map(observed_container)
-            .collect()
-        })
-    }
-}
-
 impl PublishedPortDiscovery for BollardEngineAdapter {
     fn discover_published_tcp_ports(&self) -> EngineFuture<'_, Vec<PublishedPortBinding>> {
         Box::pin(async move {
@@ -716,95 +698,6 @@ impl CommandExecutor for BollardEngineAdapter {
             })
             .await
         })
-    }
-}
-
-impl V7ContainerCommandExecutor for BollardEngineAdapter {
-    fn start_v7_command<'operation>(
-        &'operation self,
-        target: &'operation V7ContainerCommandTarget,
-        request: &'operation CommandRequest,
-    ) -> EngineFuture<'operation, CommandSession> {
-        Box::pin(async move {
-            let (execution_id, started) = bounded_engine_operation(
-                "start accepted v7 container command",
-                request_timeout(),
-                async {
-                    let observed = self
-                        .docker
-                        .inspect_container(target.container_id().as_str(), None)
-                        .await
-                        .map_err(|error| {
-                            backend_error("verify v7 container command ownership", error)
-                        })?;
-                    verify_v7_container_command_labels(
-                        target,
-                        &observed
-                            .config
-                            .and_then(|config| config.labels)
-                            .unwrap_or_default(),
-                    )?;
-                    let created = self
-                        .docker
-                        .create_exec(
-                            target.container_id().as_str(),
-                            command_create_request(request),
-                        )
-                        .await
-                        .map_err(|error| backend_error("create v7 container command", error))?;
-                    if created.id.is_empty() {
-                        return Err(EngineError::Backend {
-                            detail: "Engine created a v7 container command without an ID"
-                                .to_owned(),
-                        });
-                    }
-                    let started = self
-                        .docker
-                        .start_exec(
-                            &created.id,
-                            Some(StartExecOptions {
-                                detach: false,
-                                tty: false,
-                                output_capacity: None,
-                            }),
-                        )
-                        .await
-                        .map_err(|error| backend_error("start v7 container command", error))?;
-
-                    Ok((CommandExecutionId::new(created.id), started))
-                },
-            )
-            .await?;
-
-            match started {
-                StartExecResults::Attached { output, input } => {
-                    let output = output.map(|result| {
-                        result
-                            .map(log_chunk)
-                            .map_err(|error| backend_error("stream v7 container command", error))
-                    });
-                    let output: ContainerLogStream<'static> = Box::pin(output);
-
-                    Ok(CommandSession::new(
-                        execution_id,
-                        target.container_id().clone(),
-                        input,
-                        output,
-                    ))
-                }
-                StartExecResults::Detached => Err(EngineError::Backend {
-                    detail: "Engine detached an attached v7 container command".to_owned(),
-                }),
-            }
-        })
-    }
-
-    fn v7_command_status<'operation>(
-        &'operation self,
-        execution_id: &'operation CommandExecutionId,
-        container_id: &'operation ContainerId,
-    ) -> EngineFuture<'operation, CommandStatus> {
-        self.command_status(execution_id, container_id)
     }
 }
 
@@ -1381,34 +1274,6 @@ fn verify_owned_container_labels_for(
     })
 }
 
-pub(super) fn verify_v7_container_command_labels(
-    target: &V7ContainerCommandTarget,
-    labels: &HashMap<String, String>,
-) -> Result<(), EngineError> {
-    verify_v7_container_labels_for("execute a command in accepted v7", target, labels)
-}
-
-pub(super) fn verify_v7_container_labels_for(
-    action: &'static str,
-    target: &V7ContainerCommandTarget,
-    labels: &HashMap<String, String>,
-) -> Result<(), EngineError> {
-    let exact = labels.get("com.stackctl.managed").map(String::as_str) == Some("true")
-        && labels.get("com.stackctl.container").map(String::as_str)
-            == Some(target.container_name())
-        && labels.get("com.stackctl.service").map(String::as_str) == Some(target.service_id())
-        && labels.get("com.stackctl.kind").map(String::as_str) == Some(target.kind());
-    if exact {
-        return Ok(());
-    }
-
-    Err(EngineError::OwnershipMismatch {
-        action,
-        resource_kind: "container",
-        resource_id: target.container_id().as_str().to_owned(),
-    })
-}
-
 impl NetworkManager for BollardEngineAdapter {
     fn create_network<'operation>(
         &'operation mut self,
@@ -1672,17 +1537,6 @@ pub(super) fn managed_container_list_request() -> bollard::query_parameters::Lis
         .build()
 }
 
-pub(super) fn legacy_v7_container_list_request() -> bollard::query_parameters::ListContainersOptions
-{
-    ListContainersOptionsBuilder::default()
-        .all(true)
-        .filters(&HashMap::from([(
-            "label".to_owned(),
-            vec!["com.stackctl.managed=true".to_owned()],
-        )]))
-        .build()
-}
-
 pub(super) fn published_port_list_request() -> bollard::query_parameters::ListContainersOptions {
     ListContainersOptionsBuilder::default().all(false).build()
 }
@@ -1760,13 +1614,6 @@ fn managed_resource_filters() -> HashMap<String, Vec<String>> {
 pub(super) fn observed_container(
     summary: ContainerSummary,
 ) -> Result<ObservedContainer, EngineError> {
-    let image_identity = summary.image_id.or(summary.image);
-    let mounts = summary
-        .mounts
-        .unwrap_or_default()
-        .into_iter()
-        .map(observed_container_mount)
-        .collect::<Result<Vec<_>, _>>()?;
     let id = summary.id.ok_or_else(|| EngineError::Backend {
         detail: "Engine returned a managed container without an ID".to_owned(),
     })?;
@@ -1776,33 +1623,7 @@ pub(super) fn observed_container(
         .into_iter()
         .collect::<BTreeMap<_, _>>();
 
-    let observed = ObservedContainer::new(ContainerId::new(id), labels).with_mounts(mounts);
-
-    Ok(match image_identity {
-        Some(image_identity) => observed.with_image_identity(image_identity),
-        None => observed,
-    })
-}
-
-fn observed_container_mount(mount: MountPoint) -> Result<ObservedContainerMount, EngineError> {
-    let mount_type = mount.typ.unwrap_or_else(|| "unknown".to_owned());
-    let named_volume = mount_type == "volume";
-    let source = if named_volume {
-        mount.name.or(mount.source)
-    } else {
-        mount.source.or(mount.name)
-    }
-    .unwrap_or_else(|| mount_type.clone());
-    let target = mount.destination.ok_or_else(|| EngineError::Backend {
-        detail: format!("Engine returned a {mount_type} mount without a destination"),
-    })?;
-
-    Ok(ObservedContainerMount::new(
-        source,
-        target,
-        named_volume,
-        mount.rw == Some(false),
-    ))
+    Ok(ObservedContainer::new(ContainerId::new(id), labels))
 }
 
 pub(super) fn observed_network(network: Network) -> Result<ObservedNetwork, EngineError> {
@@ -1844,7 +1665,7 @@ async fn negotiate_engine_api(docker: Docker) -> Result<Docker, EngineError> {
     Ok(docker)
 }
 
-pub(super) const fn request_timeout() -> Duration {
+const fn request_timeout() -> Duration {
     Duration::from_secs(REQUEST_TIMEOUT_SECONDS)
 }
 
@@ -1865,7 +1686,7 @@ pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), 
     Ok(())
 }
 
-pub(super) fn backend_error(action: &str, error: BollardError) -> EngineError {
+fn backend_error(action: &str, error: BollardError) -> EngineError {
     EngineError::Backend {
         detail: format!("failed to {action}: {error}"),
     }

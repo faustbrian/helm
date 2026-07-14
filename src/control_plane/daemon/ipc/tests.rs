@@ -5,9 +5,7 @@ use super::{
     IpcLogChunk, IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream,
     IpcPayload, IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
     IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
-    IpcV7InventoryAcceptancePlan, IpcV7Mount, IpcV7ProjectInventory, IpcV7ProjectInventoryOptions,
-    IpcV7Route, IpcV7ServiceInventory, IpcV7ServiceInventoryOptions, decode_request_frame,
-    decode_response_frame, encode_frame,
+    decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -233,132 +231,6 @@ fn migration_status_round_trips_without_exposing_rollback_material() {
         .expect("decode response");
     assert_eq!(decoded, response);
     assert!(!format!("{decoded:?}").contains("recovery-point-secret"));
-}
-
-#[test]
-fn v7_inventory_round_trips_complete_secret_free_source_evidence() {
-    let request = IpcRequest::new(
-        "v7-inventory-42",
-        IpcPayload::InventoryV7Project {
-            canonical_path: PathBuf::from("/work/bill"),
-        },
-    );
-    let service = IpcV7ServiceInventory::new(IpcV7ServiceInventoryOptions {
-        service_id: "db".to_owned(),
-        kind: "database".to_owned(),
-        driver: "postgres".to_owned(),
-        configured_image: "postgres:17".to_owned(),
-        observed_image: Some("sha256:image".to_owned()),
-        container_name: "bill-db".to_owned(),
-        observed_container_id: Some("container-db".to_owned()),
-        configured_mounts: vec![IpcV7Mount::new(
-            "named_volume".to_owned(),
-            "bill-db-data".to_owned(),
-            "/var/lib/postgresql/data".to_owned(),
-            false,
-        )],
-        observed_mounts: vec![IpcV7Mount::new(
-            "named_volume".to_owned(),
-            "bill-db-data".to_owned(),
-            "/var/lib/postgresql/data".to_owned(),
-            false,
-        )],
-        logical_data: BTreeMap::from([("database".to_owned(), "bill".to_owned())]),
-        credential_fields: vec!["password".to_owned(), "username".to_owned()],
-        environment_keys: vec!["DB_HOST".to_owned()],
-        environment_mapping: BTreeMap::new(),
-        runtime_features: Vec::new(),
-    });
-    let inventory = IpcV7ProjectInventory::new(IpcV7ProjectInventoryOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            .to_owned(),
-        schema_version: 7,
-        services: vec![service],
-        routes: vec![IpcV7Route::new(
-            "app".to_owned(),
-            "bill.test".to_owned(),
-            "https".to_owned(),
-            443,
-        )],
-        blockers: Vec::new(),
-        requires_legacy_ca_capture: true,
-    });
-    let response = IpcResponse::success(
-        "v7-inventory-42",
-        IpcResult::V7ProjectInventory {
-            inventory: inventory.clone(),
-        },
-    );
-
-    assert_eq!(
-        decode_request_frame(&encode_frame(&request).expect("encode request"))
-            .expect("decode request"),
-        request
-    );
-    assert_eq!(
-        decode_response_frame(&encode_frame(&response).expect("encode response"))
-            .expect("decode response"),
-        response
-    );
-    assert!(inventory.ready_for_automatic_migration());
-    assert_eq!(inventory.services()[0].configured_mounts().len(), 1);
-    let json = serde_json::to_string(&inventory).expect("inventory JSON");
-    assert!(!json.contains("database-secret"));
-    assert!(!json.contains("environment-secret"));
-}
-
-#[test]
-fn v7_inventory_acceptance_round_trips_plan_and_execution_intent() {
-    let inventory = IpcV7ProjectInventory::new(IpcV7ProjectInventoryOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision: format!("sha256:{}", "a".repeat(64)),
-        schema_version: 7,
-        services: Vec::new(),
-        routes: Vec::new(),
-        blockers: Vec::new(),
-        requires_legacy_ca_capture: false,
-    });
-    let plan = IpcV7InventoryAcceptancePlan::new(inventory).expect("acceptance plan");
-    let request = IpcRequest::new(
-        "v7-accept-42",
-        IpcPayload::AcceptV7Inventory {
-            canonical_path: PathBuf::from("/work/bill"),
-            confirmation_token: plan
-                .confirmation_token()
-                .expect("confirmation token")
-                .to_owned(),
-        },
-    );
-    let response =
-        IpcResponse::success("v7-plan-42", IpcResult::V7InventoryAcceptancePlan { plan });
-
-    assert_eq!(
-        decode_request_frame(&encode_frame(&request).expect("encode request"))
-            .expect("decode request"),
-        request
-    );
-    assert_eq!(
-        decode_response_frame(&encode_frame(&response).expect("encode response"))
-            .expect("decode response"),
-        response
-    );
-    let blocked = IpcV7InventoryAcceptancePlan::new(IpcV7ProjectInventory::new(
-        IpcV7ProjectInventoryOptions {
-            project_id: "bill".to_owned(),
-            canonical_project_path: PathBuf::from("/work/bill"),
-            source_revision: format!("sha256:{}", "a".repeat(64)),
-            schema_version: 7,
-            services: Vec::new(),
-            routes: Vec::new(),
-            blockers: vec!["legacy source is ambiguous".to_owned()],
-            requires_legacy_ca_capture: false,
-        },
-    ))
-    .expect("blocked plan");
-    assert_eq!(blocked.confirmation_token(), None);
 }
 
 #[test]

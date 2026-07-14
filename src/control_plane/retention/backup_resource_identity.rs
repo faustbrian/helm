@@ -10,47 +10,6 @@ pub(crate) struct BackupResourceIdentity {
 }
 
 impl BackupResourceIdentity {
-    pub(crate) fn for_v7_generated_environment(project_id: &str, evidence_revision: &str) -> Self {
-        Self {
-            resource_id: project_id.to_owned(),
-            installation_id: "v7-migration".to_owned(),
-            resource_kind: "generated_environment".to_owned(),
-            compatibility_fingerprint: evidence_revision.to_owned(),
-        }
-    }
-
-    pub(crate) fn for_v7_gateway_snapshot(project_id: &str, evidence_revision: &str) -> Self {
-        Self {
-            resource_id: project_id.to_owned(),
-            installation_id: "v7-migration".to_owned(),
-            resource_kind: "gateway_snapshot".to_owned(),
-            compatibility_fingerprint: evidence_revision.to_owned(),
-        }
-    }
-
-    pub(crate) fn for_v7_legacy_trust(project_id: &str, evidence_revision: &str) -> Self {
-        Self {
-            resource_id: project_id.to_owned(),
-            installation_id: "v7-migration".to_owned(),
-            resource_kind: "legacy_caddy_ca_trust".to_owned(),
-            compatibility_fingerprint: evidence_revision.to_owned(),
-        }
-    }
-
-    pub(crate) fn for_v7_logical_data(
-        project_id: &str,
-        service_id: &str,
-        driver: &str,
-        evidence_revision: &str,
-    ) -> Self {
-        Self {
-            resource_id: format!("{project_id}/{service_id}"),
-            installation_id: "v7-migration".to_owned(),
-            resource_kind: format!("{driver}_logical_data"),
-            compatibility_fingerprint: evidence_revision.to_owned(),
-        }
-    }
-
     pub(crate) fn from_resource(resource: &ResourceRecord) -> Self {
         Self {
             resource_id: resource.resource_id().to_owned(),

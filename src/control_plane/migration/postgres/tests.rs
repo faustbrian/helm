@@ -1,9 +1,7 @@
 use super::{
-    EnginePostgresSourceRetirement, EngineV7PostgresSourceRetirement, PostgresBackupOptions,
-    PostgresMigrationOperations, PostgresMigrationOperationsOptions,
-    PostgresProvisionTargetOptions, PostgresRestoreOptions, PostgresSourceRetirement,
-    PostgresSourceRetirementOptions, PostgresVerifyTargetOptions, V7PostgresCredential,
-    V7PostgresMigrationProvider, V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement,
+    EnginePostgresSourceRetirement, PostgresBackupOptions, PostgresMigrationOperations,
+    PostgresMigrationOperationsOptions, PostgresProvisionTargetOptions, PostgresRestoreOptions,
+    PostgresSourceRetirement, PostgresSourceRetirementOptions, PostgresVerifyTargetOptions,
     backup_postgres_database, provision_postgres_target, restore_postgres_database,
     verify_postgres_target,
 };
@@ -11,29 +9,26 @@ use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerId, ContainerLogStream, EngineFuture, LogChunk, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, ResourceKind,
-    RetentionClass, V7ContainerCommandExecutor, V7ContainerCommandTarget, V7ContainerRetirement,
-    V7ContainerRetirementTarget, reconstruct_owned_container,
+    RetentionClass, reconstruct_owned_container,
 };
 use crate::control_plane::migration::{
     MigrationCutoverPlan, MigrationExecutionResult, MigrationFuture, MigrationOperations,
-    MigrationRollbackPlan, V7LogicalDataMigrationSource, V7LogicalDataMigrationSourceOptions,
-    V7MigrationAdapterTarget, V7RecoverableMigrationProvider, confirm_migration, execute_migration,
+    MigrationRollbackPlan, confirm_migration, execute_migration,
 };
 use crate::control_plane::retention::{
     BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
 };
 use crate::control_plane::shared_infrastructure::{CredentialSecret, PostgresLogicalResourcePlan};
 use crate::control_plane::state::{
-    AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, CredentialLifecycle,
-    CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, ResourceLifecycle,
-    SqliteStateStore, StateStore, V7MigrationAdapterCheckpoint,
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, duplex};
@@ -447,182 +442,6 @@ fn postgres_migration_adapter_returns_owned_deterministic_target_state() {
 
 #[cfg(unix)]
 #[test]
-fn v7_postgres_provider_streams_recovery_and_prepares_replay_safe_v8_target() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-        .expect("v7 PostgreSQL provider runtime");
-    let root = backup_root("v7-provider");
-    let dump = b"accepted-v7-custom-dump".to_vec();
-    let executor = RecordingV7PostgresExecutor::new(dump.clone());
-    let accepted = accepted_v7_postgres_inventory();
-    let source = v7_postgres_source();
-    let source_credential =
-        V7PostgresCredential::new("laravel", "legacy-secret").expect("v7 credential");
-    assert!(V7PostgresCredential::new("postgres", "").is_ok());
-    let target = logical_resource();
-    let target_credential = project_credential();
-    let target_plan = PostgresLogicalResourcePlan::new(
-        "bill",
-        "database",
-        CredentialSecret::new("project-secret".to_owned()),
-    )
-    .expect("target plan");
-    let administrator = credential();
-    let target_container = owned_container_with_id("postgres-target");
-    let mut retirement = RecordingV7PostgresSourceRetirement::default();
-    let retired = Arc::clone(&retirement.called);
-    let options = V7PostgresMigrationProviderOptions {
-        accepted: &accepted,
-        source: &source,
-        source_credential: &source_credential,
-        target_container: &target_container,
-        target_logical_resource: &target,
-        target_credential: &target_credential,
-        target_plan: &target_plan,
-        administrator: &administrator,
-        installation_id: "install-1",
-        backup_root: &root,
-        created_at_unix_seconds: 51_000,
-        verified_at_unix_seconds: 51_001,
-        timeout: Duration::from_secs(30),
-    };
-    let debug = format!("{options:?}");
-    assert!(!debug.contains("legacy-secret"));
-    assert!(!debug.contains("project-secret"));
-    assert!(!debug.contains("do-not-log"));
-    let mut provider = V7PostgresMigrationProvider::new(&executor, &mut retirement, options)
-        .expect("v7 PostgreSQL provider");
-
-    let backup = runtime
-        .block_on(provider.backup_source(&source))
-        .expect("backup accepted v7 PostgreSQL source");
-    assert_eq!(
-        std::fs::read(Path::new(backup.reference()).join("artifact.bin"))
-            .expect("v7 backup artifact"),
-        dump
-    );
-    let checkpoint = V7MigrationAdapterCheckpoint::pending(
-        "service/database",
-        "postgres-logical-database",
-        true,
-        50_999,
-    )
-    .expect("pending v7 PostgreSQL checkpoint")
-    .with_recovery_verified(
-        backup.reference(),
-        backup.artifact_sha256(),
-        backup.artifact_size_bytes(),
-        51_001,
-    )
-    .expect("recovery-verified v7 PostgreSQL checkpoint");
-
-    let artifact = Path::new(backup.reference()).join("artifact.bin");
-    std::fs::write(&artifact, b"tampered-v7-dump").expect("tamper v7 backup fixture");
-    let error = runtime
-        .block_on(provider.restore_and_verify_target(&source, &checkpoint))
-        .expect_err("tampered v7 recovery must block target mutation");
-    assert!(
-        error.to_string().contains("checksum does not match"),
-        "{error}"
-    );
-    assert_eq!(executor.v8_starts.load(Ordering::Acquire), 0);
-    std::fs::write(&artifact, &dump).expect("restore v7 backup fixture");
-
-    let prepared = runtime
-        .block_on(provider.restore_and_verify_target(&source, &checkpoint))
-        .expect("prepare v8 PostgreSQL target");
-    assert_eq!(
-        prepared,
-        V7MigrationAdapterTarget::resource("postgres:bill/database:stackctl_bill_database")
-            .expect("expected target")
-    );
-    let replayed = runtime
-        .block_on(provider.restore_and_verify_target(&source, &checkpoint))
-        .expect("replay v8 PostgreSQL target preparation");
-    assert_eq!(replayed, prepared);
-    assert_eq!(executor.v8_starts.load(Ordering::Acquire), 8);
-    runtime
-        .block_on(provider.verify_target(&source, "postgres:bill/database:stackctl_bill_database"))
-        .expect("reverify v8 PostgreSQL target");
-    runtime
-        .block_on(provider.verify_source(&source))
-        .expect("verify retained v7 PostgreSQL source");
-    assert!(!retired.load(Ordering::Acquire));
-    runtime
-        .block_on(provider.retire_source(&source))
-        .expect("retire confirmed v7 PostgreSQL source");
-    assert!(retired.load(Ordering::Acquire));
-
-    assert_eq!(
-        executor
-            .v7_targets
-            .lock()
-            .expect("v7 command targets")
-            .as_slice(),
-        [
-            V7ContainerCommandTarget::new(
-                ContainerId::new("legacy-postgres"),
-                "bill-database",
-                "database",
-                "database",
-            )
-            .expect("expected v7 backup target"),
-            V7ContainerCommandTarget::new(
-                ContainerId::new("legacy-postgres"),
-                "bill-database",
-                "database",
-                "database",
-            )
-            .expect("expected v7 verification target"),
-        ]
-    );
-    assert_eq!(
-        executor
-            .restored_input
-            .lock()
-            .expect("restored PostgreSQL input")
-            .as_slice(),
-        dump
-    );
-
-    drop(provider);
-    std::fs::remove_dir_all(root).expect("remove v7 PostgreSQL provider fixture");
-}
-
-#[test]
-fn engine_v7_postgres_retirement_forwards_only_accepted_engine_id_and_volumes() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("v7 PostgreSQL retirement runtime");
-    let source = v7_postgres_source();
-    let mut engine = RecordingV7ContainerRetirement::default();
-    let mut retirement = EngineV7PostgresSourceRetirement::new(&mut engine);
-
-    runtime
-        .block_on(retirement.retire_source(&source))
-        .expect("retire accepted v7 PostgreSQL resources");
-
-    assert_eq!(
-        engine.target.into_inner().expect("retirement target"),
-        Some(
-            V7ContainerRetirementTarget::new(
-                V7ContainerCommandTarget::new(
-                    ContainerId::new("legacy-postgres"),
-                    "bill-database",
-                    "database",
-                    "database",
-                )
-                .expect("accepted v7 container"),
-                vec!["bill-database-data".to_owned()],
-            )
-            .expect("accepted v7 retirement target")
-        )
-    );
-}
-
-#[cfg(unix)]
-#[test]
 fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
@@ -786,159 +605,6 @@ fn postgres_source_retirement_rejects_an_unconfirmed_checkpoint() {
     assert!(error.to_string().contains("confirmed cutover source"));
     assert_eq!(*executor.request.lock().expect("recorded request"), None);
     assert!(executor.input.lock().expect("retirement SQL").is_empty());
-}
-
-#[derive(Default)]
-struct RecordingV7PostgresSourceRetirement {
-    called: Arc<AtomicBool>,
-}
-
-#[derive(Default)]
-struct RecordingV7ContainerRetirement {
-    target: Mutex<Option<V7ContainerRetirementTarget>>,
-}
-
-impl V7ContainerRetirement for RecordingV7ContainerRetirement {
-    fn retire_v7_container<'operation>(
-        &'operation mut self,
-        target: &'operation V7ContainerRetirementTarget,
-    ) -> EngineFuture<'operation, ()> {
-        *self.target.lock().expect("record retirement target") = Some(target.clone());
-        Box::pin(async { Ok(()) })
-    }
-}
-
-impl V7PostgresSourceRetirement for RecordingV7PostgresSourceRetirement {
-    fn retire_source<'operation>(
-        &'operation mut self,
-        source: &'operation V7LogicalDataMigrationSource,
-    ) -> MigrationFuture<'operation, ()> {
-        assert_eq!(source, &v7_postgres_source());
-        self.called.store(true, Ordering::Release);
-        Box::pin(async { Ok(()) })
-    }
-}
-
-struct RecordingV7PostgresExecutor {
-    dump: Vec<u8>,
-    v7_targets: Mutex<Vec<V7ContainerCommandTarget>>,
-    restored_input: Arc<Mutex<Vec<u8>>>,
-    input_complete: Arc<AtomicBool>,
-    v8_starts: AtomicUsize,
-}
-
-impl RecordingV7PostgresExecutor {
-    fn new(dump: Vec<u8>) -> Self {
-        Self {
-            dump,
-            v7_targets: Mutex::new(Vec::new()),
-            restored_input: Arc::new(Mutex::new(Vec::new())),
-            input_complete: Arc::new(AtomicBool::new(true)),
-            v8_starts: AtomicUsize::new(0),
-        }
-    }
-
-    fn start_session(
-        &self,
-        container_id: ContainerId,
-        request: &CommandRequest,
-    ) -> EngineFuture<'_, CommandSession> {
-        let output = match request.arguments().first().map(String::as_str) {
-            Some("pg_dump") => self.dump.clone(),
-            Some("psql")
-                if request.arguments().iter().any(|argument| {
-                    argument.contains("current_database() || E'\\t' || current_user")
-                }) =>
-            {
-                b"legacy_bill\tlaravel\n".to_vec()
-            }
-            Some("psql")
-                if request.arguments().iter().any(|argument| {
-                    argument.starts_with("--command=SELECT current_database()")
-                }) =>
-            {
-                b"stackctl_bill_database\tstackctl_bill_database_role\t0\t0\n".to_vec()
-            }
-            _ => Vec::new(),
-        };
-        let capture_restore = request.arguments().first().map(String::as_str) == Some("pg_restore");
-        let restored_input = Arc::clone(&self.restored_input);
-        let input_complete = Arc::clone(&self.input_complete);
-        input_complete.store(false, Ordering::Release);
-
-        Box::pin(async move {
-            let (writer, mut reader) = duplex(64 * 1024);
-            tokio::spawn(async move {
-                let mut input = Vec::new();
-                reader
-                    .read_to_end(&mut input)
-                    .await
-                    .expect("drain v7 provider command input");
-                if capture_restore {
-                    *restored_input.lock().expect("restored input") = input;
-                }
-                input_complete.store(true, Ordering::Release);
-            });
-            let output: ContainerLogStream<'static> =
-                Box::pin(stream::iter(vec![Ok(LogChunk::stdout(output))]));
-            Ok(CommandSession::new(
-                CommandExecutionId::new("v7-postgres-provider"),
-                container_id,
-                Box::pin(writer),
-                output,
-            ))
-        })
-    }
-
-    fn status(&self) -> EngineFuture<'_, CommandStatus> {
-        Box::pin(async move {
-            while !self.input_complete.load(Ordering::Acquire) {
-                tokio::task::yield_now().await;
-            }
-            Ok(CommandStatus::Exited(0))
-        })
-    }
-}
-
-impl CommandExecutor for RecordingV7PostgresExecutor {
-    fn start_command<'operation>(
-        &'operation self,
-        container: &'operation OwnedContainer,
-        request: &'operation CommandRequest,
-    ) -> EngineFuture<'operation, CommandSession> {
-        self.v8_starts.fetch_add(1, Ordering::AcqRel);
-        self.start_session(container.id().clone(), request)
-    }
-
-    fn command_status<'operation>(
-        &'operation self,
-        _execution_id: &'operation CommandExecutionId,
-        _container_id: &'operation ContainerId,
-    ) -> EngineFuture<'operation, CommandStatus> {
-        self.status()
-    }
-}
-
-impl V7ContainerCommandExecutor for RecordingV7PostgresExecutor {
-    fn start_v7_command<'operation>(
-        &'operation self,
-        target: &'operation V7ContainerCommandTarget,
-        request: &'operation CommandRequest,
-    ) -> EngineFuture<'operation, CommandSession> {
-        self.v7_targets
-            .lock()
-            .expect("v7 targets")
-            .push(target.clone());
-        self.start_session(target.container_id().clone(), request)
-    }
-
-    fn v7_command_status<'operation>(
-        &'operation self,
-        _execution_id: &'operation CommandExecutionId,
-        _container_id: &'operation ContainerId,
-    ) -> EngineFuture<'operation, CommandStatus> {
-        self.status()
-    }
 }
 
 struct NoopPostgresSourceRetirement;
@@ -1169,61 +835,6 @@ fn project_credential() -> CredentialRecord {
         secret: "project-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     })
-}
-
-fn v7_postgres_source() -> V7LogicalDataMigrationSource {
-    V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
-        project_id: "bill".to_owned(),
-        service_id: "database".to_owned(),
-        kind: "database".to_owned(),
-        driver: "postgres".to_owned(),
-        container_name: "bill-database".to_owned(),
-        container_id: "legacy-postgres".to_owned(),
-        named_volumes: vec!["bill-database-data".to_owned()],
-        logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
-    })
-    .expect("v7 PostgreSQL source")
-}
-
-fn accepted_v7_postgres_inventory() -> AcceptedV7InventoryRecord {
-    let source_revision = format!("sha256:{}", "a".repeat(64));
-    let inventory_json = serde_json::json!({
-        "project_id": "bill",
-        "canonical_project_path": "/work/bill",
-        "source_revision": source_revision,
-        "blockers": [],
-        "services": [{
-            "service_id": "database",
-            "kind": "database",
-            "driver": "postgres",
-            "container_name": "bill-database",
-            "observed_container_id": "legacy-postgres",
-            "configured_mounts": [{
-                "source_kind": "named_volume",
-                "source": "bill-database-data",
-                "target": "/var/lib/postgresql/data",
-                "read_only": false
-            }],
-            "observed_mounts": [{
-                "source_kind": "named_volume",
-                "source": "bill-database-data",
-                "target": "/var/lib/postgresql/data",
-                "read_only": false
-            }],
-            "logical_data": {"database": "legacy_bill"}
-        }]
-    })
-    .to_string();
-
-    AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
-        project_id: "bill".to_owned(),
-        canonical_project_path: PathBuf::from("/work/bill"),
-        source_revision,
-        inventory_json,
-        generated_environment_rollback: None,
-        accepted_at_unix_seconds: 50_999,
-    })
-    .expect("accepted v7 PostgreSQL inventory")
 }
 
 fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRecord {

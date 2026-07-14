@@ -4,8 +4,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::MigrationOperationError;
 use crate::control_plane::retention::{
-    BackupResourceIdentity, StoredBackupArtifact, open_stored_backup_artifact,
-    verify_stored_backup_artifact,
+    BackupResourceIdentity, open_stored_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
@@ -44,32 +43,6 @@ pub(crate) async fn restore_minio_bucket(
     {
         return Err(MigrationOperationError::new(
             "MinIO restore backup does not match its recovery point",
-        ));
-    }
-
-    restore_verified_minio_bucket(executor, container, options, &stored).await
-}
-
-/// Restores an already identity-verified archive into one exact target bucket.
-pub(super) async fn restore_verified_minio_bucket(
-    executor: &impl CommandExecutor,
-    container: &OwnedContainer,
-    options: &MinioRestoreOptions<'_>,
-    stored: &StoredBackupArtifact,
-) -> Result<(), MigrationOperationError> {
-    validate(container, options)?;
-    if stored.recovery_point().to_str() != Some(options.recovery_point.reference()) {
-        return Err(MigrationOperationError::new(
-            "MinIO verified restore path differs from its recovery point",
-        ));
-    }
-    let evidence = verify_stored_backup_artifact(stored, options.verified_at_unix_seconds)
-        .map_err(|error| operation_error("MinIO restore backup verification failed", error))?;
-    if evidence.artifact_sha256() != options.recovery_point.artifact_sha256()
-        || evidence.artifact_size_bytes() != options.recovery_point.artifact_size_bytes()
-    {
-        return Err(MigrationOperationError::new(
-            "MinIO restore artifact changed after verification",
         ));
     }
 

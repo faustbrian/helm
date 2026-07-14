@@ -2,7 +2,6 @@ use super::SqlServerPlanError;
 use super::sql_server_shared_instance_plan::validate_password;
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
-use crate::control_plane::state::CredentialRecord;
 use std::fmt::{Debug, Formatter};
 
 const IDENTIFIER_BYTES: usize = 128;
@@ -61,13 +60,6 @@ impl SqlServerLogicalResourcePlan {
 
     pub(crate) fn credential_id(&self) -> &str {
         &self.credential_id
-    }
-
-    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
-        credential.credential_id() == self.credential_id()
-            && credential.username() == self.username()
-            && self.stdin_sql
-                == provisioning_sql(self.database_name(), self.username(), credential.secret())
     }
 
     pub(crate) fn stdin_sql(&self) -> &str {

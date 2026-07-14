@@ -30,7 +30,6 @@ mod engine_reconciliation_plan;
 mod engine_reconciliation_plan_error;
 mod engine_reconciliation_plan_options;
 mod engine_reconciliation_schedule;
-mod engine_v7_project_inventory_provider;
 mod execute_minio_project_restore;
 mod execute_project_logs;
 mod execute_project_volume_restore;
@@ -108,7 +107,6 @@ mod retry_delay;
 mod retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 mod run_unix_daemon_watch;
-mod select_accepted_v7_migration_adapters;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
@@ -132,10 +130,7 @@ mod unix_daemon_runtime_error;
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
-mod v7_host_artifact_paths;
-mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
-mod verify_accepted_v7_environment_rollback;
 
 pub(crate) use active_migration_decision::ActiveMigrationDecision;
 pub(crate) use active_postgres_prune::ActivePostgresPrune;
@@ -174,7 +169,6 @@ pub(crate) use engine_reconciliation_plan::EngineReconciliationPlan;
 pub(crate) use engine_reconciliation_plan_error::EngineReconciliationPlanError;
 pub(crate) use engine_reconciliation_plan_options::EngineReconciliationPlanOptions;
 pub(crate) use engine_reconciliation_schedule::EngineReconciliationSchedule;
-pub(crate) use engine_v7_project_inventory_provider::EngineV7ProjectInventoryProvider;
 pub(crate) use execute_minio_project_restore::execute_minio_project_restore;
 pub(crate) use execute_project_logs::execute_project_logs;
 pub(crate) use execute_project_volume_restore::execute_project_volume_restore;
@@ -259,7 +253,6 @@ pub(crate) use retry_delay::RetryDelay;
 pub(crate) use retry_failed_installation_deletion_prune::retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
-pub(crate) use select_accepted_v7_migration_adapters::select_accepted_v7_migration_adapters;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
 #[cfg(unix)]
@@ -268,7 +261,4 @@ pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
-pub(crate) use v7_host_artifact_paths::V7HostArtifactPaths;
-pub(crate) use v7_project_inventory_provider::V7ProjectInventoryProvider;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;
-pub(crate) use verify_accepted_v7_environment_rollback::verify_accepted_v7_environment_rollback;

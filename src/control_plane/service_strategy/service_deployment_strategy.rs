@@ -12,19 +12,6 @@ pub(crate) enum ServiceDeploymentStrategy {
 }
 
 impl ServiceDeploymentStrategy {
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::SharedByCompatibility => "shared-by-compatibility",
-            Self::SharedWithAttribution => "shared-with-attribution",
-            Self::SharedStateless => "shared-stateless",
-            Self::DedicatedProject => "dedicated-project",
-            Self::DedicatedUntilIsolationProven => "dedicated-until-isolation-proven",
-            Self::ProjectApplication => "project-application",
-            Self::ProjectProcess => "project-process",
-            Self::Ephemeral => "ephemeral",
-        }
-    }
-
     /// Whether this strategy produces one deterministic user-facing HTTP route.
     pub(crate) const fn claims_gateway_route(self) -> bool {
         matches!(self, Self::ProjectApplication | Self::SharedWithAttribution)

@@ -44,17 +44,6 @@ pub(crate) enum StateStoreError {
     InvalidProjectAdoption { detail: String },
     /// A migration identity cannot silently change after inventory.
     MigrationIdentityConflict { migration_id: String },
-    /// Explicitly accepted legacy source evidence cannot change implicitly.
-    AcceptedV7InventoryConflict { path: PathBuf },
-    /// Legacy project identity and canonical path cannot be repaired implicitly.
-    AcceptedV7ProjectIdentityConflict {
-        project_id: String,
-        existing_project_id: String,
-        existing_path: PathBuf,
-        requested_path: PathBuf,
-    },
-    /// Composite v7 adapter execution violated immutable or monotonic state.
-    InvalidV7MigrationExecution { path: PathBuf, detail: String },
     /// Backup, target, or rollback evidence changed after being recorded.
     MigrationEvidenceConflict { migration_id: String },
     /// Verified recovery evidence cannot change after publication.
@@ -168,27 +157,6 @@ impl Display for StateStoreError {
                 formatter,
                 "migration '{migration_id}' immutable identity differs from durable state"
             ),
-            Self::AcceptedV7InventoryConflict { path } => write!(
-                formatter,
-                "accepted v7 inventory for '{}' differs from durable evidence",
-                path.display()
-            ),
-            Self::AcceptedV7ProjectIdentityConflict {
-                project_id,
-                existing_project_id,
-                existing_path,
-                requested_path,
-            } => write!(
-                formatter,
-                "legacy project '{project_id}' at '{}' conflicts with project '{existing_project_id}' already accepted at '{}'; rename the directory or project explicitly",
-                requested_path.display(),
-                existing_path.display()
-            ),
-            Self::InvalidV7MigrationExecution { path, detail } => write!(
-                formatter,
-                "v7 migration execution for '{}' {detail}",
-                path.display()
-            ),
             Self::MigrationEvidenceConflict { migration_id } => write!(
                 formatter,
                 "migration '{migration_id}' durable evidence cannot be replaced"
@@ -272,9 +240,6 @@ impl Error for StateStoreError {
             | Self::ProjectAdoptionRequired { .. }
             | Self::InvalidProjectAdoption { .. }
             | Self::MigrationIdentityConflict { .. }
-            | Self::AcceptedV7InventoryConflict { .. }
-            | Self::AcceptedV7ProjectIdentityConflict { .. }
-            | Self::InvalidV7MigrationExecution { .. }
             | Self::MigrationEvidenceConflict { .. }
             | Self::RecoveryPointEvidenceConflict { .. }
             | Self::InvalidMigrationTransition { .. }
