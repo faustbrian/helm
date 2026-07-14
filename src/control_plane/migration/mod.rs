@@ -15,6 +15,7 @@ mod mysql;
 mod postgres;
 mod recovery_point_restore_options;
 mod run_migration;
+mod sql_server;
 
 pub(crate) use execute_recovery_point_restore::execute_recovery_point_restore;
 pub(crate) use migration_backup::MigrationBackup;
@@ -40,3 +41,4 @@ pub(crate) use postgres::{
 };
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};
+pub(crate) use sql_server::{SqlServerBackupOptions, backup_sql_server_database};

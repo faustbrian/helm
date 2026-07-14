@@ -88,6 +88,7 @@ impl QueuedProjectBackup {
                 | "mysql_database"
                 | "mariadb_database"
                 | "mongodb_database"
+                | "sqlserver_database"
         ) {
             return Err(format!(
                 "project backup kind '{}' is not implemented",

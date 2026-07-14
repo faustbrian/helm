@@ -3,8 +3,9 @@ use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::migration::{
-    MongoDbBackupOptions, MySqlBackupOptions, PostgresBackupOptions, backup_mongodb_database,
-    backup_mysql_database, backup_postgres_database,
+    MongoDbBackupOptions, MySqlBackupOptions, PostgresBackupOptions, SqlServerBackupOptions,
+    backup_mongodb_database, backup_mysql_database, backup_postgres_database,
+    backup_sql_server_database,
 };
 use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
@@ -102,6 +103,21 @@ where
             engine,
             &container,
             &MongoDbBackupOptions {
+                logical_resource: logical,
+                credential,
+                database_name: logical.logical_resource_id(),
+                installation_id: &options.installation_id,
+                created_at_unix_seconds: options.created_at_unix_seconds,
+                backup_root: &options.backup_root,
+                timeout: options.timeout,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string()),
+        "sqlserver_database" => backup_sql_server_database(
+            engine,
+            &container,
+            &SqlServerBackupOptions {
                 logical_resource: logical,
                 credential,
                 database_name: logical.logical_resource_id(),

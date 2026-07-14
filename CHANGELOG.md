@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned SQL Server native backups using exact active tenant
+  ownership, in-container checksummed `.bak` creation, runtime-only login
+  credentials, streamed immutable storage, and checksum verification.
 - Extended common token-bound logical prune execution to SQL Server with exact
   recovery and ownership revalidation, runtime-only SA credentials, idempotent
   database/login deletion, and atomic tenant-state retirement.

@@ -1306,6 +1306,95 @@ fn queued_mongodb_backup_streams_exact_verified_logical_recovery_point() {
 }
 
 #[test]
+fn queued_sql_server_backup_streams_exact_verified_native_recovery_point() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let backup_root = temporary_directory("queued-sqlserver-backup");
+    let fingerprint = format!("sha256:{}", "d".repeat(64));
+    let observed = observed_shared_service(
+        "sqlserver-container",
+        "install-1",
+        "sqlserver-2022",
+        &fingerprint,
+    );
+    let engine = RecordingProjectCommandEngine::new(vec![observed]);
+    let operation = QueuedProjectBackup::new(
+        "backup-sqlserver".to_owned(),
+        "bill".to_owned(),
+        "database".to_owned(),
+        "stackctl_bill_database".to_owned(),
+        "sqlserver_database".to_owned(),
+        fingerprint.clone(),
+    )
+    .expect("valid SQL Server backup intent");
+    let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "sqlserver-2022".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "sqlserver_database".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/sqlserver".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "ProjectSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_backup(
+        engine.clone(),
+        ProjectBackupExecutionOptions {
+            operation,
+            logical_resource: Ok(logical_resource),
+            credential: Ok(credential),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            backup_root: backup_root.clone(),
+            created_at_unix_seconds: 42_000,
+            timeout: Duration::from_secs(120),
+        },
+    ));
+
+    let backup = result
+        .outcome()
+        .as_ref()
+        .expect("verified SQL Server backup");
+    assert_eq!(backup.artifact_size_bytes(), 10);
+    assert_eq!(engine.command_arguments()[0][0], "sh");
+    assert!(engine.command_arguments()[0][2].contains("STACKCTL_BACKUP_FILE"));
+    assert!(!format!("{:?}", engine.command_arguments()).contains("ProjectSecret1"));
+    let environment = &engine.command_environments()[0];
+    assert_eq!(
+        environment.get("SQLCMDPASSWORD"),
+        Some(&"ProjectSecret1".to_owned())
+    );
+    assert!(
+        environment
+            .get("STACKCTL_BACKUP_SQL")
+            .expect("native backup SQL")
+            .contains("BACKUP DATABASE [stackctl_bill_database]")
+    );
+    let recovery_point = Path::new(backup.reference());
+    assert!(recovery_point.join("artifact.bin").is_file());
+    assert!(recovery_point.join("manifest.json").is_file());
+
+    std::fs::remove_dir_all(backup_root).expect("remove SQL Server backup fixture");
+}
+
+#[test]
 fn queued_postgres_prune_revalidates_deletes_and_then_retires_state() {
     use crate::control_plane::retention::{
         PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
