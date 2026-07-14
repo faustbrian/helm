@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the v8 completion audit to distinguish tested v7 migration
+  provider components from daemon-composed end-to-end migration, and to keep
+  incomplete persistent recovery and deletion coverage marked partial.
 - Blocked whole-installation delete-data preflight when project-owned
   persistent volumes have no ownership-bound recovery adapter, preventing
   terminal Engine cleanup from erasing unprotected dedicated-service data,
