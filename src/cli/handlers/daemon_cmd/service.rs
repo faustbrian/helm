@@ -24,7 +24,7 @@ fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {
         "daemon",
         LogLevel::Success,
         &format!(
-            "Installed {} daemon watch service {} at {}",
+            "Installed and started {} daemon watch service {} at {}",
             manager_name(status.manager),
             status.label,
             status.path.display()
@@ -36,9 +36,16 @@ fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {
 
 fn handle_status() -> Result<()> {
     let status = daemon::service_status()?;
-    let message = if status.installed {
+    let message = if status.running {
         format!(
-            "{} daemon watch service {} installed at {}",
+            "{} daemon watch service {} is running from {}",
+            manager_name(status.manager),
+            status.label,
+            status.path.display()
+        )
+    } else if status.installed {
+        format!(
+            "{} daemon watch service {} is installed at {} but is not running; rerun `stackctl daemon service install --dir <DIR>`",
             manager_name(status.manager),
             status.label,
             status.path.display()

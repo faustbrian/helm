@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made login-service status query launchd or systemd instead of treating a
+  leftover definition file as proof that the singleton daemon is running.
+  Status now reports installed-but-stopped services explicitly and gives the
+  exact reinstall command needed to restore unattended startup.
 - Replaced one idle scheduler process container per project with daemon-owned
   minute dispatch into the exact application container. Scheduler commands now
   use typed Engine exec, inherit the application's complete managed

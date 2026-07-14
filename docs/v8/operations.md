@@ -135,6 +135,11 @@ The selected Docker-compatible Engine is contacted over its Unix socket;
 Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
 Caddy is an immutable workload-plane image, not a host executable.
 
+`stackctl daemon service status` checks the selected service manager in
+addition to the definition file. A stale launchd plist or systemd user unit is
+reported as installed but not running, with an explicit reinstall command; it
+is never presented as a healthy login-time daemon.
+
 ## Retention, backup, and deletion
 
 Removing or invalidating config follows:

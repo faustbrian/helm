@@ -21,6 +21,7 @@ thread_local! {
     static TEST_SERVICE_BINARY: RefCell<Option<String>> = const { RefCell::new(None) };
     static TEST_SERVICE_MANAGER: RefCell<Option<ServiceManager>> = const { RefCell::new(None) };
     static TEST_SERVICE_COMMANDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static TEST_SERVICE_RUNNING: RefCell<Option<bool>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +50,7 @@ pub(crate) struct DaemonServiceStatus {
     pub(crate) label: String,
     pub(crate) path: PathBuf,
     pub(crate) installed: bool,
+    pub(crate) running: bool,
 }
 
 pub(crate) fn install_service(
@@ -65,12 +67,21 @@ pub(crate) fn install_service(
         ServiceManager::Launchd => install_launchd(&definition)?,
         ServiceManager::SystemdUser => install_systemd(&definition)?,
     }
+    set_test_service_running_state(true);
+    if !service_is_running(definition.manager, &definition.label)? {
+        bail!(
+            "{} accepted the Stackctl service definition but did not keep '{}' running",
+            manager_name(definition.manager),
+            definition.label
+        );
+    }
 
     Ok(DaemonServiceStatus {
         manager: definition.manager,
         label: definition.label,
         path: definition.path,
         installed: true,
+        running: true,
     })
 }
 
@@ -86,6 +97,7 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
         ServiceManager::Launchd => uninstall_launchd(&definition.path)?,
         ServiceManager::SystemdUser => uninstall_systemd(&definition.path)?,
     }
+    set_test_service_running_state(false);
 
     if definition.path.exists() {
         fs::remove_file(&definition.path)
@@ -97,6 +109,7 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
         label: definition.label,
         path: definition.path,
         installed,
+        running: false,
     })
 }
 
@@ -105,12 +118,43 @@ pub(crate) fn service_status() -> Result<DaemonServiceStatus> {
         watch_dirs: Vec::new(),
         interval_secs: 30,
     })?;
+    let installed = definition.path.exists();
+    let running = installed && service_is_running(definition.manager, &definition.label)?;
     Ok(DaemonServiceStatus {
         manager: definition.manager,
         label: definition.label,
-        installed: definition.path.exists(),
+        installed,
+        running,
         path: definition.path,
     })
+}
+
+fn service_is_running(manager: ServiceManager, label: &str) -> Result<bool> {
+    match manager {
+        ServiceManager::Launchd => run_status(
+            "launchctl",
+            &[
+                "print".to_owned(),
+                format!("{}/{}", launchd_domain()?, label),
+            ],
+        ),
+        ServiceManager::SystemdUser => run_status(
+            "systemctl",
+            &[
+                "--user".to_owned(),
+                "is-active".to_owned(),
+                "--quiet".to_owned(),
+                label.to_owned(),
+            ],
+        ),
+    }
+}
+
+fn manager_name(manager: ServiceManager) -> &'static str {
+    match manager {
+        ServiceManager::Launchd => "launchd",
+        ServiceManager::SystemdUser => "systemd --user",
+    }
 }
 
 pub(crate) fn print_service(
@@ -239,14 +283,7 @@ fn uninstall_systemd(path: &Path) -> Result<()> {
 fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()> {
     #[cfg(test)]
     if test_mode_enabled() {
-        TEST_SERVICE_COMMANDS.with(|commands| {
-            let mut commands = commands.borrow_mut();
-            let rendered = std::iter::once(program.to_owned())
-                .chain(args.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(" ");
-            commands.push(rendered);
-        });
+        record_test_command(program, args);
         return Ok(());
     }
 
@@ -259,6 +296,39 @@ fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()
     }
 
     bail!("{} exited with {}", program, status);
+}
+
+fn run_status(program: &str, args: &[String]) -> Result<bool> {
+    #[cfg(test)]
+    if test_mode_enabled() {
+        record_test_command(program, args);
+        return Ok(TEST_SERVICE_RUNNING.with(|running| running.borrow().unwrap_or(false)));
+    }
+
+    Command::new(program)
+        .args(args)
+        .status()
+        .with_context(|| format!("failed to run {program}"))
+        .map(|status| status.success())
+}
+
+#[cfg(test)]
+fn record_test_command(program: &str, args: &[String]) {
+    TEST_SERVICE_COMMANDS.with(|commands| {
+        let rendered = std::iter::once(program.to_owned())
+            .chain(args.iter().cloned())
+            .collect::<Vec<_>>()
+            .join(" ");
+        commands.borrow_mut().push(rendered);
+    });
+}
+
+#[cfg(not(test))]
+const fn set_test_service_running_state(_running: bool) {}
+
+#[cfg(test)]
+fn set_test_service_running_state(running: bool) {
+    TEST_SERVICE_RUNNING.with(|state| *state.borrow_mut() = Some(running));
 }
 
 fn launchd_domain() -> Result<String> {
@@ -340,6 +410,7 @@ pub(crate) fn set_test_service_home(home: &str) {
 #[cfg(test)]
 pub(crate) fn clear_test_service_home() {
     TEST_SERVICE_HOME.with(|value| *value.borrow_mut() = None);
+    TEST_SERVICE_RUNNING.with(|value| *value.borrow_mut() = None);
 }
 
 #[cfg(test)]
@@ -372,6 +443,11 @@ pub(crate) fn take_test_service_commands() -> Vec<String> {
     TEST_SERVICE_COMMANDS.with(|value| std::mem::take(&mut *value.borrow_mut()))
 }
 
+#[cfg(test)]
+pub(crate) fn set_test_service_running(running: bool) {
+    set_test_service_running_state(running);
+}
+
 struct ServiceContext {
     binary: String,
     args: Vec<String>,
@@ -386,7 +462,7 @@ mod tests {
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
         format_launchd_domain, install_service, print_service, service_status,
         set_test_service_binary, set_test_service_home, set_test_service_manager,
-        take_test_service_commands, uninstall_service,
+        set_test_service_running, take_test_service_commands, uninstall_service,
     };
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -471,14 +547,16 @@ mod tests {
         let plist = fs::read_to_string(&status.path).expect("read plist");
 
         assert!(status.installed);
+        assert!(status.running);
         assert!(plist.contains("/tmp/stackctl"));
         assert!(plist.contains("<string>--dir</string>"));
         assert!(plist.contains("<string>/tmp/projects</string>"));
 
         let commands = take_test_service_commands();
-        assert_eq!(commands.len(), 2);
+        assert_eq!(commands.len(), 3);
         assert!(commands[0].contains("launchctl bootout"));
         assert!(commands[1].contains("launchctl bootstrap"));
+        assert!(commands[2].contains("launchctl print"));
 
         clear_test_service_binary();
         clear_test_service_home();
@@ -497,6 +575,7 @@ mod tests {
         let unit = fs::read_to_string(&status.path).expect("read unit");
 
         assert!(status.installed);
+        assert!(status.running);
         assert!(unit.contains("ExecStart="));
         assert!(unit.contains("/tmp/stackctl"));
         assert!(unit.contains("--interval"));
@@ -504,11 +583,15 @@ mod tests {
         assert!(!unit.contains("--max-projects"));
 
         let commands = take_test_service_commands();
-        assert_eq!(commands.len(), 2);
+        assert_eq!(commands.len(), 3);
         assert_eq!(commands[0], "systemctl --user daemon-reload");
         assert_eq!(
             commands[1],
             "systemctl --user enable --now stackctl-daemon-watch.service"
+        );
+        assert_eq!(
+            commands[2],
+            "systemctl --user is-active --quiet stackctl-daemon-watch.service"
         );
 
         clear_test_service_binary();
@@ -529,6 +612,7 @@ mod tests {
         let removed = uninstall_service().expect("uninstall");
 
         assert!(removed.installed);
+        assert!(!removed.running);
         assert!(!removed.path.exists());
 
         let commands = take_test_service_commands();
@@ -554,10 +638,39 @@ mod tests {
 
         let status_before = service_status().expect("status before install");
         assert!(!status_before.installed);
+        assert!(!status_before.running);
 
         install_service(&service_options()).expect("install");
         let status_after = service_status().expect("status after install");
         assert!(status_after.installed);
+        assert!(status_after.running);
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn status_distinguishes_a_stale_definition_from_a_running_service() {
+        let home = temp_home("stale-status");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, definition.contents).expect("write stale definition");
+        set_test_service_running(false);
+
+        let status = service_status().expect("stale service status");
+
+        assert!(status.installed);
+        assert!(!status.running);
+        assert_eq!(
+            take_test_service_commands(),
+            ["systemctl --user is-active --quiet stackctl-daemon-watch.service"]
+        );
 
         clear_test_service_binary();
         clear_test_service_home();
