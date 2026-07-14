@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Blocked whole-installation delete-data preflight when project-owned
+  persistent volumes have no ownership-bound recovery adapter, preventing
+  terminal Engine cleanup from erasing unprotected dedicated-service data,
+  including Engine-observed volumes missing from SQLite state.
 - Updated v8 operations guidance to describe the confirmed daemon-owned
   delete-data lifecycle instead of the former unavailable-mode behavior.
 - Refused delete-data cleanup for unmarked runtime directories, malformed

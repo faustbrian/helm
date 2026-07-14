@@ -161,6 +161,43 @@ fn installation_deletion_preflight_reads_complete_durable_recovery_state() {
 }
 
 #[test]
+fn installation_deletion_refuses_unprotected_project_volumes() {
+    let database_path = temporary_database_path();
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "unix:///engine.sock",
+        ))
+        .expect("initialize installation");
+    store
+        .upsert_resources(&[ResourceRecord::new(ResourceRecordOptions {
+            resource_id: "stackctl-bill-search-data".to_owned(),
+            installation_id: "install-1".to_owned(),
+            kind: "volume".to_owned(),
+            compatibility_fingerprint: "sha256:search-3".to_owned(),
+            project_id: Some("bill".to_owned()),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: ResourceRetention::Persistent,
+            lifecycle: ResourceLifecycle::Retained,
+            orphaned_at_unix_seconds: Some(9_000),
+        })])
+        .expect("persist project volume");
+    let control_plane = ControlPlane::new(store);
+
+    let error = control_plane
+        .plan_installation_deletion()
+        .expect_err("unprotected project volume must block installation deletion");
+
+    assert!(error.contains("stackctl-bill-search-data"));
+    assert!(error.contains("no ownership-bound recovery adapter"));
+    drop(control_plane);
+    remove_database(&database_path);
+}
+
+#[test]
 fn resolved_execution_plan_preserves_project_and_dependency_order() {
     let source = ProjectSource::new(
         PathBuf::from("/work/bill"),

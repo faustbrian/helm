@@ -1,7 +1,7 @@
 use super::{
     ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, NetworkDiscovery,
     NetworkManager, ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceKind, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    ResourceKind, RetentionClass, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
     reconstruct_owned_network, reconstruct_owned_volume,
 };
 
@@ -60,10 +60,10 @@ where
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    validate_kinds(&containers, &volumes, &networks)?;
     containers.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
     volumes.sort_by(|left, right| left.name().cmp(right.name()));
     networks.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
+    validate_kinds(&containers, &volumes, &networks)?;
 
     for container in &containers {
         match engine.inspect(container).await? {
@@ -123,6 +123,17 @@ fn validate_kinds(
         return Err(EngineError::InvalidRequest {
             detail: "installation cleanup resource kind does not match its Engine object"
                 .to_owned(),
+        });
+    }
+    if let Some(volume) = volumes.iter().find(|volume| {
+        volume.metadata().retention() == RetentionClass::Persistent
+            && volume.metadata().project_id().is_some()
+    }) {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "installation cleanup refuses project-owned persistent volume '{}' without explicit recovery authorization",
+                volume.name()
+            ),
         });
     }
 

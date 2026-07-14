@@ -3,7 +3,7 @@ use crate::control_plane::retention::{
     InstallationDeletionPlan, InstallationDeletionPlanOptions, verify_recovery_point_artifact,
 };
 use crate::control_plane::state::{
-    CredentialRecord, LogicalResourceRecord, RecoveryPointRecord, StateStore,
+    CredentialRecord, LogicalResourceRecord, RecoveryPointRecord, ResourceRetention, StateStore,
 };
 use std::collections::BTreeSet;
 
@@ -11,8 +11,26 @@ impl<Store> ControlPlane<Store>
 where
     Store: StateStore,
 {
-    /// Proves every retained logical tenant has exact recovery evidence.
+    /// Proves every retained tenant is recoverable before installation teardown.
     pub(crate) fn plan_installation_deletion(&self) -> Result<InstallationDeletionPlan, String> {
+        let mut unprotected_volumes = self
+            .resources()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|resource| {
+                resource.kind() == "volume"
+                    && resource.retention() == ResourceRetention::Persistent
+                    && resource.project_id().is_some()
+            })
+            .map(|resource| resource.resource_id().to_owned())
+            .collect::<Vec<_>>();
+        unprotected_volumes.sort();
+        if !unprotected_volumes.is_empty() {
+            return Err(format!(
+                "installation deletion is blocked because project-owned persistent volume(s) [{}] have no ownership-bound recovery adapter",
+                unprotected_volumes.join(", ")
+            ));
+        }
         let (installation_id, logical_resources, credentials, recovery_points) =
             self.installation_deletion_snapshot()?;
 

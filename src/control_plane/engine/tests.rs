@@ -1600,6 +1600,36 @@ fn installation_cleanup_refuses_ambiguous_owned_labels_before_mutation() {
 }
 
 #[test]
+fn installation_cleanup_refuses_unprotected_observed_project_volumes() {
+    let mut backend = RecordingContainerBackend {
+        observed_volumes: vec![ObservedVolume::new(
+            "stackctl-bill-search-data",
+            project_metadata(ResourceKind::Volume).labels(),
+        )],
+        ..RecordingContainerBackend::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(delete_owned_installation_resources(
+            &mut backend,
+            "install-1",
+            8,
+        ))
+        .expect_err("unprotected observed project volume must fail closed");
+
+    assert!(error.to_string().contains("stackctl-bill-search-data"));
+    assert!(
+        error
+            .to_string()
+            .contains("explicit recovery authorization")
+    );
+    assert!(backend.removals.is_empty());
+}
+
+#[test]
 fn engine_operation_deadlines_return_structured_timeouts() {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
