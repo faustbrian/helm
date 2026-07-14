@@ -78,7 +78,7 @@ pub(crate) fn plan_opensearch_project_resources(
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
         service_id.to_owned(),
-        credential,
+        Some(credential),
         environment,
         container_environment,
         None,

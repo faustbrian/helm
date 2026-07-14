@@ -28,6 +28,9 @@ All notable changes to this project are documented in this file.
 - Added stable Elasticsearch administrator credentials and explicit single-node
   security settings with private-network HTTP, avoiding generated per-project
   certificate authorities while keeping the dedicated service authenticated.
+- Generalized project-service preparation to support credential-free adapters
+  and added generated Memcached host and port values without fabricating or
+  persisting a meaningless service secret.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

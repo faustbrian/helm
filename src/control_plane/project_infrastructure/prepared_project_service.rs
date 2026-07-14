@@ -8,7 +8,7 @@ use std::fmt::{Debug, Formatter};
 pub(crate) struct PreparedProjectService {
     project_id: String,
     service_id: String,
-    credential: CredentialRecord,
+    credential: Option<CredentialRecord>,
     environment: ManagedEnvironmentRecord,
     container_environment: BTreeMap<String, String>,
     route: Option<GatewayRoute>,
@@ -18,7 +18,7 @@ impl PreparedProjectService {
     pub(super) const fn new(
         project_id: String,
         service_id: String,
-        credential: CredentialRecord,
+        credential: Option<CredentialRecord>,
         environment: ManagedEnvironmentRecord,
         container_environment: BTreeMap<String, String>,
         route: Option<GatewayRoute>,
@@ -41,8 +41,8 @@ impl PreparedProjectService {
         &self.service_id
     }
 
-    pub(crate) const fn credential(&self) -> &CredentialRecord {
-        &self.credential
+    pub(crate) const fn credential(&self) -> Option<&CredentialRecord> {
+        self.credential.as_ref()
     }
 
     pub(crate) const fn environment(&self) -> &ManagedEnvironmentRecord {

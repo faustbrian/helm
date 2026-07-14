@@ -65,7 +65,7 @@ pub(crate) fn plan_typesense_project_resources(
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
         service_id.to_owned(),
-        credential,
+        Some(credential),
         environment,
         container_environment,
         None,

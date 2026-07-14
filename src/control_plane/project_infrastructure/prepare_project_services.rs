@@ -22,19 +22,27 @@ where
         let Some(strategy) = ProjectServicePreparationStrategy::resolve(service)? else {
             continue;
         };
-        let generated = generate_credential_secret(entropy).map_err(invalid)?;
-        let candidate = strategy.plan(service, strategy.finalize_candidate_secret(generated))?;
-        let credential = store
-            .insert_credential_if_absent(candidate.credential())
-            .map_err(invalid)?;
-        if credential.lifecycle() != CredentialLifecycle::Active {
-            return Err(invalid(format!(
-                "credential '{}' is disabled and requires explicit project adoption",
-                credential.credential_id()
-            )));
-        }
-
-        let stable = CredentialSecret::new(credential.secret().to_owned());
+        let candidate_secret = if strategy.requires_credential() {
+            let generated = generate_credential_secret(entropy).map_err(invalid)?;
+            Some(strategy.finalize_candidate_secret(generated))
+        } else {
+            None
+        };
+        let candidate = strategy.plan(service, candidate_secret)?;
+        let stable = if let Some(candidate_credential) = candidate.credential() {
+            let credential = store
+                .insert_credential_if_absent(candidate_credential)
+                .map_err(invalid)?;
+            if credential.lifecycle() != CredentialLifecycle::Active {
+                return Err(invalid(format!(
+                    "credential '{}' is disabled and requires explicit project adoption",
+                    credential.credential_id()
+                )));
+            }
+            Some(CredentialSecret::new(credential.secret().to_owned()))
+        } else {
+            None
+        };
         prepared.push(strategy.plan(service, stable)?);
     }
 

@@ -5205,6 +5205,8 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
 
 #[test]
 fn complete_engine_plans_include_dedicated_project_services_without_routes() {
+    use crate::control_plane::project_infrastructure::plan_memcached_project_resources;
+
     let image = concat!(
         "memcached@sha256:",
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -5218,11 +5220,17 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     );
     let registry = plan_project_registry(&[source]).expect("desired registry");
     let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let cache = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "cache")
+        .expect("Memcached execution service");
+    let prepared = vec![plan_memcached_project_resources(cache).expect("prepared Memcached")];
 
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
-        prepared_project_services: &[],
+        prepared_project_services: &prepared,
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
