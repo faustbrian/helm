@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a narrow Engine capability that quiesces and streams only exact
+  accepted-v7 volume mounts after revalidating legacy labels and mount paths.
 - Bound every accepted-v7 named volume to its exact container mount target,
   refusing target-path drift and ambiguous multi-volume restore mappings.
 - Made accepted-v7 named-volume adapters own their validated source clone and

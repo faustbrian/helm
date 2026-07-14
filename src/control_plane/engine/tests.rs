@@ -45,6 +45,7 @@ use super::bollard_v7_container_retirement::{
     v7_volume_user_list_request, validate_missing_v7_container_retry,
     verify_v7_container_retirement,
 };
+use super::bollard_v7_container_volume_archive::verify_v7_volume_archive_target;
 use super::bounded_engine_operation::bounded_engine_operation;
 
 #[test]
@@ -1548,6 +1549,56 @@ fn v7_retirement_requires_exact_labels_and_named_volume_mounts() {
     let error = verify_v7_container_retirement(&target, &labels, &drifted_mounts)
         .expect_err("volume drift must block legacy retirement");
     assert!(error.to_string().contains("no longer match"));
+}
+
+#[test]
+fn v7_volume_archive_requires_exact_labels_names_and_mount_targets() {
+    let target = V7ContainerCommandTarget::new(
+        ContainerId::new("legacy-container-id"),
+        "bill-app",
+        "app",
+        "app",
+    )
+    .expect("legacy archive target");
+    let labels = std::collections::HashMap::from([
+        ("com.stackctl.managed".to_owned(), "true".to_owned()),
+        ("com.stackctl.container".to_owned(), "bill-app".to_owned()),
+        ("com.stackctl.service".to_owned(), "app".to_owned()),
+        ("com.stackctl.kind".to_owned(), "app".to_owned()),
+    ]);
+    let expected = vec![
+        VolumeMount::read_write("bill-cache", "/app/cache").expect("cache mount"),
+        VolumeMount::read_write("bill-storage", "/app/storage").expect("storage mount"),
+    ];
+    let observed = vec![
+        MountPoint {
+            typ: Some("volume".to_owned()),
+            name: Some("bill-storage".to_owned()),
+            destination: Some("/app/storage".to_owned()),
+            rw: Some(true),
+            ..MountPoint::default()
+        },
+        MountPoint {
+            typ: Some("volume".to_owned()),
+            name: Some("bill-cache".to_owned()),
+            destination: Some("/app/cache".to_owned()),
+            rw: Some(true),
+            ..MountPoint::default()
+        },
+    ];
+
+    verify_v7_volume_archive_target(&target, &expected, &labels, &observed)
+        .expect("exact accepted archive identity");
+    let mut target_drifted = observed.clone();
+    target_drifted[0].destination = Some("/app/other".to_owned());
+    let error = verify_v7_volume_archive_target(&target, &expected, &labels, &target_drifted)
+        .expect_err("mount target drift must block archive access");
+    assert!(error.to_string().contains("archive evidence"));
+
+    let mut label_drifted = labels;
+    label_drifted.insert("com.stackctl.service".to_owned(), "other".to_owned());
+    verify_v7_volume_archive_target(&target, &expected, &label_drifted, &observed)
+        .expect_err("ownership drift must block archive access");
 }
 
 #[test]
