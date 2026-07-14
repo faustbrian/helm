@@ -2,7 +2,8 @@
 
 use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions, create_dir_all, read_dir, remove_file, rename};
-use std::io::Write;
+use std::io::{Error, ErrorKind, Write};
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -44,12 +45,12 @@ fn ensure_log_file_for_day(state: &mut FileState, directory: &Path, day: &str) {
         return;
     }
 
-    if create_dir_all(directory).is_err() {
+    if prepare_log_directory(directory).is_err() {
         return;
     }
     prune_old_log_days(directory, day);
     let file_path = directory.join(format!("{day}.log"));
-    let Ok(file) = OpenOptions::new().create(true).append(true).open(file_path) else {
+    let Ok(file) = open_private_log_file(&file_path) else {
         return;
     };
     state.bytes_written = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
@@ -89,20 +90,47 @@ fn rotate_log_file(state: &mut FileState, directory: &Path, day: &str) {
     let previous = directory.join(format!("{day}.log.1"));
     drop(remove_file(&previous));
     if rename(&active, &previous).is_err() {
-        state.file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(active)
-            .ok();
+        state.file = open_private_log_file(&active).ok();
         return;
     }
-    state.file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(active)
-        .ok();
+    state.file = create_private_log_file(&active).ok();
     state.bytes_written = 0;
+}
+
+fn prepare_log_directory(directory: &Path) -> Result<(), Error> {
+    create_dir_all(directory)?;
+    let metadata = std::fs::symlink_metadata(directory)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("'{}' is not a real log directory", directory.display()),
+        ));
+    }
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+}
+
+fn open_private_log_file(path: &Path) -> Result<File, Error> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+            OpenOptions::new().append(true).open(path)
+        }
+        Ok(_) => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("'{}' is not a real log file", path.display()),
+        )),
+        Err(error) if error.kind() == ErrorKind::NotFound => create_private_log_file(path),
+        Err(error) => Err(error),
+    }
+}
+
+fn create_private_log_file(path: &Path) -> Result<File, Error> {
+    OpenOptions::new()
+        .write(true)
+        .append(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
 }
 
 fn prune_old_log_days(directory: &Path, current_day: &str) {
@@ -147,11 +175,62 @@ fn recognized_log_day(name: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FileState, prune_old_log_days, write_entry};
+    use super::{FileState, persist_entry, prune_old_log_days, write_entry};
     use crate::output::{LogLevel, Persistence, entry::LogEntry};
     use std::fs;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
     use time::OffsetDateTime;
+
+    #[cfg(unix)]
+    #[test]
+    fn persistent_logs_refuse_a_symbolic_link_directory() {
+        use std::os::unix::fs::symlink;
+
+        let directory = temporary_log_directory("linked-directory");
+        let victim = directory.with_extension("victim");
+        fs::create_dir_all(&victim).expect("create victim directory");
+        symlink(&victim, &directory).expect("link log directory");
+        let state = Mutex::new(FileState {
+            directory: Some(directory.clone()),
+            day: None,
+            file: None,
+            bytes_written: 0,
+        });
+
+        persist_entry(&state, &log_entry("linked directory"));
+
+        assert_eq!(fs::read_dir(&victim).expect("read victim").count(), 0);
+        fs::remove_file(directory).expect("remove directory link");
+        fs::remove_dir_all(victim).expect("remove victim directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn persistent_logs_refuse_a_symbolic_link_daily_file() {
+        use std::os::unix::fs::symlink;
+
+        let directory = temporary_log_directory("linked-file");
+        let victim = directory.with_extension("victim");
+        fs::create_dir_all(&directory).expect("create log directory");
+        fs::write(&victim, "external\n").expect("write victim");
+        symlink(&victim, directory.join("1970-01-01.log")).expect("link daily log");
+        let state = Mutex::new(FileState {
+            directory: Some(directory.clone()),
+            day: None,
+            file: None,
+            bytes_written: 0,
+        });
+
+        persist_entry(&state, &log_entry("linked file"));
+
+        assert_eq!(
+            fs::read_to_string(&victim).expect("read victim"),
+            "external\n"
+        );
+        fs::remove_dir_all(directory).expect("remove log directory");
+        fs::remove_file(victim).expect("remove victim");
+    }
 
     #[test]
     fn persistent_logs_retain_only_the_seven_newest_days() {
@@ -254,6 +333,16 @@ mod tests {
 
         assert_eq!(fs::metadata(&active).expect("active metadata").len(), 0);
         fs::remove_dir_all(directory).expect("remove logs");
+    }
+
+    fn log_entry(message: &str) -> LogEntry {
+        LogEntry {
+            timestamp: OffsetDateTime::UNIX_EPOCH,
+            level: LogLevel::Info,
+            message: message.to_owned(),
+            context: None,
+            persistence: Persistence::Persistent,
+        }
     }
 
     fn temporary_log_directory(name: &str) -> std::path::PathBuf {

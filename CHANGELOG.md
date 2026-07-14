@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Confined persistent host logs to a real private log directory and real
+  private daily files. Logging now fails closed for linked paths instead of
+  appending Stackctl output through a symbolic link outside managed storage.
 - Serialized terminal delete-data marker publication on the owned runtime
   directory. Concurrent uninstall clients now wait instead of deleting or
   replacing one another's stable authorization-marker staging file.
