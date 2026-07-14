@@ -30,9 +30,6 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
             &certificates,
             &crate::control_plane::DebianCertificateTrustStore::new(ProcessHostCommandExecutor),
         );
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        bail!("singleton CA trust is not implemented for this Unix platform");
     }
 }
 
@@ -61,9 +58,6 @@ pub(super) fn remove_persisted_daemon_trust() -> Result<()> {
 
         return Ok(());
     }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    bail!("singleton CA trust removal is not implemented for this Unix platform")
 }
 
 fn handle_with_store(

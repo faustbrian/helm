@@ -88,10 +88,15 @@ while IFS= read -r -d '' file; do
     continue
   fi
   report_matches \
-    "v8 contains an unreachable non-Unix compatibility branch" \
-    'cfg\(not\(unix\)\)' \
+    "v8 contains an unsupported-host compatibility branch" \
+    'cfg\(not\(unix\)\)|cfg\(not\(any\(target_os' \
     "$file"
 done < <(find src -type f -name '*.rs' -print0)
+
+report_matches \
+  "v8 top-level platform boundary admits unsupported Unix hosts" \
+  'cfg\(not\(unix\)\)' \
+  "src/main.rs"
 
 if ((violations > 0)); then
   printf 'v8 host-dependency audit failed with %d violating file(s)\n' "$violations" >&2

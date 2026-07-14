@@ -28,9 +28,6 @@ pub(crate) fn handle_setup(args: &SetupArgs) -> Result<()> {
         &certificates,
         &crate::control_plane::DebianCertificateTrustStore::new(ProcessHostCommandExecutor),
     );
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    bail!("Stackctl setup is not implemented for this Unix platform")
 }
 
 fn handle_with_store(

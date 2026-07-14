@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
   source now keeps its macOS/Linux-only contract instead of carrying an
   unreachable compatibility branch that would leave state permissions
   unenforced.
+- Tightened the top-level platform boundary to macOS and Linux specifically
+  and removed the setup/trust fallbacks for other Unix systems. Unsupported
+  hosts now fail compilation instead of entering an untested runtime branch.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish
