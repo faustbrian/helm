@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made parallel application-state test databases collision-proof by combining
+  process and clock identity with an atomic per-process sequence.
 - Added ownership-checked Engine streaming for one safe relative subpath of an
   exact managed volume. Stateful shared-service recovery can now archive a
   tenant-specific store without capturing unrelated tenants or accepting path

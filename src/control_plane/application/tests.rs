@@ -9,6 +9,7 @@ use crate::control_plane::state::{
 use crate::control_plane::{ServiceDeploymentStrategy, resolve_execution_plan};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
@@ -580,14 +581,17 @@ fn project_source(path: &str, project: &str, service: &str) -> ProjectSource {
 }
 
 fn temporary_database_path() -> PathBuf {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("system clock after epoch")
         .as_nanos();
 
     std::env::temp_dir().join(format!(
-        "stackctl-v8-control-plane-{}-{unique}.sqlite3",
-        std::process::id()
+        "stackctl-v8-control-plane-{}-{unique}-{}.sqlite3",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ))
 }
 
