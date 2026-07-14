@@ -77,6 +77,13 @@ where
         Ok(plan)
     }
 
+    /// Commits terminal state only after external cleanup has succeeded.
+    pub(crate) fn complete_installation_deletion(&mut self) -> Result<(), String> {
+        self.state_store
+            .complete_installation_deletion()
+            .map_err(|error| error.to_string())
+    }
+
     fn installation_deletion_snapshot(
         &self,
     ) -> Result<

@@ -41,6 +41,7 @@ mod execute_rabbitmq_project_restore;
 mod execute_redis_project_restore;
 mod filesystem_event_watcher;
 mod filesystem_event_watcher_error;
+mod finalize_installation_deletion;
 mod image_reference_resolution;
 mod initialize_default_installation;
 mod installation_initialization_error;
@@ -105,6 +106,8 @@ mod retry_delay;
 mod run_unix_daemon_watch;
 mod singleton_lease;
 mod singleton_lease_error;
+#[cfg(unix)]
+mod unix_daemon_installation_deletion;
 #[cfg(unix)]
 mod unix_daemon_migration_decisions;
 #[cfg(unix)]
@@ -174,6 +177,7 @@ pub(crate) use execute_rabbitmq_project_restore::execute_rabbitmq_project_restor
 pub(crate) use execute_redis_project_restore::execute_redis_project_restore;
 pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
+pub(crate) use finalize_installation_deletion::finalize_installation_deletion;
 pub(crate) use image_reference_resolution::ImageReferenceResolution;
 pub(crate) use initialize_default_installation::initialize_default_installation;
 pub(crate) use installation_initialization_error::InstallationInitializationError;

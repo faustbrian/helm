@@ -26,6 +26,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned terminal teardown that waits for empty logical and durable
+  work, removes exact installation-owned Engine objects, commits terminal state
+  only after cleanup succeeds, and keeps reconciliation frozen while the
+  terminal daemon remains available for status polling.
 - Added a restart-safe installation-deletion driver that durably queues one
   exact recovery-authorized logical prune at a time, deduplicates lost
   in-memory work against durable operation history, and blocks stale ordinary

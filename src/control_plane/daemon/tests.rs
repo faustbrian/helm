@@ -12,8 +12,8 @@ use super::{
     RetryBackoffOptions, SingletonLease, collect_benchmark_snapshot, discover_project_sources,
     dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
     execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result,
+    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
+    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
 };
@@ -6822,10 +6822,97 @@ fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
 }
 
 #[test]
-fn deleting_iteration_blocks_stale_engine_reconciliation() {
+fn frozen_iteration_blocks_stale_engine_reconciliation() {
     let iteration = super::DaemonIterationResult::new(None, None, None, true);
 
-    assert!(iteration.installation_deleting());
+    assert!(iteration.installation_reconciliation_frozen());
+}
+
+#[test]
+fn installation_deletion_finalizes_after_logical_and_durable_work_is_empty() {
+    use crate::control_plane::state::{EngineProvider, InstallationLifecycle, InstallationRecord};
+
+    let root = temporary_directory("installation-delete-finalize");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("initialize installation");
+    let mut control_plane = ControlPlane::new(store);
+    let deletion = control_plane
+        .plan_installation_deletion()
+        .expect("empty deletion plan");
+    control_plane
+        .begin_confirmed_installation_deletion(deletion.confirmation_token(), 40_000)
+        .expect("freeze empty installation");
+    let mut engine = RecordingProjectCommandEngine::new(Vec::new());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    control_plane
+        .enqueue_daemon_operation(
+            &DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: "still-running".to_owned(),
+                kind: "postgres_prune".to_owned(),
+                payload_json: "{\"logical_resource_id\":\"pending\"}".to_owned(),
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: 40_001,
+                updated_at_unix_seconds: 40_001,
+            }),
+            &accepted_json,
+            256,
+        )
+        .expect("persist pending deletion work");
+
+    assert!(
+        !runtime
+            .block_on(finalize_installation_deletion(
+                &mut control_plane,
+                &mut engine,
+                8,
+            ))
+            .expect("pending durable work blocks finalization")
+    );
+    let failed_json = serde_json::to_string(&IpcEventKind::Failed {
+        code: "test_terminal".to_owned(),
+        message: "test terminal operation".to_owned(),
+    })
+    .expect("failed event");
+    control_plane
+        .transition_daemon_operation(DaemonOperationTransitionOptions {
+            operation_id: "still-running",
+            expected: DaemonOperationStatus::Queued,
+            next: DaemonOperationStatus::Failed,
+            updated_at_unix_seconds: 40_002,
+            event_kind_json: Some(&failed_json),
+            event_retention_limit: 256,
+        })
+        .expect("terminalize pending deletion work");
+
+    assert!(
+        runtime
+            .block_on(finalize_installation_deletion(
+                &mut control_plane,
+                &mut engine,
+                8,
+            ))
+            .expect("finalize installation deletion")
+    );
+    assert_eq!(
+        control_plane
+            .installation_lifecycle()
+            .expect("terminal installation lifecycle"),
+        Some(InstallationLifecycle::Deleted)
+    );
+    assert!(engine.removed().is_empty());
+
+    std::fs::remove_dir_all(root).expect("remove finalization fixture");
 }
 
 #[test]
@@ -7926,6 +8013,47 @@ impl crate::control_plane::engine::VolumeManager for RecordingProjectCommandEngi
     fn remove_volume<'operation>(
         &'operation mut self,
         _volume: &'operation crate::control_plane::engine::OwnedVolume,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+impl crate::control_plane::engine::NetworkDiscovery for RecordingProjectCommandEngine {
+    fn discover_managed_networks(
+        &self,
+    ) -> crate::control_plane::engine::EngineFuture<
+        '_,
+        Vec<crate::control_plane::engine::ObservedNetwork>,
+    > {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+impl crate::control_plane::engine::NetworkManager for RecordingProjectCommandEngine {
+    fn create_network<'operation>(
+        &'operation mut self,
+        options: &'operation crate::control_plane::engine::NetworkCreateOptions,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::OwnedNetwork,
+    > {
+        let observed = crate::control_plane::engine::ObservedNetwork::new(
+            crate::control_plane::engine::NetworkId::new(options.name()),
+            options.metadata().labels(),
+        );
+        let owned = crate::control_plane::engine::reconstruct_owned_network(
+            &observed,
+            options.metadata().installation_id(),
+            options.metadata().schema_version(),
+        )
+        .expect("created network ownership");
+
+        Box::pin(async move { Ok(owned) })
+    }
+
+    fn remove_network<'operation>(
+        &'operation mut self,
+        _network: &'operation crate::control_plane::engine::OwnedNetwork,
     ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
         Box::pin(async { Ok(()) })
     }

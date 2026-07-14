@@ -162,13 +162,17 @@ impl UnixDaemonRuntime {
         if now_unix_seconds < 0 {
             return Err(invalid("daemon wall-clock time must not be negative"));
         }
-        let deleting =
-            self.control_plane.installation_lifecycle()? == Some(InstallationLifecycle::Deleting);
-        if self.filesystem_watcher.take_change()? && !deleting {
+        let reconciliation_frozen = matches!(
+            self.control_plane.installation_lifecycle()?,
+            Some(InstallationLifecycle::Deleting | InstallationLifecycle::Deleted)
+        );
+        if self.filesystem_watcher.take_change()? && !reconciliation_frozen {
             self.record_filesystem_event(now);
         }
 
-        let scan_reason = (!deleting).then(|| self.scheduler.take_due(now)).flatten();
+        let scan_reason = (!reconciliation_frozen)
+            .then(|| self.scheduler.take_due(now))
+            .flatten();
         let reconciliation = scan_reason
             .map(|_reason| {
                 reconcile_watched_roots(
@@ -224,14 +228,16 @@ impl UnixDaemonRuntime {
         {
             self.scheduler.record_filesystem_event(now);
         }
-        let installation_deleting =
-            self.control_plane.installation_lifecycle()? == Some(InstallationLifecycle::Deleting);
+        let installation_reconciliation_frozen = matches!(
+            self.control_plane.installation_lifecycle()?,
+            Some(InstallationLifecycle::Deleting | InstallationLifecycle::Deleted)
+        );
 
         Ok(DaemonIterationResult::new(
             scan_reason,
             reconciliation,
             request,
-            installation_deleting,
+            installation_reconciliation_frozen,
         ))
     }
 
@@ -259,7 +265,7 @@ impl UnixDaemonRuntime {
                             );
                         }
                     }
-                    if !iteration.installation_deleting()
+                    if !iteration.installation_reconciliation_frozen()
                         && !self.has_active_project_command()
                         && !self.has_active_project_backup()
                         && !self.has_active_project_restore()
@@ -275,6 +281,7 @@ impl UnixDaemonRuntime {
                     self.drive_project_restores(now, now_unix_seconds);
                     self.drive_migration_decisions(now, now_unix_seconds);
                     self.drive_project_logs(now);
+                    self.drive_installation_deletion(now);
                 }
                 Err(error) => {
                     tracing::error!(error = %error, "singleton daemon iteration failed");

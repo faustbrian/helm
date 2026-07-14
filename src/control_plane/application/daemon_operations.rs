@@ -34,4 +34,10 @@ where
     ) -> Result<Option<DaemonOperationRecord>, StateStoreError> {
         self.state_store.daemon_operation(operation_id)
     }
+
+    pub(crate) fn active_daemon_operations(
+        &self,
+    ) -> Result<Vec<DaemonOperationRecord>, StateStoreError> {
+        self.state_store.active_daemon_operations()
+    }
 }
