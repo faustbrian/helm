@@ -6,6 +6,16 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added safety-backed RabbitMQ recovery for non-empty persistent classic queues.
+  Backup suspends listeners, closes clients, exports exact vhost definitions,
+  stops the broker, and archives only that vhost's owned message-store path.
+  Restore strips stored credentials, validates every tar entry, detaches the
+  broker network through safety snapshot and verification, replaces topology,
+  streams the message store while stopped, and restores the current user's
+  permission. Reconciliation repairs interrupted private-network attachment,
+  while restore accepts only the canonical owned network and one validated
+  artifact file identity. Non-durable, non-persistent, quorum, and stream
+  messages fail closed; backup has an explicit broker-wide maintenance window.
 - Made parallel application-state test databases collision-proof by combining
   process and clock identity with an atomic per-process sequence.
 - Added ownership-checked Engine streaming for one safe relative subpath of an

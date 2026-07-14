@@ -4,8 +4,9 @@ use super::{
     execute_redis_project_restore,
 };
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerVolumeArchive,
-    HealthObserver, ResourceKind, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerNetworkIsolation,
+    ContainerVolumeArchive, HealthObserver, NetworkDiscovery, ResourceKind, VolumeDiscovery,
+    VolumeManager, reconstruct_owned_container,
 };
 use crate::control_plane::migration::{
     EnginePostgresSourceRetirement, MigrationCutoverPlan, MigrationRollbackPlan,
@@ -39,8 +40,10 @@ where
     E: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerNetworkIsolation
         + ContainerVolumeArchive
         + HealthObserver
+        + NetworkDiscovery
         + VolumeDiscovery
         + VolumeManager
         + Sync,
@@ -62,8 +65,10 @@ where
     E: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerNetworkIsolation
         + ContainerVolumeArchive
         + HealthObserver
+        + NetworkDiscovery
         + VolumeDiscovery
         + VolumeManager
         + Sync,

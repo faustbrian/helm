@@ -2,7 +2,7 @@ use crate::control_plane::state::{CredentialRecord, LogicalResourceRecord};
 use std::path::Path;
 use std::time::Duration;
 
-/// Complete immutable input for one scoped RabbitMQ topology backup.
+/// Complete immutable input for one scoped RabbitMQ topology and message backup.
 pub(crate) struct RabbitMqBackupOptions<'operation> {
     pub(crate) logical_resource: &'operation LogicalResourceRecord,
     pub(crate) credential: &'operation CredentialRecord,

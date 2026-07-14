@@ -1263,7 +1263,7 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
 }
 
 #[test]
-fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
+fn queued_rabbitmq_backup_exports_and_archives_exact_empty_vhost() {
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
         LogicalResourceRecordOptions,
@@ -1273,6 +1273,12 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
     let fingerprint = format!("sha256:{}", "e".repeat(64));
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         "rabbitmq-container",
+        "install-1",
+        "rabbitmq-4",
+        &fingerprint,
+    )])
+    .with_observed_volumes(vec![observed_shared_volume(
+        "rabbitmq-4-data",
         "install-1",
         "rabbitmq-4",
         &fingerprint,
@@ -1288,7 +1294,7 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
     .expect("valid RabbitMQ backup intent");
     let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: "bill/database/rabbitmq".to_owned(),
-        shared_resource_id: "rabbitmq-4".to_owned(),
+        shared_resource_id: "rabbitmq-4-data".to_owned(),
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),
         kind: "rabbitmq_vhost_user".to_owned(),
@@ -1328,8 +1334,13 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
 
     let backup = result.outcome().as_ref().expect("verified RabbitMQ backup");
     let calls = engine.command_arguments();
+    assert_eq!(calls[0], ["rabbitmqctl", "suspend_listeners"]);
     assert_eq!(
-        calls[0],
+        calls[1][..3],
+        ["rabbitmqctl", "close_all_connections", "--global"]
+    );
+    assert_eq!(
+        calls[2],
         [
             "rabbitmqctl",
             "list_queues",
@@ -1337,18 +1348,28 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
             "stackctl_bill_database",
             "name",
             "messages",
+            "messages_persistent",
+            "durable",
+            "type",
             "--no-table-headers",
         ]
     );
-    assert_eq!(calls[1][0], "sh");
-    assert!(calls[1][2].contains("export_definitions"));
-    assert!(calls[1][2].contains("STACKCTL_VHOST"));
+    assert_eq!(calls[3][0], "sh");
+    assert!(calls[3][2].contains("export_definitions"));
+    assert!(calls[3][2].contains("STACKCTL_VHOST"));
+    assert!(calls[4][2].contains("msg_stores/vhosts"));
     assert!(!format!("{calls:?}").contains("rabbit-secret"));
     assert!(
-        engine.command_environments()[1]["STACKCTL_DEFINITIONS_FILE"]
+        engine.command_environments()[3]["STACKCTL_DEFINITIONS_FILE"]
             .contains("stackctl_bill_database-40000")
     );
-    assert_eq!(backup.artifact_size_bytes(), 10);
+    assert!(backup.artifact_size_bytes() > 10);
+    assert_eq!(engine.stopped(), ["rabbitmq-container"]);
+    assert_eq!(engine.lifecycle_started(), ["rabbitmq-container"]);
+    assert_eq!(
+        engine.volume_subpath_downloads(),
+        ["mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"]
+    );
     assert!(Path::new(backup.reference()).join("artifact.bin").is_file());
     assert!(
         Path::new(backup.reference())
@@ -1360,7 +1381,7 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
 }
 
 #[test]
-fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
+fn queued_rabbitmq_backup_quiesces_broker_and_archives_non_empty_vhost() {
     use crate::control_plane::state::{
         CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
         LogicalResourceRecordOptions,
@@ -1374,7 +1395,14 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
         "rabbitmq-4",
         &fingerprint,
     )])
-    .with_rabbitmq_queue_output(b"jobs\t2\n".to_vec());
+    .with_observed_volumes(vec![observed_shared_volume(
+        "rabbitmq-4-data",
+        "install-1",
+        "rabbitmq-4",
+        &fingerprint,
+    )])
+    .with_rabbitmq_queue_output(b"jobs\t2\t2\ttrue\tclassic\n".to_vec())
+    .with_volume_archive(b"message-store-tar".to_vec());
     let operation = QueuedProjectBackup::new(
         "backup-rabbitmq-non-empty".to_owned(),
         "bill".to_owned(),
@@ -1386,7 +1414,7 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
     .expect("valid RabbitMQ backup intent");
     let logical_resource = LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: "bill/database/rabbitmq".to_owned(),
-        shared_resource_id: "rabbitmq-4".to_owned(),
+        shared_resource_id: "rabbitmq-4-data".to_owned(),
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),
         kind: "rabbitmq_vhost_user".to_owned(),
@@ -1424,15 +1452,18 @@ fn queued_rabbitmq_backup_fails_before_export_when_a_queue_contains_messages() {
         },
     ));
 
-    assert!(
-        result
-            .outcome()
-            .as_ref()
-            .expect_err("non-empty queue must fail closed")
-            .contains("contains 2 message(s) in queue 'jobs'")
+    let backup = result
+        .outcome()
+        .as_ref()
+        .expect("non-empty RabbitMQ vhost backup");
+    assert_eq!(engine.stopped(), ["rabbitmq-container"]);
+    assert_eq!(engine.lifecycle_started(), ["rabbitmq-container"]);
+    assert_eq!(
+        engine.volume_subpath_downloads(),
+        ["mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"]
     );
-    assert_eq!(engine.command_arguments().len(), 1);
-    assert!(!backup_root.join("bill").exists());
+    assert!(backup.artifact_size_bytes() > b"message-store-tar".len() as u64);
+    assert!(Path::new(backup.reference()).join("artifact.bin").is_file());
 
     std::fs::remove_dir_all(backup_root).expect("remove RabbitMQ backup fixture");
 }
@@ -4583,15 +4614,28 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         "stackctl-shared-{}",
         fingerprint.strip_prefix("sha256:").expect("fingerprint")
     );
+    let volume_name = format!("{container_name}-data");
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &container_name,
         "install-1",
         "rabbitmq-source",
         &fingerprint,
-    )]);
+    )])
+    .with_observed_volumes(vec![observed_shared_volume(
+        &volume_name,
+        "install-1",
+        "rabbitmq-source",
+        &fingerprint,
+    )])
+    .with_observed_networks(vec![observed_global_network(
+        "stackctl-network",
+        "install-1",
+    )])
+    .with_rabbitmq_queue_output(b"jobs\t2\t2\ttrue\tclassic\n".to_vec())
+    .with_volume_archive(rabbitmq_message_store_tar(b"current-message"));
     let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: "bill/database/rabbitmq".to_owned(),
-        shared_resource_id: container_name,
+        shared_resource_id: volume_name,
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),
         kind: "rabbitmq_vhost_user".to_owned(),
@@ -4610,10 +4654,19 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
     });
     let backup_root = root.join("backups");
     let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
-    let selected_definitions = b"{\"vhosts\":[{\"name\":\"stackctl_bill_database\"}]}";
+    let selected_definitions = serde_json::json!({
+        "vhosts": [{"name": "stackctl_bill_database"}],
+        "queues": [{"name": "jobs", "vhost": "stackctl_bill_database"}]
+    });
+    let selected_message_store = rabbitmq_message_store_tar(b"selected-message");
+    let selected_artifact = rabbitmq_recovery_artifact_bytes(
+        &selected_definitions,
+        BTreeMap::from([("jobs".to_owned(), 2)]),
+        &selected_message_store,
+    );
     let stored =
-        store_backup_artifact_for_identity(&identity, selected_definitions, 60_000, &backup_root)
-            .expect("stored RabbitMQ definitions");
+        store_backup_artifact_for_identity(&identity, &selected_artifact, 60_000, &backup_root)
+            .expect("stored RabbitMQ recovery artifact");
     let evidence = verify_stored_backup_artifact(&stored, 60_001).expect("verified definitions");
     let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
         recovery_point_id: "backup-rabbitmq".to_owned(),
@@ -4677,19 +4730,38 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         &Ok(MigrationExecutionResult::Confirmed)
     );
     let first_calls = engine.command_arguments();
-    assert_eq!(first_calls.len(), 5);
-    assert_eq!(first_calls[0][1], "list_queues");
-    assert!(first_calls[1][2].contains("export_definitions"));
-    assert_eq!(first_calls[2][1], "list_vhosts");
-    assert!(first_calls[3][2].contains("delete_vhost"));
-    assert!(first_calls[3][2].contains("import_definitions"));
-    assert_eq!(first_calls[4][1], "list_vhosts");
+    assert_eq!(first_calls.len(), 11);
+    assert_eq!(first_calls[0][1], "suspend_listeners");
+    assert_eq!(first_calls[1][1], "close_all_connections");
+    assert_eq!(first_calls[2][1], "list_queues");
+    assert!(first_calls[3][2].contains("export_definitions"));
+    assert!(first_calls[4][2].contains("msg_stores/vhosts"));
+    assert_eq!(first_calls[5][1], "list_vhosts");
+    assert!(first_calls[6][2].contains("delete_vhost"));
+    assert!(first_calls[6][2].contains("import_definitions"));
+    assert!(first_calls[6][2].contains("set_permissions"));
+    assert!(first_calls[7][2].contains("msg_stores/vhosts"));
+    assert!(first_calls[8][2].contains("import_definitions"));
+    assert_eq!(first_calls[9][1], "list_vhosts");
+    assert_eq!(first_calls[10][1], "list_queues");
     assert!(!format!("{first_calls:?}").contains("rabbit-secret"));
     assert!(
         engine
             .command_inputs()
             .iter()
-            .any(|input| input == selected_definitions)
+            .any(|input| input == &serde_json::to_vec(&selected_definitions).expect("definitions"))
+    );
+    assert_eq!(
+        *engine
+            .execution
+            .volume_upload
+            .lock()
+            .expect("RabbitMQ message-store upload"),
+        selected_message_store
+    );
+    assert_eq!(
+        engine.volume_subpath_uploads(),
+        ["mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"]
     );
     let store = SqliteStateStore::open(&database_path).expect("reopen state");
     let points = store.recovery_points("bill").expect("recovery catalog");
@@ -4705,14 +4777,14 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         execute().outcome(),
         &Ok(MigrationExecutionResult::Confirmed)
     );
-    assert_eq!(engine.command_arguments().len(), 8);
+    assert_eq!(engine.command_arguments().len(), 17);
     assert_eq!(
         engine
             .command_arguments()
             .iter()
             .filter(|arguments| arguments.get(1).is_some_and(|value| value == "list_queues"))
             .count(),
-        1
+        3
     );
     assert_eq!(
         SqliteStateStore::open(&database_path)
@@ -4723,8 +4795,57 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         2
     );
     assert!(engine.created().is_empty());
-    assert!(engine.stopped().is_empty());
+    assert_eq!(
+        engine.stopped(),
+        [
+            container_name.clone(),
+            container_name.clone(),
+            container_name.clone(),
+        ]
+    );
+    assert_eq!(
+        engine.lifecycle_started(),
+        [
+            container_name.clone(),
+            container_name.clone(),
+            container_name.clone(),
+        ]
+    );
+    assert_eq!(
+        engine.disconnected_networks(),
+        ["stackctl-network", "stackctl-network"]
+    );
+    assert_eq!(
+        engine.reconnected_networks(),
+        [
+            ("stackctl-network".to_owned(), container_name.clone()),
+            ("stackctl-network".to_owned(), container_name.clone()),
+        ]
+    );
     assert!(engine.removed().is_empty());
+
+    std::fs::write(stored.artifact_file(), b"corrupt selected recovery")
+        .expect("corrupt selected recovery artifact");
+    let failed = execute();
+    assert!(
+        failed
+            .outcome()
+            .as_ref()
+            .expect_err("corrupt recovery must fail")
+            .contains("verification failed")
+    );
+    assert_eq!(
+        engine.disconnected_networks(),
+        ["stackctl-network", "stackctl-network", "stackctl-network"]
+    );
+    assert_eq!(
+        engine.reconnected_networks(),
+        [
+            ("stackctl-network".to_owned(), container_name.clone()),
+            ("stackctl-network".to_owned(), container_name.clone()),
+            ("stackctl-network".to_owned(), container_name),
+        ]
+    );
 
     std::fs::remove_dir_all(root).expect("remove RabbitMQ restore fixture");
 }
@@ -4737,6 +4858,54 @@ impl CredentialEntropy for FixedRestoreEntropy {
 
         Ok(())
     }
+}
+
+fn rabbitmq_recovery_artifact_bytes(
+    definitions: &serde_json::Value,
+    queue_messages: BTreeMap<String, u64>,
+    message_store: &[u8],
+) -> Vec<u8> {
+    let header = serde_json::to_vec(&serde_json::json!({
+        "format_version": 1,
+        "vhost": "stackctl_bill_database",
+        "relative_message_store_path":
+            "mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P",
+        "definitions": definitions,
+        "queue_messages": queue_messages,
+    }))
+    .expect("RabbitMQ recovery header");
+    let mut artifact = b"STRMQ001".to_vec();
+    artifact.extend_from_slice(&(header.len() as u64).to_be_bytes());
+    artifact.extend_from_slice(&header);
+    artifact.extend_from_slice(message_store);
+
+    artifact
+}
+
+fn rabbitmq_message_store_tar(message: &[u8]) -> Vec<u8> {
+    let mut archive = Vec::new();
+    {
+        let mut builder = tar::Builder::new(&mut archive);
+        let mut directory = tar::Header::new_gnu();
+        directory.set_entry_type(tar::EntryType::Directory);
+        directory.set_mode(0o700);
+        directory.set_size(0);
+        directory.set_cksum();
+        builder
+            .append_data(&mut directory, "628Q7P", std::io::empty())
+            .expect("RabbitMQ message-store directory");
+        let mut marker = tar::Header::new_gnu();
+        marker.set_entry_type(tar::EntryType::Regular);
+        marker.set_mode(0o600);
+        marker.set_size(message.len() as u64);
+        marker.set_cksum();
+        builder
+            .append_data(&mut marker, "628Q7P/msg_store_persistent", message)
+            .expect("RabbitMQ message-store file");
+        builder.finish().expect("finish RabbitMQ message-store tar");
+    }
+
+    archive
 }
 
 #[test]
@@ -8429,6 +8598,7 @@ fn remove_lock(lock_path: &Path) {
 struct RecordingProjectCommandEngine {
     observed: Vec<crate::control_plane::engine::ObservedContainer>,
     observed_volumes: Vec<crate::control_plane::engine::ObservedVolume>,
+    observed_networks: Vec<crate::control_plane::engine::ObservedNetwork>,
     execution: std::sync::Arc<RecordingProjectCommandExecution>,
 }
 
@@ -8449,6 +8619,11 @@ struct RecordingProjectCommandExecution {
     rabbitmq_queue_output: std::sync::Mutex<Vec<u8>>,
     volume_archive: std::sync::Mutex<Vec<u8>>,
     volume_upload: std::sync::Mutex<Vec<u8>>,
+    volume_subpath_downloads: std::sync::Mutex<Vec<String>>,
+    volume_subpath_uploads: std::sync::Mutex<Vec<String>>,
+    disconnected_networks: std::sync::Mutex<Vec<String>>,
+    reconnected_networks: std::sync::Mutex<Vec<(String, String)>>,
+    network_isolated: std::sync::atomic::AtomicBool,
 }
 
 impl RecordingProjectCommandEngine {
@@ -8456,8 +8631,17 @@ impl RecordingProjectCommandEngine {
         Self {
             observed,
             observed_volumes: Vec::new(),
+            observed_networks: Vec::new(),
             execution: std::sync::Arc::new(RecordingProjectCommandExecution::default()),
         }
+    }
+
+    fn with_observed_networks(
+        mut self,
+        networks: Vec<crate::control_plane::engine::ObservedNetwork>,
+    ) -> Self {
+        self.observed_networks = networks;
+        self
     }
 
     fn with_observed_volumes(
@@ -8549,6 +8733,38 @@ impl RecordingProjectCommandEngine {
 
     fn removed(&self) -> Vec<String> {
         self.execution.removed.lock().expect("removed").clone()
+    }
+
+    fn volume_subpath_downloads(&self) -> Vec<String> {
+        self.execution
+            .volume_subpath_downloads
+            .lock()
+            .expect("volume subpath downloads")
+            .clone()
+    }
+
+    fn disconnected_networks(&self) -> Vec<String> {
+        self.execution
+            .disconnected_networks
+            .lock()
+            .expect("disconnected networks")
+            .clone()
+    }
+
+    fn reconnected_networks(&self) -> Vec<(String, String)> {
+        self.execution
+            .reconnected_networks
+            .lock()
+            .expect("reconnected networks")
+            .clone()
+    }
+
+    fn volume_subpath_uploads(&self) -> Vec<String> {
+        self.execution
+            .volume_subpath_uploads
+            .lock()
+            .expect("volume subpath uploads")
+            .clone()
     }
 }
 
@@ -8734,6 +8950,15 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             ),
             _ => None,
         };
+        let rabbitmq_script_output = request.arguments().get(2).and_then(|script| {
+            if script.contains("export_definitions") {
+                Some(b"{\"vhosts\":[{\"name\":\"stackctl_bill_database\"}],\"queues\":[]}".to_vec())
+            } else if script.contains("msg_stores/vhosts") {
+                Some(b"mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P\n".to_vec())
+            } else {
+                None
+            }
+        });
         let minio_version_output = request
             .arguments()
             .get(2)
@@ -8773,6 +8998,7 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .or(mongodb_verification_output)
             .or(sql_server_verification_output)
             .or(rabbitmq_list_output)
+            .or(rabbitmq_script_output)
             .or(minio_version_output)
             .or(redis_snapshot_output)
             .or(redis_prune_output);
@@ -8976,9 +9202,14 @@ impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCo
         &'operation self,
         _container: &'operation crate::control_plane::engine::OwnedContainer,
         _volume: &'operation crate::control_plane::engine::OwnedVolume,
-        _relative_path: &'operation Path,
+        relative_path: &'operation Path,
         output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
     ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .volume_subpath_downloads
+            .lock()
+            .expect("record volume subpath download")
+            .push(relative_path.display().to_string());
         let archive = self
             .execution
             .volume_archive
@@ -8998,17 +9229,22 @@ impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCo
         &'operation self,
         _container: &'operation crate::control_plane::engine::OwnedContainer,
         _volume: &'operation crate::control_plane::engine::OwnedVolume,
-        _relative_path: &'operation Path,
-        archive: &'operation Path,
+        relative_path: &'operation Path,
+        mut archive: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
-        let archive = archive.to_path_buf();
+        self.execution
+            .volume_subpath_uploads
+            .lock()
+            .expect("record volume subpath upload")
+            .push(relative_path.display().to_string());
         let execution = self.execution.clone();
         Box::pin(async move {
-            let bytes = tokio::fs::read(archive).await.map_err(|error| {
-                crate::control_plane::engine::EngineError::Backend {
+            let mut bytes = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut archive, &mut bytes)
+                .await
+                .map_err(|error| crate::control_plane::engine::EngineError::Backend {
                     detail: error.to_string(),
-                }
-            })?;
+                })?;
             *execution
                 .volume_upload
                 .lock()
@@ -9066,7 +9302,49 @@ impl crate::control_plane::engine::NetworkDiscovery for RecordingProjectCommandE
         '_,
         Vec<crate::control_plane::engine::ObservedNetwork>,
     > {
-        Box::pin(async { Ok(Vec::new()) })
+        let networks = self.observed_networks.clone();
+        Box::pin(async move { Ok(networks) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerNetworkIsolation for RecordingProjectCommandEngine {
+    fn disconnect_container_network<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        network: &'operation crate::control_plane::engine::OwnedNetwork,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        if !self
+            .execution
+            .network_isolated
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            self.execution
+                .disconnected_networks
+                .lock()
+                .expect("disconnected networks")
+                .push(network.id().as_str().to_owned());
+        }
+        Box::pin(async { Ok(()) })
+    }
+
+    fn reconnect_container_network<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        network: &'operation crate::control_plane::engine::OwnedNetwork,
+        alias: &'operation str,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        if self
+            .execution
+            .network_isolated
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            self.execution
+                .reconnected_networks
+                .lock()
+                .expect("reconnected networks")
+                .push((network.id().as_str().to_owned(), alias.to_owned()));
+        }
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -9218,6 +9496,55 @@ fn observed_shared_service(
 
     crate::control_plane::engine::ObservedContainer::new(
         crate::control_plane::engine::ContainerId::new(container_id),
+        metadata.labels(),
+    )
+}
+
+fn observed_shared_volume(
+    volume_name: &str,
+    installation_id: &str,
+    resource_id: &str,
+    compatibility_fingerprint: &str,
+) -> crate::control_plane::engine::ObservedVolume {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::Volume,
+            project_id: None,
+            compatibility_fingerprint: compatibility_fingerprint.to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("shared-volume metadata")
+    .with_resource_id(resource_id)
+    .expect("shared-volume identity");
+
+    crate::control_plane::engine::ObservedVolume::new(volume_name, metadata.labels())
+}
+
+fn observed_global_network(
+    network_id: &str,
+    installation_id: &str,
+) -> crate::control_plane::engine::ObservedNetwork {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: installation_id.to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::Network,
+            project_id: None,
+            compatibility_fingerprint: "network-v1".to_owned(),
+            schema_version: 8,
+            desired_revision: "network-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("network metadata")
+    .with_resource_id("private")
+    .expect("network identity");
+
+    crate::control_plane::engine::ObservedNetwork::new(
+        crate::control_plane::engine::NetworkId::new(network_id),
         metadata.labels(),
     )
 }

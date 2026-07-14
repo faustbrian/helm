@@ -454,7 +454,7 @@ impl ContainerVolumeArchive for RecordingVolumeArchiveEngine {
         _container: &'operation OwnedContainer,
         _volume: &'operation OwnedVolume,
         _relative_path: &'operation std::path::Path,
-        _archive: &'operation std::path::Path,
+        _archive: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async {
             Err(EngineError::InvalidRequest {
@@ -628,7 +628,7 @@ impl ContainerVolumeArchive for RecordingVolumeRestoreEngine {
         _container: &'operation OwnedContainer,
         _volume: &'operation OwnedVolume,
         _relative_path: &'operation std::path::Path,
-        _archive: &'operation std::path::Path,
+        _archive: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async {
             Err(EngineError::InvalidRequest {

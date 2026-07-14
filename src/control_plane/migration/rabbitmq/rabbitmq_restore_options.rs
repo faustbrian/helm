@@ -1,7 +1,7 @@
 use crate::control_plane::state::{CredentialRecord, LogicalResourceRecord, RecoveryPointRecord};
 use std::time::Duration;
 
-/// Complete bounded input for one verified empty-vhost topology restore.
+/// Complete bounded input for one verified vhost topology and message restore.
 pub(crate) struct RabbitMqRestoreOptions<'operation> {
     pub(crate) recovery_point: &'operation RecoveryPointRecord,
     pub(crate) logical_resource: &'operation LogicalResourceRecord,

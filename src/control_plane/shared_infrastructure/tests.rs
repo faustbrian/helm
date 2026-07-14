@@ -917,6 +917,17 @@ fn rabbitmq_strategy_publishes_isolated_vhosts_for_two_projects() {
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
     assert_eq!(engine.command_arguments.lock().expect("commands").len(), 1);
+    assert_eq!(
+        *engine
+            .reconnected_networks
+            .lock()
+            .expect("reconnected networks"),
+        [(
+            "created-shared-service".to_owned(),
+            "network-1".to_owned(),
+            engine.created_containers[0].name().to_owned(),
+        )]
+    );
     let identity = shared[0]
         .fingerprint()
         .as_str()
@@ -6246,11 +6257,34 @@ fn owned_shared_container(id: &str, fingerprint: &str) -> OwnedContainer {
     reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle")
 }
 
+fn owned_global_network() -> crate::control_plane::engine::ObservedNetwork {
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::Network,
+            project_id: None,
+            compatibility_fingerprint: "network-v1".to_owned(),
+            schema_version: 8,
+            desired_revision: "network-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("network metadata")
+    .with_resource_id("private")
+    .expect("network identity");
+
+    crate::control_plane::engine::ObservedNetwork::new(
+        crate::control_plane::engine::NetworkId::new("network-1"),
+        metadata.labels(),
+    )
+}
+
 struct RecordingSharedVolumeEngine {
     observed: Vec<crate::control_plane::engine::ObservedVolume>,
     created: Vec<crate::control_plane::engine::VolumeCreateOptions>,
     removed: Vec<crate::control_plane::engine::OwnedVolume>,
     observed_containers: Vec<ObservedContainer>,
+    observed_networks: Vec<crate::control_plane::engine::ObservedNetwork>,
     created_containers: Vec<crate::control_plane::engine::ContainerCreateOptions>,
     started_containers: Vec<OwnedContainer>,
     stopped_containers: Vec<OwnedContainer>,
@@ -6258,6 +6292,7 @@ struct RecordingSharedVolumeEngine {
     state: crate::control_plane::engine::ContainerState,
     health: crate::control_plane::engine::ContainerHealth,
     operations: Vec<&'static str>,
+    reconnected_networks: Arc<Mutex<Vec<(String, String, String)>>>,
     command_input: Arc<Mutex<Vec<u8>>>,
     command_arguments: Arc<Mutex<Vec<Vec<String>>>>,
     command_exit: i64,
@@ -6273,6 +6308,7 @@ impl Default for RecordingSharedVolumeEngine {
             created: Vec::new(),
             removed: Vec::new(),
             observed_containers: Vec::new(),
+            observed_networks: vec![owned_global_network()],
             created_containers: Vec::new(),
             started_containers: Vec::new(),
             stopped_containers: Vec::new(),
@@ -6280,6 +6316,7 @@ impl Default for RecordingSharedVolumeEngine {
             state: crate::control_plane::engine::ContainerState::Missing,
             health: crate::control_plane::engine::ContainerHealth::Starting,
             operations: Vec::new(),
+            reconnected_networks: Arc::new(Mutex::new(Vec::new())),
             command_input: Arc::new(Mutex::new(Vec::new())),
             command_arguments: Arc::new(Mutex::new(Vec::new())),
             command_exit: 0,
@@ -6336,6 +6373,41 @@ impl crate::control_plane::engine::VolumeManager for RecordingSharedVolumeEngine
 impl crate::control_plane::engine::ContainerDiscovery for RecordingSharedVolumeEngine {
     fn discover_managed(&self) -> EngineFuture<'_, Vec<ObservedContainer>> {
         Box::pin(async { Ok(self.observed_containers.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::NetworkDiscovery for RecordingSharedVolumeEngine {
+    fn discover_managed_networks(
+        &self,
+    ) -> EngineFuture<'_, Vec<crate::control_plane::engine::ObservedNetwork>> {
+        Box::pin(async { Ok(self.observed_networks.clone()) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerNetworkIsolation for RecordingSharedVolumeEngine {
+    fn disconnect_container_network<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _network: &'operation crate::control_plane::engine::OwnedNetwork,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn reconnect_container_network<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        network: &'operation crate::control_plane::engine::OwnedNetwork,
+        alias: &'operation str,
+    ) -> EngineFuture<'operation, ()> {
+        let reconnected = Arc::clone(&self.reconnected_networks);
+        Box::pin(async move {
+            reconnected.lock().expect("reconnected networks").push((
+                container.id().as_str().to_owned(),
+                network.id().as_str().to_owned(),
+                alias.to_owned(),
+            ));
+            Ok(())
+        })
     }
 }
 

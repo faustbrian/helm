@@ -7,8 +7,8 @@ use super::{
     reconcile_prepared_sql_server_instance,
 };
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerNetworkIsolation,
+    HealthObserver, NetworkDiscovery, VolumeDiscovery, VolumeManager,
 };
 
 /// Dispatches a prepared instance through its backend-specific convergence strategy.
@@ -22,7 +22,9 @@ where
     Engine: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerNetworkIsolation
         + HealthObserver
+        + NetworkDiscovery
         + VolumeDiscovery
         + VolumeManager,
 {

@@ -28,18 +28,22 @@ where
     let outcome = if options.operation.kind() == "volume" {
         Box::pin(execute_project_volume_backup(&mut engine, &options)).await
     } else {
-        Box::pin(execute_logical_project_backup(&engine, &options)).await
+        Box::pin(execute_logical_project_backup(&mut engine, &options)).await
     };
 
     ProjectBackupExecutionResult::new(options.operation, created_at_unix_seconds, outcome)
 }
 
 async fn execute_logical_project_backup<E>(
-    engine: &E,
+    engine: &mut E,
     options: &ProjectBackupExecutionOptions,
 ) -> Result<crate::control_plane::migration::MigrationBackup, String>
 where
-    E: CommandExecutor + ContainerDiscovery,
+    E: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + ContainerVolumeArchive
+        + VolumeDiscovery,
 {
     let logical = options
         .logical_resource
@@ -142,20 +146,50 @@ where
         )
         .await
         .map_err(|error| error.to_string()),
-        "rabbitmq_vhost_user" => backup_rabbitmq_vhost(
-            engine,
-            &container,
-            &RabbitMqBackupOptions {
-                logical_resource: logical,
-                credential,
-                installation_id: &options.installation_id,
-                created_at_unix_seconds: options.created_at_unix_seconds,
-                backup_root: &options.backup_root,
-                timeout: options.timeout,
-            },
-        )
-        .await
-        .map_err(|error| error.to_string()),
+        "rabbitmq_vhost_user" => {
+            let volumes = engine
+                .discover_managed_volumes()
+                .await
+                .map_err(|error| error.to_string())?;
+            let mut matches = volumes
+                .iter()
+                .filter_map(|volume| {
+                    reconstruct_owned_volume(
+                        volume,
+                        &options.installation_id,
+                        options.schema_version,
+                    )
+                    .ok()
+                })
+                .filter(|volume| volume.name() == logical.shared_resource_id());
+            let volume = matches.next().ok_or_else(|| {
+                format!(
+                    "RabbitMQ backup found no exact owned volume '{}'",
+                    logical.shared_resource_id()
+                )
+            })?;
+            if matches.next().is_some() {
+                return Err(format!(
+                    "RabbitMQ backup found multiple owned volumes '{}'",
+                    logical.shared_resource_id()
+                ));
+            }
+            backup_rabbitmq_vhost(
+                engine,
+                &container,
+                &volume,
+                &RabbitMqBackupOptions {
+                    logical_resource: logical,
+                    credential,
+                    installation_id: &options.installation_id,
+                    created_at_unix_seconds: options.created_at_unix_seconds,
+                    backup_root: &options.backup_root,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())
+        }
         "minio_bucket_policy" => backup_minio_bucket(
             engine,
             &container,

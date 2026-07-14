@@ -5,23 +5,24 @@ use super::{
     ContainerCompletion, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
     ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
     ContainerHealth, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerResourceMetrics, ContainerState, ContainerVolumeArchive, EngineError, EngineFuture,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageReferenceResolver,
-    ImageResolver, ImmutableImageReference, LogChunk, LogSource, LogStreamKind,
-    NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer,
-    ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork,
-    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
-    ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    classify_observed_resource,
+    ContainerNetworkIsolation, ContainerResourceMetrics, ContainerState, ContainerVolumeArchive,
+    EngineError, EngineFuture, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
+    ImageReferenceResolver, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
+    LogStreamKind, NetworkCreateOptions, NetworkDiscovery, NetworkId, NetworkManager,
+    ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume, OwnedContainer,
+    OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
+    RegistryImageReference, ResourceKind, ResourceMetrics, VolumeCreateOptions, VolumeDiscovery,
+    VolumeManager, classify_observed_resource,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use bollard::models::{
     ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
-    ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary, EventMessage,
-    EventMessageTypeEnum, HealthConfig, HealthStatusEnum, HostConfig, Mount, MountPoint, MountType,
-    Network, NetworkCreateRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy,
+    ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary,
+    EndpointSettings, EventMessage, EventMessageTypeEnum, HealthConfig, HealthStatusEnum,
+    HostConfig, Mount, MountPoint, MountType, Network, NetworkConnectRequest, NetworkCreateRequest,
+    NetworkDisconnectRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy,
     RestartPolicyNameEnum, Volume, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
@@ -532,7 +533,7 @@ impl ContainerVolumeArchive for BollardEngineAdapter {
         container: &'operation OwnedContainer,
         volume: &'operation OwnedVolume,
         relative_path: &'operation Path,
-        archive: &'operation Path,
+        archive: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {
             validate_volume_archive_identity(container, volume)?;
@@ -544,12 +545,6 @@ impl ContainerVolumeArchive for BollardEngineAdapter {
                             "volume archive subpath '{}' is not valid UTF-8",
                             relative_path.display()
                         ),
-                    })?;
-            let archive =
-                tokio::fs::File::open(archive)
-                    .await
-                    .map_err(|error| EngineError::Backend {
-                        detail: format!("open owned volume subpath archive: {error}"),
                     })?;
             bounded_engine_operation(
                 "upload owned volume subpath archive",
@@ -1452,6 +1447,182 @@ pub(super) fn verify_owned_container_labels(
     verify_owned_container_labels_for("mutate", container, labels)
 }
 
+impl ContainerNetworkIsolation for BollardEngineAdapter {
+    fn disconnect_container_network<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        network: &'operation OwnedNetwork,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_network_isolation_identity(container, network, None)?;
+            bounded_engine_operation(
+                "disconnect owned container network",
+                request_timeout(),
+                async {
+                    let attached = self
+                        .verify_network_isolation_ownership(container, network)
+                        .await?;
+                    if !attached {
+                        return Err(EngineError::InvalidRequest {
+                            detail: format!(
+                                "owned container '{}' is not attached to private network '{}'",
+                                container.id().as_str(),
+                                network.id().as_str()
+                            ),
+                        });
+                    }
+                    self.docker
+                        .disconnect_network(
+                            network.id().as_str(),
+                            NetworkDisconnectRequest {
+                                container: container.id().as_str().to_owned(),
+                                force: Some(true),
+                            },
+                        )
+                        .await
+                        .map_err(|error| backend_error("disconnect owned container network", error))
+                },
+            )
+            .await
+        })
+    }
+
+    fn reconnect_container_network<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        network: &'operation OwnedNetwork,
+        alias: &'operation str,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_network_isolation_identity(container, network, Some(alias))?;
+            bounded_engine_operation(
+                "reconnect owned container network",
+                request_timeout(),
+                async {
+                    let attached = self
+                        .verify_network_isolation_ownership(container, network)
+                        .await?;
+                    if attached {
+                        return Ok(());
+                    }
+                    self.docker
+                        .connect_network(
+                            network.id().as_str(),
+                            NetworkConnectRequest {
+                                container: container.id().as_str().to_owned(),
+                                endpoint_config: Some(EndpointSettings {
+                                    aliases: Some(vec![alias.to_owned()]),
+                                    ..EndpointSettings::default()
+                                }),
+                            },
+                        )
+                        .await
+                        .map_err(|error| backend_error("reconnect owned container network", error))
+                },
+            )
+            .await
+        })
+    }
+}
+
+impl BollardEngineAdapter {
+    async fn verify_network_isolation_ownership(
+        &self,
+        container: &OwnedContainer,
+        network: &OwnedNetwork,
+    ) -> Result<bool, EngineError> {
+        let observed_container = self
+            .docker
+            .inspect_container(container.id().as_str(), None)
+            .await
+            .map_err(|error| backend_error("verify network-isolated container ownership", error))?;
+        verify_owned_container_labels_for(
+            "isolate network",
+            container,
+            &observed_container
+                .config
+                .as_ref()
+                .and_then(|config| config.labels.as_ref())
+                .cloned()
+                .unwrap_or_default(),
+        )?;
+        let observed_network = self
+            .docker
+            .inspect_network(network.id().as_str(), None)
+            .await
+            .map_err(|error| backend_error("verify isolation network ownership", error))?;
+        verify_owned_network_labels_for(
+            "isolate network",
+            network,
+            &observed_network.labels.unwrap_or_default(),
+        )?;
+        let network_name = observed_network.name.ok_or_else(|| EngineError::Backend {
+            detail: format!(
+                "owned network '{}' has no Engine name",
+                network.id().as_str()
+            ),
+        })?;
+        let attachment_count = observed_container
+            .network_settings
+            .and_then(|settings| settings.networks)
+            .unwrap_or_default()
+            .iter()
+            .filter(|(name, settings)| {
+                name.as_str() == network_name
+                    || settings.network_id.as_deref() == Some(network.id().as_str())
+            })
+            .count();
+        if attachment_count > 1 {
+            return Err(EngineError::InvalidRequest {
+                detail: format!(
+                    "owned container '{}' has duplicate attachments to network '{}'",
+                    container.id().as_str(),
+                    network.id().as_str()
+                ),
+            });
+        }
+
+        Ok(attachment_count == 1)
+    }
+}
+
+fn validate_network_isolation_identity(
+    container: &OwnedContainer,
+    network: &OwnedNetwork,
+    alias: Option<&str>,
+) -> Result<(), EngineError> {
+    let valid_alias = alias.is_none_or(|alias| {
+        !alias.is_empty()
+            && alias.len() <= 128
+            && alias
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            && alias
+                .bytes()
+                .next()
+                .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+            && alias
+                .bytes()
+                .next_back()
+                .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+    });
+    if container.metadata().installation_id() != network.metadata().installation_id()
+        || container.metadata().schema_version() != network.metadata().schema_version()
+        || container.metadata().project_id().is_some()
+        || network.metadata().project_id().is_some()
+        || network.metadata().kind() != ResourceKind::Network
+        || !valid_alias
+    {
+        return Err(EngineError::InvalidRequest {
+            detail:
+                "container network isolation requires exact owned global resources and a safe alias"
+                    .to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
 fn verify_owned_container_labels_for(
     action: &'static str,
     container: &OwnedContainer,
@@ -1517,12 +1688,20 @@ pub(super) fn verify_owned_network_labels(
     network: &OwnedNetwork,
     labels: &HashMap<String, String>,
 ) -> Result<(), EngineError> {
+    verify_owned_network_labels_for("delete", network, labels)
+}
+
+fn verify_owned_network_labels_for(
+    action: &'static str,
+    network: &OwnedNetwork,
+    labels: &HashMap<String, String>,
+) -> Result<(), EngineError> {
     if labels_match_metadata(labels, network.metadata()) {
         return Ok(());
     }
 
     Err(EngineError::OwnershipMismatch {
-        action: "delete",
+        action,
         resource_kind: "network",
         resource_id: network.id().as_str().to_owned(),
     })

@@ -241,13 +241,19 @@ immediately before cleanup; only the exact resulting volume-name set can pass
 the Engine deletion guard. A project-owned volume observed in the Engine but
 absent from durable authorization blocks the entire cleanup before mutation.
 
-RabbitMQ vhost recovery exports and restores exact definitions only after both
-the selected recovery point and the current safety snapshot prove the vhost has
-no queued messages. Restore deletes only the exact vhost, imports its verified
-definitions, and confirms that the vhost exists before reporting success.
-Non-empty vhosts fail closed because RabbitMQ requires an offline node-data
-backup to preserve messages; Stackctl does not drain and republish messages as
-if that were an equivalent snapshot.
+RabbitMQ vhost recovery supports empty queues and non-empty durable classic
+queues containing only persistent messages. Backup suspends broker listeners,
+closes clients, stops the shared broker, and archives only the exact vhost's
+message-store subtree together with credential-free scoped topology. Because
+RabbitMQ message storage must be copied while the node is stopped, this creates
+a brief broker-wide maintenance window for every project sharing the instance.
+Restore first detaches the broker from Stackctl's private network and keeps it
+detached from the current safety snapshot through topology replacement,
+message-store extraction, restart, and queue-count verification. It validates
+every tar path and link before extraction, reapplies the current recorded
+user's permissions without restoring password hashes, and reconnects the
+broker under its deterministic DNS alias only after verification. Non-durable
+queues, non-persistent messages, quorum queues, and streams fail closed.
 
 `stackctl daemon service uninstall` defaults to keep-data behavior. The
 equivalent explicit form is `stackctl daemon service uninstall --keep-data`.

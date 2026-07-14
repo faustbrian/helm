@@ -1,6 +1,6 @@
 use super::{EngineFuture, OwnedContainer, OwnedVolume};
 use std::path::Path;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Streams one exact owned named volume through its owning container mount.
 pub(crate) trait ContainerVolumeArchive {
@@ -31,6 +31,6 @@ pub(crate) trait ContainerVolumeArchive {
         container: &'operation OwnedContainer,
         volume: &'operation OwnedVolume,
         relative_path: &'operation Path,
-        archive: &'operation Path,
+        archive: Box<dyn AsyncRead + Send + Unpin>,
     ) -> EngineFuture<'operation, ()>;
 }

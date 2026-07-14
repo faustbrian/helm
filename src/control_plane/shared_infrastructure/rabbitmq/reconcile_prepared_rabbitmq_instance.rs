@@ -1,7 +1,9 @@
-use super::{PreparedRabbitMqSharedInstance, reconcile_rabbitmq_definitions};
+use super::{
+    PreparedRabbitMqSharedInstance, reconcile_rabbitmq_definitions, reconnect_rabbitmq_network,
+};
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerNetworkIsolation,
+    HealthObserver, NetworkDiscovery, VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
@@ -18,7 +20,9 @@ where
     Engine: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerNetworkIsolation
         + HealthObserver
+        + NetworkDiscovery
         + VolumeDiscovery
         + VolumeManager,
 {
@@ -27,6 +31,14 @@ where
         prepared.instance(),
         prepared.definitions(),
         prepared.state_directory(),
+        installation_id,
+        schema_version,
+    )
+    .await?;
+    reconnect_rabbitmq_network(
+        engine,
+        shared.container(),
+        prepared.instance().container(),
         installation_id,
         schema_version,
     )

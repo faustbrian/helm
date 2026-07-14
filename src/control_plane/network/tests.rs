@@ -1,6 +1,6 @@
 use super::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileOptions, global_network_request,
-    reconcile_global_network,
+    matches_global_network, reconcile_global_network,
 };
 
 #[test]
@@ -22,6 +22,29 @@ fn production_global_network_request_has_one_deterministic_identity() {
         Some("network-v1")
     );
     assert_eq!(request.metadata().retention(), RetentionClass::Persistent);
+}
+
+#[test]
+fn global_network_match_requires_the_complete_canonical_identity() {
+    let request = global_network_request("install-1").expect("global network request");
+    let exact = reconstruct_owned_network(
+        &ObservedNetwork::new(NetworkId::new("network-1"), request.metadata().labels()),
+        "install-1",
+        8,
+    )
+    .expect("owned global network");
+    let mut wrong_labels = request.metadata().labels();
+    wrong_labels.insert("dev.stackctl.desired".to_owned(), "network-v2".to_owned());
+    let wrong = reconstruct_owned_network(
+        &ObservedNetwork::new(NetworkId::new("network-2"), wrong_labels),
+        "install-1",
+        8,
+    )
+    .expect("owned noncanonical network");
+
+    assert!(matches_global_network(&exact, "install-1"));
+    assert!(!matches_global_network(&wrong, "install-1"));
+    assert!(!matches_global_network(&exact, "install-2"));
 }
 use crate::control_plane::engine::{
     EngineError, EngineFuture, ManagedResourceMetadata, ManagedResourceMetadataOptions,
