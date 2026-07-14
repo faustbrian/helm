@@ -2259,6 +2259,300 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
     std::fs::remove_dir_all(root).expect("remove MySQL restore fixture");
 }
 
+#[test]
+fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-mongodb-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "mongo@sha256:",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path.clone(),
+        project_path.join(".stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: mongodb\n    version: \"8\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("MongoDB instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
+    let source_container_name = format!("stackctl-shared-{fingerprint_id}");
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &source_container_name,
+        "install-1",
+        "mongodb-source",
+        &fingerprint,
+    )]);
+    let source = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: source_container_name.clone(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mongodb_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:source".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let source_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mongodb".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{fingerprint_id}/mongodb-bootstrap"),
+        project_id: None,
+        service_id: "mongodb".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "source-admin".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let source_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:source".to_owned(),
+        values: BTreeMap::from([
+            ("MONGODB_HOST".to_owned(), source_container_name.clone()),
+            ("MONGODB_PORT".to_owned(), "27017".to_owned()),
+            (
+                "MONGODB_DATABASE".to_owned(),
+                source.logical_resource_id().to_owned(),
+            ),
+            (
+                "MONGODB_USERNAME".to_owned(),
+                source_credential.username().to_owned(),
+            ),
+            (
+                "MONGODB_PASSWORD".to_owned(),
+                source_credential.secret().to_owned(),
+            ),
+        ]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let backup_root = root.join("backups");
+    let backup = runtime
+        .block_on(execute_queued_project_backup(
+            engine.clone(),
+            ProjectBackupExecutionOptions {
+                operation: QueuedProjectBackup::new(
+                    "backup-mongodb".to_owned(),
+                    "bill".to_owned(),
+                    "database".to_owned(),
+                    source.logical_resource_id().to_owned(),
+                    source.kind().to_owned(),
+                    fingerprint.clone(),
+                )
+                .expect("backup intent"),
+                logical_resource: Ok(source.clone()),
+                credential: Ok(source_credential.clone()),
+                installation_id: "install-1".to_owned(),
+                schema_version: 8,
+                backup_root: backup_root.clone(),
+                created_at_unix_seconds: 60_000,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .outcome()
+        .as_ref()
+        .expect("verified backup")
+        .clone();
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-mongodb".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: source.logical_resource_id().to_owned(),
+        resource_kind: source.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: backup.reference().to_owned(),
+        artifact_sha256: backup.artifact_sha256().to_owned(),
+        artifact_size_bytes: backup.artifact_size_bytes(),
+        created_at_unix_seconds: 60_000,
+        verified_at_unix_seconds: 60_001,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_project(&ProjectRecord::new(
+            project_path,
+            "bill".to_owned(),
+            Vec::new(),
+        ))
+        .expect("project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&source))
+        .expect("source ownership");
+    store
+        .insert_credential_if_absent(&source_credential)
+        .expect("source credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator");
+    store
+        .replace_managed_environment(&source_environment)
+        .expect("source environment");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    drop(store);
+
+    let result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0xaa),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                operation_id: "restore-mongodb".to_owned(),
+                recovery_point_id: "backup-mongodb".to_owned(),
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                logical_resource_id: source.logical_resource_id().to_owned(),
+                kind: source.kind().to_owned(),
+                compatibility_fingerprint: fingerprint,
+            })
+            .expect("restore intent"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 60_002,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        result.outcome(),
+        &Ok(MigrationExecutionResult::AwaitingConfirmation)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert_eq!(
+        store.migrations().expect("migrations")[0].phase(),
+        MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.managed_environments().expect("environment")[0]
+            .values()
+            .get("MONGODB_HOST"),
+        Some(&"stackctl-migration-restore-mongodb".to_owned())
+    );
+    assert!(
+        engine
+            .created()
+            .contains(&"stackctl-migration-restore-mongodb".to_owned())
+    );
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    let rollback_database_path = root.join("rollback-state.sqlite3");
+    std::fs::copy(&database_path, &rollback_database_path)
+        .expect("snapshot MongoDB cutover state for rollback");
+    let confirmed = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0xbb),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "confirm-mongodb".to_owned(),
+                "restore-mongodb".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Confirm,
+            )
+            .expect("MongoDB confirmation"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 60_003,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        confirmed.outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("confirmed MongoDB state");
+    assert_eq!(
+        store.migrations().expect("confirmed migration")[0].phase(),
+        MigrationPhase::Confirmed
+    );
+    let retirement_script = String::from_utf8(
+        engine
+            .command_inputs()
+            .last()
+            .expect("MongoDB retirement script")
+            .clone(),
+    )
+    .expect("retirement script UTF-8");
+    assert!(retirement_script.contains("dropUser"));
+    assert!(retirement_script.contains("dropDatabase"));
+    assert!(retirement_script.contains("source-admin"));
+
+    drop(store);
+    let rolled_back = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0xcc),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "rollback-mongodb".to_owned(),
+                "restore-mongodb".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Rollback,
+            )
+            .expect("MongoDB rollback"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: rollback_database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 60_004,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        rolled_back.outcome(),
+        &Ok(MigrationExecutionResult::RolledBack)
+    );
+    let store = SqliteStateStore::open(&rollback_database_path).expect("rolled-back MongoDB state");
+    assert_eq!(
+        store.migrations().expect("rolled-back migration")[0].phase(),
+        MigrationPhase::RolledBack
+    );
+    assert_eq!(
+        store.managed_environments().expect("source environment")[0]
+            .values()
+            .get("MONGODB_HOST"),
+        Some(&source_container_name)
+    );
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove MongoDB restore fixture");
+}
+
 struct FixedRestoreEntropy(u8);
 
 impl CredentialEntropy for FixedRestoreEntropy {

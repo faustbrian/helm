@@ -84,7 +84,10 @@ impl QueuedProjectRestore {
         }
         if !matches!(
             self.kind.as_str(),
-            "postgres_database_and_role" | "mysql_database" | "mariadb_database"
+            "postgres_database_and_role"
+                | "mysql_database"
+                | "mariadb_database"
+                | "mongodb_database"
         ) {
             return Err(format!(
                 "project restore kind '{}' is not implemented",

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned reversible MongoDB recovery execution with exact catalog
+  selection, isolated persistent targets, tenant-authenticated verification,
+  atomic environment cutover, explicit confirmation with source retirement,
+  and rollback that retains the restored target and recovery evidence.
 - Added exact MongoDB target verification through the restored tenant identity,
   requiring byte-exact database and ping evidence while keeping its encoded
   connection URI confined to the in-container command environment.
