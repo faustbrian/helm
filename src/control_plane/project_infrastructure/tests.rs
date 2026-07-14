@@ -544,6 +544,121 @@ fn localstack_preparation_enables_persistence_and_injects_sdk_defaults() {
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn dragonfly_preparation_replays_stable_password_and_snapshot_contract() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  cache:\n    preset: dragonfly\n    version: '1'\n    image: docker.dragonflydb.io/dragonflydb/dragonfly@sha256:{}\n",
+            "2".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-dragonfly-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0xee))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0xff))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(replayed.len(), 1);
+    let first = &first[0];
+    let replayed = &replayed[0];
+    let credential = first.credential().expect("Dragonfly credential");
+    assert_eq!(credential.username(), "default");
+    assert_eq!(
+        credential.secret(),
+        replayed
+            .credential()
+            .expect("replayed Dragonfly credential")
+            .secret()
+    );
+    assert_eq!(
+        first.container_environment().get("DFLY_bind"),
+        Some(&"0.0.0.0".to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("DFLY_dir"),
+        Some(&"/data".to_owned())
+    );
+    assert_eq!(
+        first
+            .container_environment()
+            .get("DFLY_primary_port_http_enabled"),
+        Some(&"false".to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("DFLY_requirepass"),
+        Some(&credential.secret().to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("DFLY_snapshot_cron"),
+        Some(&"* * * * *".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("DRAGONFLY_HOST"),
+        Some(&"stackctl-bill-cache".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("DRAGONFLY_PORT"),
+        Some(&"6379".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("DRAGONFLY_USERNAME"),
+        Some(&"default".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("DRAGONFLY_PASSWORD"),
+        Some(&credential.secret().to_owned())
+    );
+    assert_eq!(first.route(), None);
+    assert!(!format!("{first:?}").contains(credential.secret()));
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn dragonfly_preparation_rejects_reserved_environment_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  cache:\n",
+                "    preset: dragonfly\n    version: '1'\n",
+                "    image: docker.dragonflydb.io/dragonflydb/dragonfly@sha256:{}\n",
+                "    environment:\n      DFLY_requirepass: override\n"
+            ),
+            "2".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-dragonfly-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0xee))
+            .expect_err("reserved environment conflict")
+            .to_string(),
+        "Dragonfly service 'bill-cache' cannot replace generated environment key \
+         'DFLY_requirepass'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {

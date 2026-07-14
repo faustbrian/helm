@@ -1,9 +1,9 @@
 use super::{
     PreparedProjectService, ProjectServicePreparationError, opensearch_initial_admin_password,
-    plan_elasticsearch_project_resources, plan_localstack_project_resources,
-    plan_meilisearch_project_resources, plan_memcached_project_resources,
-    plan_opensearch_project_resources, plan_soketi_project_resources,
-    plan_typesense_project_resources,
+    plan_dragonfly_project_resources, plan_elasticsearch_project_resources,
+    plan_localstack_project_resources, plan_meilisearch_project_resources,
+    plan_memcached_project_resources, plan_opensearch_project_resources,
+    plan_soketi_project_resources, plan_typesense_project_resources,
 };
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
@@ -11,6 +11,7 @@ use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
 /// Selects the service-specific preparation adapter for one execution plan.
 #[derive(Clone, Copy)]
 pub(crate) enum ProjectServicePreparationStrategy {
+    Dragonfly,
     Elasticsearch,
     LocalStack,
     Memcached,
@@ -25,6 +26,7 @@ impl ProjectServicePreparationStrategy {
         service: &ServiceExecutionPlan,
     ) -> Result<Option<Self>, ProjectServicePreparationError> {
         let strategy = match service.desired().preset() {
+            Some("dragonfly") => Some(Self::Dragonfly),
             Some("elasticsearch") => Some(Self::Elasticsearch),
             Some("localstack") => Some(Self::LocalStack),
             Some("memcached") => Some(Self::Memcached),
@@ -50,7 +52,8 @@ impl ProjectServicePreparationStrategy {
         matches!(
             service.desired().preset(),
             Some(
-                "elasticsearch"
+                "dragonfly"
+                    | "elasticsearch"
                     | "localstack"
                     | "meilisearch"
                     | "memcached"
@@ -68,7 +71,8 @@ impl ProjectServicePreparationStrategy {
     pub(crate) fn finalize_candidate_secret(self, secret: CredentialSecret) -> CredentialSecret {
         match self {
             Self::OpenSearch => opensearch_initial_admin_password(secret),
-            Self::Elasticsearch
+            Self::Dragonfly
+            | Self::Elasticsearch
             | Self::LocalStack
             | Self::Meilisearch
             | Self::Memcached
@@ -83,6 +87,9 @@ impl ProjectServicePreparationStrategy {
         secret: Option<CredentialSecret>,
     ) -> Result<PreparedProjectService, ProjectServicePreparationError> {
         match self {
+            Self::Dragonfly => {
+                plan_dragonfly_project_resources(service, required(secret, "Dragonfly")?)
+            }
             Self::Elasticsearch => {
                 plan_elasticsearch_project_resources(service, required(secret, "Elasticsearch")?)
             }

@@ -34,6 +34,9 @@ All notable changes to this project are documented in this file.
 - Added credential-free LocalStack preparation with persistence enabled, a
   generated private gateway endpoint, and fixed non-secret SDK defaults without
   publishing a host port or implicit route.
+- Added stable Dragonfly authentication, generated Redis-compatible endpoint
+  values, disabled primary-port HTTP, and scheduled snapshots into its retained
+  project volume without claiming unproven shared isolation.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.
