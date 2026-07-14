@@ -1850,6 +1850,54 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    fn record_v7_migration_rollback(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        retained_targets: &[LogicalResourceRecord],
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        if execution.phase() != V7MigrationExecutionPhase::RolledBack
+            || execution.project_id() != project.project_name()
+            || execution.project_id() != environment.project_id()
+            || execution.canonical_project_path() != project.canonical_path()
+            || environment.lifecycle() != EnvironmentLifecycle::Active
+            || retained_targets.iter().any(|target| {
+                target.project_id() != execution.project_id()
+                    || target.lifecycle() != ResourceLifecycle::Retained
+            })
+        {
+            return Err(StateStoreError::InvalidMigrationRollback {
+                detail: "v7 project, active environment, retained targets, and rollback checkpoint must match"
+                    .to_owned(),
+            });
+        }
+        let canonical_path = exact_path(project.canonical_path())?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let registered_project = transaction
+            .query_row(
+                "SELECT project_name FROM projects WHERE canonical_path = ?1",
+                [canonical_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if registered_project.as_deref() != Some(execution.project_id()) {
+            return Err(StateStoreError::InvalidMigrationRollback {
+                detail: "the exact v7 migration project path is not registered".to_owned(),
+            });
+        }
+
+        replace_project_batch(&transaction, &[(project, canonical_path)])?;
+        persist_managed_environment(&transaction, environment)?;
+        persist_logical_resources(&transaction, retained_targets)?;
+        persist_v7_migration_execution(&transaction, canonical_path, execution)?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn v7_migration_execution(
         &self,
         canonical_project_path: &Path,

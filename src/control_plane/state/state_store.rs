@@ -199,6 +199,15 @@ pub(crate) trait StateStore: Send {
         execution: &V7MigrationExecutionRecord,
     ) -> Result<(), StateStoreError>;
 
+    /// Atomically restores project intent and journals one v7 rollback.
+    fn record_v7_migration_rollback(
+        &mut self,
+        project: &ProjectRecord,
+        environment: &ManagedEnvironmentRecord,
+        retained_targets: &[LogicalResourceRecord],
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError>;
+
     /// Loads exact execution state bound to one accepted evidence revision.
     fn v7_migration_execution(
         &self,

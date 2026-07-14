@@ -35,6 +35,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added the matching atomic v7 rollback commit for restored route ownership,
+  project intent, managed environment, retained logical targets, and execution
+  proof. Restored identity is preflighted before adapter side effects run.
 - Added an atomic v7 cutover commit for route ownership, application project
   intent, the complete managed environment, and the project-wide execution
   checkpoint. A rejected or skipped journal transition now rolls back every

@@ -722,6 +722,9 @@ fn v7_cutover_atomically_publishes_project_environment_and_execution() {
         accepted.evidence_revision(),
     ))
     .expect("cutover execution");
+    let rolled_back = cutover
+        .transition_all(V7MigrationExecutionPhase::RolledBack, 13)
+        .expect("rolled-back execution");
     let mut store = SqliteStateStore::open(&database_path).expect("open state store");
     store
         .record_accepted_v7_inventory(&accepted)
@@ -767,19 +770,45 @@ fn v7_cutover_atomically_publishes_project_environment_and_execution() {
         .expect("record atomic cutover");
     assert_eq!(
         store.projects().expect("load cutover project"),
-        vec![cutover_project]
+        vec![cutover_project.clone()]
     );
     assert_eq!(
         store
             .managed_environments()
             .expect("load cutover environment"),
-        vec![cutover_environment]
+        vec![cutover_environment.clone()]
     );
     assert_eq!(
         store
             .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
             .expect("load cutover execution"),
-        Some(cutover)
+        Some(cutover.clone())
+    );
+
+    let rollback_project =
+        project_record("/work/bill", "bill", &["bill-legacy.stackctl.localhost"]);
+    let rollback_environment = managed_environment(BTreeMap::from([(
+        "APP_STAGE".to_owned(),
+        "legacy".to_owned(),
+    )]));
+    store
+        .record_v7_migration_rollback(&rollback_project, &rollback_environment, &[], &rolled_back)
+        .expect("record atomic rollback");
+    assert_eq!(
+        store.projects().expect("load rollback project"),
+        vec![rollback_project]
+    );
+    assert_eq!(
+        store
+            .managed_environments()
+            .expect("load rollback environment"),
+        vec![rollback_environment]
+    );
+    assert_eq!(
+        store
+            .v7_migration_execution(Path::new("/work/bill"), accepted.evidence_revision())
+            .expect("load rolled-back execution"),
+        Some(rolled_back)
     );
 
     drop(store);

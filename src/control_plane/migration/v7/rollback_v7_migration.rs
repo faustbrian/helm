@@ -1,15 +1,26 @@
 use super::cutover_v7_migration::{cutover_rank, load_execution};
-use super::{V7MigrationAdapterRegistry, V7MigrationExecutionError, V7MigrationExecutionJournal};
+use super::{V7MigrationExecutionError, V7MigrationExecutionJournal, V7MigrationRollbackOptions};
 use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutionRecord};
 
 /// Restores every source in reverse adapter order before journaling rollback.
 pub(crate) async fn rollback_v7_migration(
-    journal: &mut dyn V7MigrationExecutionJournal,
-    plan: &V7MigrationExecutionRecord,
-    registry: &mut V7MigrationAdapterRegistry,
-    updated_at_unix_seconds: i64,
+    options: V7MigrationRollbackOptions<'_>,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
-    let execution = load_execution(journal, plan)?;
+    let execution = load_execution(options.journal, options.plan)?;
+    if options.restored_state.project().project_name() != execution.project_id()
+        || options.restored_state.environment().project_id() != execution.project_id()
+        || options.restored_state.project().canonical_path() != execution.canonical_project_path()
+        || options
+            .restored_state
+            .retained_targets()
+            .iter()
+            .any(|target| target.project_id() != execution.project_id())
+    {
+        return Err(V7MigrationExecutionError::InvalidPlan {
+            detail: "restored project state does not match the immutable execution identity"
+                .to_owned(),
+        });
+    }
     if execution.phase() == V7MigrationExecutionPhase::RolledBack {
         return Ok(execution);
     }
@@ -18,8 +29,8 @@ pub(crate) async fn rollback_v7_migration(
             detail: "cannot roll back after source retirement".to_owned(),
         });
     }
-    registry.validate(&execution)?;
-    if updated_at_unix_seconds < execution.updated_at_unix_seconds() {
+    options.registry.validate(&execution)?;
+    if options.updated_at_unix_seconds < execution.updated_at_unix_seconds() {
         return Err(V7MigrationExecutionError::InvalidPlan {
             detail: "roll back time predates durable execution".to_owned(),
         });
@@ -31,7 +42,8 @@ pub(crate) async fn rollback_v7_migration(
     });
     for index in indexes {
         let checkpoint = &execution.checkpoints()[index];
-        registry
+        options
+            .registry
             .executor(checkpoint)?
             .as_mut()
             .rollback(checkpoint)
@@ -45,10 +57,12 @@ pub(crate) async fn rollback_v7_migration(
     let rolled_back = execution
         .transition_all(
             V7MigrationExecutionPhase::RolledBack,
-            updated_at_unix_seconds,
+            options.updated_at_unix_seconds,
         )
         .map_err(|detail| V7MigrationExecutionError::InvalidPlan { detail })?;
-    journal.persist_v7_execution(&rolled_back)?;
+    options
+        .journal
+        .persist_v7_rollback(options.restored_state, &rolled_back)?;
 
     Ok(rolled_back)
 }

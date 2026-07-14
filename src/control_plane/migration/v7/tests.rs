@@ -3,11 +3,11 @@ use super::{
     V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
     V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
     V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
-    V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
-    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
-    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
-    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
+    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
+    V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
+    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
+    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
 };
@@ -20,6 +20,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::{
     MigrationBackup, MigrationCutoverPlan, MigrationFuture, MigrationOperationError,
+    MigrationRollbackPlan,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
@@ -375,9 +376,16 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
 
         let mut confirmation_journal = journal.clone();
         calls.lock().expect("clear calls").clear();
-        let rolled_back = rollback_v7_migration(&mut journal, &plan, &mut registry, 22)
-            .await
-            .expect("rollback cutover");
+        let restored_state = v7_rollback_state();
+        let rolled_back = rollback_v7_migration(V7MigrationRollbackOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            restored_state: &restored_state,
+            updated_at_unix_seconds: 22,
+        })
+        .await
+        .expect("rollback cutover");
         assert_eq!(rolled_back.phase(), V7MigrationExecutionPhase::RolledBack);
         assert_eq!(
             calls.lock().expect("rollback calls").as_slice(),
@@ -443,6 +451,76 @@ fn v7_cutover_rejects_mismatched_desired_state_before_side_effects() {
         );
         assert!(calls.lock().expect("side effects").is_empty());
         assert_eq!(journal.current, Some(prepared));
+    });
+}
+
+#[test]
+fn v7_rollback_rejects_mismatched_restored_state_before_side_effects() {
+    run_test(async {
+        let route = V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 10)
+            .expect("route checkpoint");
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, vec![route.clone()], 10);
+        let cutover = v7_execution_record(
+            V7MigrationExecutionPhase::Cutover,
+            vec![
+                route
+                    .with_target_verified(None, 11)
+                    .expect("route target")
+                    .with_cutover(12)
+                    .expect("route cutover"),
+            ],
+            12,
+        );
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = V7MigrationAdapterRegistry::default();
+        registry
+            .register(
+                "route",
+                "no-routes",
+                Box::new(RecordingV7Adapter {
+                    calls: Arc::clone(&calls),
+                    target_reference: None,
+                    fail_target_once: Arc::new(AtomicBool::new(false)),
+                    fail_cutover_once: Arc::new(AtomicBool::new(false)),
+                }),
+            )
+            .expect("register route adapter");
+        let mut journal = RecordingV7Journal {
+            current: Some(cutover.clone()),
+            writes: Vec::new(),
+        };
+        let restored_state = MigrationRollbackPlan::new(
+            ProjectRecord::new(
+                "/work/other".into(),
+                "bill".to_owned(),
+                vec!["bill-legacy.stackctl.localhost".to_owned()],
+            ),
+            ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+                project_id: "bill".to_owned(),
+                revision: "sha256:v7-environment".to_owned(),
+                values: BTreeMap::new(),
+                lifecycle: EnvironmentLifecycle::Active,
+            }),
+            Vec::new(),
+        )
+        .expect("mismatched rollback state");
+
+        let error = rollback_v7_migration(V7MigrationRollbackOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            restored_state: &restored_state,
+            updated_at_unix_seconds: 13,
+        })
+        .await
+        .expect_err("reject mismatched restored state");
+
+        assert_eq!(
+            error.to_string(),
+            "invalid v7 execution plan: restored project state does not match the immutable execution identity"
+        );
+        assert!(calls.lock().expect("side effects").is_empty());
+        assert_eq!(journal.current, Some(cutover));
     });
 }
 
@@ -1284,6 +1362,26 @@ impl V7MigrationExecutionJournal for RecordingV7Journal {
         );
         self.persist_v7_execution(execution)
     }
+
+    fn persist_v7_rollback(
+        &mut self,
+        restored_state: &MigrationRollbackPlan,
+        execution: &V7MigrationExecutionRecord,
+    ) -> Result<(), StateStoreError> {
+        assert_eq!(
+            restored_state.project().project_name(),
+            execution.project_id()
+        );
+        assert_eq!(
+            restored_state.project().canonical_path(),
+            execution.canonical_project_path()
+        );
+        assert_eq!(
+            restored_state.environment().project_id(),
+            execution.project_id()
+        );
+        self.persist_v7_execution(execution)
+    }
 }
 
 fn v7_cutover_state() -> MigrationCutoverPlan {
@@ -1305,6 +1403,24 @@ fn v7_cutover_state_at(canonical_path: &str) -> MigrationCutoverPlan {
         }),
     )
     .expect("v7 cutover state")
+}
+
+fn v7_rollback_state() -> MigrationRollbackPlan {
+    MigrationRollbackPlan::new(
+        ProjectRecord::new(
+            "/work/bill".into(),
+            "bill".to_owned(),
+            vec!["bill-legacy.stackctl.localhost".to_owned()],
+        ),
+        ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+            project_id: "bill".to_owned(),
+            revision: "sha256:v7-environment".to_owned(),
+            values: BTreeMap::new(),
+            lifecycle: EnvironmentLifecycle::Active,
+        }),
+        Vec::new(),
+    )
+    .expect("v7 rollback state")
 }
 
 struct RecordingV7Adapter {

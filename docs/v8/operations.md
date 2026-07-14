@@ -296,9 +296,12 @@ idempotent side effects are replayed from `prepared`, never mistaken for a
 complete cutover. Desired project identity and canonical path are checked
 against the immutable execution before any adapter side effect runs.
 Rollback invokes the reverse order so new routes are withdrawn first and then
-records one project-wide terminal rollback. Confirmation is accepted only
-from `cutover`; it retires retained sources through the same idempotent
-strategies before the irreversible `confirmed` record is written.
+atomically restores prior route ownership, project intent, and the managed
+environment while retaining target logical resources and recording one
+project-wide terminal rollback. Restored identity is checked before adapter
+side effects. Confirmation is accepted only from `cutover`; it retires
+retained sources through the same idempotent strategies before the
+irreversible `confirmed` record is written.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an
