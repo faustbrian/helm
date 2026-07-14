@@ -189,6 +189,12 @@ sink. That sink keeps at most seven distinct clock days and, for each day, one
 10 MiB active segment plus one 10 MiB previous segment. An individual entry
 larger than the segment bound is not persisted.
 
+Service uninstall tolerates manager commands that report an already-absent
+unit, then verifies the resulting state before deleting the host definition.
+launchd must report the service stopped. systemd must report it stopped and
+disabled. Failed or ambiguous verification leaves the definition in place so
+the cleanup can be retried without losing its exact target.
+
 ## Retention, backup, and deletion
 
 Removing or invalidating config follows:

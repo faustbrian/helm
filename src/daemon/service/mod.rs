@@ -156,6 +156,16 @@ fn rollback_service_install(
 }
 
 pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
+    #[cfg(test)]
+    return uninstall_service_with_verification(|_, _| Ok(()));
+
+    #[cfg(not(test))]
+    uninstall_service_with_verification(verify_manager_removal)
+}
+
+fn uninstall_service_with_verification(
+    verify_removal: impl FnOnce(ServiceManager, &str) -> Result<()>,
+) -> Result<DaemonServiceStatus> {
     let manager = service_manager()?;
     let definition = service_definition(&DaemonServiceInstallOptions {
         watch_dirs: Vec::new(),
@@ -167,6 +177,7 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
         ServiceManager::Launchd => uninstall_launchd(&definition.path)?,
         ServiceManager::SystemdUser => uninstall_systemd(&definition.path)?,
     }
+    verify_removal(manager, &definition.label)?;
     set_test_service_running_state(false);
 
     if definition.path.exists() {
@@ -182,6 +193,21 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
         running: false,
         responsive: false,
     })
+}
+
+fn verify_manager_removal(manager: ServiceManager, label: &str) -> Result<()> {
+    if service_is_running(manager, label)? {
+        bail!(
+            "{} still reports '{}' as running after removal",
+            manager_name(manager),
+            label
+        );
+    }
+    if manager == ServiceManager::SystemdUser && service_is_enabled(label)? {
+        bail!("systemd --user still reports '{label}' as enabled after removal");
+    }
+
+    Ok(())
 }
 
 pub(crate) fn service_status() -> Result<DaemonServiceStatus> {
@@ -229,6 +255,18 @@ fn service_is_running(manager: ServiceManager, label: &str) -> Result<bool> {
             ],
         ),
     }
+}
+
+fn service_is_enabled(label: &str) -> Result<bool> {
+    run_status(
+        "systemctl",
+        &[
+            "--user".to_owned(),
+            "is-enabled".to_owned(),
+            "--quiet".to_owned(),
+            label.to_owned(),
+        ],
+    )
 }
 
 fn manager_name(manager: ServiceManager) -> &'static str {
@@ -553,6 +591,7 @@ mod tests {
         service_status, service_status_with_readiness, set_test_service_binary,
         set_test_service_command_failure, set_test_service_home, set_test_service_manager,
         set_test_service_running, take_test_service_commands, uninstall_service,
+        uninstall_service_with_verification,
     };
     use std::cell::Cell;
     use std::fs;
@@ -742,6 +781,31 @@ mod tests {
         assert!(commands.iter().any(|command| {
             command == "systemctl --user disable --now stackctl-daemon-watch.service"
         }));
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_manager_removal_verification_preserves_the_service_definition() {
+        let home = temp_home("uninstall-verification");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, &definition.contents).expect("write definition");
+
+        let error = uninstall_service_with_verification(|_, _| {
+            anyhow::bail!("systemd unit remains enabled")
+        })
+        .expect_err("unverified manager cleanup");
+
+        assert!(error.to_string().contains("remains enabled"));
+        assert!(definition.path.exists());
 
         clear_test_service_binary();
         clear_test_service_home();

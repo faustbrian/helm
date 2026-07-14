@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Required login-service uninstall to verify manager cleanup before deleting
+  the host definition. launchd must report the process stopped; systemd must
+  report it both stopped and disabled, or the definition is preserved for a
+  safe retry.
 - Bounded unattended host logging. Linux login services now use journald,
   launchd no longer appends duplicate unrotated stdout/stderr files, and
   Stackctl's persistent logs retain seven days with one 10 MiB active and one
