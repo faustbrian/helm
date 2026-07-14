@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made accepted-v7 named-volume adapters own their validated source clone and
+  execution-scoped provider, removing the final borrowed-provider lifetime
+  barrier before live archive strategy composition.
 - Made every accepted-v7 logical migration provider own its confirmation-only
   retirement strategy, so daemon composition needs no external retirement
   arena while all providers can still share one typed Engine connection.

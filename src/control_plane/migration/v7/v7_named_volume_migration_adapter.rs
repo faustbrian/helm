@@ -7,8 +7,8 @@ use crate::control_plane::state::V7MigrationAdapterCheckpoint;
 
 /// Archives accepted legacy volumes and binds their restored v8 target.
 pub(super) struct V7NamedVolumeMigrationAdapter<'operation> {
-    source: &'operation V7NamedVolumeMigrationSource,
-    provider: &'operation mut dyn V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>,
+    source: V7NamedVolumeMigrationSource,
+    provider: Box<dyn V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource> + 'operation>,
 }
 
 impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
@@ -18,7 +18,7 @@ impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
         validate_accepted_source(&options)?;
 
         Ok(Self {
-            source: options.source,
+            source: options.source.clone(),
             provider: options.provider,
         })
     }
@@ -29,7 +29,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, MigrationBackup> {
-        self.provider.backup_source(self.source)
+        self.provider.backup_source(&self.source)
     }
 
     fn prepare_target<'operation>(
@@ -47,7 +47,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
             });
         }
         self.provider
-            .restore_and_verify_target(self.source, checkpoint)
+            .restore_and_verify_target(&self.source, checkpoint)
     }
 
     fn cutover<'operation>(
@@ -61,21 +61,21 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
                 ))
             });
         };
-        self.provider.verify_target(self.source, target_reference)
+        self.provider.verify_target(&self.source, target_reference)
     }
 
     fn rollback<'operation>(
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, ()> {
-        self.provider.verify_source(self.source)
+        self.provider.verify_source(&self.source)
     }
 
     fn confirm<'operation>(
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, ()> {
-        self.provider.retire_source(self.source)
+        self.provider.retire_source(&self.source)
     }
 }
 

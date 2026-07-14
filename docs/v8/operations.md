@@ -306,6 +306,9 @@ prepared shared instance and project tenant. It also requires exactly one
 active logical-resource record and one ownership-reconstructed target
 container with the prepared compatibility metadata. Missing or ambiguous state
 fails before the driver provider enters the execution registry.
+Named-volume adapters use the same execution ownership rule: they retain a
+validated clone of the exact accepted container and volume set and own their
+archive provider for the lifetime of the registry.
 Selected no-op strategies are still concrete registry entries and advance
 through target verification, cutover, and confirmation. They cover absent
 routes, trust, generated environments, and named volumes, plus volume state
