@@ -20,7 +20,7 @@ use crate::control_plane::state::{
     AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
-    ResourceRetention, StateStore,
+    ResourceRetention, StateStore, V7MigrationExecutionPhase,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -1632,7 +1632,7 @@ where
                 canonical_path.display()
             )
         })?;
-    let migrations = control_plane
+    let mut migrations = control_plane
         .migrations()
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -1648,7 +1648,30 @@ where
                 migration.updated_at_unix_seconds(),
             )
         })
-        .collect();
+        .collect::<Vec<_>>();
+    migrations.extend(
+        control_plane
+            .v7_migration_executions()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|execution| execution.project_id() == project.project_name())
+            .map(|execution| {
+                let backup_verified = execution.checkpoints().iter().all(|checkpoint| {
+                    !checkpoint.requires_recovery()
+                        || (checkpoint.recovery_reference().is_some()
+                            && checkpoint.recovery_artifact_sha256().is_some()
+                            && checkpoint.recovery_artifact_size_bytes().is_some())
+                });
+                IpcMigrationStatus::new(
+                    format!("v7:{}", execution.adapter_plan_revision()),
+                    execution.phase().label().to_owned(),
+                    backup_verified,
+                    execution.phase() == V7MigrationExecutionPhase::Cutover,
+                    execution.updated_at_unix_seconds(),
+                )
+            }),
+    );
+    migrations.sort_by(|left, right| left.migration_id().cmp(right.migration_id()));
 
     Ok(migrations)
 }

@@ -215,6 +215,9 @@ pub(crate) trait StateStore: Send {
         evidence_revision: &str,
     ) -> Result<Option<V7MigrationExecutionRecord>, StateStoreError>;
 
+    /// Loads every project-wide v7 execution in stable identity order.
+    fn v7_migration_executions(&self) -> Result<Vec<V7MigrationExecutionRecord>, StateStoreError>;
+
     /// Inserts immutable verified recovery evidence, allowing exact replay only.
     fn record_recovery_point(
         &mut self,

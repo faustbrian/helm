@@ -26,4 +26,13 @@ where
             .v7_migration_execution(canonical_project_path, evidence_revision)
             .map_err(Into::into)
     }
+
+    /// Loads every durable project-wide v7 execution.
+    pub(crate) fn v7_migration_executions(
+        &self,
+    ) -> Result<Vec<V7MigrationExecutionRecord>, ControlPlaneError> {
+        self.state_store
+            .v7_migration_executions()
+            .map_err(Into::into)
+    }
 }

@@ -1910,6 +1910,34 @@ impl StateStore for SqliteStateStore {
         )
     }
 
+    fn v7_migration_executions(&self) -> Result<Vec<V7MigrationExecutionRecord>, StateStoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT canonical_project_path, evidence_revision
+             FROM v7_migration_executions
+             ORDER BY canonical_project_path, evidence_revision",
+        )?;
+        let identities = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        identities
+            .into_iter()
+            .map(|(canonical_path, evidence_revision)| {
+                load_v7_migration_execution(
+                    &self.connection,
+                    &canonical_path,
+                    &evidence_revision,
+                )?
+                .ok_or_else(|| StateStoreError::CorruptState {
+                    detail: format!(
+                        "v7 migration execution for '{canonical_path}' disappeared while loading"
+                    ),
+                })
+            })
+            .collect()
+    }
+
     fn record_recovery_point(
         &mut self,
         recovery_point: &RecoveryPointRecord,

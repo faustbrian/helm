@@ -8114,6 +8114,51 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
                 .expect("record migration");
         }
     }
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let inventory_json = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": project_path,
+        "source_revision": source_revision,
+        "blockers": [],
+        "services": []
+    })
+    .to_string();
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: project_path.clone(),
+        source_revision,
+        inventory_json,
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 12_340,
+    })
+    .expect("accepted v7 inventory");
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("record accepted v7 inventory");
+    let target = V7MigrationAdapterCheckpoint::pending(
+        "service/app",
+        "recreate-project-workload",
+        false,
+        12_341,
+    )
+    .expect("pending v7 target")
+    .with_target_verified(Some("container-app"), 12_342)
+    .expect("verified v7 target")
+    .with_cutover(12_343)
+    .expect("cutover v7 target");
+    let v7_execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: project_path.clone(),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Cutover,
+        checkpoints: vec![target],
+        updated_at_unix_seconds: 12_343,
+    })
+    .expect("v7 migration execution");
+    store
+        .record_v7_migration_execution(&v7_execution)
+        .expect("record v7 execution");
     let mut control_plane = ControlPlane::new(store);
     let request = IpcRequest::new(
         "migration-status-42",
@@ -8148,13 +8193,22 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         IpcResponse::success(
             "migration-status-42",
             IpcResult::ProjectMigrations {
-                migrations: vec![IpcMigrationStatus::new(
-                    "migration-bill-postgres".to_owned(),
-                    "cutover".to_owned(),
-                    true,
-                    true,
-                    12_345,
-                )],
+                migrations: vec![
+                    IpcMigrationStatus::new(
+                        "migration-bill-postgres".to_owned(),
+                        "cutover".to_owned(),
+                        true,
+                        true,
+                        12_345,
+                    ),
+                    IpcMigrationStatus::new(
+                        format!("v7:{}", "b".repeat(64)),
+                        "cutover".to_owned(),
+                        true,
+                        true,
+                        12_343,
+                    ),
+                ],
             },
         )
     );
