@@ -195,6 +195,23 @@ fn trust_reconciliation_installs_a_missing_ca_once() {
 }
 
 #[test]
+fn failed_os_trust_command_removes_an_exact_partially_installed_ca() {
+    let (identity, certificate_path) = trust_fixture();
+    let store = PartialInstallFailureTrustStore::default();
+
+    let error = ensure_ca_trusted(&store, &identity, &certificate_path)
+        .expect_err("partially failed trust install");
+
+    assert!(
+        error
+            .to_string()
+            .contains("simulated trust command failure")
+    );
+    assert!(!store.trusted.get());
+    assert_eq!(store.removed.borrow().as_slice(), &[identity]);
+}
+
+#[test]
 fn current_ca_trust_install_recovers_one_persisted_identity_idempotently() {
     let root = temporary_certificate_root();
     let certificates = FilesystemCertificateStore::new(root.clone());
@@ -956,6 +973,12 @@ struct RecordingTrustStore {
 }
 
 #[derive(Default)]
+struct PartialInstallFailureTrustStore {
+    trusted: Cell<bool>,
+    removed: RefCell<Vec<LocalCaIdentity>>,
+}
+
+#[derive(Default)]
 struct RotationTrustStore {
     trusted: RefCell<Vec<LocalCaIdentity>>,
     fail_removal_of: RefCell<Option<LocalCaIdentity>>,
@@ -1029,6 +1052,35 @@ impl CertificateTrustStore for RecordingTrustStore {
         self.removed.borrow_mut().push(identity.clone());
         self.trusted.set(false);
 
+        Ok(())
+    }
+}
+
+impl CertificateTrustStore for PartialInstallFailureTrustStore {
+    fn contains(
+        &self,
+        _identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<bool, TrustStoreError> {
+        Ok(self.trusted.get())
+    }
+
+    fn install(
+        &self,
+        _identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        self.trusted.set(true);
+        Err(TrustStoreError::new("simulated trust command failure"))
+    }
+
+    fn remove(
+        &self,
+        identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        self.removed.borrow_mut().push(identity.clone());
+        self.trusted.set(false);
         Ok(())
     }
 }

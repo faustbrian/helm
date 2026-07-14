@@ -147,6 +147,10 @@ verification and active certificate-generation selection. A failure after new
 OS trust is added removes that exact identity and verifies it absent. Existing
 trust is never removed by this rollback, and rollback failure is reported with
 the original finalization error.
+If an OS trust command returns failure after partially installing the exact CA,
+Stackctl detects that identity, removes it, and verifies it absent before
+returning the original failure. An ambiguous or failed rollback is returned as
+part of the error rather than accepted as clean host state.
 
 On Debian-family hosts, the privileged managed-root file and the
 `update-ca-certificates` refresh are one transaction. Failed installation

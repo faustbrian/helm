@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made failed OS trust commands inspect and reverse an exact partial CA install
+  before returning. This covers platform commands that mutate trust but still
+  exit unsuccessfully, while preserving the original error and reporting any
+  rollback ambiguity explicitly.
 - Made Debian-family trust refreshes transactional around the privileged
   managed-root file. A failed install refresh removes the partial root and
   refreshes cleanly; a failed removal refresh restores the exact root. Both
