@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the v8 completion audit to report the verified post-cleanup test
+  count, the disconnected runtime-image reconciliation path, and incomplete
+  persistent-deletion coverage without overstating implementation status.
 - Removed the pre-v8 inventory, compatibility adapters, config conversion,
   revision journals, and upgrade rollback paths. V8 now has an explicit
   clean-install boundary, rejects old project files through the full CLI

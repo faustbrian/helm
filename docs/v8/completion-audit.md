@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 1,488 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 1,476 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -33,7 +33,7 @@ identified below.
 | AC-09 | One managed gateway routes all projects | Implemented | gateway plane, atomic full-snapshot, readiness, rollback, and port-conflict tests | Full HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, and crash acceptance artifact |
 | AC-10 | Application containers own no separate trusted CA | Implemented | gateway terminates TLS; app upstream plans are internal plain HTTP; dependency audit | Live container inspection artifact |
 | AC-11 | Project runtimes and hooks execute in Linux containers | Partial | immutable application, project command, worker, scheduler, Reverb, and Engine exec paths | Representative live runtime/hook acceptance on each claimed platform |
-| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed runtime-image planning and extension validation tests | Built-image and application acceptance for the supported extension catalog on amd64 and arm64 |
+| AC-12 | Declared PHP extensions work without host PHP | Partial | content-addressed runtime-image planning and extension validation tests | Runtime-image reconciliation is not connected to the daemon application path; built-image and application acceptance for the supported extension catalog on amd64 and arm64 |
 | AC-13 | App containers publish no routine web ports | Implemented | application plan and gateway network tests | Live Engine inventory artifact |
 
 ## Shared services and state
@@ -44,7 +44,7 @@ identified below.
 | AC-15 | Incompatible profiles split with an exact explanation | Implemented | compatibility fingerprint and shared resolver tests | Live mixed-version/profile artifact |
 | AC-16 | Logical resources and credentials converge idempotently | Implemented | PostgreSQL, MySQL/MariaDB, MongoDB, Redis/Valkey, object-store, RabbitMQ, Mailpit, and SQL Server preparation/reconciliation tests | Live authenticated readiness and drift records per advertised service |
 | AC-17 | Credentials remain stable across daemon and Engine restarts | Implemented | SQLite insert-if-absent, redaction, restart, and shared bootstrap credential tests | Live restart artifact |
-| AC-18 | Persistent resources are never pruned implicitly | Implemented | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, RabbitMQ, and MinIO prune execution with immediate stored-artifact reverification; keep-data-default and terminal-marker-gated delete-data uninstall, typed secret-free whole-installation plan/confirm/status IPC, recovery-bound project-volume confirmation and exact Engine authorization with unlisted observed-volume refusal, idle artifact-reverified confirmed freeze, restart-safe one-at-a-time logical prune scheduling, durable deleting/deleted reconciliation freeze, daemon-owned dependency-ordered exact Engine cleanup, and logical-and-operation-empty terminal deletion invariant | Complete recovery/deletion coverage and live uninstall acceptance remain incomplete |
+| AC-18 | Persistent resources are never pruned implicitly | Partial | retention policy tests; orphan stop behavior; exact seven-day disposable GC tests; common token-bound PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, RabbitMQ, and MinIO prune execution with immediate stored-artifact reverification; keep-data-default and terminal-marker-gated delete-data uninstall, typed secret-free whole-installation plan/confirm/status IPC, recovery-bound project-volume confirmation and exact Engine authorization with unlisted observed-volume refusal, idle artifact-reverified confirmed freeze, restart-safe one-at-a-time logical prune scheduling, durable deleting/deleted reconciliation freeze, daemon-owned dependency-ordered exact Engine cleanup, and logical-and-operation-empty terminal deletion invariant | Complete recovery/deletion coverage and live uninstall acceptance remain incomplete |
 
 ## Engine, daemon recovery, and lifecycle
 
