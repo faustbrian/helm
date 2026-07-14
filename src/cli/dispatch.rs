@@ -189,7 +189,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn strict_v8_lock_images_publishes_yaml_without_loading_the_v7_runtime() {
+    fn strict_v8_lock_images_publishes_yaml_without_loading_removed_runtime_paths() {
         let root = std::env::temp_dir().join(format!(
             "stackctl-v8-lock-command-{}-{}",
             std::process::id(),

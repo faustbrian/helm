@@ -2,10 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
-## [7.0.0] - 2026-07-12
+## [8.0.0] - 2026-07-14
 
 ### Fixed
 
+- Changed the package and changelog identity to 8.0.0 so clean-slate builds no
+  longer identify themselves as the previous major release.
 - Connected declared PHP extensions to daemon reconciliation through
   content-addressed images derived from locked application bases, propagated
   the resulting image to project processes, and rejected custom images without

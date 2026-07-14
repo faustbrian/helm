@@ -1,6 +1,6 @@
 [package]
 name = "stackctl"
-version = "7.0.0"
+version = "8.0.0"
 edition = "2024"
 description = "Zero-BS Laravel workspace orchestrator"
 license = "MIT"

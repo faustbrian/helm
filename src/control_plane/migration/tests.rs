@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
-fn migration_executes_to_reversible_cutover_without_retiring_v7() {
+fn migration_executes_to_reversible_cutover_without_retiring_the_source() {
     run_test(async {
         let database_path = temporary_database_path("execute");
         let mut store = migration_store(&database_path);
@@ -218,7 +218,7 @@ fn recovery_point_restore_rejects_a_mismatched_logical_identity_before_mutation(
 }
 
 #[test]
-fn confirmation_is_the_only_path_that_retires_the_v7_source() {
+fn confirmation_is_the_only_path_that_retires_the_source() {
     run_test(async {
         let database_path = temporary_database_path("confirm");
         let mut store = migration_store(&database_path);
