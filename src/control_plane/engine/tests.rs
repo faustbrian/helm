@@ -1716,6 +1716,8 @@ fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order()
         )],
         observed_images: vec![ObservedImage::new(
             ImageId::new(format!("sha256:{}", "a".repeat(64))).expect("image ID"),
+            100,
+            0,
             image_metadata.labels(),
         )],
         ..RecordingContainerBackend::default()
@@ -1752,6 +1754,8 @@ fn installation_cleanup_refuses_non_build_cache_images_before_mutation() {
     let mut backend = RecordingContainerBackend {
         observed_images: vec![ObservedImage::new(
             ImageId::new(format!("sha256:{}", "b".repeat(64))).expect("image ID"),
+            100,
+            0,
             global_metadata(ResourceKind::Gateway).labels(),
         )],
         ..RecordingContainerBackend::default()

@@ -2065,7 +2065,12 @@ pub(super) fn observed_image(
     let id = ImageId::new(image.id)?;
     let labels = image.labels.into_iter().collect::<BTreeMap<_, _>>();
 
-    Ok(ObservedImage::new(id, labels))
+    Ok(ObservedImage::new(
+        id,
+        image.created,
+        image.containers,
+        labels,
+    ))
 }
 
 pub(super) fn observed_network(network: Network) -> Result<ObservedNetwork, EngineError> {

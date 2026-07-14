@@ -1,11 +1,12 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    DisposableContainerGarbageCollectionOptions, EphemeralBrowserOptions,
-    ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions, ProjectCommand,
-    ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan, ProjectProcessPlanOptions,
-    ProjectProcessRequestOptions, ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions,
-    RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction,
-    WorkloadReconcileOptions, application_container_request, garbage_collect_disposable_containers,
+    BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
+    EphemeralBrowserOptions, ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions,
+    ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
+    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectVolumeReconcileAction,
+    ProjectVolumeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
+    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
+    garbage_collect_build_images, garbage_collect_disposable_containers,
     materialize_application_request, plan_ephemeral_browser, plan_immutable_project_application,
     project_process_request, reconcile_project_application, reconcile_project_process,
     reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
@@ -16,10 +17,11 @@ use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
     ContainerLogStream, ContainerRestartPolicy, ContainerState, EngineError, EngineFuture,
-    HealthObserver, ImageBuildRequest, ImageBuilder, ImageId, ImageResolver,
-    ImmutableImageReference, LogChunk, ManagedResourceMetadata, ManagedResourceMetadataOptions,
-    ObservedContainer, ObservedVolume, OwnedContainer, OwnedVolume, ResourceKind, RetentionClass,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    HealthObserver, ImageBuildRequest, ImageBuilder, ImageDiscovery, ImageId, ImageManager,
+    ImageResolver, ImmutableImageReference, LogChunk, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, ObservedContainer, ObservedImage, ObservedVolume,
+    OwnedContainer, OwnedImage, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, reconstruct_owned_container,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -1135,6 +1137,79 @@ fn garbage_collection_refuses_durable_and_engine_ownership_drift() {
 }
 
 #[test]
+fn build_image_garbage_collection_removes_only_expired_unreferenced_inactive_images() {
+    let expired = observed_build_image('a', 100, 0, build_image_metadata().labels());
+    let active = observed_build_image('b', 100, 0, build_image_metadata().labels());
+    let fresh = observed_build_image('c', 900, 0, build_image_metadata().labels());
+    let referenced = observed_build_image('d', 100, 1, build_image_metadata().labels());
+    let unknown_references = observed_build_image('e', 100, -1, build_image_metadata().labels());
+    let active_id = active.id().as_str().to_owned();
+    let mut engine = RecordingImageGarbageCollectionEngine {
+        observed: vec![
+            expired.clone(),
+            active,
+            fresh,
+            referenced,
+            unknown_references,
+        ],
+        removed: Vec::new(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let removed = runtime
+        .block_on(garbage_collect_build_images(
+            &mut engine,
+            BuildImageGarbageCollectionOptions {
+                active_image_ids: &[active_id],
+                installation_id: "install-1",
+                schema_version: 8,
+                now_unix_seconds: 1_000,
+                retention_seconds: 500,
+            },
+        ))
+        .expect("collect expired build image");
+
+    assert_eq!(removed, vec![expired.id().clone()]);
+    assert_eq!(engine.removed, vec![expired.id().clone()]);
+}
+
+#[test]
+fn build_image_garbage_collection_validates_all_owned_labels_before_mutation() {
+    let valid = observed_build_image('a', 100, 0, build_image_metadata().labels());
+    let malformed = observed_build_image(
+        'b',
+        100,
+        0,
+        project_application_metadata("bill", "sha256:runtime-v1").labels(),
+    );
+    let mut engine = RecordingImageGarbageCollectionEngine {
+        observed: vec![valid, malformed],
+        removed: Vec::new(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(garbage_collect_build_images(
+            &mut engine,
+            BuildImageGarbageCollectionOptions {
+                active_image_ids: &[],
+                installation_id: "install-1",
+                schema_version: 8,
+                now_unix_seconds: 1_000,
+                retention_seconds: 500,
+            },
+        ))
+        .expect_err("incorrectly classified image must fail closed");
+
+    assert!(error.to_string().contains("not a disposable build cache"));
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
 fn project_process_reconciliation_selects_only_its_exact_resource_identity() {
     let worker = process_request("queue-worker", "sha256:worker-v1");
     let scheduler = process_request("scheduler", "sha256:scheduler-v1");
@@ -1661,6 +1736,60 @@ fn project_application_metadata(
     .expect("project application metadata")
     .with_resource_id("app")
     .expect("project application resource identity")
+}
+
+fn build_image_metadata() -> ManagedResourceMetadata {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Build,
+        project_id: None,
+        compatibility_fingerprint: "sha256:runtime-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:runtime-v1".to_owned(),
+        retention: RetentionClass::BuildCache,
+    })
+    .expect("build image metadata")
+}
+
+fn observed_build_image(
+    digest_character: char,
+    created_at_unix_seconds: i64,
+    container_count: i64,
+    labels: BTreeMap<String, String>,
+) -> ObservedImage {
+    ObservedImage::new(
+        ImageId::new(format!(
+            "sha256:{}",
+            digest_character.to_string().repeat(64)
+        ))
+        .expect("image ID"),
+        created_at_unix_seconds,
+        container_count,
+        labels,
+    )
+}
+
+struct RecordingImageGarbageCollectionEngine {
+    observed: Vec<ObservedImage>,
+    removed: Vec<ImageId>,
+}
+
+impl ImageDiscovery for RecordingImageGarbageCollectionEngine {
+    fn discover_managed_images(&self) -> EngineFuture<'_, Vec<ObservedImage>> {
+        Box::pin(async { Ok(self.observed.clone()) })
+    }
+}
+
+impl ImageManager for RecordingImageGarbageCollectionEngine {
+    fn remove_image<'operation>(
+        &'operation mut self,
+        image: &'operation OwnedImage,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            self.removed.push(image.id().clone());
+            Ok(())
+        })
+    }
 }
 
 fn orphaned_container_resource(

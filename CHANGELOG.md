@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Bounded derived runtime-image retention. Reconciliation now removes an image
+  only after the seven-day cache window when exact ownership labels classify it
+  as build cache, no active project selects it, and the Engine reports zero
+  container references. Unknown reference counts and foreign images are kept,
+  and every candidate is validated before the first deletion.
 - Added typed Engine image discovery and ownership reconstruction. Full data
   removal now deletes only exact installation-owned derived build-cache images,
   after dependent containers, and refuses malformed or incorrectly classified

@@ -40,12 +40,13 @@ use crate::control_plane::tls::{
     FilesystemCertificateStore, prune_inactive_leaf_certificate_generations,
 };
 use crate::control_plane::workload::{
-    DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
-    ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan, WorkloadReconcileError,
-    WorkloadReconcileOptions, garbage_collect_disposable_containers,
-    materialize_application_request, project_volume_resource_record, reconcile_project_application,
-    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
-    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
+    BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
+    OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan,
+    WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
+    garbage_collect_disposable_containers, materialize_application_request,
+    project_volume_resource_record, reconcile_project_application, reconcile_project_process,
+    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -1103,6 +1104,47 @@ impl UnixDaemonRuntime {
 
                     return;
                 }
+            }
+        }
+        let active_runtime_images = project_runtime_images.into_values().collect::<Vec<_>>();
+        let removed_images = self.engine_runtime.block_on(garbage_collect_build_images(
+            engine,
+            BuildImageGarbageCollectionOptions {
+                active_image_ids: &active_runtime_images,
+                installation_id: self.global_network_request.metadata().installation_id(),
+                schema_version: self.global_network_request.metadata().schema_version(),
+                now_unix_seconds: observed_at_unix_seconds,
+                retention_seconds: DEFAULT_ORPHAN_RETENTION_SECONDS,
+            },
+        ));
+        match removed_images {
+            Ok(removed) if !removed.is_empty() => {
+                tracing::info!(
+                    removed = removed.len(),
+                    "removed expired unreferenced build images"
+                );
+            }
+            Ok(_) => {}
+            Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %error,
+                    "build-image garbage collection lost the selected Engine; retry scheduled"
+                );
+
+                return;
+            }
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "build-image garbage collection blocked");
+
+                return;
             }
         }
         if let Err(error) = self

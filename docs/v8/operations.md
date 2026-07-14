@@ -228,7 +228,11 @@ buckets, and objects remain intact. RustFS remains dedicated and does not use
 MinIO IAM assumptions.
 
 Automatic collection is limited to proven-disposable temporary containers,
-expired build cache, superseded unreferenced images, and rotated logs.
+expired derived build images, and rotated logs. A derived image is eligible
+only after seven days when its complete labels prove current-installation build
+cache ownership, it is absent from the active runtime set, and the Engine
+reports that zero running or stopped containers reference it. Unknown reference
+counts retain the image.
 Databases, buckets, queues, volumes, and backups are never implicitly deleted.
 Orphaned disposable containers have a fixed seven-day retention window. After
 that window, the daemon removes one only when the complete Engine discovery and
