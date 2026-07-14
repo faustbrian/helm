@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced network-dependent PHP extension installation during derived project
+  builds with offline enablement and runtime verification from a
+  Stackctl-owned, catalog-validated PHP image. Unsupported extension names now
+  fail during desired-state validation.
 - Connected the `.stackctl.localhost` loopback resolver preflight to singleton
   daemon startup before runtime directories, watched roots, or SQLite state are
   created. Broken or non-loopback host resolution now fails without mutation.
@@ -68,6 +72,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a commit-pinned multi-architecture PHP 8.5 image publication workflow
+  with SBOM, maximum-mode provenance, and keyless manifest signing. The image
+  pins its Dockerfile frontend, FrankenPHP manifest, Debian snapshot, and PECL
+  extension versions and carries the exact catalog consumed by desired-state
+  validation.
 - Connected the typed managed-container Engine event stream to the singleton
   daemon. Events schedule prompt full reconciliation through a bounded channel,
   while cursor-based reconnects use bounded exponential backoff and periodic

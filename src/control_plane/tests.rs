@@ -203,7 +203,7 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
 
 #[test]
 fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
-    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-14.1");
+    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-14.2");
 
     for preset in KNOWN_SERVICE_PRESETS {
         let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
@@ -260,6 +260,17 @@ fn preset_artifact_catalog_never_resolves_a_latest_alias() {
             "preset {preset} resolves mutable alias {}",
             artifact.reference()
         );
+    }
+}
+
+#[test]
+fn built_in_php_runtimes_use_the_stackctl_owned_extension_image() {
+    for preset in ["laravel", "frankenphp", "reverb"] {
+        let artifact = resolve_preset_artifact(preset, Some("8.5"))
+            .expect("known PHP runtime")
+            .expect("PHP runtime artifact");
+
+        assert_eq!(artifact.reference(), "ghcr.io/faustbrian/stackctl-php:8.5");
     }
 }
 

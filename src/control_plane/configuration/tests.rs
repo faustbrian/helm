@@ -84,7 +84,7 @@ fn artifact_lock_source_for_a_versioned_preset_is_deterministic() {
     .expect("project config");
     let lock = parse_artifact_lock(
         concat!(
-            "schema_version: 1\ncatalog_revision: 2026-07-14.1\nimages:\n  db:\n",
+            "schema_version: 1\ncatalog_revision: 2026-07-14.2\nimages:\n  db:\n",
             "    source: preset:postgres:17\n",
             "    resolved: postgres@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
@@ -452,7 +452,25 @@ services:
         desired_from(source)
             .expect_err("custom extension installer contract")
             .to_string(),
-        "service 'app' declares PHP extensions but preset '<none>' does not provide the pinned install-php-extensions runtime contract"
+        "service 'app' declares PHP extensions but preset '<none>' does not provide the pinned Stackctl-owned PHP extension runtime contract"
+    );
+}
+
+#[test]
+fn desired_state_rejects_extensions_missing_from_the_stackctl_runtime() {
+    let source = r#"
+schema_version: 8
+services:
+  app:
+    preset: laravel
+    php_extensions: [made_up_extension]
+"#;
+
+    assert_eq!(
+        desired_from(source)
+            .expect_err("unsupported PHP extension")
+            .to_string(),
+        "service 'app' declares unsupported PHP extension 'made_up_extension'; supported extensions: bcmath, exif, gd, imagick, intl, pcntl, pcov, pdo_mysql, pdo_pgsql, redis, sockets, sodium, xdebug, zip"
     );
 }
 

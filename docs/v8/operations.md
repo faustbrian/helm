@@ -51,12 +51,20 @@ daemon resolves them using the persisted Engine selection and returns the exact
 same key set. The CLI rejects missing, additional, or mutable results before an
 atomic YAML lock publication.
 
-Extension generation invokes the `install-php-extensions` executable already
-contained in the digest-pinned application base. Composer, Node, and Bun are
-copied from separately digest-pinned image stages. Generation does not download
-or inject installer scripts and never executes mutable remote installer
-pipelines such as `curl | sh` or `curl | php`. Other downloaded tools require a
-pinned source and checksum or signature. Releases include SBOM and provenance.
+Stackctl publishes its PHP base from a manifest-pinned FrankenPHP base for
+amd64 and arm64. Its Dockerfile frontend, Debian package snapshot, and PECL
+extension versions are explicit inputs rather than floating build-time sources.
+Publication prepares the supported extension catalog, emits an SBOM and
+maximum-mode provenance, and keyless-signs the resulting OCI manifest. The
+built-in preset source is resolved to an immutable digest through the normal
+lock workflow before project reconciliation.
+
+Network-disabled project builds only enable locally available extension modules
+and verify them through PHP. Composer, Node, and Bun are copied from separately
+digest-pinned image stages. Project builds do not download or inject installer
+scripts and never execute mutable remote installer pipelines such as `curl | sh`
+or `curl | php`. Other downloaded tools require a pinned source and checksum or
+signature.
 
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.

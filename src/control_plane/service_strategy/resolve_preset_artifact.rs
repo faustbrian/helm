@@ -1,7 +1,7 @@
 use super::{PresetArtifact, PresetArtifactError};
 
 /// Revision binding preset-only lock entries to this exact catalog.
-pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-14.1";
+pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-14.2";
 
 /// Resolves one preset into a deliberate versioned registry source.
 pub(crate) fn resolve_preset_artifact(
@@ -40,7 +40,7 @@ pub(crate) fn resolve_preset_artifact(
         "gotenberg" => format!("gotenberg/gotenberg:{version}"),
         "rabbitmq" => format!("rabbitmq:{version}-management"),
         "frankenphp" | "laravel" | "reverb" => {
-            format!("dunglas/frankenphp:php{version}")
+            format!("ghcr.io/faustbrian/stackctl-php:{version}")
         }
         "dragonfly" => fixed(
             preset,

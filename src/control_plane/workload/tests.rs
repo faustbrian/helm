@@ -445,9 +445,25 @@ fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
     let runtime = plan
         .runtime_image()
         .expect("declared extensions require a derived runtime image");
+    assert!(
+        runtime
+            .request()
+            .dockerfile_contents()
+            .contains("RUN [\"docker-php-ext-enable\",\"intl\",\"redis\"]")
+    );
     assert!(runtime.request().dockerfile_contents().contains(concat!(
-        "RUN [\"install-php-extensions\",\"intl\",\"redis\"]"
+        "RUN [\"php\",\"-r\",",
+        "\"foreach (array_slice($argv, 1) as $extension) { ",
+        "if (!extension_loaded($extension)) { ",
+        "fwrite(STDERR, 'missing PHP extension: ' . $extension . PHP_EOL); ",
+        "exit(1); } }\",\"intl\",\"redis\"]"
     )));
+    assert!(
+        !runtime
+            .request()
+            .dockerfile_contents()
+            .contains("install-php-extensions")
+    );
     assert_eq!(runtime.request().metadata().installation_id(), "install-1");
     assert_eq!(
         runtime.request().metadata().retention(),

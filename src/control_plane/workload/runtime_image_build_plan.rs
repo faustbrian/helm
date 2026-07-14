@@ -83,14 +83,26 @@ impl RuntimeImageBuildPlan {
             dockerfile.push_str("COPY --from=stackctl_bun /usr/local/bin/bun /usr/local/bin/bun\n");
         }
         if !php_extensions.is_empty() {
-            let mut command = vec!["install-php-extensions".to_owned()];
-            command.extend(php_extensions);
-            let command = serde_json::to_string(&command).map_err(|error| {
+            let mut enable_command = vec!["docker-php-ext-enable".to_owned()];
+            enable_command.extend(php_extensions.clone());
+            let enable_command = serde_json::to_string(&enable_command).map_err(|error| {
                 invalid_request(format!(
-                    "failed to encode extension installer command: {error}"
+                    "failed to encode extension enablement command: {error}"
                 ))
             })?;
-            dockerfile.push_str(&format!("RUN {command}\n"));
+            dockerfile.push_str(&format!("RUN {enable_command}\n"));
+            let mut verify_command = vec![
+                "php".to_owned(),
+                "-r".to_owned(),
+                "foreach (array_slice($argv, 1) as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, 'missing PHP extension: ' . $extension . PHP_EOL); exit(1); } }".to_owned(),
+            ];
+            verify_command.extend(php_extensions);
+            let verify_command = serde_json::to_string(&verify_command).map_err(|error| {
+                invalid_request(format!(
+                    "failed to encode extension verification command: {error}"
+                ))
+            })?;
+            dockerfile.push_str(&format!("RUN {verify_command}\n"));
         }
         let request = ImageBuildRequest::new(
             BTreeMap::new(),

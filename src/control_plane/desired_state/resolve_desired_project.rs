@@ -1,6 +1,7 @@
 use super::{
     DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions,
-    resolve_runtime_image_reference::resolve_runtime_image_reference,
+    SUPPORTED_PHP_EXTENSIONS, resolve_runtime_image_reference::resolve_runtime_image_reference,
+    supports_php_extension,
 };
 use crate::control_plane::configuration::RawProjectConfig;
 use crate::control_plane::{
@@ -76,13 +77,22 @@ pub(crate) fn resolve_desired_project(
                     format!("declares invalid PHP extension '{extension}'"),
                 ));
             }
+            if !supports_php_extension(extension) {
+                return Err(invalid_service(
+                    name,
+                    format!(
+                        "declares unsupported PHP extension '{extension}'; supported extensions: {}",
+                        SUPPORTED_PHP_EXTENSIONS.join(", ")
+                    ),
+                ));
+            }
         }
         if !php_extensions.is_empty() && !preset.as_deref().is_some_and(extension_capable_preset) {
             return Err(invalid_service(
                 name,
                 format!(
                     "declares PHP extensions but preset '{}' does not provide the pinned \
-                     install-php-extensions runtime contract",
+                     Stackctl-owned PHP extension runtime contract",
                     preset.as_deref().unwrap_or("<none>")
                 ),
             ));

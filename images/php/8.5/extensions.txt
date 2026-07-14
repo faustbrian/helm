@@ -1,0 +1,14 @@
+bcmath
+exif
+gd
+imagick
+intl
+pcntl
+pcov
+pdo_mysql
+pdo_pgsql
+redis
+sockets
+sodium
+xdebug
+zip
