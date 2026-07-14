@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Connected the `.stackctl.localhost` loopback resolver preflight to singleton
+  daemon startup before runtime directories, watched roots, or SQLite state are
+  created. Broken or non-loopback host resolution now fails without mutation.
 - Removed unreachable non-Unix compatibility fallbacks from the v8 CLI,
   daemon, gateway, state, TLS, backup, and shared-secret paths. The host audit
   now permits only the single top-level unsupported-host compile boundary.

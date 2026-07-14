@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 648 passed, 0 failed. `just lint`, `just build`,
+`cargo test --quiet`: 649 passed, 0 failed. `just lint`, `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
 identified below.
@@ -22,7 +22,7 @@ identified below.
 | AC-03 | TOML is absent from v8 config and state paths | Implemented | strict YAML loader, unsupported-TOML discovery diagnostic, and YAML lock tests | Clean-install acceptance on every claimed platform |
 | AC-04 | Invalid YAML, unknown fields, duplicates, invalid names, and collisions fail before mutation | Implemented | configuration tests; `complete_discovered_registry_collision_fails_before_persistence`; transactional registry tests | None at repository-test level |
 | AC-05 | Domains are exactly `{project}-{service}.stackctl.localhost` without repair | Implemented | identity and `composite_name_collision_fails_instead_of_receiving_a_fallback_domain` tests | None at repository-test level |
-| AC-06 | Default domains resolve without hosts edits or a DNS daemon | Pending live evidence | `.localhost` resolver preflight tests; host-dependency audit | Loopback-resolution acceptance artifact for every claimed platform |
+| AC-06 | Default domains resolve without hosts edits or a DNS daemon | Pending live evidence | production startup `.localhost` resolver preflight before state mutation; loopback/non-loopback tests; host-dependency audit | Deliberate custom-domain fallback and loopback-resolution acceptance artifact for every claimed platform |
 
 ## Gateway, TLS, and workload plane
 

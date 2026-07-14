@@ -7,6 +7,7 @@ use crate::control_plane::application::ControlPlaneError;
 use crate::control_plane::daemon::ipc::IpcError;
 use crate::control_plane::daemon::ipc::IpcEventJournalError;
 use crate::control_plane::engine::EngineError;
+use crate::control_plane::gateway::GatewayError;
 use crate::control_plane::state::StateStoreError;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -31,6 +32,7 @@ pub(crate) enum UnixDaemonRuntimeError {
     Watcher(FilesystemEventWatcherError),
     Installation(InstallationInitializationError),
     EngineConfiguration(EngineError),
+    HostPreflight(GatewayError),
     AsyncRuntime(std::io::Error),
     EngineSupervisor(EngineConnectionSupervisorError),
     Reconciliation(DiscoveryReconciliationError),
@@ -61,6 +63,9 @@ impl Display for UnixDaemonRuntimeError {
             Self::EngineConfiguration(error) => {
                 write!(formatter, "invalid global Engine configuration: {error}")
             }
+            Self::HostPreflight(error) => {
+                write!(formatter, "daemon host preflight failed: {error}")
+            }
             Self::AsyncRuntime(error) => {
                 write!(formatter, "failed to create Engine async runtime: {error}")
             }
@@ -85,6 +90,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::Watcher(error) => Some(error),
             Self::Installation(error) => Some(error),
             Self::EngineConfiguration(error) => Some(error),
+            Self::HostPreflight(error) => Some(error),
             Self::AsyncRuntime(error) => Some(error),
             Self::EngineSupervisor(error) => Some(error),
             Self::Reconciliation(error) => Some(error),
@@ -139,6 +145,12 @@ impl From<InstallationInitializationError> for UnixDaemonRuntimeError {
 impl From<EngineError> for UnixDaemonRuntimeError {
     fn from(error: EngineError) -> Self {
         Self::EngineConfiguration(error)
+    }
+}
+
+impl From<GatewayError> for UnixDaemonRuntimeError {
+    fn from(error: GatewayError) -> Self {
+        Self::HostPreflight(error)
     }
 }
 

@@ -4,8 +4,10 @@
 
 Default routes use `{project}-{service}.stackctl.localhost`, relying on the
 special-use localhost namespace instead of host entries. Setup performs a
-loopback resolution self-test and reports a deliberate fallback when the
-platform is misconfigured.
+loopback resolution self-test before creating or changing daemon state. Empty
+or non-loopback answers fail with the exact probe hostname and address. The
+user must repair the host resolver and retry; an explicit custom-domain
+fallback remains unimplemented and is not selected automatically.
 
 One gateway publishes loopback 80/443 and receives a complete route set from
 the daemon. Caddy is acceptable initially only as a pinned, invisible container

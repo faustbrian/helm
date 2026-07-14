@@ -107,6 +107,8 @@ mod retry_delay;
 mod retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 mod run_unix_daemon_watch;
+#[cfg(unix)]
+mod run_unix_daemon_watch_with_resolver;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
@@ -253,6 +255,8 @@ pub(crate) use retry_delay::RetryDelay;
 pub(crate) use retry_failed_installation_deletion_prune::retry_failed_installation_deletion_prune;
 #[cfg(unix)]
 pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
+#[cfg(unix)]
+pub(crate) use run_unix_daemon_watch_with_resolver::run_unix_daemon_watch_with_resolver;
 #[cfg(unix)]
 pub(crate) use unix_daemon_runtime::UnixDaemonRuntime;
 #[cfg(unix)]

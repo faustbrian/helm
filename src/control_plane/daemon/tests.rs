@@ -7992,6 +7992,42 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
 
 #[cfg(unix)]
 #[test]
+fn daemon_watch_rejects_broken_localhost_resolution_before_writing_state() {
+    use super::{UnixDaemonWatchOptions, run_unix_daemon_watch_with_resolver};
+    use crate::control_plane::gateway::{GatewayError, LocalhostResolver};
+    use std::net::{IpAddr, Ipv4Addr};
+
+    struct NonLoopbackResolver;
+
+    impl LocalhostResolver for NonLoopbackResolver {
+        fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, GatewayError> {
+            Ok(vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))])
+        }
+    }
+
+    let root = temporary_directory("broken-localhost-preflight");
+    let runtime_directory = root.join("runtime");
+    let options = UnixDaemonWatchOptions {
+        runtime_directory: runtime_directory.clone(),
+        watched_roots: vec![root.clone()],
+        once: true,
+        periodic_rescan: Duration::from_secs(30),
+    };
+
+    let error = run_unix_daemon_watch_with_resolver(&options, &NonLoopbackResolver)
+        .expect_err("non-loopback .localhost resolution");
+
+    assert!(
+        error
+            .to_string()
+            .contains("non-loopback address 192.0.2.10")
+    );
+    assert!(!runtime_directory.exists());
+    std::fs::remove_dir_all(root).expect("remove preflight fixture");
+}
+
+#[cfg(unix)]
+#[test]
 fn singleton_unix_runtime_reconciles_after_a_watched_root_change() {
     use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
 
