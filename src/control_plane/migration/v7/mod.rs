@@ -22,6 +22,7 @@ mod v7_logical_data_inventory;
 mod v7_migration_adapter;
 mod v7_migration_adapter_executor;
 mod v7_migration_adapter_plan;
+mod v7_migration_adapter_registry;
 mod v7_migration_adapter_selection_error;
 mod v7_migration_adapter_selection_options;
 mod v7_migration_adapter_target;
@@ -63,6 +64,7 @@ pub(crate) use v7_migration_adapter::{
 };
 pub(crate) use v7_migration_adapter_executor::V7MigrationAdapterExecutor;
 pub(crate) use v7_migration_adapter_plan::{V7MigrationAdapterPlan, V7MigrationServiceSelection};
+pub(crate) use v7_migration_adapter_registry::V7MigrationAdapterRegistry;
 pub(crate) use v7_migration_adapter_selection_error::V7MigrationAdapterSelectionError;
 pub(crate) use v7_migration_adapter_selection_options::{
     V7MigrationAdapterSelectionOptions, V7MigrationRouteSource, V7MigrationServiceSource,

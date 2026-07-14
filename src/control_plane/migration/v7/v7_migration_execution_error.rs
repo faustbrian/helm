@@ -10,7 +10,17 @@ pub(crate) enum V7MigrationExecutionError {
         detail: String,
     },
     MissingAdapter {
+        adapter_id: String,
         adapter_kind: String,
+    },
+    AdapterKindMismatch {
+        adapter_id: String,
+        expected: String,
+        actual: String,
+    },
+    AdapterSetMismatch {
+        expected: usize,
+        actual: usize,
     },
     CheckpointMismatch,
     State(StateStoreError),
@@ -27,12 +37,25 @@ impl Display for V7MigrationExecutionError {
             Self::InvalidPlan { detail } => {
                 write!(formatter, "invalid v7 execution plan: {detail}")
             }
-            Self::MissingAdapter { adapter_kind } => {
-                write!(
-                    formatter,
-                    "v7 migration adapter '{adapter_kind}' is unavailable"
-                )
-            }
+            Self::MissingAdapter {
+                adapter_id,
+                adapter_kind,
+            } => write!(
+                formatter,
+                "v7 migration adapter '{adapter_id}' kind '{adapter_kind}' is unavailable"
+            ),
+            Self::AdapterKindMismatch {
+                adapter_id,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "v7 migration adapter '{adapter_id}' expected kind '{expected}', found '{actual}'"
+            ),
+            Self::AdapterSetMismatch { expected, actual } => write!(
+                formatter,
+                "v7 migration adapter registry has {actual} entries, expected {expected}"
+            ),
             Self::CheckpointMismatch => {
                 formatter.write_str("durable v7 execution does not match the selected plan")
             }

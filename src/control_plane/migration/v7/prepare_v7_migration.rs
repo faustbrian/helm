@@ -1,17 +1,16 @@
-use super::{V7MigrationAdapterExecutor, V7MigrationExecutionError, V7MigrationExecutionJournal};
+use super::{V7MigrationAdapterRegistry, V7MigrationExecutionError, V7MigrationExecutionJournal};
 use crate::control_plane::state::{
     V7MigrationAdapterCheckpointPhase, V7MigrationExecutionPhase, V7MigrationExecutionRecord,
 };
-use std::collections::BTreeMap;
 
 /// Prepares every selected adapter and stops at the durable all-target barrier.
 pub(crate) async fn prepare_v7_migration(
     journal: &mut dyn V7MigrationExecutionJournal,
     plan: &V7MigrationExecutionRecord,
-    executors: &mut BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
+    registry: &mut V7MigrationAdapterRegistry,
     updated_at_unix_seconds: i64,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
-    validate_plan(plan, executors, updated_at_unix_seconds)?;
+    validate_plan(plan, registry, updated_at_unix_seconds)?;
     let mut execution =
         match journal.load_v7_execution(plan.canonical_project_path(), plan.evidence_revision())? {
             Some(execution) => {
@@ -42,7 +41,8 @@ pub(crate) async fn prepare_v7_migration(
         if checkpoint.phase() == V7MigrationAdapterCheckpointPhase::Pending
             && checkpoint.requires_recovery()
         {
-            let backup = executor(executors, &checkpoint)?
+            let backup = registry
+                .executor(&checkpoint)?
                 .as_mut()
                 .prepare_recovery(&checkpoint)
                 .await
@@ -75,7 +75,8 @@ pub(crate) async fn prepare_v7_migration(
             V7MigrationAdapterCheckpointPhase::Pending
                 | V7MigrationAdapterCheckpointPhase::RecoveryVerified
         ) {
-            let target = executor(executors, &checkpoint)?
+            let target = registry
+                .executor(&checkpoint)?
                 .as_mut()
                 .prepare_target(&checkpoint)
                 .await
@@ -105,7 +106,7 @@ pub(crate) async fn prepare_v7_migration(
 
 fn validate_plan(
     plan: &V7MigrationExecutionRecord,
-    executors: &BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
+    registry: &V7MigrationAdapterRegistry,
     updated_at_unix_seconds: i64,
 ) -> Result<(), V7MigrationExecutionError> {
     if plan.phase() != V7MigrationExecutionPhase::Planned {
@@ -118,22 +119,7 @@ fn validate_plan(
             detail: "preparation time predates the selected plan".to_owned(),
         });
     }
-    validate_executor_set(plan, executors)?;
-
-    Ok(())
-}
-
-pub(super) fn validate_executor_set(
-    execution: &V7MigrationExecutionRecord,
-    executors: &BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
-) -> Result<(), V7MigrationExecutionError> {
-    for checkpoint in execution.checkpoints() {
-        if !executors.contains_key(checkpoint.adapter_kind()) {
-            return Err(V7MigrationExecutionError::MissingAdapter {
-                adapter_kind: checkpoint.adapter_kind().to_owned(),
-            });
-        }
-    }
+    registry.validate(plan)?;
 
     Ok(())
 }
@@ -156,17 +142,6 @@ pub(super) fn same_plan(
                     && execution.adapter_kind() == plan.adapter_kind()
                     && execution.requires_recovery() == plan.requires_recovery()
             })
-}
-
-pub(super) fn executor<'registry>(
-    executors: &'registry mut BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
-    checkpoint: &crate::control_plane::state::V7MigrationAdapterCheckpoint,
-) -> Result<&'registry mut Box<dyn V7MigrationAdapterExecutor>, V7MigrationExecutionError> {
-    executors.get_mut(checkpoint.adapter_kind()).ok_or_else(|| {
-        V7MigrationExecutionError::MissingAdapter {
-            adapter_kind: checkpoint.adapter_kind().to_owned(),
-        }
-    })
 }
 
 impl From<String> for V7MigrationExecutionError {

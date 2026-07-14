@@ -1,14 +1,15 @@
 use super::{
     V7EnvironmentMigrationAdapter, V7GeneratedEnvironmentRollbackOptions,
     V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
-    V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget, V7MigrationExecutionJournal,
-    V7MigrationExecutionPlanOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
-    V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
-    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
-    plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
-    rollback_v7_migration, select_v7_migration_adapters,
+    V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
+    V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRouteSource,
+    V7MigrationServiceAdapter, V7MigrationServiceSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RouteMigrationAdapter,
+    V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter, V7VolumeSource,
+    capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
+    inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
+    prepare_v7_migration, read_v7_generated_environment_rollback, rollback_v7_migration,
+    select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -181,6 +182,33 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
         .expect("planned execution");
         let calls = Arc::new(Mutex::new(Vec::new()));
         let fail_database_target = Arc::new(AtomicBool::new(true));
+        let incomplete_executor: Box<dyn V7MigrationAdapterExecutor> =
+            Box::new(RecordingV7Adapter {
+                calls: Arc::clone(&calls),
+                target_reference: None,
+                fail_target_once: Arc::new(AtomicBool::new(false)),
+                fail_cutover_once: Arc::new(AtomicBool::new(false)),
+            });
+        let mut incomplete_registry = V7MigrationAdapterRegistry::default();
+        incomplete_registry
+            .register("route", "no-routes", incomplete_executor)
+            .expect("register incomplete route adapter");
+        let mut incomplete_journal = RecordingV7Journal::default();
+        assert_eq!(
+            prepare_v7_migration(
+                &mut incomplete_journal,
+                &planned,
+                &mut incomplete_registry,
+                20,
+            )
+            .await
+            .expect_err("incomplete registry fails before persistence")
+            .to_string(),
+            "v7 migration adapter registry has 1 entries, expected 2"
+        );
+        assert!(incomplete_journal.writes.is_empty());
+        assert!(calls.lock().expect("preflight calls").is_empty());
+
         let database_executor: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
             calls: Arc::clone(&calls),
             target_reference: Some("postgres-v8-bill"),
@@ -193,13 +221,20 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
             fail_target_once: Arc::new(AtomicBool::new(false)),
             fail_cutover_once: Arc::new(AtomicBool::new(false)),
         });
-        let mut executors = BTreeMap::from([
-            ("postgres-logical-database".to_owned(), database_executor),
-            ("no-routes".to_owned(), route_executor),
-        ]);
+        let mut registry = V7MigrationAdapterRegistry::default();
+        registry
+            .register(
+                "service/database",
+                "postgres-logical-database",
+                database_executor,
+            )
+            .expect("register database adapter");
+        registry
+            .register("route", "no-routes", route_executor)
+            .expect("register route adapter");
         let mut journal = RecordingV7Journal::default();
 
-        let error = prepare_v7_migration(&mut journal, &planned, &mut executors, 20)
+        let error = prepare_v7_migration(&mut journal, &planned, &mut registry, 20)
             .await
             .expect_err("first target preparation fails");
         assert_eq!(
@@ -223,7 +258,7 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
             Some("backup:service/database")
         );
 
-        let prepared = prepare_v7_migration(&mut journal, &planned, &mut executors, 21)
+        let prepared = prepare_v7_migration(&mut journal, &planned, &mut registry, 21)
             .await
             .expect("resume preparation");
         assert_eq!(prepared.phase(), V7MigrationExecutionPhase::Prepared);
@@ -251,7 +286,7 @@ fn v7_preparation_resumes_after_failure_without_repeating_verified_recovery() {
             ]
         );
 
-        let replay = prepare_v7_migration(&mut journal, &planned, &mut executors, 22)
+        let replay = prepare_v7_migration(&mut journal, &planned, &mut registry, 22)
             .await
             .expect("prepared replay");
         assert_eq!(replay, prepared);
@@ -293,13 +328,13 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
             12,
         );
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let mut executors = lifecycle_v7_executors(Arc::clone(&calls), true);
+        let mut registry = lifecycle_v7_registry(Arc::clone(&calls), true);
         let mut journal = RecordingV7Journal {
             current: Some(prepared.clone()),
             writes: Vec::new(),
         };
 
-        let error = cutover_v7_migration(&mut journal, &plan, &mut executors, 20)
+        let error = cutover_v7_migration(&mut journal, &plan, &mut registry, 20)
             .await
             .expect_err("route cutover fails once");
         assert_eq!(
@@ -313,7 +348,7 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
         );
 
         calls.lock().expect("clear calls").clear();
-        let cutover = cutover_v7_migration(&mut journal, &plan, &mut executors, 21)
+        let cutover = cutover_v7_migration(&mut journal, &plan, &mut registry, 21)
             .await
             .expect("replayed cutover");
         assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
@@ -324,7 +359,7 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
 
         let mut confirmation_journal = journal.clone();
         calls.lock().expect("clear calls").clear();
-        let rolled_back = rollback_v7_migration(&mut journal, &plan, &mut executors, 22)
+        let rolled_back = rollback_v7_migration(&mut journal, &plan, &mut registry, 22)
             .await
             .expect("rollback cutover");
         assert_eq!(rolled_back.phase(), V7MigrationExecutionPhase::RolledBack);
@@ -334,7 +369,7 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
         );
 
         calls.lock().expect("clear calls").clear();
-        let confirmed = confirm_v7_migration(&mut confirmation_journal, &plan, &mut executors, 22)
+        let confirmed = confirm_v7_migration(&mut confirmation_journal, &plan, &mut registry, 22)
             .await
             .expect("confirm cutover");
         assert_eq!(confirmed.phase(), V7MigrationExecutionPhase::Confirmed);
@@ -1058,10 +1093,10 @@ fn v7_execution_record(
     .expect("v7 execution record")
 }
 
-fn lifecycle_v7_executors(
+fn lifecycle_v7_registry(
     calls: Arc<Mutex<Vec<String>>>,
     fail_route_cutover: bool,
-) -> BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>> {
+) -> V7MigrationAdapterRegistry {
     let database: Box<dyn V7MigrationAdapterExecutor> = Box::new(RecordingV7Adapter {
         calls: Arc::clone(&calls),
         target_reference: Some("postgres-v8-bill"),
@@ -1075,10 +1110,15 @@ fn lifecycle_v7_executors(
         fail_cutover_once: Arc::new(AtomicBool::new(fail_route_cutover)),
     });
 
-    BTreeMap::from([
-        ("postgres-logical-database".to_owned(), database),
-        ("no-routes".to_owned(), route),
-    ])
+    let mut registry = V7MigrationAdapterRegistry::default();
+    registry
+        .register("service/database", "postgres-logical-database", database)
+        .expect("register database adapter");
+    registry
+        .register("route", "no-routes", route)
+        .expect("register route adapter");
+
+    registry
 }
 
 #[derive(Clone, Default)]

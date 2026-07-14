@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an exact per-resource v7 adapter registry. Each immutable checkpoint
+  receives its own strategy instance keyed by adapter ID and selected kind;
+  missing, duplicate, extra, or kind-mismatched bindings fail before execution
+  intent is persisted instead of falling through a shared kind dispatcher.
 - Added project-wide v7 cutover, rollback, and confirmation coordinators to
   the common adapter strategy boundary. Cutover journals only after every
   idempotent strategy succeeds, route publication runs last, rollback reverses

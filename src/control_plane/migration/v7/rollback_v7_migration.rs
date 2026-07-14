@@ -1,14 +1,12 @@
 use super::cutover_v7_migration::{cutover_rank, load_execution};
-use super::prepare_v7_migration::{executor, validate_executor_set};
-use super::{V7MigrationAdapterExecutor, V7MigrationExecutionError, V7MigrationExecutionJournal};
+use super::{V7MigrationAdapterRegistry, V7MigrationExecutionError, V7MigrationExecutionJournal};
 use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutionRecord};
-use std::collections::BTreeMap;
 
 /// Restores every source in reverse adapter order before journaling rollback.
 pub(crate) async fn rollback_v7_migration(
     journal: &mut dyn V7MigrationExecutionJournal,
     plan: &V7MigrationExecutionRecord,
-    executors: &mut BTreeMap<String, Box<dyn V7MigrationAdapterExecutor>>,
+    registry: &mut V7MigrationAdapterRegistry,
     updated_at_unix_seconds: i64,
 ) -> Result<V7MigrationExecutionRecord, V7MigrationExecutionError> {
     let execution = load_execution(journal, plan)?;
@@ -20,7 +18,7 @@ pub(crate) async fn rollback_v7_migration(
             detail: "cannot roll back after source retirement".to_owned(),
         });
     }
-    validate_executor_set(&execution, executors)?;
+    registry.validate(&execution)?;
     if updated_at_unix_seconds < execution.updated_at_unix_seconds() {
         return Err(V7MigrationExecutionError::InvalidPlan {
             detail: "roll back time predates durable execution".to_owned(),
@@ -33,7 +31,8 @@ pub(crate) async fn rollback_v7_migration(
     });
     for index in indexes {
         let checkpoint = &execution.checkpoints()[index];
-        executor(executors, checkpoint)?
+        registry
+            .executor(checkpoint)?
             .as_mut()
             .rollback(checkpoint)
             .await
