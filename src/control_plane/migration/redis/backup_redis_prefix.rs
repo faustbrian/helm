@@ -102,7 +102,8 @@ pub(crate) async fn backup_redis_prefix(
         .map_err(|error| operation_error("Redis-compatible backup storage failed", error))
     };
     let (_, stored) = futures_util::future::try_join(export, store).await?;
-    validate_snapshot(&stored, options).await?;
+    validate_redis_prefix_snapshot(&stored, options.prefix, options.created_at_unix_seconds)
+        .await?;
     let evidence = verify_stored_backup_artifact(&stored, options.created_at_unix_seconds)
         .map_err(|error| operation_error("Redis-compatible backup verification failed", error))?;
     let reference = stored.recovery_point().to_str().ok_or_else(|| {
@@ -169,9 +170,10 @@ fn validate(
     Ok(())
 }
 
-async fn validate_snapshot(
+pub(super) async fn validate_redis_prefix_snapshot(
     stored: &crate::control_plane::retention::StoredBackupArtifact,
-    options: &RedisBackupOptions<'_>,
+    expected_prefix: &str,
+    created_at_unix_seconds: i64,
 ) -> Result<(), MigrationOperationError> {
     let bytes = tokio::fs::read(stored.artifact_file())
         .await
@@ -180,8 +182,8 @@ async fn validate_snapshot(
         .map_err(|error| operation_error("Redis-compatible snapshot is malformed", error))?;
     let prefix = decode_hex(&snapshot.prefix_hex, "snapshot prefix")?;
     if snapshot.format != 1
-        || snapshot.created_at_unix_seconds != options.created_at_unix_seconds
-        || prefix != options.prefix.as_bytes()
+        || snapshot.created_at_unix_seconds != created_at_unix_seconds
+        || prefix != expected_prefix.as_bytes()
     {
         return Err(MigrationOperationError::new(
             "Redis-compatible snapshot identity does not match its backup request",
@@ -191,7 +193,7 @@ async fn validate_snapshot(
     for record in snapshot.records.into_records()? {
         let key = decode_hex(&record.key_hex, "snapshot key")?;
         let dump = decode_hex(&record.dump_hex, "snapshot value")?;
-        if !key.starts_with(options.prefix.as_bytes())
+        if !key.starts_with(prefix.as_slice())
             || dump.is_empty()
             || record.ttl_milliseconds < -1
             || !keys.insert(key)

@@ -407,6 +407,22 @@ retained source and v8 target must return their expected database and login;
 confirmation alone delegates exact accepted resource retirement to the shared
 Engine capability.
 
+The Redis and Valkey logical-data providers bind the accepted implementation,
+container, logical database, named-volume set, and recovery identity before
+running the matching native client. A single server-side script takes a
+binary-safe snapshot of every source key's serialized value and remaining TTL.
+The snapshot maps each raw source key to the deterministic v8 tenant namespace
+by prepending `stackctl:<project>:<service>:`. Stackctl deliberately neither
+removes nor interprets an application-level prefix already present in the raw
+key: recovery is lossless and deterministic rather than a guess about framework
+configuration. Target preparation reverifies the accepted-revision-bound
+artifact before mutation, removes expired records, stages all remaining values
+under a private temporary prefix, and then atomically replaces only the exact
+tenant prefix. Replaying preparation produces the same target contents. Both
+the restricted v8 ACL user and retained v7 credential must return their exact
+authenticated identities and a successful ping; confirmation alone delegates
+the accepted container and named volumes to exact Engine retirement.
+
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

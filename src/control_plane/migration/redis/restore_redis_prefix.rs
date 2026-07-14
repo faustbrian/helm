@@ -115,6 +115,22 @@ pub(crate) async fn restore_redis_prefix(
             "Redis-compatible restore backup does not match its recovery point",
         ));
     }
+    restore_verified_redis_prefix(executor, container, options, &stored).await
+}
+
+/// Restores an already identity-verified snapshot into one exact target prefix.
+pub(super) async fn restore_verified_redis_prefix(
+    executor: &impl CommandExecutor,
+    container: &OwnedContainer,
+    options: &RedisRestoreOptions<'_>,
+    stored: &crate::control_plane::retention::StoredBackupArtifact,
+) -> Result<(), MigrationOperationError> {
+    validate(container, options)?;
+    if stored.recovery_point().to_str() != Some(options.recovery_point.reference()) {
+        return Err(MigrationOperationError::new(
+            "Redis-compatible verified restore path differs from its recovery point",
+        ));
+    }
     let snapshot_bytes = tokio::fs::read(stored.artifact_file())
         .await
         .map_err(|error| operation_error("Redis-compatible restore artifact read failed", error))?;

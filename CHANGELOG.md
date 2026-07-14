@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added accepted-v7 Redis and Valkey logical migration providers. They export
+  binary-safe values and TTLs from the exact legacy logical database, prepend
+  the deterministic v8 tenant prefix without guessing application namespaces,
+  bind recovery to accepted evidence, reject tampering before target mutation,
+  replay-safely stage and replace only that tenant prefix, verify both
+  authenticated identities, and defer exact Engine retirement to confirmation.
 - Added an accepted-v7 SQL Server logical migration provider. It streams
   checksummed native backups through exact legacy Engine authorization,
   reverifies recovery before mutation, replay-safely resets and restores the
