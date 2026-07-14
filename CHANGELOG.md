@@ -48,6 +48,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-side accepted-v7 logical provider composition for PostgreSQL,
+  MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, MinIO, and RabbitMQ. Every
+  source now binds exactly one prepared instance, tenant plan, active logical
+  record, credential, and ownership-reconstructed target container, with
+  missing and ambiguous targets refused before registration.
 - Added daemon-side accepted-v7 registry composition for explicit no-op and
   normally reconciled workload, stateless logical-resource, and ephemeral
   targets. Missing or ambiguous active v8 state now blocks binding.

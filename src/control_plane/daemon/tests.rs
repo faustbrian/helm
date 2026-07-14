@@ -9,16 +9,18 @@ use super::{
     ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
-    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
-    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
+    RegisterAcceptedV7LogicalDataAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
+    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
-    register_accepted_v7_recreated_adapters, requires_followup_reconciliation,
-    resolve_accepted_v7_logical_data_inputs, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
+    register_accepted_v7_logical_data_adapters, register_accepted_v7_recreated_adapters,
+    requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
+    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
+    select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -39,7 +41,8 @@ use crate::control_plane::migration::{
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
-    CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
+    CredentialEntropy, CredentialGenerationError, PreparedSharedInstance, SharedPreparationOptions,
+    prepare_shared_instances, resolve_execution_shared_instances,
 };
 use crate::control_plane::state::{
     AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions, DaemonOperationRecord,
@@ -6692,6 +6695,260 @@ database = "legacy_database"
     assert!(error.contains("changed after inventory acceptance"));
 
     std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn accepted_v7_logical_adapters_bind_real_prepared_targets_and_reject_ambiguity() {
+    use crate::control_plane::engine::{
+        ContainerId, ObservedContainer, reconstruct_owned_container,
+    };
+    use crate::control_plane::migration::{
+        V7LogicalDataMigrationSource, V7LogicalDataMigrationSourceOptions, V7PostgresCredential,
+    };
+    use crate::control_plane::state::{
+        LogicalResourceRecord, LogicalResourceRecordOptions, V7MigrationAdapterCheckpoint,
+    };
+
+    let root = temporary_directory("accepted-v7-logical-composition");
+    let state_path = root.join("state.sqlite3");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "postgres@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let desired = plan_project_registry(&[ProjectSource::new(
+        project_path.clone(),
+        project_path.join(".stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: postgres\n    version: \"17\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let resolved = resolve_execution_plan(&desired).expect("execution plan");
+    let shared =
+        resolve_execution_shared_instances(&resolved, "linux/arm64").expect("shared instances");
+    let mut store = SqliteStateStore::open(&state_path).expect("state store");
+    let prepared = prepare_shared_instances(
+        &mut store,
+        &shared,
+        &FixedRestoreEntropy(0x44),
+        SharedPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("prepared shared target");
+    let PreparedSharedInstance::Postgres(postgres) = &prepared[0] else {
+        panic!("expected PostgreSQL target");
+    };
+    let project = &postgres.projects()[0];
+    let request = postgres.instance().container();
+    let observed = ObservedContainer::new(
+        ContainerId::new("postgres-target"),
+        request.metadata().labels(),
+    );
+    let target =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned PostgreSQL target");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: project.logical().database_name().to_owned(),
+        shared_resource_id: "postgres-target-data".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: request.metadata().compatibility_fingerprint().to_owned(),
+        desired_revision: project.environment().revision().to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: project_path.clone(),
+        source_revision: source_revision.clone(),
+        inventory_json: serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": project_path,
+            "source_revision": source_revision,
+            "blockers": [],
+            "services": [{
+                "service_id": "database",
+                "kind": "database",
+                "driver": "postgres",
+                "container_name": "bill-database",
+                "observed_container_id": "legacy-postgres",
+                "configured_mounts": [{
+                    "source_kind": "named_volume",
+                    "source": "bill-database-data",
+                    "target": "/var/lib/postgresql/data",
+                    "read_only": false
+                }],
+                "observed_mounts": [{
+                    "source_kind": "named_volume",
+                    "source": "bill-database-data",
+                    "target": "/var/lib/postgresql/data",
+                    "read_only": false
+                }],
+                "logical_data": {"database": "legacy_bill"}
+            }]
+        })
+        .to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+    let source = V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "database".to_owned(),
+        driver: "postgres".to_owned(),
+        container_name: "bill-database".to_owned(),
+        container_id: "legacy-postgres".to_owned(),
+        named_volumes: vec!["bill-database-data".to_owned()],
+        logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
+    })
+    .expect("accepted source");
+    let inputs = vec![super::AcceptedV7LogicalDataInput::new(
+        source,
+        super::V7LogicalDataCredential::Postgres(
+            V7PostgresCredential::new("legacy-user", "legacy-secret").expect("legacy credential"),
+        ),
+    )];
+    let execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: accepted.canonical_project_path().to_path_buf(),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: vec![
+            V7MigrationAdapterCheckpoint::pending(
+                "service/database",
+                "postgres-logical-database",
+                true,
+                10,
+            )
+            .expect("pending checkpoint"),
+        ],
+        updated_at_unix_seconds: 10,
+    })
+    .expect("migration execution");
+    let engine = LogicalCompositionEngine;
+    let targets = vec![target.clone()];
+    let logical_resources = vec![logical];
+    let mut registry = V7MigrationAdapterRegistry::default();
+    assert_eq!(
+        register_accepted_v7_logical_data_adapters(
+            &mut registry,
+            &execution,
+            RegisterAcceptedV7LogicalDataAdaptersOptions {
+                accepted: &accepted,
+                inputs: &inputs,
+                prepared: &prepared,
+                target_containers: &targets,
+                logical_resources: &logical_resources,
+                engine: &engine,
+                installation_id: "install-1",
+                backup_root: &root,
+                created_at_unix_seconds: 11,
+                verified_at_unix_seconds: 12,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .expect("register exact logical target"),
+        1
+    );
+    drop(registry);
+
+    let ambiguous_targets = vec![target.clone(), target];
+    let error = register_accepted_v7_logical_data_adapters(
+        &mut V7MigrationAdapterRegistry::default(),
+        &execution,
+        RegisterAcceptedV7LogicalDataAdaptersOptions {
+            accepted: &accepted,
+            inputs: &inputs,
+            prepared: &prepared,
+            target_containers: &ambiguous_targets,
+            logical_resources: &logical_resources,
+            engine: &engine,
+            installation_id: "install-1",
+            backup_root: &root,
+            created_at_unix_seconds: 11,
+            verified_at_unix_seconds: 12,
+            timeout: Duration::from_secs(30),
+        },
+    )
+    .expect_err("ambiguous owned target must block");
+    assert!(error.contains("exact v8 target is ambiguous"));
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove composition fixture");
+}
+
+struct LogicalCompositionEngine;
+
+impl crate::control_plane::engine::CommandExecutor for LogicalCompositionEngine {
+    fn start_command<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _request: &'operation crate::control_plane::engine::CommandRequest,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandSession,
+    > {
+        Box::pin(async { Err(logical_composition_engine_error()) })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation crate::control_plane::engine::CommandExecutionId,
+        _container_id: &'operation crate::control_plane::engine::ContainerId,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandStatus,
+    > {
+        Box::pin(async { Err(logical_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::V7ContainerCommandExecutor for LogicalCompositionEngine {
+    fn start_v7_command<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerCommandTarget,
+        _request: &'operation crate::control_plane::engine::CommandRequest,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandSession,
+    > {
+        Box::pin(async { Err(logical_composition_engine_error()) })
+    }
+
+    fn v7_command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation crate::control_plane::engine::CommandExecutionId,
+        _container_id: &'operation crate::control_plane::engine::ContainerId,
+    ) -> crate::control_plane::engine::EngineFuture<
+        'operation,
+        crate::control_plane::engine::CommandStatus,
+    > {
+        Box::pin(async { Err(logical_composition_engine_error()) })
+    }
+}
+
+impl crate::control_plane::engine::V7ContainerRetirement for LogicalCompositionEngine {
+    fn retire_v7_container<'operation>(
+        &'operation self,
+        _target: &'operation crate::control_plane::engine::V7ContainerRetirementTarget,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        Box::pin(async { Err(logical_composition_engine_error()) })
+    }
+}
+
+fn logical_composition_engine_error() -> crate::control_plane::engine::EngineError {
+    crate::control_plane::engine::EngineError::Backend {
+        detail: "composition test does not execute providers".to_owned(),
+    }
 }
 
 #[test]

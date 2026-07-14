@@ -300,6 +300,12 @@ journals all required recovery artifacts before target work, prioritizes those
 recoverable targets, and stops at the last successful checkpoint on any
 adapter error. Reconciliation resumes from that exact checkpoint rather than
 repeating a verified backup or trusting unrecorded in-memory progress.
+Logical-data composition resolves each accepted PostgreSQL, MySQL/MariaDB,
+MongoDB, SQL Server, Redis/Valkey, MinIO, or RabbitMQ source against exactly one
+prepared shared instance and project tenant. It also requires exactly one
+active logical-resource record and one ownership-reconstructed target
+container with the prepared compatibility metadata. Missing or ambiguous state
+fails before the driver provider enters the execution registry.
 Selected no-op strategies are still concrete registry entries and advance
 through target verification, cutover, and confirmation. They cover absent
 routes, trust, generated environments, and named volumes, plus volume state
