@@ -1,19 +1,20 @@
 use super::{
-    AcceptedV7MigrationAction, BenchmarkSnapshotProvider, DaemonRequestDispatchOptions,
-    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture,
-    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector,
-    EngineReconciliationPlanOptions, EngineV7ProjectInventoryProvider,
-    ExecuteAcceptedV7MigrationOptions, ImageReferenceResolution, IpcEventJournal,
-    MigrationDecisionExecutionOptions, MigrationDecisionQueue, PostgresPruneExecutionOptions,
-    PostgresPruneQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
-    ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
-    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
-    ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
-    QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    RegisterAcceptedV7AdaptersOptions, RegisterAcceptedV7LogicalDataAdaptersOptions,
-    RegisterAcceptedV7NamedVolumeAdaptersOptions, RegisterAcceptedV7ProjectWideAdaptersOptions,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
-    V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
+    AcceptedV7MigrationAction, AdvanceAcceptedV7MigrationOptions, BenchmarkSnapshotProvider,
+    DaemonRequestDispatchOptions, DiscoveryScanReason, DiscoveryScheduler,
+    DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
+    EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
+    EngineV7ProjectInventoryProvider, ExecuteAcceptedV7MigrationOptions, ImageReferenceResolution,
+    IpcEventJournal, MigrationDecisionExecutionOptions, MigrationDecisionQueue,
+    PostgresPruneExecutionOptions, PostgresPruneQueue, ProjectBackupExecutionOptions,
+    ProjectBackupQueue, ProjectCommandExecutionOptions, ProjectCommandQueue,
+    ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest, ProjectLogSessionRegistry,
+    ProjectLogTarget, ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult,
+    ProjectRestoreQueue, ProjectRestoreTargetPlan, QueuedPostgresPrune, QueuedProjectBackup,
+    QueuedProjectCommand, QueuedProjectRestore, RegisterAcceptedV7AdaptersOptions,
+    RegisterAcceptedV7LogicalDataAdaptersOptions, RegisterAcceptedV7NamedVolumeAdaptersOptions,
+    RegisterAcceptedV7ProjectWideAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
+    RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
+    advance_accepted_v7_migration, collect_benchmark_snapshot, discover_project_sources,
     dispatch_daemon_request, execute_accepted_v7_migration, execute_project_logs,
     execute_queued_migration_decision, execute_queued_postgres_prune,
     execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
@@ -7302,6 +7303,112 @@ fn accepted_v7_named_volume_adapters_bind_one_exact_prepared_target() {
         mixed,
         "accepted v7 adapter contexts do not share one immutable identity"
     );
+
+    let no_op_path = root.join("no-op");
+    let no_op_revision = format!("sha256:{}", "d".repeat(64));
+    let no_op_accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "no-op".to_owned(),
+        canonical_project_path: no_op_path.clone(),
+        source_revision: no_op_revision.clone(),
+        inventory_json: serde_json::json!({
+            "project_id": "no-op",
+            "canonical_project_path": no_op_path,
+            "source_revision": no_op_revision,
+            "blockers": [],
+            "services": [],
+            "routes": []
+        })
+        .to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 20,
+    })
+    .expect("no-op accepted inventory");
+    let no_op_execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "no-op".to_owned(),
+        canonical_project_path: no_op_path.clone(),
+        evidence_revision: no_op_accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "e".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: vec![
+            V7MigrationAdapterCheckpoint::pending("route", "no-routes", false, 20)
+                .expect("no-route checkpoint"),
+        ],
+        updated_at_unix_seconds: 20,
+    })
+    .expect("no-op execution");
+    let project = ProjectRecord::new(no_op_path, "no-op".to_owned(), Vec::new());
+    let environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "no-op".to_owned(),
+        revision: "sha256:no-op-environment".to_owned(),
+        values: BTreeMap::new(),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let desired_state = crate::control_plane::migration::MigrationCutoverPlan::new(
+        project.clone(),
+        environment.clone(),
+    )
+    .expect("no-op desired state");
+    let mut store = SqliteStateStore::open(&root.join("no-op-state.sqlite3")).expect("state");
+    store.replace_project(&project).expect("project");
+    store
+        .record_accepted_v7_inventory(&no_op_accepted)
+        .expect("accepted source");
+    store
+        .record_v7_migration_execution(&no_op_execution)
+        .expect("planned execution");
+    let mut control_plane = ControlPlane::new(store);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let advanced = runtime
+        .block_on(advance_accepted_v7_migration(
+            &mut control_plane,
+            AdvanceAcceptedV7MigrationOptions {
+                execution: &no_op_execution,
+                registration: RegisterAcceptedV7AdaptersOptions {
+                    resources: &[],
+                    logical_resources: &[],
+                    logical: RegisterAcceptedV7LogicalDataAdaptersOptions {
+                        accepted: &no_op_accepted,
+                        inputs: &[],
+                        prepared: &[],
+                        target_containers: &[],
+                        logical_resources: &[],
+                        engine: &engine,
+                        installation_id: "install-1",
+                        backup_root: &root,
+                        created_at_unix_seconds: 21,
+                        verified_at_unix_seconds: 22,
+                        timeout: Duration::from_secs(30),
+                    },
+                    named_volumes: RegisterAcceptedV7NamedVolumeAdaptersOptions {
+                        accepted: &no_op_accepted,
+                        sources: &[],
+                        reconciliation: &reconciliation,
+                        target_containers: &[],
+                        target_volumes: &[],
+                        engine: &engine,
+                        backup_root: &root,
+                        created_at_unix_seconds: 21,
+                        verified_at_unix_seconds: 22,
+                        timeout: Duration::from_secs(30),
+                    },
+                    project_wide: RegisterAcceptedV7ProjectWideAdaptersOptions {
+                        accepted: &no_op_accepted,
+                        gateway: None,
+                        trust: None,
+                        managed_environments: std::slice::from_ref(&environment),
+                        verified_at_unix_seconds: 22,
+                        maximum_environment_bytes: 1024,
+                    },
+                },
+                desired_state: &desired_state,
+                updated_at_unix_seconds: 22,
+            },
+        ))
+        .expect("automatic no-op v7 advance");
+    assert_eq!(advanced.phase(), V7MigrationExecutionPhase::Cutover);
 }
 
 #[derive(Clone, Copy)]

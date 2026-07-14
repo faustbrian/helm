@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a single automatic accepted-v7 advance operation that composes the
+  complete strategy set before preparation and atomic project-wide cutover.
 - Composed every selected v7 checkpoint through one exact adapter-set boundary
   and rejected incomplete or identity-mixed strategy contexts.
 - Made the singleton control plane the durable journal boundary for atomic v7

@@ -6,6 +6,8 @@ mod active_project_backup;
 mod active_project_command;
 mod active_project_log_session;
 mod active_project_restore;
+mod advance_accepted_v7_migration;
+mod advance_accepted_v7_migration_options;
 mod benchmark_snapshot_provider;
 #[cfg(unix)]
 mod bollard_unix_engine_connector;
@@ -162,6 +164,8 @@ pub(crate) use active_project_backup::ActiveProjectBackup;
 pub(crate) use active_project_command::ActiveProjectCommand;
 pub(crate) use active_project_log_session::ActiveProjectLogSession;
 pub(crate) use active_project_restore::ActiveProjectRestore;
+pub(crate) use advance_accepted_v7_migration::advance_accepted_v7_migration;
+pub(crate) use advance_accepted_v7_migration_options::AdvanceAcceptedV7MigrationOptions;
 pub(crate) use singleton_lease::SingletonLease;
 pub(crate) use singleton_lease_error::SingletonLeaseError;
 
