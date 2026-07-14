@@ -1225,6 +1225,46 @@ fn backup_store_recovers_an_incomplete_owned_pending_publish() {
 
 #[cfg(unix)]
 #[test]
+fn backup_store_refuses_a_symbolic_link_recovery_point() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-backup-linked-recovery-point-{}-{}",
+        std::process::id(),
+        50_004
+    ));
+    let resource = resource(
+        ResourceRetention::Persistent,
+        ResourceLifecycle::Orphaned,
+        Some(1_000),
+    );
+    let stored = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect("initial backup");
+    let destination = stored
+        .artifact_file()
+        .parent()
+        .expect("recovery point directory")
+        .to_owned();
+    let victim = root.join("external-recovery-point");
+    std::fs::rename(&destination, &victim).expect("move recovery point outside resource");
+    symlink(&victim, &destination).expect("create linked recovery point");
+
+    let error = store_backup_artifact(&resource, b"recoverable bytes", 40_000, &root)
+        .expect_err("linked recovery point must fail closed");
+
+    assert!(error.to_string().contains("real directory"));
+    assert!(
+        std::fs::symlink_metadata(&destination)
+            .expect("linked recovery point")
+            .file_type()
+            .is_symlink()
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove linked recovery-point fixture");
+}
+
+#[cfg(unix)]
+#[test]
 fn backup_store_streams_large_artifacts_without_requiring_one_byte_buffer() {
     let root = std::env::temp_dir().join(format!(
         "stackctl-backup-stream-{}-{}",

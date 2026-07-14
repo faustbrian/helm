@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized each backup stream and recovery-point publication on its exact
+  resource directory. Existing recovery points must now be real directories,
+  so concurrent attempts cannot remove one another's staging data and a
+  symbolic link cannot adopt an external artifact as daemon-owned backup data.
 - Refused symbolic links and non-file paths in daemon-owned credential
   storage before reading or changing permissions. Credential publication is
   now serialized on its private directory, so concurrent reconciliation

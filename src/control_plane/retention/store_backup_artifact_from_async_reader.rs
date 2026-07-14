@@ -21,7 +21,7 @@ pub(crate) async fn store_backup_artifact_from_async_reader(
     created_at_unix_seconds: i64,
     root: &Path,
 ) -> Result<StoredBackupArtifact, BackupVerificationError> {
-    let (resource_directory, pending, pending_stored) =
+    let (_resource_lock, resource_directory, pending, pending_stored) =
         prepare_pending_backup(resource, created_at_unix_seconds, root)?;
     let _cleanup = PendingBackupCleanup::new(pending.clone());
     let mut file = tokio::fs::OpenOptions::new()
