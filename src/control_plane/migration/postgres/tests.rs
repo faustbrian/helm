@@ -569,7 +569,7 @@ fn postgres_source_retirement_drops_only_the_confirmed_logical_source() {
 
     let sql = String::from_utf8(executor.input.lock().expect("retirement SQL").clone())
         .expect("retirement SQL UTF-8");
-    assert!(sql.contains("DROP DATABASE IF EXISTS legacy_bill"));
+    assert!(sql.contains("DROP DATABASE IF EXISTS source_bill"));
     assert!(sql.contains("DROP ROLE IF EXISTS stackctl_bill_database_role"));
 }
 

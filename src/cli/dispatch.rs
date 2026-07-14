@@ -71,7 +71,7 @@ mod tests {
     use crate::cli::args::Cli;
     use clap::Parser;
 
-    fn minimal_config_dir() -> PathBuf {
+    fn unsupported_toml_project() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock")
@@ -93,8 +93,8 @@ mod tests {
     }
 
     #[test]
-    fn run_dispatches_about_from_full_pipeline() {
-        let project_root = minimal_config_dir();
+    fn full_pipeline_rejects_pre_v8_project_config() {
+        let project_root = unsupported_toml_project();
         crate::docker::with_test_runtime_lock(|| {
             let args = [
                 "stackctl",
@@ -103,8 +103,9 @@ mod tests {
                 "about",
             ];
             let cli = Cli::try_parse_from(args).expect("parse cli");
-            let result = super::run(cli);
-            assert!(result.is_ok());
+            let error = super::run(cli).expect_err("pre-v8 config must be rejected");
+            assert!(error.to_string().contains("pre-v8 config"));
+            assert!(error.to_string().contains("clean v8 installation"));
         });
     }
 
@@ -227,48 +228,5 @@ mod tests {
         assert!(!root.join(".stackctl.lock.toml").exists());
 
         fs::remove_dir_all(root).expect("remove lock fixture");
-    }
-
-    #[test]
-    fn run_dispatches_secondary_status_via_full_pipeline() {
-        let project_root = minimal_config_dir();
-        crate::docker::with_test_runtime_lock(|| {
-            let args = [
-                "stackctl",
-                "--project-root",
-                project_root.to_str().expect("project root is valid utf-8"),
-                "status",
-            ];
-            let cli = Cli::parse_from(args);
-            let result = super::run(cli);
-            assert!(result.is_ok());
-        });
-    }
-
-    #[test]
-    fn run_applies_container_engine_from_config() {
-        let project_root = minimal_config_dir();
-        let config_path = project_root.join(".stackctl.toml");
-        fs::write(
-            &config_path,
-            "schema_version = 1\nproject_type = \"project\"\ncontainer_engine = \"podman\"\nservice = []\nswarm = []\n",
-        )
-        .expect("write podman config");
-
-        crate::docker::with_container_engine(crate::config::ContainerEngine::Docker, || {
-            let args = [
-                "stackctl",
-                "--project-root",
-                project_root.to_str().expect("project root is valid utf-8"),
-                "status",
-            ];
-            let cli = Cli::parse_from(args);
-            let result = super::run(cli);
-            assert!(result.is_ok());
-            assert_eq!(
-                crate::docker::container_engine(),
-                crate::config::ContainerEngine::Podman
-            );
-        });
     }
 }

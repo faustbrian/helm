@@ -8,7 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Removed the pre-v8 inventory, compatibility adapters, config conversion,
   revision journals, and upgrade rollback paths. V8 now has an explicit
-  clean-install boundary and manages only newly created v8 state and resources.
+  clean-install boundary, rejects old project files through the full CLI
+  pipeline, and manages only newly created v8 state and resources.
 - Blocked whole-installation delete-data preflight when project-owned
   persistent volumes have no ownership-bound recovery adapter, preventing
   terminal Engine cleanup from erasing unprotected dedicated-service data,
