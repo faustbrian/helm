@@ -1,8 +1,9 @@
 use super::{
-    BenchmarkSnapshotProvider, DaemonRequestDispatchOptions, DiscoveryScanReason,
-    DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineConnector, EngineReconciliationPlanOptions,
-    EngineV7ProjectInventoryProvider, ImageReferenceResolution, IpcEventJournal,
+    AcceptedV7MigrationAction, BenchmarkSnapshotProvider, DaemonRequestDispatchOptions,
+    DiscoveryScanReason, DiscoveryScheduler, DiscoverySchedulerOptions, EngineConnectionFuture,
+    EngineConnectionOutcome, EngineConnectionSupervisor, EngineConnector,
+    EngineReconciliationPlanOptions, EngineV7ProjectInventoryProvider,
+    ExecuteAcceptedV7MigrationOptions, ImageReferenceResolution, IpcEventJournal,
     MigrationDecisionExecutionOptions, MigrationDecisionQueue, PostgresPruneExecutionOptions,
     PostgresPruneQueue, ProjectBackupExecutionOptions, ProjectBackupQueue,
     ProjectCommandExecutionOptions, ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer,
@@ -13,10 +14,10 @@ use super::{
     RegisterAcceptedV7ProjectWideAdaptersOptions, ResourceHealthRegistry, RetryBackoff,
     RetryBackoffOptions, SingletonLease, V7HostArtifactPaths, V7ProjectInventoryProvider,
     collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
-    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
-    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result,
+    execute_accepted_v7_migration, execute_project_logs, execute_queued_migration_decision,
+    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
+    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
+    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     register_accepted_v7_logical_data_adapters, register_accepted_v7_named_volume_adapters,
     register_accepted_v7_project_wide_adapters, register_accepted_v7_recreated_adapters,
@@ -7563,6 +7564,83 @@ fn accepted_v7_recreated_adapters_bind_only_exact_active_v8_targets() {
         targets["service/mail"],
         Some("logical-resource:bill/mail".to_owned())
     );
+    let desired_state = crate::control_plane::migration::MigrationCutoverPlan::new(
+        ProjectRecord::new(
+            PathBuf::from("/work/bill"),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        ),
+        ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+            project_id: "bill".to_owned(),
+            revision: "sha256:v8-environment".to_owned(),
+            values: BTreeMap::new(),
+            lifecycle: EnvironmentLifecycle::Active,
+        }),
+    )
+    .expect("desired cutover state");
+    store
+        .replace_project(desired_state.project())
+        .expect("registered migration project");
+    let cutover = runtime
+        .block_on(execute_accepted_v7_migration(
+            ExecuteAcceptedV7MigrationOptions {
+                journal: &mut store,
+                plan: &execution,
+                registry: &mut registry,
+                action: AcceptedV7MigrationAction::PrepareAndCutover {
+                    desired_state: &desired_state,
+                },
+                updated_at_unix_seconds: 12,
+            },
+        ))
+        .expect("daemon-owned cutover");
+    assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
+    let replay = runtime
+        .block_on(execute_accepted_v7_migration(
+            ExecuteAcceptedV7MigrationOptions {
+                journal: &mut store,
+                plan: &execution,
+                registry: &mut registry,
+                action: AcceptedV7MigrationAction::PrepareAndCutover {
+                    desired_state: &desired_state,
+                },
+                updated_at_unix_seconds: 13,
+            },
+        ))
+        .expect("idempotent daemon cutover replay");
+    assert_eq!(replay, cutover);
+    let confirmed = runtime
+        .block_on(execute_accepted_v7_migration(
+            ExecuteAcceptedV7MigrationOptions {
+                journal: &mut store,
+                plan: &execution,
+                registry: &mut registry,
+                action: AcceptedV7MigrationAction::Confirm,
+                updated_at_unix_seconds: 14,
+            },
+        ))
+        .expect("daemon-owned confirmation");
+    assert_eq!(confirmed.phase(), V7MigrationExecutionPhase::Confirmed);
+    let restored_state = crate::control_plane::migration::MigrationRollbackPlan::new(
+        desired_state.project().clone(),
+        desired_state.environment().clone(),
+        Vec::new(),
+    )
+    .expect("restored state");
+    let rollback_error = runtime
+        .block_on(execute_accepted_v7_migration(
+            ExecuteAcceptedV7MigrationOptions {
+                journal: &mut store,
+                plan: &execution,
+                registry: &mut registry,
+                action: AcceptedV7MigrationAction::Rollback {
+                    restored_state: &restored_state,
+                },
+                updated_at_unix_seconds: 15,
+            },
+        ))
+        .expect_err("confirmation must make rollback impossible");
+    assert!(rollback_error.to_string().contains("source retirement"));
 
     let ambiguous = register_accepted_v7_recreated_adapters(
         &mut V7MigrationAdapterRegistry::default(),

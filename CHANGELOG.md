@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a daemon-owned accepted-v7 phase dispatcher that resumes preparation,
+  atomically cuts over, and gates confirmation or rollback by durable phase.
 - Exposed durable project-wide v7 execution barriers through project migration
   status with collision-proof identities and confirmation state.
 - Composed selected gateway, installation trust, and protected generated
