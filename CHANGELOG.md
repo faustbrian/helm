@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a Redis/Valkey logical backup adapter that uses the shared
+  administrator for one atomic prefix-only Lua snapshot, preserves binary keys,
+  opaque `DUMP` values, and TTL metadata, and rejects cross-prefix artifacts.
 - Added an ownership-checked MinIO recovery adapter that re-verifies immutable
   backup identity, checksum, and size before replacing only the exact target
   bucket through scoped credentials and an idempotent mirror operation.
