@@ -4,9 +4,8 @@ use super::{
     ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
     ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
-    reconcile_watched_roots, record_accepted_v7_migration_plan,
-    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
-    verify_accepted_v7_environment_rollback,
+    reconcile_watched_roots, retry_failed_installation_deletion_prune,
+    select_accepted_v7_migration_adapters, verify_accepted_v7_environment_rollback,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -20,7 +19,7 @@ use crate::control_plane::state::{
     AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
     DaemonOperationTransitionOptions, EnvironmentLifecycle, MigrationPhase, ResourceLifecycle,
-    ResourceRetention, StateStore, V7MigrationExecutionPhase,
+    ResourceRetention, StateStore,
 };
 use crate::control_plane::workload::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions,
@@ -409,28 +408,13 @@ where
                         )],
                     );
                 }
-                let adapter_plan = match select_accepted_v7_migration_adapters(&existing) {
-                    Ok(plan) => plan,
-                    Err(message) => {
-                        return IpcResponse::failure(
-                            request.request_id(),
-                            vec![IpcDiagnostic::new(
-                                "v7_migration_adapter_selection_failed",
-                                message,
-                                false,
-                            )],
-                        );
-                    }
-                };
-                if let Err(message) =
-                    record_accepted_v7_migration_plan(control_plane, &existing, &adapter_plan)
-                {
+                if let Err(message) = select_accepted_v7_migration_adapters(&existing) {
                     return IpcResponse::failure(
                         request.request_id(),
                         vec![IpcDiagnostic::new(
-                            "v7_migration_plan_persistence_failed",
+                            "v7_migration_adapter_selection_failed",
                             message,
-                            true,
+                            false,
                         )],
                     );
                 }
@@ -517,62 +501,45 @@ where
                     )],
                 );
             }
-            let adapter_plan = match select_accepted_v7_migration_adapters(&record) {
-                Ok(plan) => plan,
-                Err(message) => {
-                    return IpcResponse::failure(
+            if let Err(message) = select_accepted_v7_migration_adapters(&record) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "v7_migration_adapter_selection_failed",
+                        message,
+                        false,
+                    )],
+                );
+            }
+            match control_plane.record_accepted_v7_inventory(&record) {
+                Ok(()) => match control_plane
+                    .accepted_v7_inventory(canonical_path, record.evidence_revision())
+                {
+                    Ok(Some(persisted)) => IpcResponse::success(
+                        request.request_id(),
+                        IpcResult::V7InventoryAccepted {
+                            project_id: persisted.project_id().to_owned(),
+                            evidence_revision: persisted.evidence_revision().to_owned(),
+                            accepted_at_unix_seconds: persisted.accepted_at_unix_seconds(),
+                        },
+                    ),
+                    Ok(None) => IpcResponse::failure(
                         request.request_id(),
                         vec![IpcDiagnostic::new(
-                            "v7_migration_adapter_selection_failed",
-                            message,
-                            false,
+                            "v7_inventory_acceptance_persistence_failed",
+                            "accepted legacy inventory disappeared after persistence",
+                            true,
                         )],
-                    );
-                }
-            };
-            match control_plane.record_accepted_v7_inventory(&record) {
-                Ok(()) => {
-                    if let Err(message) =
-                        record_accepted_v7_migration_plan(control_plane, &record, &adapter_plan)
-                    {
-                        return IpcResponse::failure(
-                            request.request_id(),
-                            vec![IpcDiagnostic::new(
-                                "v7_migration_plan_persistence_failed",
-                                message,
-                                true,
-                            )],
-                        );
-                    }
-                    match control_plane
-                        .accepted_v7_inventory(canonical_path, record.evidence_revision())
-                    {
-                        Ok(Some(persisted)) => IpcResponse::success(
-                            request.request_id(),
-                            IpcResult::V7InventoryAccepted {
-                                project_id: persisted.project_id().to_owned(),
-                                evidence_revision: persisted.evidence_revision().to_owned(),
-                                accepted_at_unix_seconds: persisted.accepted_at_unix_seconds(),
-                            },
-                        ),
-                        Ok(None) => IpcResponse::failure(
-                            request.request_id(),
-                            vec![IpcDiagnostic::new(
-                                "v7_inventory_acceptance_persistence_failed",
-                                "accepted legacy inventory disappeared after persistence",
-                                true,
-                            )],
-                        ),
-                        Err(error) => IpcResponse::failure(
-                            request.request_id(),
-                            vec![IpcDiagnostic::new(
-                                "v7_inventory_acceptance_persistence_failed",
-                                error.to_string(),
-                                true,
-                            )],
-                        ),
-                    }
-                }
+                    ),
+                    Err(error) => IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "v7_inventory_acceptance_persistence_failed",
+                            error.to_string(),
+                            true,
+                        )],
+                    ),
+                },
                 Err(error) => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new(
@@ -1632,7 +1599,7 @@ where
                 canonical_path.display()
             )
         })?;
-    let mut migrations = control_plane
+    let migrations = control_plane
         .migrations()
         .map_err(|error| error.to_string())?
         .into_iter()
@@ -1648,30 +1615,7 @@ where
                 migration.updated_at_unix_seconds(),
             )
         })
-        .collect::<Vec<_>>();
-    migrations.extend(
-        control_plane
-            .v7_migration_executions()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .filter(|execution| execution.project_id() == project.project_name())
-            .map(|execution| {
-                let backup_verified = execution.checkpoints().iter().all(|checkpoint| {
-                    !checkpoint.requires_recovery()
-                        || (checkpoint.recovery_reference().is_some()
-                            && checkpoint.recovery_artifact_sha256().is_some()
-                            && checkpoint.recovery_artifact_size_bytes().is_some())
-                });
-                IpcMigrationStatus::new(
-                    format!("v7:{}", execution.adapter_plan_revision()),
-                    execution.phase().label().to_owned(),
-                    backup_verified,
-                    execution.phase() == V7MigrationExecutionPhase::Cutover,
-                    execution.updated_at_unix_seconds(),
-                )
-            }),
-    );
-    migrations.sort_by(|left, right| left.migration_id().cmp(right.migration_id()));
+        .collect();
 
     Ok(migrations)
 }

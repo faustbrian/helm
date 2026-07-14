@@ -470,7 +470,7 @@ fn v7_postgres_provider_streams_recovery_and_prepares_replay_safe_v8_target() {
     .expect("target plan");
     let administrator = credential();
     let target_container = owned_container_with_id("postgres-target");
-    let retirement = RecordingV7PostgresSourceRetirement::default();
+    let mut retirement = RecordingV7PostgresSourceRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7PostgresMigrationProviderOptions {
         accepted: &accepted,
@@ -491,7 +491,7 @@ fn v7_postgres_provider_streams_recovery_and_prepares_replay_safe_v8_target() {
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
     assert!(!debug.contains("do-not-log"));
-    let mut provider = V7PostgresMigrationProvider::new(&executor, retirement, options)
+    let mut provider = V7PostgresMigrationProvider::new(&executor, &mut retirement, options)
         .expect("v7 PostgreSQL provider");
 
     let backup = runtime
@@ -800,7 +800,7 @@ struct RecordingV7ContainerRetirement {
 
 impl V7ContainerRetirement for RecordingV7ContainerRetirement {
     fn retire_v7_container<'operation>(
-        &'operation self,
+        &'operation mut self,
         target: &'operation V7ContainerRetirementTarget,
     ) -> EngineFuture<'operation, ()> {
         *self.target.lock().expect("record retirement target") = Some(target.clone());

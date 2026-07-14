@@ -52,7 +52,7 @@ fn v7_mongodb_provider_is_namespace_safe_replayable_and_confirmed() {
     .expect("MongoDB target plan");
     let administrator = administrator();
     let target_container = owned_target_container();
-    let retirement = RecordingRetirement::default();
+    let mut retirement = RecordingRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7MongoDbMigrationProviderOptions {
         accepted: &accepted,
@@ -73,7 +73,7 @@ fn v7_mongodb_provider_is_namespace_safe_replayable_and_confirmed() {
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
     assert!(!debug.contains("root-secret"));
-    let mut provider = V7MongoDbMigrationProvider::new(&executor, retirement, options)
+    let mut provider = V7MongoDbMigrationProvider::new(&executor, &mut retirement, options)
         .expect("v7 MongoDB provider");
 
     let backup = runtime
@@ -240,7 +240,7 @@ struct RecordingContainerRetirement {
 
 impl V7ContainerRetirement for RecordingContainerRetirement {
     fn retire_v7_container<'operation>(
-        &'operation self,
+        &'operation mut self,
         target: &'operation V7ContainerRetirementTarget,
     ) -> EngineFuture<'operation, ()> {
         *self.target.lock().expect("retirement target") = Some(target.clone());

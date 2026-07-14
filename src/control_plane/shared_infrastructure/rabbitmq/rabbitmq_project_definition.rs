@@ -1,7 +1,6 @@
 use super::{RabbitMqPasswordHash, RabbitMqPlanError};
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
-use crate::control_plane::state::CredentialRecord;
 use std::fmt::{Debug, Formatter};
 
 const RABBITMQ_NAME_BYTES: usize = 128;
@@ -60,15 +59,7 @@ impl RabbitMqProjectDefinition {
         &self.vhost
     }
 
-    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
-        credential.username() == self.username
-            && RabbitMqPasswordHash::for_credential(
-                &self.username,
-                CredentialSecret::new(credential.secret().to_owned()),
-            ) == self.password_hash
-    }
-
-    pub(crate) const fn password_hash(&self) -> &RabbitMqPasswordHash {
+    pub(super) const fn password_hash(&self) -> &RabbitMqPasswordHash {
         &self.password_hash
     }
 }

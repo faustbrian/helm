@@ -21,7 +21,7 @@ use crate::control_plane::state::{
 /// Live Engine-backed provider for one accepted v7 PostgreSQL logical database.
 pub(crate) struct V7PostgresMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: R,
+    retirement: &'operation mut R,
     options: V7PostgresMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -36,7 +36,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: R,
+        retirement: &'operation mut R,
         options: V7PostgresMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

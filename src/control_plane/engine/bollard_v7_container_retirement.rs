@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 impl V7ContainerRetirement for BollardEngineAdapter {
     fn retire_v7_container<'operation>(
-        &'operation self,
+        &'operation mut self,
         target: &'operation V7ContainerRetirementTarget,
     ) -> EngineFuture<'operation, ()> {
         Box::pin(async move {

@@ -1,17 +1,17 @@
 use super::{
     ActiveMigrationDecision, ActivePostgresPrune, ActiveProjectBackup, ActiveProjectCommand,
-    ActiveProjectLogSession, ActiveProjectRestore, AdvancePendingAcceptedV7MigrationsOptions,
-    BollardUnixEngineConnector, DaemonIterationResult, DaemonRequestDispatchOptions,
-    DiscoveryScheduler, EngineBenchmarkSnapshotProvider, EngineConnectionOutcome,
-    EngineConnectionSupervisor, EngineImageReferenceResolution, EngineReconciliationPlanOptions,
-    EngineReconciliationSchedule, EngineV7ProjectInventoryProvider, FilesystemEventWatcher,
-    ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
-    ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
-    UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, advance_pending_accepted_v7_migrations,
-    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_daemon_operation_queues, validate_project_workload_adoption,
+    ActiveProjectLogSession, ActiveProjectRestore, BollardUnixEngineConnector,
+    DaemonIterationResult, DaemonRequestDispatchOptions, DiscoveryScheduler,
+    EngineBenchmarkSnapshotProvider, EngineConnectionOutcome, EngineConnectionSupervisor,
+    EngineImageReferenceResolution, EngineReconciliationPlanOptions, EngineReconciliationSchedule,
+    EngineV7ProjectInventoryProvider, FilesystemEventWatcher, ImageReferenceResolution,
+    IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue, ProjectBackupQueue,
+    ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
+    RetryBackoff, RetryBackoffOptions, SingletonLease, UnixDaemonRuntimeError,
+    UnixDaemonRuntimeOptions, dispatch_daemon_request, initialize_default_installation,
+    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -34,10 +34,6 @@ use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
 use crate::control_plane::state::{InstallationLifecycle, SqliteStateStore, StateStore};
-use crate::control_plane::tls::{
-    CertificateTrustStore, DebianCertificateTrustStore, MacOsCertificateTrustStore,
-    ProcessHostCommandExecutor,
-};
 use crate::control_plane::workload::{
     DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
     ProjectVolumeReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
@@ -983,55 +979,6 @@ impl UnixDaemonRuntime {
             }
         };
         let mut provider = assets.configuration_provider();
-        let trust_store = match platform_trust_store() {
-            Ok(store) => store,
-            Err(error) => {
-                self.engine_reconciliation.complete();
-                tracing::error!(error, "accepted-v7 trust capability is unavailable");
-
-                return;
-            }
-        };
-        let target_certificate_path = assets.certificate_paths().ca_certificate();
-        let migration_report =
-            self.engine_runtime
-                .block_on(advance_pending_accepted_v7_migrations(
-                    AdvancePendingAcceptedV7MigrationsOptions {
-                        control_plane: &mut self.control_plane,
-                        engine: &*engine,
-                        reconciliation: &engine_plan,
-                        prepared_shared: &prepared_shared,
-                        gateway_provider: &mut provider,
-                        target_gateway: engine_plan.gateway(),
-                        trust_store: trust_store.as_ref(),
-                        target_certificate_path: &target_certificate_path,
-                        installation_id: self.global_network_request.metadata().installation_id(),
-                        schema_version: self.global_network_request.metadata().schema_version(),
-                        backup_root: &self.runtime_directory.join("backups"),
-                        maximum_config_bytes: self.options.discovery_options.maximum_config_bytes(),
-                        updated_at_unix_seconds: observed_at_unix_seconds,
-                        timeout: Duration::from_secs(10 * 60),
-                    },
-                ));
-        match migration_report {
-            Ok(report) => {
-                if report.advanced() > 0 {
-                    tracing::info!(
-                        advanced = report.advanced(),
-                        "accepted v7 projects reached the cutover barrier"
-                    );
-                }
-                for issue in report.issues() {
-                    tracing::error!(error = issue, "accepted v7 project advance blocked");
-                }
-            }
-            Err(error) => {
-                self.engine_reconciliation.complete();
-                tracing::error!(error, "accepted v7 target discovery blocked");
-
-                return;
-            }
-        }
         let gateway_options = match GatewayPlaneOptions::new(
             GatewayReconcileOptions {
                 request: assets.request(),
@@ -1074,25 +1021,6 @@ impl UnixDaemonRuntime {
                 tracing::error!(error = %error, "global gateway reconciliation blocked");
             }
         }
-    }
-}
-
-fn platform_trust_store() -> Result<Box<dyn CertificateTrustStore + Sync>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        return Ok(Box::new(MacOsCertificateTrustStore::new(
-            ProcessHostCommandExecutor,
-        )));
-    }
-    #[cfg(target_os = "linux")]
-    {
-        return Ok(Box::new(DebianCertificateTrustStore::new(
-            ProcessHostCommandExecutor,
-        )));
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        Err("accepted-v7 trust migration is unsupported on this Unix host".to_owned())
     }
 }
 

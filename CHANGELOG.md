@@ -6,52 +6,6 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Avoided reopening legacy TOML configuration when an accepted-v7 project has
-  no logical-data adapter requiring credentials.
-- Wired pending accepted-v7 plans into normal Engine reconciliation after exact
-  target convergence and before final singleton gateway publication.
-- Added reconciliation-owned advancement for every pending accepted-v7 project,
-  with exact Engine target discovery and per-project failure isolation.
-- Added a single automatic accepted-v7 advance operation that composes the
-  complete strategy set before preparation and atomic project-wide cutover.
-- Composed every selected v7 checkpoint through one exact adapter-set boundary
-  and rejected incomplete or identity-mixed strategy contexts.
-- Made the singleton control plane the durable journal boundary for atomic v7
-  execution, cutover, and rollback publication.
-- Added a daemon-owned accepted-v7 phase dispatcher that resumes preparation,
-  atomically cuts over, and gates confirmation or rollback by durable phase.
-- Exposed durable project-wide v7 execution barriers through project migration
-  status with collision-proof identities and confirmation state.
-- Composed selected gateway, installation trust, and protected generated
-  environment checkpoints with exact accepted identity and target cardinality.
-- Composed accepted-v7 named-volume providers only when one exact retained
-  reconciliation plan, owned container, and owned volume agree on identity.
-- Added a live recovery-first named-volume provider that binds verified v7
-  artifacts to one exact compatible prepared-v8 target and confirmation-only
-  source retirement.
-- Added exact prepared-v8 volume reset, archive restore, ownership checks, and
-  readiness verification for accepted-v7 recovery artifacts.
-- Added identity-bound streaming backups for exact accepted-v7 volumes, with
-  one-time quiescing, verified durable artifacts, and source-state recovery.
-- Preserved accepted-v7 container names and kinds in named-volume source
-  identities so Engine authorization never reconstructs legacy labels.
-- Added a narrow Engine capability that quiesces and streams only exact
-  accepted-v7 volume mounts after revalidating legacy labels and mount paths.
-- Bound every accepted-v7 named volume to its exact container mount target,
-  refusing target-path drift and ambiguous multi-volume restore mappings.
-- Made accepted-v7 named-volume adapters own their validated source clone and
-  execution-scoped provider, removing the final borrowed-provider lifetime
-  barrier before live archive strategy composition.
-- Made every accepted-v7 logical migration provider own its confirmation-only
-  retirement strategy, so daemon composition needs no external retirement
-  arena while all providers can still share one typed Engine connection.
-- Made accepted-v7 logical-data adapters own their validated source clone and
-  execution-scoped provider, removing self-referential daemon composition
-  requirements without introducing global handles.
-- Removed unnecessary exclusive Engine borrowing from accepted-v7 source
-  retirement, allowing every execution-scoped migration provider to share the
-  same typed Engine connection while retaining exact confirmation-time
-  authorization.
 - Corrected the v8 completion audit to distinguish tested v7 migration
   provider components from daemon-composed end-to-end migration, and to keep
   incomplete persistent recovery and deletion coverage marked partial.
@@ -84,32 +38,6 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added exact accepted-v7 named-volume source resolution from immutable
-  execution checkpoints. Configured and Engine-observed volume sets must agree,
-  and missing containers, missing services, duplicates, and identity drift fail
-  before archive-provider composition.
-- Added daemon-side accepted-v7 logical provider composition for PostgreSQL,
-  MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, MinIO, and RabbitMQ. Every
-  source now binds exactly one prepared instance, tenant plan, active logical
-  record, credential, and ownership-reconstructed target container, with
-  missing and ambiguous targets refused before registration.
-- Added daemon-side accepted-v7 registry composition for explicit no-op and
-  normally reconciled workload, stateless logical-resource, and ephemeral
-  targets. Missing or ambiguous active v8 state now blocks binding.
-- Added exact accepted-v7 logical migration input resolution. The daemon
-  reopens only the accepted revision of the canonical legacy config, verifies
-  its service identity and Engine mount evidence, and binds driver-specific
-  redacted credentials without persisting secret values in inventory.
-- Added daemon-owned v7 migration execution planning. Fresh accepted inventory
-  now persists its deterministic project-wide service, volume, route, trust,
-  and environment checkpoint set, and idempotent acceptance revalidates the
-  exact durable plan before reporting success.
-- Added an accepted-v7 RabbitMQ logical migration provider. It verifies the
-  exact legacy user and default vhost from exported definitions, refuses queues
-  containing messages or topology that escapes the accepted scope, rewrites
-  empty-message topology to the deterministic v8 vhost and credential, rejects
-  tampered recovery before mutation, supports replay-safe restore, verifies
-  both endpoints, and defers exact Engine retirement to confirmation.
 - Added an accepted-v7 MinIO logical migration provider. It refuses versioned
   buckets that latest-object export cannot preserve, streams the exact legacy
   bucket through accepted Engine authorization, binds recovery to accepted

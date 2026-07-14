@@ -242,16 +242,6 @@ predates protected capture, acceptance permits only a one-way enrichment of
 its empty rollback fields while retaining its original inventory and acceptance
 time.
 
-Logical-data credentials are reconstructed only when an accepted migration is
-being composed. Stackctl reopens the canonical project's exact `.stackctl.toml`
-as a bounded regular non-symlink file, requires its SHA-256 revision to equal
-the accepted source revision before and after expansion, and verifies the
-configured service kind, driver, image, credential-field set, and configured
-versus Engine-observed named volumes against accepted evidence. Secret values
-exist only in driver-specific redacted credential types and are never added to
-the inventory or execution journal. Any config change requires a fresh
-inventory and acceptance instead of guessing or silently updating credentials.
-
 Adapter selection consumes only that immutable accepted record. It assigns
 each service both its normal v8 deployment strategy and exactly one migration
 adapter: a logical database, tenant prefix, bucket, vhost, named-volume
@@ -269,11 +259,8 @@ missing required public CA evidence, and accepted environments without a
 protected rollback artifact fail closed before execution. Live cutover remains
 a separate later phase.
 
-As part of successful inventory acceptance, Stackctl persists a schema-18
-execution record keyed by the canonical project path and accepted evidence
-revision. Repeated acceptance must reload the identical record before reporting
-success, so a crash between append-only inventory storage and execution-plan
-storage is repaired by an exact replay rather than leaving unjournaled work. Its
+Before an adapter performs work, Stackctl persists a schema-18 execution
+record keyed by the canonical project path and accepted evidence revision. Its
 immutable checkpoint set contains every selected service and volume adapter
 plus the route, installation-trust, and generated-environment adapters. Each
 checkpoint states whether it requires a recovery artifact and advances only
@@ -288,29 +275,15 @@ adapter-strategy registry before writing its initial record. Registry entries
 are exact adapter IDs, not global kind handlers, so two services using the same
 database engine retain separate source, target, credential, and recovery
 context. A registry is scoped to one execution and may borrow the daemon's live
-typed Engine, gateway, and service providers. Logical-data adapters own a
-validated clone of their accepted source and a boxed execution-scoped provider;
-that provider owns its confirmation-only retirement strategy while both may
-borrow the shared typed Engine. Adapters do not require global handles or
-self-referential daemon storage. The registry must
-contain exactly the immutable checkpoint set and
+typed Engine, gateway, and service providers; adapters do not require global
+handles or provider ownership transfer. The registry must contain exactly the
+immutable checkpoint set and
 match every selected kind; missing, extra, duplicate, or mismatched bindings
 fail before persistence. The coordinator completes and
 journals all required recovery artifacts before target work, prioritizes those
 recoverable targets, and stops at the last successful checkpoint on any
 adapter error. Reconciliation resumes from that exact checkpoint rather than
 repeating a verified backup or trusting unrecorded in-memory progress.
-Logical-data composition resolves each accepted PostgreSQL, MySQL/MariaDB,
-MongoDB, SQL Server, Redis/Valkey, MinIO, or RabbitMQ source against exactly one
-prepared shared instance and project tenant. It also requires exactly one
-active logical-resource record and one ownership-reconstructed target
-container with the prepared compatibility metadata. Missing or ambiguous state
-fails before the driver provider enters the execution registry.
-Named-volume adapters use the same execution ownership rule: they retain a
-validated clone of the exact accepted container and volume set and own their
-archive provider for the lifetime of the registry. Source resolution starts
-from immutable named-volume execution checkpoints and requires the configured
-and Engine-observed volume sets in accepted inventory to agree exactly.
 Selected no-op strategies are still concrete registry entries and advance
 through target verification, cutover, and confirmation. They cover absent
 routes, trust, generated environments, and named volumes, plus volume state
@@ -462,21 +435,6 @@ pre-provisioned deterministic `stackctl-<project>-<service>` bucket. The
 complete replacement is safe to replay. Exact source and target credentials
 must each authenticate and stat their bound bucket; confirmation alone
 delegates exact accepted container and volume retirement to the Engine.
-
-The RabbitMQ logical-data provider binds the exact accepted container,
-named-volume set, default `/` vhost, legacy application credential, and recovery
-identity. It first inventories every queue and fails before export if any
-message is present, because a definitions archive cannot preserve message
-bodies. Definitions must contain exactly the accepted user and vhost, the
-exported salted password hash must match the supplied legacy credential, and
-global or cross-vhost topology is refused. Accepted empty-message topology is
-rewritten to only the deterministic v8 vhost and credential before private,
-accepted-revision-bound storage. Target preparation reverifies the artifact,
-replaces that exact vhost, and is safe to replay. Source and target definition
-exports must retain their exact scoped identities and remain empty of messages;
-confirmation alone delegates exact accepted container and volume retirement to
-the Engine. Projects with queued messages remain on v7 until a message-body
-migration or an explicit compatibility execution path is available.
 
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`

@@ -5,8 +5,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::MigrationOperationError;
 use crate::control_plane::retention::{
-    BackupResourceIdentity, StoredBackupArtifact, open_stored_backup_artifact,
-    verify_stored_backup_artifact,
+    BackupResourceIdentity, open_stored_backup_artifact, verify_stored_backup_artifact,
 };
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
@@ -25,6 +24,7 @@ pub(crate) async fn restore_rabbitmq_vhost(
     container: &OwnedContainer,
     options: &RabbitMqRestoreOptions<'_>,
 ) -> Result<(), MigrationOperationError> {
+    let vhost = validate(container, options)?;
     let recovery = options.recovery_point;
     let identity =
         BackupResourceIdentity::from_logical(options.logical_resource, options.installation_id);
@@ -38,32 +38,6 @@ pub(crate) async fn restore_rabbitmq_vhost(
     {
         return Err(MigrationOperationError::new(
             "RabbitMQ restore backup does not match its recovery point",
-        ));
-    }
-
-    restore_verified_rabbitmq_vhost(executor, container, options, &stored).await
-}
-
-/// Restores already identity-verified definitions into one exact target vhost.
-pub(super) async fn restore_verified_rabbitmq_vhost(
-    executor: &impl CommandExecutor,
-    container: &OwnedContainer,
-    options: &RabbitMqRestoreOptions<'_>,
-    stored: &StoredBackupArtifact,
-) -> Result<(), MigrationOperationError> {
-    let vhost = validate(container, options)?;
-    if stored.recovery_point().to_str() != Some(options.recovery_point.reference()) {
-        return Err(MigrationOperationError::new(
-            "RabbitMQ verified restore path differs from its recovery point",
-        ));
-    }
-    let evidence = verify_stored_backup_artifact(stored, options.verified_at_unix_seconds)
-        .map_err(|error| operation_error("RabbitMQ restore backup verification failed", error))?;
-    if evidence.artifact_sha256() != options.recovery_point.artifact_sha256()
-        || evidence.artifact_size_bytes() != options.recovery_point.artifact_size_bytes()
-    {
-        return Err(MigrationOperationError::new(
-            "RabbitMQ restore artifact changed after verification",
         ));
     }
     let delete_vhost = vhost_exists(executor, container, &vhost, options.timeout).await?;

@@ -23,7 +23,7 @@ use crate::control_plane::state::{
 /// Live Engine-backed provider for one accepted v7 SQL Server database.
 pub(crate) struct V7SqlServerMigrationProvider<'operation, E, R> {
     executor: &'operation E,
-    retirement: R,
+    retirement: &'operation mut R,
     options: V7SqlServerMigrationProviderOptions<'operation>,
     source: V7LogicalDataMigrationSource,
     source_target: V7ContainerCommandTarget,
@@ -38,7 +38,7 @@ where
 {
     pub(crate) fn new(
         executor: &'operation E,
-        retirement: R,
+        retirement: &'operation mut R,
         options: V7SqlServerMigrationProviderOptions<'operation>,
     ) -> Result<Self, MigrationOperationError> {
         validate_options(&options)?;

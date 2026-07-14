@@ -54,7 +54,7 @@ fn v7_minio_provider_recovers_replays_and_retires_only_after_confirmation() {
     )
     .expect("target definition");
     let container = owned_container();
-    let retirement = ProviderRetirement::default();
+    let mut retirement = ProviderRetirement::default();
     let retired = Arc::clone(&retirement.called);
     let options = V7MinioMigrationProviderOptions {
         accepted: &accepted,
@@ -74,8 +74,8 @@ fn v7_minio_provider_recovers_replays_and_retires_only_after_confirmation() {
     assert!(!debug.contains("legacy-access"));
     assert!(!debug.contains("legacy-secret"));
     assert!(!debug.contains("project-secret"));
-    let mut provider =
-        V7MinioMigrationProvider::new(&executor, retirement, options).expect("v7 MinIO provider");
+    let mut provider = V7MinioMigrationProvider::new(&executor, &mut retirement, options)
+        .expect("v7 MinIO provider");
 
     let backup = runtime
         .block_on(provider.backup_source(&source))

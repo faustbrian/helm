@@ -1,17 +1,14 @@
 use super::{
-    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, V7VolumeBackupOptions,
-    V7VolumeTargetRestoreOptions, backup_project_volume, backup_v7_volume, restore_project_volume,
-    restore_v7_volume_target,
+    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
+    restore_project_volume,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerHealth, ContainerId, ContainerLifecycle, ContainerState,
     ContainerVolumeArchive, EngineError, EngineFuture, HealthObserver, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, ObservedVolume, OwnedContainer, OwnedVolume,
-    ResourceKind, RetentionClass, V7ContainerCommandTarget, V7ContainerVolumeArchive,
-    VolumeCreateOptions, VolumeManager, VolumeMount, reconstruct_owned_container,
-    reconstruct_owned_volume,
+    ResourceKind, RetentionClass, VolumeCreateOptions, VolumeManager, VolumeMount,
+    reconstruct_owned_container, reconstruct_owned_volume,
 };
-use crate::control_plane::retention::BackupResourceIdentity;
 use crate::control_plane::state::{
     RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord,
     ResourceRecordOptions, ResourceRetention,
@@ -20,53 +17,6 @@ use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
-
-#[test]
-fn accepted_v7_volume_backup_quiesces_streams_verifies_and_restarts() {
-    let root = temporary_directory("v7-success");
-    let target =
-        V7ContainerCommandTarget::new(ContainerId::new("legacy-app"), "bill-app", "app", "app")
-            .expect("legacy target");
-    let mounts =
-        vec![VolumeMount::read_write("bill-app-data", "/app/storage").expect("legacy mount")];
-    let identity = BackupResourceIdentity::for_v7_named_volume(
-        "bill",
-        "app",
-        &format!("sha256:{}", "a".repeat(64)),
-    );
-    let engine = RecordingV7VolumeArchiveEngine::new(b"legacy tar archive".to_vec());
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime");
-
-    let backup = runtime
-        .block_on(backup_v7_volume(
-            &engine,
-            &target,
-            &mounts,
-            &V7VolumeBackupOptions {
-                identity: &identity,
-                volume_name: "bill-app-data",
-                backup_root: &root,
-                created_at_unix_seconds: 10,
-                verified_at_unix_seconds: 11,
-                timeout: Duration::from_secs(5),
-            },
-        ))
-        .expect("v7 backup");
-
-    assert_eq!(backup.artifact_size_bytes(), 18);
-    assert_eq!(
-        engine.calls.lock().expect("v7 calls").as_slice(),
-        ["inspect", "stop", "download", "start"]
-    );
-    assert_eq!(
-        *engine.state.lock().expect("v7 state"),
-        ContainerState::Running
-    );
-    std::fs::remove_dir_all(root).expect("remove v7 backup fixture");
-}
 
 #[test]
 fn owned_project_volume_backup_quiesces_streams_verifies_and_restarts() {
@@ -229,54 +179,6 @@ fn owned_project_volume_restore_recreates_empty_target_before_upload() {
     );
     assert_eq!(restore_engine.uploaded(), b"owned tar archive");
     std::fs::remove_dir_all(root).expect("remove restore fixture");
-}
-
-#[test]
-fn accepted_v7_volume_restore_recreates_exact_prepared_target() {
-    let root = temporary_directory("v7-restore");
-    std::fs::create_dir_all(&root).expect("create v7 restore fixture");
-    let archive = root.join("artifact.bin");
-    std::fs::write(&archive, b"legacy tar archive").expect("write v7 archive");
-    let (container, volume, _) = fixture();
-    let desired_volume =
-        VolumeCreateOptions::new(volume.name(), volume.metadata().clone()).expect("desired volume");
-    let desired_container = ContainerCreateOptions::new(
-        "stackctl-bill-search",
-        concat!(
-            "search@sha256:",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ),
-        container.metadata().clone(),
-    )
-    .expect("desired container")
-    .with_volume_mount(
-        VolumeMount::read_write(volume.name(), "/var/lib/search").expect("volume mount"),
-    );
-    let mut engine = RecordingVolumeRestoreEngine::default();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("test runtime");
-
-    let (restored_container, restored_volume) = runtime
-        .block_on(restore_v7_volume_target(
-            &mut engine,
-            &container,
-            &volume,
-            &V7VolumeTargetRestoreOptions {
-                desired_container: &desired_container,
-                desired_volume: &desired_volume,
-                expected_mount_target: "/var/lib/search",
-                archive: &archive,
-                timeout: Duration::from_secs(5),
-            },
-        ))
-        .expect("restore accepted v7 volume target");
-
-    assert_eq!(restored_container.metadata(), desired_container.metadata());
-    assert_eq!(restored_volume.metadata(), desired_volume.metadata());
-    assert_eq!(engine.uploaded(), b"legacy tar archive");
-    std::fs::remove_dir_all(root).expect("remove v7 restore fixture");
 }
 
 #[test]
@@ -687,72 +589,5 @@ impl HealthObserver for RecordingVolumeRestoreEngine {
     ) -> EngineFuture<'operation, ContainerHealth> {
         self.calls.lock().expect("observe health").push("health");
         Box::pin(async { Ok(ContainerHealth::Healthy) })
-    }
-}
-
-struct RecordingV7VolumeArchiveEngine {
-    archive: Vec<u8>,
-    calls: Arc<Mutex<Vec<&'static str>>>,
-    state: Arc<Mutex<ContainerState>>,
-}
-
-impl RecordingV7VolumeArchiveEngine {
-    fn new(archive: Vec<u8>) -> Self {
-        Self {
-            archive,
-            calls: Arc::new(Mutex::new(Vec::new())),
-            state: Arc::new(Mutex::new(ContainerState::Running)),
-        }
-    }
-}
-
-impl V7ContainerVolumeArchive for RecordingV7VolumeArchiveEngine {
-    fn inspect_v7_volume_container<'operation>(
-        &'operation self,
-        _target: &'operation V7ContainerCommandTarget,
-        _mounts: &'operation [VolumeMount],
-    ) -> EngineFuture<'operation, ContainerState> {
-        self.calls.lock().expect("record inspect").push("inspect");
-        let state = *self.state.lock().expect("read v7 state");
-        Box::pin(async move { Ok(state) })
-    }
-
-    fn start_v7_volume_container<'operation>(
-        &'operation self,
-        _target: &'operation V7ContainerCommandTarget,
-        _mounts: &'operation [VolumeMount],
-    ) -> EngineFuture<'operation, ()> {
-        self.calls.lock().expect("record start").push("start");
-        *self.state.lock().expect("start v7 state") = ContainerState::Running;
-        Box::pin(async { Ok(()) })
-    }
-
-    fn stop_v7_volume_container<'operation>(
-        &'operation self,
-        _target: &'operation V7ContainerCommandTarget,
-        _mounts: &'operation [VolumeMount],
-    ) -> EngineFuture<'operation, ()> {
-        self.calls.lock().expect("record stop").push("stop");
-        *self.state.lock().expect("stop v7 state") = ContainerState::Stopped;
-        Box::pin(async { Ok(()) })
-    }
-
-    fn download_v7_volume_archive<'operation>(
-        &'operation self,
-        _target: &'operation V7ContainerCommandTarget,
-        _mounts: &'operation [VolumeMount],
-        _volume_name: &'operation str,
-        output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
-    ) -> EngineFuture<'operation, ()> {
-        self.calls.lock().expect("record download").push("download");
-        let archive = self.archive.clone();
-        Box::pin(async move {
-            output
-                .write_all(&archive)
-                .await
-                .map_err(|error| EngineError::Backend {
-                    detail: error.to_string(),
-                })
-        })
     }
 }

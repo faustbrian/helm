@@ -1,14 +1,14 @@
 use super::{
     V7MigrationAdapterExecutor, V7MigrationAdapterTarget, V7NamedVolumeMigrationAdapterOptions,
-    V7NamedVolumeMigrationMount, V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider,
+    V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider, accepted_v7_named_volumes,
 };
 use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
 use crate::control_plane::state::V7MigrationAdapterCheckpoint;
 
 /// Archives accepted legacy volumes and binds their restored v8 target.
 pub(super) struct V7NamedVolumeMigrationAdapter<'operation> {
-    source: V7NamedVolumeMigrationSource,
-    provider: Box<dyn V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource> + 'operation>,
+    source: &'operation V7NamedVolumeMigrationSource,
+    provider: &'operation mut dyn V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>,
 }
 
 impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
@@ -18,7 +18,7 @@ impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
         validate_accepted_source(&options)?;
 
         Ok(Self {
-            source: options.source.clone(),
+            source: options.source,
             provider: options.provider,
         })
     }
@@ -29,7 +29,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, MigrationBackup> {
-        self.provider.backup_source(&self.source)
+        self.provider.backup_source(self.source)
     }
 
     fn prepare_target<'operation>(
@@ -47,7 +47,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
             });
         }
         self.provider
-            .restore_and_verify_target(&self.source, checkpoint)
+            .restore_and_verify_target(self.source, checkpoint)
     }
 
     fn cutover<'operation>(
@@ -61,21 +61,21 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
                 ))
             });
         };
-        self.provider.verify_target(&self.source, target_reference)
+        self.provider.verify_target(self.source, target_reference)
     }
 
     fn rollback<'operation>(
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, ()> {
-        self.provider.verify_source(&self.source)
+        self.provider.verify_source(self.source)
     }
 
     fn confirm<'operation>(
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
     ) -> MigrationFuture<'operation, ()> {
-        self.provider.retire_source(&self.source)
+        self.provider.retire_source(self.source)
     }
 }
 
@@ -108,50 +108,13 @@ fn validate_accepted_source(
     {
         return Err("legacy volume container differs from accepted v7 evidence".to_owned());
     }
-    if service
-        .get("container_name")
-        .and_then(serde_json::Value::as_str)
-        != Some(options.source.container_name())
-        || service.get("kind").and_then(serde_json::Value::as_str) != Some(options.source.kind())
-    {
-        return Err("legacy volume container labels differ from accepted v7 evidence".to_owned());
-    }
-    let configured_volumes = accepted_named_volume_mounts(service, "configured_mounts")?;
-    let observed_volumes = accepted_named_volume_mounts(service, "observed_mounts")?;
-    if configured_volumes != options.source.mounts() || observed_volumes != options.source.mounts()
+    let configured_volumes = accepted_v7_named_volumes(service, "configured_mounts")?;
+    let observed_volumes = accepted_v7_named_volumes(service, "observed_mounts")?;
+    if configured_volumes != options.source.volume_names()
+        || observed_volumes != options.source.volume_names()
     {
         return Err("legacy named volumes differ from accepted v7 evidence".to_owned());
     }
 
     Ok(())
-}
-
-fn accepted_named_volume_mounts(
-    service: &serde_json::Value,
-    field: &str,
-) -> Result<Vec<V7NamedVolumeMigrationMount>, String> {
-    let mut mounts = service
-        .get(field)
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| format!("accepted v7 service has no {field} evidence"))?
-        .iter()
-        .filter(|mount| {
-            mount.get("source_kind").and_then(serde_json::Value::as_str) == Some("named_volume")
-        })
-        .map(|mount| {
-            V7NamedVolumeMigrationMount::new(
-                mount
-                    .get("source")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default(),
-                mount
-                    .get("target")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default(),
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    mounts.sort_by(|left, right| left.volume_name().cmp(right.volume_name()));
-
-    Ok(mounts)
 }

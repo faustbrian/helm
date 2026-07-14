@@ -56,9 +56,7 @@ pub(crate) use postgres::{
     V7PostgresMigrationProviderOptions, V7PostgresSourceRetirement, backup_postgres_database,
 };
 pub(crate) use rabbitmq::{
-    EngineV7RabbitMqSourceRetirement, RabbitMqBackupOptions, RabbitMqRestoreOptions,
-    V7RabbitMqCredential, V7RabbitMqMigrationProvider, V7RabbitMqMigrationProviderOptions,
-    V7RabbitMqSourceRetirement, backup_rabbitmq_vhost, restore_rabbitmq_vhost,
+    RabbitMqBackupOptions, RabbitMqRestoreOptions, backup_rabbitmq_vhost, restore_rabbitmq_vhost,
 };
 pub(crate) use recovery_point_restore_options::RecoveryPointRestoreOptions;
 pub(crate) use redis::{
@@ -85,10 +83,9 @@ pub(crate) use v7::{
     V7MigrationCutoverOptions, V7MigrationExecutionError, V7MigrationExecutionJournal,
     V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions, V7MigrationRouteSource,
     V7MigrationServiceAdapter, V7MigrationServiceSelection, V7MigrationServiceSource,
-    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationMount,
-    V7NamedVolumeMigrationProvider, V7NamedVolumeMigrationProviderOptions,
-    V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions, V7PublicFileArtifact,
+    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7ProtectedGeneratedEnvironmentAdapterOptions, V7PublicFileArtifact,
     V7RecoverableMigrationProvider, V7RecreatedServiceTarget, V7RouteInventory,
     V7RouteMigrationAdapter, V7RuntimeFeature, V7ServiceInventory, V7TrustMigrationAdapter,
     V7VolumeInventory, V7VolumeMigrationAdapter, V7VolumeSource,
@@ -103,7 +100,6 @@ pub(crate) use v7::{
     select_v7_migration_adapters,
 };
 pub(crate) use volume::{
-    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, V7VolumeBackupOptions,
-    V7VolumeTargetRestoreOptions, backup_project_volume, backup_v7_volume, restore_project_volume,
-    restore_v7_volume_target,
+    ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
+    restore_project_volume,
 };

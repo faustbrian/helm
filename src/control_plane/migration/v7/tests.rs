@@ -9,12 +9,12 @@ use super::{
     V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget, V7MigrationCutoverOptions,
     V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions,
     V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
-    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationMount,
-    V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
-    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
-    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
+    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_gateway_snapshot_migration_adapter,
     register_v7_installation_trust_migration_adapter, register_v7_logical_data_migration_adapter,
@@ -998,8 +998,6 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
             "blockers": [],
             "services": [{
                 "service_id": "app",
-                "container_name": "bill-app",
-                "kind": "app",
                 "observed_container_id": "legacy-app-container",
                 "configured_mounts": [{
                     "source_kind": "named_volume",
@@ -1041,39 +1039,29 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
         let source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
-            "bill-app",
-            "app",
-            vec![
-                V7NamedVolumeMigrationMount::new("bill-app-data", "/app/storage")
-                    .expect("named volume mount"),
-            ],
+            vec!["bill-app-data".to_owned()],
         )
         .expect("named volume source");
         let drifted_source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
-            "bill-app",
-            "app",
-            vec![
-                V7NamedVolumeMigrationMount::new("bill-other-data", "/app/storage")
-                    .expect("drifted named volume mount"),
-            ],
+            vec!["bill-other-data".to_owned()],
         )
         .expect("drifted named volume source");
-        let drifted_provider = RecordingV7NamedVolumeProvider::default();
+        let mut drifted_provider = RecordingV7NamedVolumeProvider::default();
         let error = register_v7_named_volume_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7NamedVolumeMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_source,
-                provider: Box::new(drifted_provider),
+                provider: &mut drifted_provider,
             },
         )
         .expect_err("volume drift must reject adapter registration");
         assert!(error.contains("differ from accepted v7 evidence"));
-        let provider = RecordingV7NamedVolumeProvider::default();
-        let calls = Arc::clone(&provider.calls);
+        assert!(drifted_provider.calls.is_empty());
+        let mut provider = RecordingV7NamedVolumeProvider::default();
         let mut journal = RecordingV7Journal::default();
         {
             let mut registry = V7MigrationAdapterRegistry::default();
@@ -1084,7 +1072,7 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
                     V7NamedVolumeMigrationAdapterOptions {
                         accepted: &accepted,
                         source: &source,
-                        provider: Box::new(provider),
+                        provider: &mut provider,
                     },
                 )
                 .expect("register named volume adapter")
@@ -1119,7 +1107,7 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
         }
 
         assert_eq!(
-            *calls.lock().expect("named-volume provider calls"),
+            provider.calls,
             [
                 "backup:legacy-app-container:bill-app-data",
                 "restore:volume:bill-app-data-v8",
@@ -1204,18 +1192,19 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 )]),
             })
             .expect("drifted logical-data source");
-        let drifted_provider = RecordingV7LogicalDataProvider::default();
+        let mut drifted_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_source,
-                provider: Box::new(drifted_provider),
+                provider: &mut drifted_provider,
             },
         )
         .expect_err("logical identity drift must reject registration");
         assert!(error.contains("identity differs from accepted v7 evidence"));
+        assert!(drifted_provider.calls.is_empty());
         let drifted_target_source =
             V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
                 project_id: "bill".to_owned(),
@@ -1228,18 +1217,19 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
             })
             .expect("drifted logical-data command target");
-        let drifted_target_provider = RecordingV7LogicalDataProvider::default();
+        let mut drifted_target_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_target_source,
-                provider: Box::new(drifted_target_provider),
+                provider: &mut drifted_target_provider,
             },
         )
         .expect_err("command target label drift must reject registration");
         assert!(error.contains("command target differs from accepted v7 evidence"));
+        assert!(drifted_target_provider.calls.is_empty());
         let drifted_volume_source =
             V7LogicalDataMigrationSource::new(V7LogicalDataMigrationSourceOptions {
                 project_id: "bill".to_owned(),
@@ -1252,20 +1242,20 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                 logical_data: BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]),
             })
             .expect("drifted logical-data volumes");
-        let drifted_volume_provider = RecordingV7LogicalDataProvider::default();
+        let mut drifted_volume_provider = RecordingV7LogicalDataProvider::default();
         let error = register_v7_logical_data_migration_adapter(
             &mut V7MigrationAdapterRegistry::default(),
             &plan,
             V7LogicalDataMigrationAdapterOptions {
                 accepted: &accepted,
                 source: &drifted_volume_source,
-                provider: Box::new(drifted_volume_provider),
+                provider: &mut drifted_volume_provider,
             },
         )
         .expect_err("logical-data volume drift must reject registration");
         assert!(error.contains("volumes differ from accepted v7 evidence"));
-        let provider = RecordingV7LogicalDataProvider::default();
-        let calls = Arc::clone(&provider.calls);
+        assert!(drifted_volume_provider.calls.is_empty());
+        let mut provider = RecordingV7LogicalDataProvider::default();
         let mut journal = RecordingV7Journal::default();
         {
             let mut registry = V7MigrationAdapterRegistry::default();
@@ -1276,7 +1266,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
                     V7LogicalDataMigrationAdapterOptions {
                         accepted: &accepted,
                         source: &source,
-                        provider: Box::new(provider),
+                        provider: &mut provider,
                     },
                 )
                 .expect("register logical-data adapter")
@@ -1311,7 +1301,7 @@ fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
         }
 
         assert_eq!(
-            *calls.lock().expect("logical-data provider calls"),
+            provider.calls,
             [
                 "backup:postgres:legacy-postgres:database=legacy_bill",
                 "restore:logical-resource:postgres/bill",
@@ -2346,7 +2336,7 @@ struct RecordingV7TrustStore {
 
 #[derive(Default)]
 struct RecordingV7NamedVolumeProvider {
-    calls: Arc<Mutex<Vec<String>>>,
+    calls: Vec<String>,
 }
 
 impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
@@ -2356,7 +2346,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
         &'operation mut self,
         source: &'operation V7NamedVolumeMigrationSource,
     ) -> MigrationFuture<'operation, MigrationBackup> {
-        self.calls.lock().expect("named-volume calls").push(format!(
+        self.calls.push(format!(
             "backup:{}:{}",
             source.container_id(),
             source.volume_names().join(",")
@@ -2371,8 +2361,6 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
     ) -> MigrationFuture<'operation, V7MigrationAdapterTarget> {
         assert_eq!(checkpoint.recovery_reference(), Some("/private/recovery"));
         self.calls
-            .lock()
-            .expect("named-volume calls")
             .push("restore:volume:bill-app-data-v8".to_owned());
         Box::pin(async {
             V7MigrationAdapterTarget::resource("volume:bill-app-data-v8")
@@ -2385,10 +2373,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
         _source: &'operation V7NamedVolumeMigrationSource,
         target_reference: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls
-            .lock()
-            .expect("named-volume calls")
-            .push(format!("verify-target:{target_reference}"));
+        self.calls.push(format!("verify-target:{target_reference}"));
         Box::pin(async { Ok(()) })
     }
 
@@ -2396,7 +2381,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
         &'operation mut self,
         source: &'operation V7NamedVolumeMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.lock().expect("named-volume calls").push(format!(
+        self.calls.push(format!(
             "verify-source:{}:{}",
             source.container_id(),
             source.volume_names().join(",")
@@ -2408,7 +2393,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
         &'operation mut self,
         source: &'operation V7NamedVolumeMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.lock().expect("named-volume calls").push(format!(
+        self.calls.push(format!(
             "retire:{}:{}",
             source.container_id(),
             source.volume_names().join(",")
@@ -2419,7 +2404,7 @@ impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
 
 #[derive(Default)]
 struct RecordingV7LogicalDataProvider {
-    calls: Arc<Mutex<Vec<String>>>,
+    calls: Vec<String>,
 }
 
 impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
@@ -2429,7 +2414,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, MigrationBackup> {
-        self.calls.lock().expect("logical-data calls").push(format!(
+        self.calls.push(format!(
             "backup:{}:{}:{}",
             source.driver(),
             source.container_id(),
@@ -2448,8 +2433,6 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
             Some("/private/logical-recovery")
         );
         self.calls
-            .lock()
-            .expect("logical-data calls")
             .push("restore:logical-resource:postgres/bill".to_owned());
         Box::pin(async {
             V7MigrationAdapterTarget::resource("logical-resource:postgres/bill")
@@ -2462,10 +2445,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         _source: &'operation V7LogicalDataMigrationSource,
         target_reference: &'operation str,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls
-            .lock()
-            .expect("logical-data calls")
-            .push(format!("verify-target:{target_reference}"));
+        self.calls.push(format!("verify-target:{target_reference}"));
         Box::pin(async { Ok(()) })
     }
 
@@ -2473,7 +2453,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.lock().expect("logical-data calls").push(format!(
+        self.calls.push(format!(
             "verify-source:{}:{}:{}",
             source.driver(),
             source.container_id(),
@@ -2486,7 +2466,7 @@ impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
         &'operation mut self,
         source: &'operation V7LogicalDataMigrationSource,
     ) -> MigrationFuture<'operation, ()> {
-        self.calls.lock().expect("logical-data calls").push(format!(
+        self.calls.push(format!(
             "retire:{}:{}:{}",
             source.driver(),
             source.container_id(),

@@ -42,7 +42,6 @@ pub(crate) fn prepare_gateway_runtime_assets(
     Ok(GatewayRuntimeAssets::new(
         request,
         bootstrap_paths,
-        certificate_paths,
         reconciliation.action(),
     ))
 }
