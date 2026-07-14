@@ -9,7 +9,7 @@ use super::{
     ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease, V7HostArtifactPaths,
     V7ProjectInventoryProvider, collect_benchmark_snapshot, discover_project_sources,
     dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
     execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
@@ -6090,6 +6090,13 @@ password = "database-secret"
 "#,
     )
     .expect("legacy config");
+    std::fs::write(
+        project_path.join(".env"),
+        "DB_PASSWORD=generated-environment-secret\n",
+    )
+    .expect("legacy generated environment");
+    let hosts_path = root.join("hosts");
+    std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("legacy hosts");
     let observed = crate::control_plane::engine::ObservedContainer::new(
         crate::control_plane::engine::ContainerId::new("container-db"),
         BTreeMap::from([
@@ -6115,7 +6122,13 @@ password = "database-secret"
     let mut provider = EngineV7ProjectInventoryProvider::new(
         &runtime,
         RecordingLegacyContainerDiscovery { observed },
-    );
+    )
+    .with_host_artifact_paths(V7HostArtifactPaths::new(
+        project_path.join(".env"),
+        hosts_path,
+        root.join("sites.toml"),
+        Vec::new(),
+    ));
 
     let inventory = provider
         .inventory(&project_path, 1024 * 1024)
@@ -6128,8 +6141,17 @@ password = "database-secret"
         Some("sha256:image-db")
     );
     assert!(inventory.ready_for_automatic_migration());
+    assert_eq!(
+        inventory
+            .host_artifacts()
+            .generated_environment()
+            .expect("generated environment metadata")
+            .keys(),
+        ["DB_PASSWORD"]
+    );
     let json = serde_json::to_string(&inventory).expect("inventory JSON");
     assert!(!json.contains("database-secret"));
+    assert!(!json.contains("generated-environment-secret"));
 
     std::fs::remove_dir_all(root).expect("remove inventory fixture");
 }

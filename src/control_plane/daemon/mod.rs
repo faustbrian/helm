@@ -131,6 +131,7 @@ mod unix_daemon_runtime_error;
 mod unix_daemon_runtime_options;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
+mod v7_host_artifact_paths;
 mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
 
@@ -264,5 +265,6 @@ pub(crate) use unix_daemon_runtime_error::UnixDaemonRuntimeError;
 pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
+pub(crate) use v7_host_artifact_paths::V7HostArtifactPaths;
 pub(crate) use v7_project_inventory_provider::V7ProjectInventoryProvider;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;

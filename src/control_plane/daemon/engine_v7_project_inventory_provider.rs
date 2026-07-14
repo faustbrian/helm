@@ -1,7 +1,10 @@
-use super::{V7ProjectInventoryProvider, ipc::IpcV7ProjectInventory};
+use super::{V7HostArtifactPaths, V7ProjectInventoryProvider, ipc::IpcV7ProjectInventory};
 use crate::config::{LoadConfigPathOptions, load_config_with};
 use crate::control_plane::engine::LegacyContainerDiscovery;
-use crate::control_plane::migration::{V7ProjectInventoryRequest, inventory_v7_project};
+use crate::control_plane::migration::{
+    V7HostArtifactDiscoveryOptions, V7ProjectInventoryRequest, inventory_v7_host_artifacts,
+    inventory_v7_project,
+};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -9,11 +12,21 @@ use std::path::Path;
 pub(crate) struct EngineV7ProjectInventoryProvider<'runtime, Engine> {
     runtime: &'runtime tokio::runtime::Runtime,
     engine: Engine,
+    host_artifact_paths: Option<V7HostArtifactPaths>,
 }
 
 impl<'runtime, Engine> EngineV7ProjectInventoryProvider<'runtime, Engine> {
     pub(crate) const fn new(runtime: &'runtime tokio::runtime::Runtime, engine: Engine) -> Self {
-        Self { runtime, engine }
+        Self {
+            runtime,
+            engine,
+            host_artifact_paths: None,
+        }
+    }
+
+    pub(crate) fn with_host_artifact_paths(mut self, paths: V7HostArtifactPaths) -> Self {
+        self.host_artifact_paths = Some(paths);
+        self
     }
 }
 
@@ -95,6 +108,26 @@ where
                 },
             ))
             .map_err(|error| error.to_string())?;
+        let paths = self
+            .host_artifact_paths
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(|| V7HostArtifactPaths::for_current_user(canonical_project_path))?;
+        let route_domains = inventory
+            .routes()
+            .iter()
+            .map(|route| route.domain().to_owned())
+            .collect::<Vec<_>>();
+        let host_artifacts = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+            environment_path: paths.environment_path(),
+            hosts_path: paths.hosts_path(),
+            caddy_state_path: paths.caddy_state_path(),
+            caddy_ca_candidates: paths.caddy_ca_candidates(),
+            route_domains: &route_domains,
+            maximum_artifact_bytes: maximum_config_bytes,
+        })
+        .map_err(|error| error.to_string())?;
+        let inventory = inventory.with_host_artifacts(host_artifacts);
 
         Ok(IpcV7ProjectInventory::from(&inventory))
     }

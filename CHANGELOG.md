@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added bounded, secret-free v7 host-artifact inventory for generated `.env`
+  metadata and key names, project-scoped hosts and Caddy routes, and public
+  Caddy CA certificates. Artifact reads reject symlinks, oversize files, and
+  concurrent changes, and their evidence is bound into migration acceptance.
 - Added explicit, revision-bound v7 inventory acceptance. Read-only inventory
   now returns a purpose-bound confirmation token only when no blockers exist;
   `daemon migration accept [PATH] --confirmation-token TOKEN` re-inventories

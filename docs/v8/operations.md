@@ -223,8 +223,17 @@ conflicting labels, missing image identity, volume drift, unexpected mounts,
 host binds, anonymous mounts, absent containers, and legacy Swarm targets block
 automatic migration with retained source state. Environment and credential
 values are never copied into this diagnostic model; only key or field presence
-is recorded. Resource-specific adapter selection and live cutover remain
-separate later phases.
+is recorded. Host discovery also reads the generated project `.env`, system
+hosts file, legacy Caddy route state, and known public Caddy CA locations as
+bounded regular non-symlink files, rejecting concurrent changes. The inventory
+retains only `.env` path, size, modification time, and key names; only routes
+matching the project's configured domains are retained from global files; and
+public CA certificates receive a SHA-256 revision. Exact environment bytes are
+not hashed into diagnostic evidence because that could disclose an offline
+verifier for weak secrets. They must instead be revalidated and copied into a
+private, user-only rollback artifact before any adapter can mutate the source.
+Resource-specific adapter selection and live cutover remain separate later
+phases.
 
 `stackctl daemon migration inventory [PATH]` exposes that phase deliberately;
 normal watched-root discovery still rejects TOML. The singleton accepts only an
@@ -239,10 +248,11 @@ and receives no acceptance token.
 
 A blocker-free preview returns a purpose-bound confirmation token but still
 writes no state. `stackctl daemon migration accept [PATH]
---confirmation-token TOKEN` performs a fresh config read and Engine inventory,
-recomputes the complete evidence digest, and rejects the request if any source,
-container, image, mount, route, or blocker evidence changed. Only an exact
-replay is appended to the SQLite acceptance journal. Each record contains the
+--confirmation-token TOKEN` performs a fresh config, Engine, and host-artifact
+inventory, recomputes the complete evidence digest, and rejects the request if
+any source, container, image, mount, route, public host artifact, environment
+metadata, or blocker evidence changed. Only an exact replay is appended to the
+SQLite acceptance journal. Each record contains the
 canonical path, deterministic project identity, source revision, full
 secret-free inventory, evidence revision, and acceptance time. A second path
 claiming an already accepted project identity fails loudly; Stackctl never

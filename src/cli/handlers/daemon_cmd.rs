@@ -174,6 +174,54 @@ fn handle_daemon_migration_inventory(args: &DaemonMigrationInventoryArgs) -> Res
                     Persistence::Persistent,
                 );
             }
+            let host_artifacts = inventory.host_artifacts();
+            if let Some(environment) = host_artifacts.generated_environment() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "generated environment {}: bytes={}, modified_at={}, keys={}",
+                        environment.path().display(),
+                        environment.size_bytes(),
+                        environment.modified_at_unix_seconds(),
+                        environment.keys().len(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
+            output::event(
+                "daemon",
+                LogLevel::Info,
+                &format!(
+                    "hosts {}: project domains={}",
+                    host_artifacts.hosts_path().display(),
+                    host_artifacts.hosts_domains().join(", "),
+                ),
+                Persistence::Persistent,
+            );
+            output::event(
+                "daemon",
+                LogLevel::Info,
+                &format!(
+                    "Caddy state {}: project routes={}",
+                    host_artifacts.caddy_state_path().display(),
+                    host_artifacts.caddy_routes().len(),
+                ),
+                Persistence::Persistent,
+            );
+            for certificate in host_artifacts.caddy_ca_certificates() {
+                output::event(
+                    "daemon",
+                    LogLevel::Info,
+                    &format!(
+                        "Caddy public CA {}: bytes={}, revision={}",
+                        certificate.path().display(),
+                        certificate.size_bytes(),
+                        certificate.revision(),
+                    ),
+                    Persistence::Persistent,
+                );
+            }
             if inventory.ready_for_automatic_migration() {
                 output::event(
                     "daemon",

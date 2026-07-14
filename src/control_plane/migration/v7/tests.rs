@@ -1,6 +1,7 @@
 use super::{
-    V7InventoryBlocker, V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7RuntimeFeature, V7VolumeSource, inventory_v7_project,
+    V7HostArtifactDiscoveryOptions, V7InventoryBlocker, V7ProjectInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7RuntimeFeature, V7VolumeSource,
+    inventory_v7_host_artifacts, inventory_v7_project,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -10,6 +11,130 @@ use crate::control_plane::engine::{
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
+
+#[test]
+fn v7_host_artifacts_capture_routes_trust_and_secret_free_environment_metadata() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v7-host-artifacts-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("artifact fixture");
+    let environment_path = root.join(".env");
+    let hosts_path = root.join("hosts");
+    let caddy_state_path = root.join("sites.toml");
+    let caddy_ca_path = root.join("root.crt");
+    std::fs::write(
+        &environment_path,
+        "DB_PASSWORD=database-secret\nAPP_URL=https://bill.test\n# ignored\n",
+    )
+    .expect("legacy environment");
+    std::fs::write(
+        &hosts_path,
+        "127.0.0.1 localhost bill.test\n127.0.0.1 other.test\n",
+    )
+    .expect("legacy hosts");
+    std::fs::write(
+        &caddy_state_path,
+        "[routes]\n\"bill.test\" = \"127.0.0.1:8080\"\n\"other.test\" = \"127.0.0.1:9090\"\n",
+    )
+    .expect("legacy Caddy state");
+    std::fs::write(&caddy_ca_path, "public-certificate").expect("legacy Caddy CA");
+    let domains = vec!["bill.test".to_owned(), "missing.test".to_owned()];
+
+    let artifacts = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+        environment_path: &environment_path,
+        hosts_path: &hosts_path,
+        caddy_state_path: &caddy_state_path,
+        caddy_ca_candidates: std::slice::from_ref(&caddy_ca_path),
+        route_domains: &domains,
+        maximum_artifact_bytes: 1024 * 1024,
+    })
+    .expect("legacy host artifacts");
+
+    let environment = artifacts
+        .generated_environment()
+        .expect("generated environment metadata");
+    assert_eq!(environment.path(), environment_path);
+    assert_eq!(environment.keys(), ["APP_URL", "DB_PASSWORD"]);
+    assert!(environment.size_bytes() > 0);
+    assert_eq!(artifacts.hosts_domains(), ["bill.test"]);
+    assert_eq!(
+        artifacts
+            .caddy_routes()
+            .get("bill.test")
+            .map(String::as_str),
+        Some("127.0.0.1:8080")
+    );
+    assert!(!artifacts.caddy_routes().contains_key("other.test"));
+    assert_eq!(artifacts.caddy_ca_certificates().len(), 1);
+    assert_eq!(
+        artifacts.caddy_ca_certificates()[0].revision().len(),
+        "sha256:".len() + 64
+    );
+    let debug = format!("{artifacts:?}");
+    assert!(!debug.contains("database-secret"));
+
+    std::fs::remove_dir_all(root).expect("remove artifact fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn v7_host_artifacts_reject_symlinks_and_files_over_the_bound() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v7-host-artifact-guard-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("artifact fixture");
+    let environment_path = root.join(".env");
+    let environment_target = root.join("actual.env");
+    let hosts_path = root.join("hosts");
+    let caddy_state_path = root.join("missing-sites.toml");
+    std::fs::write(&environment_target, "SECRET=secret\n").expect("environment target");
+    symlink(&environment_target, &environment_path).expect("environment symlink");
+    std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("legacy hosts");
+
+    let error = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+        environment_path: &environment_path,
+        hosts_path: &hosts_path,
+        caddy_state_path: &caddy_state_path,
+        caddy_ca_candidates: &[],
+        route_domains: &[],
+        maximum_artifact_bytes: 1024,
+    })
+    .expect_err("symlinked legacy environment");
+
+    assert!(
+        error
+            .to_string()
+            .contains("must be a regular non-symlink file")
+    );
+
+    std::fs::remove_file(&environment_path).expect("remove environment symlink");
+    std::fs::write(&environment_path, "SECRET=secret\n").expect("legacy environment");
+    let error = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+        environment_path: &environment_path,
+        hosts_path: &hosts_path,
+        caddy_state_path: &caddy_state_path,
+        caddy_ca_candidates: &[],
+        route_domains: &[],
+        maximum_artifact_bytes: 5,
+    })
+    .expect_err("oversize legacy environment");
+
+    assert!(error.to_string().contains("exceeds the 5 byte limit"));
+
+    std::fs::remove_dir_all(root).expect("remove artifact fixture");
+}
 
 #[test]
 fn v7_inventory_is_deterministic_complete_and_secret_free() {

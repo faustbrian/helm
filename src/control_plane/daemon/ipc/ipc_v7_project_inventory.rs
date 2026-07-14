@@ -1,4 +1,6 @@
-use super::{IpcV7ProjectInventoryOptions, IpcV7Route, IpcV7ServiceInventory};
+use super::{
+    IpcV7HostArtifactInventory, IpcV7ProjectInventoryOptions, IpcV7Route, IpcV7ServiceInventory,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -15,6 +17,8 @@ pub(crate) struct IpcV7ProjectInventory {
     routes: Vec<IpcV7Route>,
     blockers: Vec<String>,
     requires_legacy_ca_capture: bool,
+    #[serde(default)]
+    host_artifacts: IpcV7HostArtifactInventory,
 }
 
 impl From<&crate::control_plane::migration::V7ProjectInventory> for IpcV7ProjectInventory {
@@ -44,6 +48,7 @@ impl From<&crate::control_plane::migration::V7ProjectInventory> for IpcV7Project
                 .collect(),
             requires_legacy_ca_capture: inventory.requires_legacy_ca_capture(),
         })
+        .with_host_artifacts(IpcV7HostArtifactInventory::from(inventory.host_artifacts()))
     }
 }
 
@@ -170,6 +175,7 @@ impl IpcV7ProjectInventory {
             routes: options.routes,
             blockers: options.blockers,
             requires_legacy_ca_capture: options.requires_legacy_ca_capture,
+            host_artifacts: IpcV7HostArtifactInventory::default(),
         }
     }
 
@@ -207,5 +213,17 @@ impl IpcV7ProjectInventory {
 
     pub(crate) fn ready_for_automatic_migration(&self) -> bool {
         self.blockers.is_empty()
+    }
+
+    pub(crate) fn with_host_artifacts(
+        mut self,
+        host_artifacts: IpcV7HostArtifactInventory,
+    ) -> Self {
+        self.host_artifacts = host_artifacts;
+        self
+    }
+
+    pub(crate) const fn host_artifacts(&self) -> &IpcV7HostArtifactInventory {
+        &self.host_artifacts
     }
 }

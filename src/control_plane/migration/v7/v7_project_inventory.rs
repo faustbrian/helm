@@ -1,7 +1,7 @@
 use super::{
-    V7InventoryBlocker, V7InventoryError, V7LogicalDataInventory, V7ProjectInventoryOptions,
-    V7RouteInventory, V7RuntimeFeature, V7ServiceInventory, V7ServiceInventoryOptions,
-    V7VolumeInventory,
+    V7HostArtifactInventory, V7InventoryBlocker, V7InventoryError, V7LogicalDataInventory,
+    V7ProjectInventoryOptions, V7RouteInventory, V7RuntimeFeature, V7ServiceInventory,
+    V7ServiceInventoryOptions, V7VolumeInventory,
 };
 use crate::config::{Driver, Kind, ServiceConfig};
 use crate::control_plane::engine::ObservedContainer;
@@ -24,6 +24,7 @@ pub(crate) struct V7ProjectInventory {
     routes: Vec<V7RouteInventory>,
     blockers: Vec<V7InventoryBlocker>,
     requires_legacy_ca_capture: bool,
+    host_artifacts: V7HostArtifactInventory,
 }
 
 impl V7ProjectInventory {
@@ -98,6 +99,7 @@ impl V7ProjectInventory {
             routes,
             blockers,
             requires_legacy_ca_capture,
+            host_artifacts: V7HostArtifactInventory::default(),
         })
     }
 
@@ -135,6 +137,15 @@ impl V7ProjectInventory {
 
     pub(crate) fn ready_for_automatic_migration(&self) -> bool {
         self.blockers.is_empty()
+    }
+
+    pub(crate) fn with_host_artifacts(mut self, host_artifacts: V7HostArtifactInventory) -> Self {
+        self.host_artifacts = host_artifacts;
+        self
+    }
+
+    pub(crate) const fn host_artifacts(&self) -> &V7HostArtifactInventory {
+        &self.host_artifacts
     }
 }
 

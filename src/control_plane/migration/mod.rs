@@ -61,9 +61,10 @@ pub(crate) use sql_server::{
     restore_sql_server_database, verify_sql_server_target,
 };
 pub(crate) use v7::{
+    V7GeneratedEnvironmentArtifact, V7HostArtifactDiscoveryOptions, V7HostArtifactInventory,
     V7InventoryBlocker, V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7RouteInventory, V7RuntimeFeature, V7ServiceInventory, V7VolumeInventory, V7VolumeSource,
-    inventory_v7_project,
+    V7PublicFileArtifact, V7RouteInventory, V7RuntimeFeature, V7ServiceInventory,
+    V7VolumeInventory, V7VolumeSource, inventory_v7_host_artifacts, inventory_v7_project,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,
