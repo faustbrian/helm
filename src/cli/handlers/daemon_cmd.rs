@@ -2,6 +2,7 @@
 //!
 //! Contains pre-config daemon command routing used by Stackctl command workflows.
 
+mod activate_gateway_certificate;
 mod backup;
 mod benchmark;
 mod delete_data_uninstall;

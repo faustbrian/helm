@@ -20,17 +20,21 @@ the gateway. Application containers use internal plain HTTP and never expose or
 ask users to trust their own CAs.
 
 `stackctl daemon trust rotate` creates an immutable replacement generation,
-installs and verifies its exact OS trust identity, removes the previous trust
-entry, and only then atomically selects the new generation. A failed install,
-verification, or removal keeps the prior generation active. Activation failure
-atomically reselects the prior generation before restoring its trust; if that
-filesystem rollback also fails, both identities remain trusted and the full
-recovery error is reported. Routine leaf renewal preserves the current CA
-identity and uses the same atomic active generation pointer.
-All certificate-store load, trust, persistence, and activation transactions are
-serialized by a user-private advisory lock shared by the daemon and CLI. This
-prevents concurrent gateway renewal from selecting stale material during a
-manual trust operation.
+installs and verifies its exact OS trust identity, and atomically selects the
+new generation while retaining the previous trusted identity. It then requests
+daemon reconciliation and waits for the ready gateway to publish the exact
+replacement generation before removing the previous trust entry. A failed
+install, verification, gateway activation, or removal atomically reselects the
+prior generation and restores its trust state. If filesystem rollback fails,
+both identities remain trusted and the full recovery error is reported.
+Routine leaf renewal preserves the current CA identity and uses the same atomic
+active generation pointer.
+
+Certificate-store mutations use a user-private advisory lock shared by the
+daemon and CLI. Trust commands also share a separate rotation lock: rotation
+holds it exclusively across gateway reconciliation but releases the store lock
+so the daemon can read the replacement generation. This prevents concurrent
+trust changes without deadlocking gateway activation.
 
 ## Supply chain and upgrades
 

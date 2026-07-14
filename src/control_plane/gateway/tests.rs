@@ -6,8 +6,9 @@ use super::{
     GlobalGatewayRequestOptions, LocalhostResolver, SystemGatewayPortProbe, global_gateway_request,
     preflight_gateway_ports, prepare_gateway_runtime_assets, reconcile_gateway,
     reconcile_gateway_configuration, reconcile_gateway_plane, render_caddy_document,
-    store_caddy_bootstrap, verify_gateway_ports_available, verify_stackctl_localhost_resolution,
-    wait_for_gateway_ready,
+    store_active_gateway_certificate_generation, store_caddy_bootstrap,
+    verify_gateway_ports_available, verify_stackctl_localhost_resolution,
+    wait_for_gateway_certificate_generation, wait_for_gateway_ready,
 };
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
@@ -74,6 +75,66 @@ fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
     );
 
     std::fs::remove_dir_all(root).expect("remove gateway asset fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn gateway_certificate_activation_is_published_atomically_and_waitable() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-gateway-certificate-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    let revision = "a".repeat(64);
+
+    store_active_gateway_certificate_generation(&root, &revision)
+        .expect("publish active gateway certificate");
+    wait_for_gateway_certificate_generation(
+        &root,
+        &revision,
+        Duration::from_millis(10),
+        Duration::from_millis(1),
+    )
+    .expect("observe active gateway certificate");
+
+    assert_eq!(
+        std::fs::read_to_string(root.join("gateway/active-certificate-generation"))
+            .expect("read active generation"),
+        format!("{revision}\n")
+    );
+
+    std::fs::remove_dir_all(root).expect("remove gateway activation fixture");
+}
+
+#[test]
+fn gateway_certificate_activation_wait_rejects_a_stale_generation() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-v8-gateway-certificate-stale-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    let stale = "a".repeat(64);
+    let expected = "b".repeat(64);
+    store_active_gateway_certificate_generation(&root, &stale)
+        .expect("publish stale gateway certificate");
+
+    let error = wait_for_gateway_certificate_generation(
+        &root,
+        &expected,
+        Duration::from_millis(2),
+        Duration::from_millis(1),
+    )
+    .expect_err("stale gateway generation must time out");
+
+    assert!(error.to_string().contains("did not activate certificate generation"));
+
+    std::fs::remove_dir_all(root).expect("remove stale activation fixture");
 }
 
 #[test]

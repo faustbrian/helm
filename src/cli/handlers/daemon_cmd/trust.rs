@@ -18,6 +18,7 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
         #[cfg(target_os = "macos")]
         return handle_with_store(
             args.command,
+            &runtime_directory,
             &certificates,
             &crate::control_plane::MacOsCertificateTrustStore::new(ProcessHostCommandExecutor),
         );
@@ -25,6 +26,7 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
         #[cfg(target_os = "linux")]
         return handle_with_store(
             args.command,
+            &runtime_directory,
             &certificates,
             &crate::control_plane::DebianCertificateTrustStore::new(ProcessHostCommandExecutor),
         );
@@ -66,6 +68,7 @@ pub(super) fn remove_persisted_daemon_trust() -> Result<()> {
 
 fn handle_with_store(
     command: DaemonTrustCommands,
+    runtime_directory: &std::path::Path,
     certificates: &FilesystemCertificateStore,
     trust_store: &impl crate::control_plane::CertificateTrustStore,
 ) -> Result<()> {
@@ -141,6 +144,12 @@ fn handle_with_store(
                 certificates,
                 trust_store,
                 time::OffsetDateTime::now_utc(),
+                |_identity, paths| {
+                    super::activate_gateway_certificate::activate_gateway_certificate(
+                        runtime_directory,
+                        paths,
+                    )
+                },
             )?;
             output::event(
                 "daemon",

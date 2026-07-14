@@ -10,8 +10,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::macros::datetime;
 use x509_parser::extensions::GeneralName;
 use x509_parser::parse_x509_certificate;
@@ -225,8 +226,27 @@ fn current_ca_rotation_switches_trust_and_active_material_atomically() {
     let initial = install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
         .expect("install initial CA");
 
-    let rotated = rotate_current_ca_trust(&certificates, &trust, datetime!(2026-07-14 12:00 UTC))
-        .expect("rotate current CA");
+    let served = Cell::new(false);
+    let rotated = rotate_current_ca_trust(
+        &certificates,
+        &trust,
+        datetime!(2026-07-14 12:00 UTC),
+        |current_identity, _current_paths| {
+            let (current, _) = certificates
+                .load_current()
+                .expect("load activated CA")
+                .expect("activated CA");
+            let current =
+                LocalCaIdentity::from_pem(current.ca_certificate_pem()).expect("CA identity");
+            assert_eq!(&current, current_identity);
+            assert!(trust.trusted.borrow().contains(initial.identity()));
+            assert!(trust.trusted.borrow().contains(current_identity));
+            served.set(true);
+
+            Ok(())
+        },
+    )
+    .expect("rotate current CA");
     let (current, _) = certificates
         .load_current()
         .expect("load active CA")
@@ -237,6 +257,7 @@ fn current_ca_rotation_switches_trust_and_active_material_atomically() {
     assert_ne!(rotated.current_identity(), initial.identity());
     assert_eq!(&current, rotated.current_identity());
     assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
+    assert!(served.get());
 
     std::fs::remove_dir_all(root).expect("remove certificate root");
 }
@@ -252,8 +273,13 @@ fn failed_ca_rotation_keeps_the_previous_generation_active_and_trusted() {
         .fail_removal_of
         .replace(Some(initial.identity().clone()));
 
-    let error = rotate_current_ca_trust(&certificates, &trust, datetime!(2026-07-14 12:00 UTC))
-        .expect_err("old trust removal must fail rotation");
+    let error = rotate_current_ca_trust(
+        &certificates,
+        &trust,
+        datetime!(2026-07-14 12:00 UTC),
+        |_identity, _paths| Ok(()),
+    )
+    .expect_err("old trust removal must fail rotation");
     let (current, _) = certificates
         .load_current()
         .expect("load active CA")
@@ -267,6 +293,70 @@ fn failed_ca_rotation_keeps_the_previous_generation_active_and_trusted() {
     );
     assert_eq!(&current, initial.identity());
     assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn failed_gateway_certificate_activation_rolls_back_ca_rotation() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let trust = RotationTrustStore::default();
+    let initial = install_current_ca_trust(&certificates, &trust, datetime!(2026-07-13 12:00 UTC))
+        .expect("install initial CA");
+
+    let error = rotate_current_ca_trust(
+        &certificates,
+        &trust,
+        datetime!(2026-07-14 12:00 UTC),
+        |_identity, _paths| Err(TrustStoreError::new("gateway did not serve replacement leaf")),
+    )
+    .expect_err("gateway acknowledgement must gate rotation");
+    let (current, _) = certificates
+        .load_current()
+        .expect("load active CA")
+        .expect("active CA");
+    let current = LocalCaIdentity::from_pem(current.ca_certificate_pem()).expect("CA identity");
+
+    assert!(error.to_string().contains("gateway did not serve replacement leaf"));
+    assert_eq!(&current, initial.identity());
+    assert_eq!(trust.trusted.borrow().as_slice(), &[current]);
+
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+}
+
+#[test]
+fn ca_rotation_lock_excludes_other_trust_operations_without_blocking_store_reads() {
+    let root = temporary_certificate_root();
+    let certificates = FilesystemCertificateStore::new(root.clone());
+    let rotation = certificates.lock_rotation().expect("acquire rotation lock");
+    let store = certificates.lock().expect("acquire independent store lock");
+    drop(store);
+    let (ready_sender, ready_receiver) = mpsc::channel();
+    let (sender, receiver) = mpsc::channel();
+    let contender_root = root.clone();
+    let contender = std::thread::spawn(move || {
+        let certificates = FilesystemCertificateStore::new(contender_root);
+        ready_sender.send(()).expect("report trust lock attempt");
+        let lock = certificates
+            .lock_trust_operation()
+            .expect("acquire trust operation lock");
+        sender.send(()).expect("report acquired trust lock");
+        drop(lock);
+    });
+
+    ready_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("trust lock contender started");
+    assert!(
+        receiver.recv_timeout(Duration::from_millis(20)).is_err(),
+        "trust operation must wait for rotation"
+    );
+    drop(rotation);
+    receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("trust operation proceeds after rotation");
+    contender.join().expect("join trust lock contender");
 
     std::fs::remove_dir_all(root).expect("remove certificate root");
 }

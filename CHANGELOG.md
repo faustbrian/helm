@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept both local CA identities trusted during certificate rotation until the
+  singleton gateway reports the replacement generation healthy and active.
+  Rotation now coordinates CLI trust operations separately from gateway asset
+  reads, publishes gateway activation atomically, and restores the previous
+  generation and trust identity when gateway activation fails.
 - Serialized certificate generation, trust, renewal, rotation, removal, and
   gateway asset preparation through one private advisory store lock. Concurrent
   daemon reconciliation can no longer reactivate a stale generation during a

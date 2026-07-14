@@ -8,6 +8,7 @@ pub(crate) fn remove_current_ca_trust(
     certificates: &FilesystemCertificateStore,
     trust_store: &impl CertificateTrustStore,
 ) -> Result<Option<CurrentCaTrustResult>, LocalCaTrustError> {
+    let _rotation_lock = certificates.lock_trust_operation()?;
     let _lock = certificates.lock()?;
     let Some((bundle, paths)) = certificates.load_current()? else {
         return Ok(None);

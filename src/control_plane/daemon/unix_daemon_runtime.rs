@@ -19,6 +19,7 @@ use crate::control_plane::engine::NetworkCreateOptions;
 use crate::control_plane::gateway::{
     GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
     SystemGatewayPortProbe, prepare_gateway_runtime_assets, reconcile_gateway_plane,
+    store_active_gateway_certificate_generation,
 };
 use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
@@ -1119,6 +1120,18 @@ impl UnixDaemonRuntime {
 
         match gateway {
             Ok(gateway) => {
+                if let Err(error) = store_active_gateway_certificate_generation(
+                    &self.runtime_directory,
+                    assets.certificate_revision(),
+                ) {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        error = %error,
+                        "gateway certificate activation publication blocked"
+                    );
+
+                    return;
+                }
                 self.resource_health = health_snapshot;
                 self.engine_reconciliation.complete();
                 tracing::debug!(

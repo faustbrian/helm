@@ -2,6 +2,7 @@
 mod tests;
 
 mod certificate_store_lock;
+mod certificate_rotation_lock;
 mod certificate_trust_store;
 mod current_ca_trust_result;
 mod current_ca_trust_status;
@@ -35,6 +36,7 @@ mod trust_change;
 mod trust_store_error;
 
 pub(crate) use certificate_store_lock::CertificateStoreLock;
+pub(crate) use certificate_rotation_lock::CertificateRotationLock;
 pub(crate) use certificate_trust_store::CertificateTrustStore;
 pub(crate) use current_ca_trust_result::CurrentCaTrustResult;
 pub(crate) use current_ca_trust_status::CurrentCaTrustStatus;

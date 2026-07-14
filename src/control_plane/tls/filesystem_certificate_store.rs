@@ -1,5 +1,7 @@
 use super::{
-    CertificateStoreLock, LocalCertificateBundle, LocalCertificateError, StoredCertificatePaths,
+    CertificateRotationLock, CertificateStoreLock, LocalCertificateBundle, LocalCertificateError,
+    StoredCertificatePaths,
+    certificate_rotation_lock::CERTIFICATE_ROTATION_LOCK_FILE,
     certificate_store_lock::CERTIFICATE_STORE_LOCK_FILE,
 };
 use sha2::{Digest, Sha256};
@@ -25,6 +27,22 @@ impl FilesystemCertificateStore {
     #[cfg(unix)]
     pub(crate) fn lock(&self) -> Result<CertificateStoreLock, LocalCertificateError> {
         CertificateStoreLock::acquire(&self.root)
+    }
+
+    /// Allows ordinary trust operations while excluding CA rotation.
+    #[cfg(unix)]
+    pub(crate) fn lock_trust_operation(
+        &self,
+    ) -> Result<CertificateRotationLock, LocalCertificateError> {
+        CertificateRotationLock::acquire_shared(&self.root)
+    }
+
+    /// Excludes other trust operations for the full CA rotation transaction.
+    #[cfg(unix)]
+    pub(crate) fn lock_rotation(
+        &self,
+    ) -> Result<CertificateRotationLock, LocalCertificateError> {
+        CertificateRotationLock::acquire_exclusive(&self.root)
     }
 
     /// Recovers the newest fully verified immutable certificate generation.
@@ -65,6 +83,9 @@ impl FilesystemCertificateStore {
                 continue;
             }
             if name == CERTIFICATE_STORE_LOCK_FILE && file_type.is_file() {
+                continue;
+            }
+            if name == CERTIFICATE_ROTATION_LOCK_FILE && file_type.is_file() {
                 continue;
             }
             if !file_type.is_dir() || !is_bundle_directory(&path) {

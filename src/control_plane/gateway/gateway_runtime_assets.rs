@@ -13,6 +13,7 @@ pub(crate) struct GatewayRuntimeAssets {
     request: ContainerCreateOptions,
     bootstrap_paths: StoredGatewayBootstrapPaths,
     certificate_action: LocalCertificateReconcileAction,
+    certificate_revision: String,
 }
 
 impl GatewayRuntimeAssets {
@@ -20,11 +21,13 @@ impl GatewayRuntimeAssets {
         request: ContainerCreateOptions,
         bootstrap_paths: StoredGatewayBootstrapPaths,
         certificate_action: LocalCertificateReconcileAction,
+        certificate_revision: String,
     ) -> Self {
         Self {
             request,
             bootstrap_paths,
             certificate_action,
+            certificate_revision,
         }
     }
 
@@ -38,6 +41,10 @@ impl GatewayRuntimeAssets {
 
     pub(crate) const fn certificate_action(&self) -> LocalCertificateReconcileAction {
         self.certificate_action
+    }
+
+    pub(crate) fn certificate_revision(&self) -> &str {
+        &self.certificate_revision
     }
 
     #[cfg(unix)]

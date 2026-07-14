@@ -1,3 +1,4 @@
+use super::LocalCertificateError;
 use std::path::{Path, PathBuf};
 
 /// Immutable paths for one fully persisted certificate bundle revision.
@@ -13,6 +14,20 @@ impl StoredCertificatePaths {
 
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    pub(crate) fn revision(&self) -> Result<&str, LocalCertificateError> {
+        self.directory
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix("bundle-"))
+            .filter(|revision| !revision.is_empty())
+            .ok_or_else(|| {
+                LocalCertificateError::new(format!(
+                    "stored certificate directory '{}' has no immutable bundle revision",
+                    self.directory.display()
+                ))
+            })
     }
 
     pub(crate) fn ca_certificate(&self) -> PathBuf {

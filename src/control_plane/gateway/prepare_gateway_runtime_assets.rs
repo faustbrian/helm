@@ -5,7 +5,6 @@ use super::{
     store_caddy_bootstrap,
 };
 use crate::control_plane::tls::{FilesystemCertificateStore, reconcile_local_certificates};
-use std::path::Path;
 
 /// Recovers or creates all private host assets before gateway reconciliation.
 pub(crate) fn prepare_gateway_runtime_assets(
@@ -23,7 +22,7 @@ pub(crate) fn prepare_gateway_runtime_assets(
 
         (certificate_paths, reconciliation.action())
     };
-    let certificate_revision = certificate_revision(certificate_paths.directory())?;
+    let certificate_revision = certificate_paths.revision()?.to_owned();
 
     let gateway_directory = options.runtime_directory.join("gateway");
     let config_path = gateway_directory.join("bootstrap.json");
@@ -41,7 +40,7 @@ pub(crate) fn prepare_gateway_runtime_assets(
         container_user: options.container_user.to_owned(),
         certificate_path: certificate_paths.leaf_certificate(),
         private_key_path: certificate_paths.leaf_private_key(),
-        certificate_revision,
+        certificate_revision: certificate_revision.clone(),
         bootstrap_config_path: bootstrap_paths.config_path().to_path_buf(),
         admin_runtime_directory: bootstrap_paths.runtime_directory().to_path_buf(),
     })?;
@@ -50,23 +49,6 @@ pub(crate) fn prepare_gateway_runtime_assets(
         request,
         bootstrap_paths,
         certificate_action,
+        certificate_revision,
     ))
-}
-
-fn certificate_revision(directory: &Path) -> Result<String, GatewayRuntimeAssetError> {
-    let revision = directory
-        .file_name()
-        .and_then(|name| name.to_str())
-        .and_then(|name| name.strip_prefix("bundle-"))
-        .filter(|revision| !revision.is_empty())
-        .ok_or_else(|| {
-            GatewayRuntimeAssetError::Gateway(super::GatewayError::InvalidPlan {
-                detail: format!(
-                    "stored certificate directory '{}' has no immutable bundle revision",
-                    directory.display()
-                ),
-            })
-        })?;
-
-    Ok(revision.to_owned())
 }

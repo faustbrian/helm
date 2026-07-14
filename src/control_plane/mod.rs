@@ -43,6 +43,7 @@ pub(crate) use desired_state::{
 use dns_label::DnsLabel;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;
 pub(crate) use execution_plan::{ExecutionPlan, ServiceExecutionPlan, resolve_execution_plan};
+pub(crate) use gateway::wait_for_gateway_certificate_generation;
 pub(crate) use identity_error::IdentityError;
 pub(crate) use project_identity::ProjectIdentity;
 pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};
@@ -62,8 +63,9 @@ pub(crate) use tls::DebianCertificateTrustStore;
 pub(crate) use tls::MacOsCertificateTrustStore;
 pub(crate) use tls::{
     CertificateTrustStore, CurrentCaTrustStatus, FilesystemCertificateStore,
-    ProcessHostCommandExecutor, TrustChange, inspect_current_ca_trust, install_current_ca_trust,
-    remove_current_ca_trust, rotate_current_ca_trust,
+    ProcessHostCommandExecutor, StoredCertificatePaths, TrustChange, TrustStoreError,
+    inspect_current_ca_trust, install_current_ca_trust, remove_current_ca_trust,
+    rotate_current_ca_trust,
 };
 pub(crate) use validate_route_claims::validate_route_claims;
 pub(crate) use validated_route_registry::ValidatedRouteRegistry;
