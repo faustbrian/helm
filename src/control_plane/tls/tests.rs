@@ -479,6 +479,23 @@ fn trust_removal_targets_only_the_exact_installed_ca() {
 }
 
 #[test]
+fn failed_os_untrust_command_restores_an_exact_partially_removed_ca() {
+    let (identity, certificate_path) = trust_fixture();
+    let store = PartialRemovalFailureTrustStore::default();
+
+    let error = remove_ca_trust(&store, &identity, &certificate_path)
+        .expect_err("partially failed trust removal");
+
+    assert!(
+        error
+            .to_string()
+            .contains("simulated untrust command failure")
+    );
+    assert!(store.trusted.get());
+    assert_eq!(store.installed.borrow().as_slice(), &[certificate_path]);
+}
+
+#[test]
 fn macos_trust_store_verifies_the_exact_persisted_ca_with_user_trust() {
     let (identity, certificate_path) = trust_fixture();
     let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success("")]);
@@ -978,6 +995,20 @@ struct PartialInstallFailureTrustStore {
     removed: RefCell<Vec<LocalCaIdentity>>,
 }
 
+struct PartialRemovalFailureTrustStore {
+    trusted: Cell<bool>,
+    installed: RefCell<Vec<PathBuf>>,
+}
+
+impl Default for PartialRemovalFailureTrustStore {
+    fn default() -> Self {
+        Self {
+            trusted: Cell::new(true),
+            installed: RefCell::default(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct RotationTrustStore {
     trusted: RefCell<Vec<LocalCaIdentity>>,
@@ -1082,6 +1113,37 @@ impl CertificateTrustStore for PartialInstallFailureTrustStore {
         self.removed.borrow_mut().push(identity.clone());
         self.trusted.set(false);
         Ok(())
+    }
+}
+
+impl CertificateTrustStore for PartialRemovalFailureTrustStore {
+    fn contains(
+        &self,
+        _identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<bool, TrustStoreError> {
+        Ok(self.trusted.get())
+    }
+
+    fn install(
+        &self,
+        _identity: &LocalCaIdentity,
+        certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        self.installed
+            .borrow_mut()
+            .push(certificate_path.to_owned());
+        self.trusted.set(true);
+        Ok(())
+    }
+
+    fn remove(
+        &self,
+        _identity: &LocalCaIdentity,
+        _certificate_path: &std::path::Path,
+    ) -> Result<(), TrustStoreError> {
+        self.trusted.set(false);
+        Err(TrustStoreError::new("simulated untrust command failure"))
     }
 }
 

@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made failed OS untrust commands restore and verify the exact CA when the
+  command partially removes it. Failed removals now preserve pre-operation
+  trust state or report both the original failure and rollback ambiguity.
 - Made failed OS trust commands inspect and reverse an exact partial CA install
   before returning. This covers platform commands that mutate trust but still
   exit unsuccessfully, while preserving the original error and reporting any

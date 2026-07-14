@@ -151,6 +151,10 @@ If an OS trust command returns failure after partially installing the exact CA,
 Stackctl detects that identity, removes it, and verifies it absent before
 returning the original failure. An ambiguous or failed rollback is returned as
 part of the error rather than accepted as clean host state.
+The inverse operation has the same guarantee: if an OS untrust command removes
+the exact CA but reports failure, Stackctl reinstalls and verifies that CA before
+returning the original error. A command that fails without changing trust is
+left untouched.
 
 On Debian-family hosts, the privileged managed-root file and the
 `update-ca-certificates` refresh are one transaction. Failed installation
