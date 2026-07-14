@@ -2272,6 +2272,51 @@ fn managed_secret_store_is_private_immutable_and_exact() {
     std::fs::remove_dir_all(&root).expect("remove managed-secret fixture");
 }
 
+#[cfg(unix)]
+#[test]
+fn managed_secret_store_refuses_symbolic_link_targets_without_mutation() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-managed-secret-symlink-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    std::fs::create_dir_all(&root).expect("create managed-secret fixture");
+    let victim = root.join("victim");
+    std::fs::write(&victim, "root-secret").expect("write victim");
+    std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o640))
+        .expect("set victim permissions");
+    let path = root.join("mongodb-root");
+    symlink(&victim, &path).expect("create managed-secret symlink");
+
+    let error = store_credential_secret(&CredentialSecret::new("root-secret".to_owned()), &path)
+        .expect_err("symbolic-link managed secret must fail closed");
+
+    assert!(error.to_string().contains("symbolic link"));
+    assert_eq!(
+        std::fs::read_to_string(&victim).expect("read victim"),
+        "root-secret"
+    );
+    assert_eq!(
+        std::fs::metadata(&victim)
+            .expect("victim metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o640
+    );
+    assert!(
+        std::fs::symlink_metadata(&path)
+            .expect("managed-secret symlink")
+            .file_type()
+            .is_symlink()
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove managed-secret fixture");
+}
+
 #[test]
 fn mongodb_logical_resources_are_idempotent_database_scoped_and_stdin_only() {
     let plan = MongoDbLogicalResourcePlan::new(

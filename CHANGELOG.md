@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Refused symbolic links and non-file paths in daemon-owned credential
+  storage before reading or changing permissions. Credential publication is
+  now serialized on its private directory, so concurrent reconciliation
+  cannot remove another writer's stable staging file.
+- Removed the non-Unix no-op fallback for SQLite state-file protection. The v8
+  source now keeps its macOS/Linux-only contract instead of carrying an
+  unreachable compatibility branch that would leave state permissions
+  unenforced.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish

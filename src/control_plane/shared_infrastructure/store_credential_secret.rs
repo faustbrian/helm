@@ -26,6 +26,11 @@ pub(crate) fn store_credential_secret(
         .map_err(|error| io_error("create secret directory", directory, error))?;
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict secret directory", directory, error))?;
+    let directory_lock = File::open(directory)
+        .map_err(|error| io_error("open secret directory", directory, error))?;
+    directory_lock
+        .lock()
+        .map_err(|error| io_error("lock secret directory", directory, error))?;
 
     let name = path
         .file_name()
@@ -49,7 +54,24 @@ pub(crate) fn store_credential_secret(
         }
     }
 
-    if path.exists() {
+    let existing = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(ManagedSecretStoreError::new(format!(
+                "refusing symbolic link managed secret '{}'",
+                path.display()
+            )));
+        }
+        Ok(metadata) if metadata.file_type().is_file() => true,
+        Ok(_) => {
+            return Err(ManagedSecretStoreError::new(format!(
+                "managed secret '{}' is not a regular file",
+                path.display()
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(io_error("inspect managed secret", path, error)),
+    };
+    if existing {
         let found = fs::read(path).map_err(|error| io_error("read managed secret", path, error))?;
         if found != secret.expose().as_bytes() {
             return Err(ManagedSecretStoreError::new(format!(

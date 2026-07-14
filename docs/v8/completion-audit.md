@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-14. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 734 passed, 0 failed. `just lint` (format plus all-target
+`cargo test --quiet`: 735 passed, 0 failed. `just lint` (format plus all-target
 Clippy with the repository's configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
 Those local commands do not substitute for the platform and benchmark artifacts
@@ -44,7 +44,7 @@ identified below.
 | AC-14 | Compatible safe services share exact-fingerprint instances | Implemented for documented safe strategies | `docs/v8/services.md`; shared-instance resolver and service-specific plan tests | Live multi-project acceptance for every strategy advertised as shared |
 | AC-15 | Incompatible profiles split with an exact explanation | Implemented | compatibility fingerprint and shared resolver tests | Live mixed-version/profile artifact |
 | AC-16 | Logical resources and credentials converge idempotently | Implemented | PostgreSQL, MySQL/MariaDB, MongoDB, Redis/Valkey, object-store, RabbitMQ, Mailpit, and SQL Server preparation/reconciliation tests | Live authenticated readiness and drift records per advertised service |
-| AC-17 | Credentials remain stable across daemon and Engine restarts | Implemented | SQLite insert-if-absent, private database/WAL/SHM permissions, symbolic-link refusal, redaction, restart, and shared bootstrap credential tests | Live restart artifact |
+| AC-17 | Credentials remain stable across daemon and Engine restarts | Implemented | SQLite insert-if-absent, private database/WAL/SHM permissions, symbolic-link refusal for state and managed secret files, directory-serialized secret publication, redaction, restart, and shared bootstrap credential tests | Live restart artifact |
 | AC-18 | Persistent resources are never pruned implicitly | Partial | retention policy tests; orphan stop behavior; exact seven-day disposable container and ownership-proven unreferenced build-image GC tests; common token-bound PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Redis/Valkey, RabbitMQ, and MinIO prune execution with immediate stored-artifact reverification; keep-data-default and terminal-marker-gated delete-data uninstall, typed secret-free whole-installation plan/confirm/status IPC, recovery-bound project-volume confirmation and exact Engine authorization with unlisted observed-volume refusal, idle artifact-reverified confirmed freeze, restart-safe one-at-a-time logical prune scheduling, durable deleting/deleted reconciliation freeze, daemon-owned dependency-ordered exact Engine cleanup including derived images, and logical-and-operation-empty terminal deletion invariant | RabbitMQ non-durable, quorum/stream, and non-persistent message recovery, complete recovery/deletion coverage, and live uninstall acceptance remain incomplete |
 
 ## Engine, daemon recovery, and lifecycle
@@ -65,7 +65,7 @@ identified below.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, directory-serialized crash-recoverable artifact-lock publication, manifest-pinned PHP image definition, commit-pinned multi-architecture publication workflow with SBOM/provenance/signing, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Published-image SBOM, provenance, signature, amd64, and arm64 release artifacts |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Immutable Engine, per-project-stack, v8 compatible, and v8 split raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 734 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 735 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | Required live platform, recovery, gateway protocol, image publication, and benchmark suites above |
 
 ## Release blockers
 

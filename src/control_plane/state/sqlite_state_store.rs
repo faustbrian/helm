@@ -285,11 +285,6 @@ fn protect_database_files(path: &Path) -> Result<(), StateStoreError> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn protect_database_files(_path: &Path) -> Result<(), StateStoreError> {
-    Ok(())
-}
-
 fn sqlite_sidecar_path(path: &Path, suffix: &str) -> PathBuf {
     let mut value = OsString::from(path.as_os_str());
     value.push(suffix);
