@@ -153,11 +153,14 @@ manual inspection.
 
 The normal backup command creates MySQL/MariaDB recovery points by streaming a
 consistent logical dump from the exact owned shared container into private,
-immutable Stackctl storage and verifying its checksum. MySQL-family restore is
-not yet implemented, so this is backup-and-delete coverage rather than a
-complete lifecycle claim. Other logical service kinds fail closed until they
-have service-specific backup and deletion adapters; Stackctl does not
-reinterpret container removal as data deletion.
+immutable Stackctl storage and verifying its checksum. Restore re-verifies the
+catalog identity, checksum, size, and ownership before importing into a
+separately owned retained target. An authenticated schema check precedes atomic
+environment cutover. Explicit confirmation retires only the exact source
+schema and user; rollback restores the original environment and retains the
+target. Other logical service kinds fail closed until they have service-specific
+backup, restore, and deletion adapters; Stackctl does not reinterpret container
+removal as data deletion.
 
 `stackctl daemon service uninstall` defaults to keep-data behavior. The
 equivalent explicit form is `stackctl daemon service uninstall --keep-data`.

@@ -639,6 +639,26 @@ fn daemon_restart_restores_only_queued_project_restores() {
 }
 
 #[test]
+fn mysql_restore_intent_is_supported_and_secret_free() {
+    let queued = QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "restore-mysql".to_owned(),
+        recovery_point_id: "backup-mysql".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+    })
+    .expect("MySQL restore intent");
+
+    let payload = queued.payload_json().expect("durable MySQL restore");
+
+    assert!(payload.contains("mysql_database"));
+    assert!(!payload.contains("password"));
+    assert!(!payload.contains("secret"));
+}
+
+#[test]
 fn project_restore_result_publishes_operator_gated_cutover_evidence() {
     use base64::Engine as _;
 
@@ -1754,6 +1774,310 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
 
     drop(store);
     std::fs::remove_dir_all(root).expect("remove restore fixture");
+}
+
+#[test]
+fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutover() {
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-mysql-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "mysql@sha256:",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path.clone(),
+        project_path.join(".stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  database:\n    preset: mysql\n    version: \"8\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("MySQL instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let source_container_name = format!(
+        "stackctl-shared-{}",
+        fingerprint.strip_prefix("sha256:").expect("fingerprint")
+    );
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &source_container_name,
+        "install-1",
+        "mysql-source",
+        &fingerprint,
+    )]);
+    let source = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: source_container_name.clone(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "mysql_database".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:source".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let source_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/mysql".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{fingerprint_id}/mysql-bootstrap"),
+        project_id: None,
+        service_id: "mysql".to_owned(),
+        username: "root".to_owned(),
+        secret: "source-admin".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let source_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+        project_id: "bill".to_owned(),
+        revision: "sha256:source".to_owned(),
+        values: BTreeMap::from([
+            ("DB_CONNECTION".to_owned(), "mysql".to_owned()),
+            ("DB_HOST".to_owned(), source_container_name.clone()),
+            ("DB_PORT".to_owned(), "3306".to_owned()),
+            (
+                "DB_DATABASE".to_owned(),
+                "stackctl_bill_database".to_owned(),
+            ),
+            (
+                "DB_USERNAME".to_owned(),
+                source_credential.username().to_owned(),
+            ),
+            (
+                "DB_PASSWORD".to_owned(),
+                source_credential.secret().to_owned(),
+            ),
+        ]),
+        lifecycle: EnvironmentLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let backup_root = root.join("backups");
+    let backup = runtime
+        .block_on(execute_queued_project_backup(
+            engine.clone(),
+            ProjectBackupExecutionOptions {
+                operation: QueuedProjectBackup::new(
+                    "backup-mysql".to_owned(),
+                    "bill".to_owned(),
+                    "database".to_owned(),
+                    source.logical_resource_id().to_owned(),
+                    source.kind().to_owned(),
+                    fingerprint.clone(),
+                )
+                .expect("backup intent"),
+                logical_resource: Ok(source.clone()),
+                credential: Ok(source_credential.clone()),
+                installation_id: "install-1".to_owned(),
+                schema_version: 8,
+                backup_root: backup_root.clone(),
+                created_at_unix_seconds: 50_000,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .outcome()
+        .as_ref()
+        .expect("verified backup")
+        .clone();
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-mysql".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: source.logical_resource_id().to_owned(),
+        resource_kind: source.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: backup.reference().to_owned(),
+        artifact_sha256: backup.artifact_sha256().to_owned(),
+        artifact_size_bytes: backup.artifact_size_bytes(),
+        created_at_unix_seconds: 50_000,
+        verified_at_unix_seconds: 50_001,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_project(&ProjectRecord::new(
+            project_path,
+            "bill".to_owned(),
+            Vec::new(),
+        ))
+        .expect("project");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&source))
+        .expect("source ownership");
+    store
+        .insert_credential_if_absent(&source_credential)
+        .expect("source credential");
+    store
+        .insert_credential_if_absent(&administrator)
+        .expect("administrator");
+    store
+        .replace_managed_environment(&source_environment)
+        .expect("source environment");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    drop(store);
+
+    let result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0x77),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                operation_id: "restore-mysql".to_owned(),
+                recovery_point_id: "backup-mysql".to_owned(),
+                project_id: "bill".to_owned(),
+                service_id: "database".to_owned(),
+                logical_resource_id: source.logical_resource_id().to_owned(),
+                kind: source.kind().to_owned(),
+                compatibility_fingerprint: fingerprint,
+            })
+            .expect("restore intent"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 50_002,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        result.outcome(),
+        &Ok(MigrationExecutionResult::AwaitingConfirmation)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert_eq!(
+        store.migrations().expect("migrations")[0].phase(),
+        MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.managed_environments().expect("environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&"stackctl-migration-restore-mysql".to_owned())
+    );
+    assert!(
+        engine
+            .created()
+            .contains(&"stackctl-migration-restore-mysql".to_owned())
+    );
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    drop(store);
+    let rollback_database_path = root.join("rollback-state.sqlite3");
+    std::fs::copy(&database_path, &rollback_database_path)
+        .expect("snapshot MySQL cutover state for rollback");
+    let confirmed = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0x88),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "confirm-mysql".to_owned(),
+                "restore-mysql".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Confirm,
+            )
+            .expect("MySQL confirmation"),
+            shared: shared.clone(),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 50_003,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        confirmed.outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let store = SqliteStateStore::open(&database_path).expect("confirmed MySQL state");
+    assert_eq!(
+        store.migrations().expect("confirmed migration")[0].phase(),
+        MigrationPhase::Confirmed
+    );
+    assert_eq!(
+        engine
+            .command_environments()
+            .last()
+            .expect("MySQL retirement command")
+            .get("MYSQL_PWD"),
+        Some(&"source-admin".to_owned())
+    );
+    let retirement_sql = String::from_utf8(
+        engine
+            .command_inputs()
+            .last()
+            .expect("MySQL retirement SQL")
+            .clone(),
+    )
+    .expect("retirement SQL UTF-8");
+    assert!(retirement_sql.contains("DROP DATABASE IF EXISTS `stackctl_bill_database`"));
+    assert!(retirement_sql.contains("DROP USER IF EXISTS 'st_bill_database'@'%'"));
+
+    drop(store);
+    let rolled_back = runtime.block_on(execute_queued_migration_decision(
+        engine.clone(),
+        FixedRestoreEntropy(0x99),
+        MigrationDecisionExecutionOptions {
+            operation: super::QueuedMigrationDecision::new(
+                "rollback-mysql".to_owned(),
+                "restore-mysql".to_owned(),
+                "bill".to_owned(),
+                IpcMigrationDecision::Rollback,
+            )
+            .expect("MySQL rollback"),
+            shared,
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: rollback_database_path.clone(),
+            backup_root,
+            updated_at_unix_seconds: 50_004,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        rolled_back.outcome(),
+        &Ok(MigrationExecutionResult::RolledBack)
+    );
+    let store = SqliteStateStore::open(&rollback_database_path).expect("rolled-back MySQL state");
+    assert_eq!(
+        store.migrations().expect("rolled-back migration")[0].phase(),
+        MigrationPhase::RolledBack
+    );
+    assert_eq!(
+        store.managed_environments().expect("source environment")[0]
+            .values()
+            .get("DB_HOST"),
+        Some(&source_container_name)
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove MySQL restore fixture");
 }
 
 struct FixedRestoreEntropy(u8);
@@ -4729,7 +5053,7 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
             .lock()
             .expect("command arguments")
             .push(request.arguments().to_vec());
-        let verification_output = request
+        let postgres_verification_output = request
             .arguments()
             .iter()
             .any(|argument| argument.starts_with("--command=SELECT current_database()"))
@@ -4747,6 +5071,25 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
 
                 format!("{database}\t{role}\t0\t0\n").into_bytes()
             });
+        let mysql_verification_output = request
+            .arguments()
+            .iter()
+            .any(|argument| argument.starts_with("--execute=SELECT CONCAT(DATABASE()"))
+            .then(|| {
+                let database = request
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| argument.strip_prefix("--database="))
+                    .expect("MySQL verification database");
+                let user = request
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| argument.strip_prefix("--user="))
+                    .expect("MySQL verification user");
+
+                format!("{database}\t{user}@%\n").into_bytes()
+            });
+        let verification_output = postgres_verification_output.or(mysql_verification_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

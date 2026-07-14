@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned MySQL/MariaDB recovery execution with exact catalog
+  selection, isolated retained targets, authenticated restore verification,
+  atomic environment cutover, explicit confirmation, source schema/user
+  retirement, and rollback that preserves both recovery proof and target data.
+- Corrected migration-decision target reconstruction to select the distinct
+  migration-owned logical record instead of resolving the active source by its
+  database name.
 - Added separately owned, persistent MySQL/MariaDB migration target plans and
   convergence that reuse exact Linux compatibility profiles without changing
   normal sharing, persisting the target administrator before Engine mutation.
