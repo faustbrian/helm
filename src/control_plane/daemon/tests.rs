@@ -6756,6 +6756,46 @@ database = "legacy_database"
 }
 
 #[test]
+fn accepted_v7_without_logical_adapters_does_not_require_legacy_config() {
+    let project_path = PathBuf::from("/missing/accepted-v7-project");
+    let source_revision = format!("sha256:{}", "a".repeat(64));
+    let inventory_json = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": project_path,
+        "source_revision": source_revision,
+        "schema_version": 1,
+        "services": [],
+        "routes": [],
+        "blockers": [],
+        "requires_legacy_ca_capture": false,
+        "host_artifacts": {
+            "generated_environment": null,
+            "hosts_path": "/etc/hosts",
+            "hosts_domains": [],
+            "caddy_state_path": "/work/caddy/sites.toml",
+            "caddy_routes": {},
+            "caddy_ca_certificates": []
+        }
+    })
+    .to_string();
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: project_path,
+        source_revision,
+        inventory_json,
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+
+    assert!(
+        resolve_accepted_v7_logical_data_inputs(&accepted, 1024 * 1024)
+            .expect("no logical credentials are required")
+            .is_empty()
+    );
+}
+
+#[test]
 fn accepted_v7_logical_adapters_bind_real_prepared_targets_and_reject_ambiguity() {
     use crate::control_plane::engine::{
         ContainerId, ObservedContainer, reconstruct_owned_container,

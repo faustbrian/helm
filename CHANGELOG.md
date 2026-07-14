@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Avoided reopening legacy TOML configuration when an accepted-v7 project has
+  no logical-data adapter requiring credentials.
 - Wired pending accepted-v7 plans into normal Engine reconciliation after exact
   target convergence and before final singleton gateway publication.
 - Added reconciliation-owned advancement for every pending accepted-v7 project,

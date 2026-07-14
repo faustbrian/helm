@@ -15,6 +15,16 @@ pub(crate) fn resolve_accepted_v7_logical_data_inputs(
     accepted: &AcceptedV7InventoryRecord,
     maximum_config_bytes: usize,
 ) -> Result<Vec<AcceptedV7LogicalDataInput>, String> {
+    let adapter_plan = super::select_accepted_v7_migration_adapters(accepted)?;
+    let logical_selections = adapter_plan
+        .services()
+        .iter()
+        .filter(|selection| logical_adapter(selection.adapter()))
+        .collect::<Vec<_>>();
+    if logical_selections.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let config = load_exact_config(accepted, maximum_config_bytes)?;
     let inventory = serde_json::from_str::<IpcV7ProjectInventory>(accepted.inventory_json())
         .map_err(|error| format!("accepted v7 logical input is invalid: {error}"))?;
@@ -24,13 +34,8 @@ pub(crate) fn resolve_accepted_v7_logical_data_inputs(
     {
         return Err("accepted v7 logical input identity is inconsistent".to_owned());
     }
-    let adapter_plan = super::select_accepted_v7_migration_adapters(accepted)?;
     let mut inputs = Vec::new();
-    for selection in adapter_plan
-        .services()
-        .iter()
-        .filter(|selection| logical_adapter(selection.adapter()))
-    {
+    for selection in logical_selections {
         let service = one(
             inventory
                 .services()
