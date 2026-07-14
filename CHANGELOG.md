@@ -16,6 +16,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a verified Redis and Valkey prefix restore adapter that stages opaque
+  values before atomically replacing only the exact tenant namespace, preserves
+  remaining TTLs, omits expired records, and keeps administrator secrets out of
+  command arguments and durable state.
 - Extended recovery-bound logical prune execution to Redis and Valkey with
   administrator-authenticated ACL revocation, atomic exact-prefix deletion,
   idempotent crash replay, and shared-instance preservation.
