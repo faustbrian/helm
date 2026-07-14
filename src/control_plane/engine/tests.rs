@@ -37,6 +37,7 @@ use super::bollard_engine_adapter::{
     observed_container, observed_network, observed_volume, published_port_bindings,
     published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
     verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_archive_subpath_target, volume_archive_subpath_upload_target,
     volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
@@ -1354,6 +1355,32 @@ fn volume_archive_upload_uses_mount_parent() {
     assert!(
         volume_archive_upload_target("relative/data").is_err(),
         "relative mount cannot be an archive target"
+    );
+}
+
+#[test]
+fn volume_subpath_archive_stays_inside_the_exact_owned_mount() {
+    assert_eq!(
+        volume_archive_subpath_target(
+            "/var/lib/rabbitmq",
+            "mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"
+        )
+        .expect("safe vhost message-store path"),
+        "/var/lib/rabbitmq/mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"
+    );
+    for unsafe_path in ["", ".", "../other-volume", "/etc", "data/../../etc"] {
+        assert!(
+            volume_archive_subpath_target("/var/lib/rabbitmq", unsafe_path).is_err(),
+            "unsafe volume subpath '{unsafe_path}' must fail closed"
+        );
+    }
+    assert_eq!(
+        volume_archive_subpath_upload_target(
+            "/var/lib/rabbitmq",
+            "mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P"
+        )
+        .expect("safe vhost message-store upload parent"),
+        "/var/lib/rabbitmq/mnesia/rabbit@localhost/msg_stores/vhosts"
     );
 }
 

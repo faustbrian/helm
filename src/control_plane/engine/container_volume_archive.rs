@@ -17,4 +17,20 @@ pub(crate) trait ContainerVolumeArchive {
         volume: &'operation OwnedVolume,
         archive: &'operation Path,
     ) -> EngineFuture<'operation, ()>;
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        relative_path: &'operation Path,
+        output: &'operation mut (dyn AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()>;
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        relative_path: &'operation Path,
+        archive: &'operation Path,
+    ) -> EngineFuture<'operation, ()>;
 }

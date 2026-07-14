@@ -434,6 +434,34 @@ impl ContainerVolumeArchive for RecordingVolumeArchiveEngine {
             })
         })
     }
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _relative_path: &'operation std::path::Path,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async {
+            Err(EngineError::InvalidRequest {
+                detail: "subpath download is outside volume backup test scope".to_owned(),
+            })
+        })
+    }
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _relative_path: &'operation std::path::Path,
+        _archive: &'operation std::path::Path,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async {
+            Err(EngineError::InvalidRequest {
+                detail: "subpath upload is outside volume backup test scope".to_owned(),
+            })
+        })
+    }
 }
 
 #[derive(Default)]
@@ -578,6 +606,34 @@ impl ContainerVolumeArchive for RecordingVolumeRestoreEngine {
             *uploaded.lock().expect("record uploaded archive") = bytes;
 
             Ok(())
+        })
+    }
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _relative_path: &'operation std::path::Path,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async {
+            Err(EngineError::InvalidRequest {
+                detail: "subpath download is outside volume restore test scope".to_owned(),
+            })
+        })
+    }
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _relative_path: &'operation std::path::Path,
+        _archive: &'operation std::path::Path,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async {
+            Err(EngineError::InvalidRequest {
+                detail: "subpath upload is outside volume restore test scope".to_owned(),
+            })
         })
     }
 }

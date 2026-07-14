@@ -8971,6 +8971,52 @@ impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCo
             Ok(())
         })
     }
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        _relative_path: &'operation Path,
+        output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        let archive = self
+            .execution
+            .volume_archive
+            .lock()
+            .expect("volume subpath archive")
+            .clone();
+        Box::pin(async move {
+            tokio::io::AsyncWriteExt::write_all(output, &archive)
+                .await
+                .map_err(|error| crate::control_plane::engine::EngineError::Backend {
+                    detail: error.to_string(),
+                })
+        })
+    }
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation crate::control_plane::engine::OwnedContainer,
+        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        _relative_path: &'operation Path,
+        archive: &'operation Path,
+    ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        let archive = archive.to_path_buf();
+        let execution = self.execution.clone();
+        Box::pin(async move {
+            let bytes = tokio::fs::read(archive).await.map_err(|error| {
+                crate::control_plane::engine::EngineError::Backend {
+                    detail: error.to_string(),
+                }
+            })?;
+            *execution
+                .volume_upload
+                .lock()
+                .expect("record volume subpath upload") = bytes;
+
+            Ok(())
+        })
+    }
 }
 
 impl crate::control_plane::engine::VolumeManager for RecordingProjectCommandEngine {

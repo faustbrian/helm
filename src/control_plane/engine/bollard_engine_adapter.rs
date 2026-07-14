@@ -285,6 +285,47 @@ pub(super) fn volume_archive_upload_target(mount_target: &str) -> Result<String,
     Ok(parent.to_string_lossy().into_owned())
 }
 
+pub(super) fn volume_archive_subpath_target(
+    mount_target: &str,
+    relative_path: &str,
+) -> Result<String, EngineError> {
+    let mount_target = Path::new(mount_target);
+    let relative_path = Path::new(relative_path);
+    let safe_mount = mount_target.is_absolute() && mount_target != Path::new("/");
+    let safe_relative = !relative_path.as_os_str().is_empty()
+        && relative_path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    if !safe_mount || !safe_relative {
+        return Err(EngineError::InvalidRequest {
+            detail: format!(
+                "volume archive subpath '{relative_path}' is not a safe child of mount '{}'",
+                mount_target.display(),
+                relative_path = relative_path.display()
+            ),
+        });
+    }
+
+    Ok(mount_target
+        .join(relative_path)
+        .to_string_lossy()
+        .into_owned())
+}
+
+pub(super) fn volume_archive_subpath_upload_target(
+    mount_target: &str,
+    relative_path: &str,
+) -> Result<String, EngineError> {
+    let target = volume_archive_subpath_target(mount_target, relative_path)?;
+    let parent = Path::new(&target)
+        .parent()
+        .ok_or_else(|| EngineError::InvalidRequest {
+            detail: format!("volume archive subpath '{target}' has no parent"),
+        })?;
+
+    Ok(parent.to_string_lossy().into_owned())
+}
+
 impl ContainerVolumeArchive for BollardEngineAdapter {
     fn download_volume_archive<'operation>(
         &'operation self,
@@ -406,6 +447,171 @@ impl ContainerVolumeArchive for BollardEngineAdapter {
                     .await
                     .map_err(|error| backend_error("upload owned volume archive", error))
             })
+            .await
+        })
+    }
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        relative_path: &'operation Path,
+        output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_volume_archive_identity(container, volume)?;
+            let relative_path =
+                relative_path
+                    .to_str()
+                    .ok_or_else(|| EngineError::InvalidRequest {
+                        detail: format!(
+                            "volume archive subpath '{}' is not valid UTF-8",
+                            relative_path.display()
+                        ),
+                    })?;
+            bounded_engine_operation(
+                "download owned volume subpath archive",
+                request_timeout(),
+                async {
+                    let observed = self
+                        .docker
+                        .inspect_container(container.id().as_str(), None)
+                        .await
+                        .map_err(|error| {
+                            backend_error("verify subpath archive container ownership", error)
+                        })?;
+                    verify_owned_container_labels(
+                        container,
+                        &observed
+                            .config
+                            .as_ref()
+                            .and_then(|config| config.labels.as_ref())
+                            .cloned()
+                            .unwrap_or_default(),
+                    )?;
+                    let observed_volume =
+                        self.docker
+                            .inspect_volume(volume.name())
+                            .await
+                            .map_err(|error| {
+                                backend_error("verify subpath archive volume ownership", error)
+                            })?;
+                    verify_owned_volume_labels(volume, &observed_volume.labels)?;
+                    let mount_target = exact_volume_mount_target(
+                        observed.mounts.as_deref().unwrap_or_default(),
+                        volume.name(),
+                    )?;
+                    let archive_path = volume_archive_subpath_target(&mount_target, relative_path)?;
+                    let options = DownloadFromContainerOptionsBuilder::default()
+                        .path(&archive_path)
+                        .build();
+                    let mut archive = self
+                        .docker
+                        .download_from_container(container.id().as_str(), Some(options));
+                    while let Some(chunk) = archive.next().await {
+                        output
+                            .write_all(&chunk.map_err(|error| {
+                                backend_error("download owned volume subpath archive", error)
+                            })?)
+                            .await
+                            .map_err(|error| EngineError::Backend {
+                                detail: format!("write owned volume subpath archive: {error}"),
+                            })?;
+                    }
+                    output.flush().await.map_err(|error| EngineError::Backend {
+                        detail: format!("flush owned volume subpath archive: {error}"),
+                    })
+                },
+            )
+            .await
+        })
+    }
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        volume: &'operation OwnedVolume,
+        relative_path: &'operation Path,
+        archive: &'operation Path,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            validate_volume_archive_identity(container, volume)?;
+            let relative_path =
+                relative_path
+                    .to_str()
+                    .ok_or_else(|| EngineError::InvalidRequest {
+                        detail: format!(
+                            "volume archive subpath '{}' is not valid UTF-8",
+                            relative_path.display()
+                        ),
+                    })?;
+            let archive =
+                tokio::fs::File::open(archive)
+                    .await
+                    .map_err(|error| EngineError::Backend {
+                        detail: format!("open owned volume subpath archive: {error}"),
+                    })?;
+            bounded_engine_operation(
+                "upload owned volume subpath archive",
+                request_timeout(),
+                async {
+                    let observed = self
+                        .docker
+                        .inspect_container(container.id().as_str(), None)
+                        .await
+                        .map_err(|error| {
+                            backend_error("verify subpath archive container ownership", error)
+                        })?;
+                    verify_owned_container_labels(
+                        container,
+                        &observed
+                            .config
+                            .as_ref()
+                            .and_then(|config| config.labels.as_ref())
+                            .cloned()
+                            .unwrap_or_default(),
+                    )?;
+                    let observed_volume =
+                        self.docker
+                            .inspect_volume(volume.name())
+                            .await
+                            .map_err(|error| {
+                                backend_error("verify subpath archive volume ownership", error)
+                            })?;
+                    verify_owned_volume_labels(volume, &observed_volume.labels)?;
+                    let mount_target = exact_volume_mount_target(
+                        observed.mounts.as_deref().unwrap_or_default(),
+                        volume.name(),
+                    )?;
+                    let upload_target =
+                        volume_archive_subpath_upload_target(&mount_target, relative_path)?;
+                    let options = UploadToContainerOptionsBuilder::default()
+                        .path(&upload_target)
+                        .no_overwrite_dir_non_dir("true")
+                        .build();
+                    let stream =
+                        futures_util::stream::try_unfold(archive, |mut archive| async move {
+                            let mut chunk = vec![0_u8; 64 * 1024];
+                            let read = archive.read(&mut chunk).await?;
+                            if read == 0 {
+                                return Ok(None);
+                            }
+                            chunk.truncate(read);
+
+                            Ok(Some((chunk.into(), archive)))
+                        });
+                    self.docker
+                        .upload_to_container(
+                            container.id().as_str(),
+                            Some(options),
+                            body_try_stream(stream),
+                        )
+                        .await
+                        .map_err(|error| {
+                            backend_error("upload owned volume subpath archive", error)
+                        })
+                },
+            )
             .await
         })
     }

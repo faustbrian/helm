@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added ownership-checked Engine streaming for one safe relative subpath of an
+  exact managed volume. Stateful shared-service recovery can now archive a
+  tenant-specific store without capturing unrelated tenants or accepting path
+  traversal outside the owned mount.
 - Added orderly singleton-daemon shutdown on Unix SIGINT and SIGTERM. The
   daemon observes an atomic signal at iteration boundaries, exits without
   starting another reconciliation or queued operation, aborts read-only log
