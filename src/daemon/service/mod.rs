@@ -5,6 +5,7 @@ mod launchd;
 mod service_install_snapshot;
 mod store_definition;
 mod systemd;
+mod verify_daemon_service_readiness;
 
 use service_install_snapshot::ServiceInstallSnapshot;
 
@@ -63,6 +64,17 @@ pub(crate) struct DaemonServiceStatus {
 pub(crate) fn install_service(
     options: &DaemonServiceInstallOptions,
 ) -> Result<DaemonServiceStatus> {
+    #[cfg(test)]
+    return install_service_with_readiness(options, || Ok(()));
+
+    #[cfg(not(test))]
+    install_service_with_readiness(options, verify_daemon_service_readiness::verify)
+}
+
+fn install_service_with_readiness(
+    options: &DaemonServiceInstallOptions,
+    mut verify_readiness: impl FnMut() -> Result<()>,
+) -> Result<DaemonServiceStatus> {
     let options = DaemonServiceInstallOptions {
         watch_dirs: canonical_watch_dirs(&options.watch_dirs)?,
         interval_secs: options.interval_secs,
@@ -80,6 +92,20 @@ pub(crate) fn install_service(
     if let Err(error) = activate_service(&definition) {
         if let Err(rollback) = rollback_service_install(&definition, snapshot) {
             bail!("service activation failed: {error}; rollback failed: {rollback}");
+        }
+
+        return Err(error);
+    }
+
+    if let Err(error) = verify_readiness() {
+        let restore_running_service = snapshot.was_running();
+        if let Err(rollback) = rollback_service_install(&definition, snapshot) {
+            bail!("daemon readiness failed: {error}; rollback failed: {rollback}");
+        }
+        if restore_running_service && let Err(rollback) = verify_readiness() {
+            bail!(
+                "daemon readiness failed: {error}; restored-service readiness failed: {rollback}"
+            );
         }
 
         return Err(error);
@@ -521,11 +547,12 @@ mod tests {
     use super::{
         DaemonServiceInstallOptions, ServiceManager, clear_test_service_binary,
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
-        format_launchd_domain, install_service, print_service, service_status,
-        set_test_service_binary, set_test_service_command_failure, set_test_service_home,
-        set_test_service_manager, set_test_service_running, take_test_service_commands,
-        uninstall_service,
+        format_launchd_domain, install_service, install_service_with_readiness, print_service,
+        service_status, set_test_service_binary, set_test_service_command_failure,
+        set_test_service_home, set_test_service_manager, set_test_service_running,
+        take_test_service_commands, uninstall_service,
     };
+    use std::cell::Cell;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -823,6 +850,119 @@ mod tests {
                 })
                 .count(),
             2
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_daemon_readiness_restores_the_previous_service_definition() {
+        let home = temp_home("update-readiness-rollback");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, "previous service definition\n")
+            .expect("write previous definition");
+        set_test_service_running(true);
+        let readiness_attempts = Cell::new(0_u8);
+
+        let error = install_service_with_readiness(&service_options(), || {
+            readiness_attempts.set(readiness_attempts.get() + 1);
+            if readiness_attempts.get() == 1 {
+                anyhow::bail!("daemon did not answer ping")
+            }
+            Ok(())
+        })
+        .expect_err("failed daemon readiness");
+
+        assert!(error.to_string().contains("daemon did not answer ping"));
+        assert_eq!(
+            fs::read_to_string(&definition.path).expect("restored definition"),
+            "previous service definition\n"
+        );
+        let commands = take_test_service_commands();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| {
+                    command.as_str()
+                        == "systemctl --user enable --now stackctl-daemon-watch.service"
+                })
+                .count(),
+            2
+        );
+        assert_eq!(readiness_attempts.get(), 2);
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_daemon_readiness_removes_a_fresh_service_installation() {
+        let home = temp_home("fresh-readiness-rollback");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+
+        let error = install_service_with_readiness(&service_options(), || {
+            anyhow::bail!("daemon did not answer ping")
+        })
+        .expect_err("failed daemon readiness");
+
+        assert!(error.to_string().contains("daemon did not answer ping"));
+        assert!(!definition.path.exists());
+        assert!(take_test_service_commands().iter().any(|command| {
+            command == "systemctl --user disable --now stackctl-daemon-watch.service"
+        }));
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_restored_service_readiness_reports_both_failures() {
+        let home = temp_home("failed-restored-readiness");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, "previous service definition\n")
+            .expect("write previous definition");
+        set_test_service_running(true);
+        let readiness_attempts = Cell::new(0_u8);
+
+        let error = install_service_with_readiness(&service_options(), || {
+            readiness_attempts.set(readiness_attempts.get() + 1);
+            anyhow::bail!("ping failure {}", readiness_attempts.get())
+        })
+        .expect_err("failed daemon readiness and rollback readiness");
+
+        assert!(
+            error
+                .to_string()
+                .contains("daemon readiness failed: ping failure 1")
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("restored-service readiness failed: ping failure 2")
+        );
+        assert_eq!(
+            fs::read_to_string(&definition.path).expect("restored definition"),
+            "previous service definition\n"
         );
 
         clear_test_service_binary();

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Required login-service installation to receive a bounded, correlated IPC
+  `Ping`/`Pong` before succeeding. A process that appears active but never
+  becomes protocol-ready now triggers the same exact fresh-install or update
+  rollback as manager activation failure; a restored prior service must also
+  become protocol-ready.
 - Made failed OS untrust commands restore and verify the exact CA when the
   command partially removes it. Failed removals now preserve pre-operation
   trust state or report both the original failure and rollback ambiguity.

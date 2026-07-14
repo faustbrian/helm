@@ -168,11 +168,14 @@ reported as installed but not running, with an explicit reinstall command; it
 is never presented as a healthy login-time daemon.
 
 Service installation snapshots an existing regular definition before atomic
-replacement. If manager activation or the immediate running-state check fails,
-a fresh install removes its partial definition and manager state. An update
-restores and reactivates the exact previous definition when it had been
-running. Failure to complete that rollback is reported together with the
-original activation error instead of leaving an apparently successful setup.
+replacement. After manager activation and the immediate running-state check,
+Stackctl requires a bounded, correlated IPC `Ping`/`Pong` from the singleton.
+If activation, the process check, or protocol readiness fails, a fresh install
+removes its partial definition and manager state. An update restores and
+reactivates the exact previous definition when it had been running, then
+requires that restored singleton to answer IPC too. Failure to complete or
+verify that rollback is reported together with the original installation error
+instead of leaving an apparently successful setup.
 Every installation path canonicalizes its watched roots first. Missing paths,
 non-directories, and duplicate canonical roots fail before the definition or
 service manager is changed.
