@@ -49,9 +49,13 @@ fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
     };
 
     let initial = prepare_gateway_runtime_assets(options).expect("prepare gateway assets");
+    let interrupted_bootstrap = root.join("gateway/.config.tmp");
+    std::fs::write(&interrupted_bootstrap, "partial gateway config")
+        .expect("interrupted gateway bootstrap");
     let recovered = prepare_gateway_runtime_assets(options).expect("recover gateway assets");
 
     assert_eq!(initial.request(), recovered.request());
+    assert!(!interrupted_bootstrap.exists());
     assert_eq!(initial.bootstrap_paths(), recovered.bootstrap_paths());
     assert!(initial.bootstrap_paths().config_path().is_file());
     assert_eq!(
@@ -82,6 +86,10 @@ fn gateway_certificate_activation_is_published_atomically_and_waitable() {
             .as_nanos()
     ));
     let revision = "a".repeat(64);
+    std::fs::create_dir_all(root.join("gateway")).expect("gateway directory");
+    let interrupted_generation = root.join("gateway/.active-certificate-generation.tmp");
+    std::fs::write(&interrupted_generation, "partial generation")
+        .expect("interrupted generation publication");
 
     store_active_gateway_certificate_generation(&root, &revision)
         .expect("publish active gateway certificate");
@@ -98,6 +106,7 @@ fn gateway_certificate_activation_is_published_atomically_and_waitable() {
             .expect("read active generation"),
         format!("{revision}\n")
     );
+    assert!(!interrupted_generation.exists());
 
     std::fs::remove_dir_all(root).expect("remove gateway activation fixture");
 }

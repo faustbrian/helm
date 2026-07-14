@@ -19,10 +19,7 @@ pub(crate) fn store_active_gateway_certificate_generation(
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| failure("restrict", &directory, error))?;
     let active = directory.join(ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE);
-    let pending = directory.join(format!(
-        ".{ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE}.{}.tmp",
-        std::process::id()
-    ));
+    let pending = directory.join(format!(".{ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE}.tmp"));
     match fs::remove_file(&pending) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

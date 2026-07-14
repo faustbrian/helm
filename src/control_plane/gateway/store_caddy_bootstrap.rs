@@ -25,19 +25,30 @@ pub(crate) fn store_caddy_bootstrap(
     fs::set_permissions(config_directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict gateway directory", config_directory, error))?;
 
+    let temporary_path = config_directory.join(".config.tmp");
+    match fs::remove_file(&temporary_path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io_error(
+                "remove interrupted gateway bootstrap",
+                &temporary_path,
+                error,
+            ));
+        }
+    }
+
     if config_path.exists() {
         verify_existing(config_path, document.bytes())?;
         fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
             .map_err(|error| io_error("restrict gateway bootstrap", config_path, error))?;
+        File::open(config_directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| io_error("sync gateway config directory", config_directory, error))?;
 
         return Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()));
     }
 
-    let temporary_path = config_directory.join(format!(
-        ".config-{}-{}.tmp",
-        std::process::id(),
-        document.revision().replace(':', "-")
-    ));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
