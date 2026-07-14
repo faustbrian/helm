@@ -37,8 +37,10 @@ pub(crate) use mongodb::{
     restore_mongodb_database, verify_mongodb_target,
 };
 pub(crate) use mysql::{
-    MySqlBackupOptions, MySqlMigrationOperations, MySqlMigrationOperationsOptions,
-    MySqlRestoreOptions, backup_mysql_database, restore_mysql_database,
+    EngineV7MySqlSourceRetirement, MySqlBackupOptions, MySqlMigrationOperations,
+    MySqlMigrationOperationsOptions, MySqlRestoreOptions, V7MySqlCredential,
+    V7MySqlMigrationProvider, V7MySqlMigrationProviderOptions, V7MySqlSourceRetirement,
+    backup_mysql_database, restore_mysql_database,
 };
 pub(crate) use object_store::{
     MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket, restore_minio_bucket,

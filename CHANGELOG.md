@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added accepted-v7 MySQL and MariaDB logical migration providers. They bind
+  flavor to accepted image evidence, stream schema-neutral verified dumps,
+  reject and clean up dumps carrying explicit legacy definers, replay-safely
+  reset and restore deterministic v8 schemas, verify both source and target
+  identities, and reuse exact confirmation-time Engine retirement.
 - Added confirmation-time accepted-v7 PostgreSQL retirement through a narrow
   Engine capability. Cleanup revalidates the immutable container ID, exact
   legacy labels, and accepted named-volume set before stopping or deleting

@@ -1,6 +1,7 @@
 use super::{MySqlFlavor, MySqlPlanError};
 use crate::control_plane::DnsLabel;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
+use crate::control_plane::state::CredentialRecord;
 use std::fmt::{Debug, Formatter};
 
 const SCHEMA_IDENTIFIER_BYTES: usize = 64;
@@ -63,6 +64,13 @@ impl MySqlLogicalResourcePlan {
 
     pub(crate) fn credential_id(&self) -> &str {
         &self.credential_id
+    }
+
+    pub(crate) fn matches_credential(&self, credential: &CredentialRecord) -> bool {
+        credential.credential_id() == self.credential_id()
+            && credential.username() == self.username()
+            && self.stdin_sql
+                == provisioning_sql(self.schema_name(), self.username(), credential.secret())
     }
 
     pub(crate) fn stdin_sql(&self) -> &str {

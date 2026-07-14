@@ -360,6 +360,25 @@ accepted volume are already absent. If the container is absent while a
 same-named volume remains, cleanup fails loudly: Docker-compatible named
 volumes have no immutable ID, so Stackctl cannot safely distinguish an
 interrupted cleanup from a newly recreated volume with the same name.
+
+The MySQL-family logical-data provider applies the same accepted source,
+recovery, verification, and retirement boundaries. Because v7 uses the
+`mysql` driver for both implementations, the provider resolves MySQL versus
+MariaDB only from the accepted configured-image evidence and refuses a flavor
+mismatch. It invokes the matching native dump and client tools. The source
+database is a positional dump argument rather than a `--databases` entry, so
+the artifact contains schema contents without instructions to recreate the
+legacy database name. MySQL and MariaDB do not share a portable dump option for
+removing explicit object definers. Stackctl therefore scans the streamed
+artifact before accepting recovery, removes the newly created recovery
+directory, and fails loudly if it contains an explicit `DEFINER` assignment;
+it never imports a legacy security principal into a shared v8 instance. Target
+preparation drops only the deterministic v8 schema, reapplies its restricted
+user and grants, streams the verified dump, and checks the resulting database
+and authenticated username. The complete sequence is safe to replay after an
+interrupted preparation; rollback checks the exact retained v7 database
+through the separately authorized v7 command target, and confirmation
+delegates to the shared exact Engine retirement capability.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application
