@@ -1237,6 +1237,34 @@ fn recoverable_open_snapshots_valid_state_and_preserves_backups_on_corruption() 
 }
 
 #[test]
+fn recoverable_open_replaces_interrupted_stable_state_backup_staging_file() {
+    let database_path = temporary_database_path("recoverable-open-interrupted-staging");
+    let backup_directory = database_path.with_extension("backups");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    drop(store);
+    std::fs::create_dir_all(&backup_directory).expect("create backup directory");
+    let pending = backup_directory.join(".state.sqlite3.tmp");
+    std::fs::write(&pending, b"interrupted backup").expect("write interrupted staging file");
+
+    drop(
+        SqliteStateStore::open_with_backups(&database_path, &backup_directory, 40_000)
+            .expect("recover interrupted backup staging"),
+    );
+
+    assert!(!pending.exists());
+    assert!(
+        backup_directory
+            .join("state-00000000000000040000.sqlite3")
+            .is_file()
+    );
+
+    std::fs::remove_dir_all(&backup_directory).expect("remove state backups");
+    remove_database(&database_path);
+}
+
+#[test]
 fn orphaning_a_project_releases_its_active_shared_service_reference() {
     let database_path = temporary_database_path("logical-resource-orphan");
     let bill = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);

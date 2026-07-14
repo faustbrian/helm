@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced timestamp-and-PID state-backup staging files with one stable private
+  pending path. Daemon startup now removes and syncs an interrupted staging file
+  before reusing or publishing a verified recovery point, preventing abandoned
+  backup attempts from accumulating in the host runtime directory.
 - Bounded derived runtime-image retention. Reconciliation now removes an image
   only after the seven-day cache window when exact ownership labels classify it
   as build cache, no active project selects it, and the Engine reports zero

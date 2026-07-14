@@ -64,6 +64,12 @@ fn create_verified_backup(
     created_at_unix_seconds: i64,
 ) -> Result<(), StateStoreError> {
     prepare_backup_directory(backup_directory)?;
+    let pending = pending_path(backup_directory);
+    match fs::remove_file(&pending) {
+        Ok(()) => sync_directory(backup_directory)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(source) => return Err(backup_io("remove incomplete", &pending, source)),
+    }
     let connection = Connection::open(database_path)?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     verify_connection(&connection, "before backup")?;
@@ -74,11 +80,6 @@ fn create_verified_backup(
         prune_old_backups(backup_directory)?;
 
         return Ok(());
-    }
-    let pending = pending_path(backup_directory, created_at_unix_seconds);
-    if pending.exists() {
-        fs::remove_file(&pending)
-            .map_err(|source| backup_io("remove incomplete", &pending, source))?;
     }
     let pending_text = pending
         .to_str()
@@ -195,11 +196,8 @@ fn sync_directory(path: &Path) -> Result<(), StateStoreError> {
         .map_err(|source| backup_io("sync directory", path, source))
 }
 
-fn pending_path(directory: &Path, created_at_unix_seconds: i64) -> PathBuf {
-    directory.join(format!(
-        ".pending-{created_at_unix_seconds:020}-{}.sqlite3",
-        std::process::id()
-    ))
+fn pending_path(directory: &Path) -> PathBuf {
+    directory.join(".state.sqlite3.tmp")
 }
 
 fn backup_io(action: &'static str, path: &Path, source: std::io::Error) -> StateStoreError {
