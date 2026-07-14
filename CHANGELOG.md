@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added SQL Server login disablement to orphaned shared-service
+  reconciliation. Removed projects lose login access while their database,
+  mapped user, permissions, and data remain retained, with the administrator
+  secret supplied only through the Engine command environment.
 - Added MongoDB tenant-user revocation to orphaned shared-service
   reconciliation. Removed projects lose database access while their database
   and collections remain retained, with the administrator secret supplied only

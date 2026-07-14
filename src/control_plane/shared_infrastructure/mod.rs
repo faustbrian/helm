@@ -110,14 +110,15 @@ pub(crate) use shared_volume_reconcile_action::SharedVolumeReconcileAction;
 pub(crate) use shared_volume_reconcile_options::SharedVolumeReconcileOptions;
 pub(crate) use shared_volume_reconcile_result::SharedVolumeReconcileResult;
 pub(crate) use sql_server::{
-    PreparedSqlServerSharedInstance, SqlServerLogicalResourcePlan,
-    SqlServerMigrationInstancePlanOptions, SqlServerMigrationPreparationOptions,
-    SqlServerMigrationTargetReconcileResult, SqlServerPlanError, SqlServerPreparationError,
-    SqlServerPreparationOptions, SqlServerProjectResources, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, plan_sql_server_project_resources,
-    prepare_sql_server_migration_target, prepare_sql_server_shared_instances,
-    provision_sql_server_logical_resource, reconcile_prepared_sql_server_instance,
-    reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
+    PreparedSqlServerSharedInstance, SqlServerAccessRevocationOptions,
+    SqlServerLogicalResourcePlan, SqlServerMigrationInstancePlanOptions,
+    SqlServerMigrationPreparationOptions, SqlServerMigrationTargetReconcileResult,
+    SqlServerPlanError, SqlServerPreparationError, SqlServerPreparationOptions,
+    SqlServerProjectResources, SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    plan_sql_server_project_resources, prepare_sql_server_migration_target,
+    prepare_sql_server_shared_instances, provision_sql_server_logical_resource,
+    reconcile_prepared_sql_server_instance, reconcile_sql_server_migration_target,
+    reconcile_sql_server_project_resources, revoke_sql_server_project_access,
 };
 pub(crate) use stop_unreferenced_shared_services::stop_unreferenced_shared_services;
 pub(crate) use store_credential_secret::store_credential_secret;

@@ -133,6 +133,9 @@ and the root secret is passed only in the Engine command environment.
 MongoDB likewise deletes only the exact disabled database user. Its database
 and collections remain intact, and `mongosh` reads the administrator secret
 only from the Engine command environment.
+SQL Server applies `DISABLE` only to the exact disabled project login. Its
+database, mapped user, permissions, and data remain intact, and `sqlcmd` reads
+the administrator secret only from the Engine command environment.
 
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.

@@ -6,6 +6,8 @@ pub(crate) use provision_sql_server_logical_resource::provision_sql_server_logic
 pub(crate) use reconcile_prepared_sql_server_instance::reconcile_prepared_sql_server_instance;
 pub(crate) use reconcile_sql_server_migration_target::reconcile_sql_server_migration_target;
 pub(crate) use reconcile_sql_server_project_resources::reconcile_sql_server_project_resources;
+pub(crate) use revoke_sql_server_project_access::revoke_sql_server_project_access;
+pub(crate) use sql_server_access_revocation_options::SqlServerAccessRevocationOptions;
 pub(crate) use sql_server_logical_resource_plan::SqlServerLogicalResourcePlan;
 pub(crate) use sql_server_migration_instance_plan_options::SqlServerMigrationInstancePlanOptions;
 pub(crate) use sql_server_migration_preparation_options::SqlServerMigrationPreparationOptions;
@@ -25,6 +27,8 @@ mod provision_sql_server_logical_resource;
 mod reconcile_prepared_sql_server_instance;
 mod reconcile_sql_server_migration_target;
 mod reconcile_sql_server_project_resources;
+mod revoke_sql_server_project_access;
+mod sql_server_access_revocation_options;
 mod sql_server_logical_resource_plan;
 mod sql_server_migration_instance_plan_options;
 mod sql_server_migration_preparation_options;

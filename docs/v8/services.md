@@ -114,3 +114,8 @@ MongoDB deletes only the exact ownership-proven disabled database user. The
 database and collections remain available for explicit adoption, restore, or
 prune, and the administrator secret is supplied only through the Engine command
 environment.
+
+SQL Server disables only the exact ownership-proven project login. It retains
+the database, mapped user, permissions, and data for explicit adoption,
+restore, or prune, while the administrator secret is supplied only through the
+Engine command environment.
