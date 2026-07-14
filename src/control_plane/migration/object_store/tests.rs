@@ -12,7 +12,7 @@ use crate::control_plane::retention::{
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    LogicalResourceRecordOptions, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle,
 };
 use futures_util::stream;
@@ -54,10 +54,11 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
     let stored = store_backup_artifact_for_identity(&identity, archive, 47_000, &root)
         .expect("stored MinIO restore fixture");
     let evidence = verify_stored_backup_artifact(&stored, 47_001).expect("MinIO evidence");
-    let checkpoint = restore_checkpoint(
+    let recovery = recovery_point(
         stored.recovery_point().to_str().expect("backup reference"),
         evidence.artifact_sha256(),
         evidence.artifact_size_bytes(),
+        47_000,
     );
     let credential = credential();
     let container = owned_container();
@@ -68,8 +69,8 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
             &executor,
             &container,
             &MinioRestoreOptions {
-                checkpoint: &checkpoint,
-                source_logical_resource: &logical,
+                recovery_point: &recovery,
+                logical_resource: &logical,
                 credential: &credential,
                 installation_id: "install-1",
                 target_bucket_name: "stackctl-bill-files",
@@ -116,10 +117,11 @@ fn minio_restore_rejects_checkpoint_mismatch_before_target_command() {
     let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
     let stored = store_backup_artifact_for_identity(&identity, b"verified archive", 48_000, &root)
         .expect("stored MinIO mismatch fixture");
-    let checkpoint = restore_checkpoint(
+    let recovery = recovery_point(
         stored.recovery_point().to_str().expect("backup reference"),
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         16,
+        48_000,
     );
     let credential = credential();
     let container = owned_container();
@@ -130,8 +132,8 @@ fn minio_restore_rejects_checkpoint_mismatch_before_target_command() {
             &executor,
             &container,
             &MinioRestoreOptions {
-                checkpoint: &checkpoint,
-                source_logical_resource: &logical,
+                recovery_point: &recovery,
+                logical_resource: &logical,
                 credential: &credential,
                 installation_id: "install-1",
                 target_bucket_name: "stackctl-bill-files",
@@ -143,7 +145,7 @@ fn minio_restore_rejects_checkpoint_mismatch_before_target_command() {
 
     assert_eq!(
         error.to_string(),
-        "MinIO restore backup does not match its durable checkpoint"
+        "MinIO restore backup does not match its recovery point"
     );
     assert!(executor.request.lock().expect("restore request").is_none());
 
@@ -238,23 +240,26 @@ fn credential() -> CredentialRecord {
     })
 }
 
-fn restore_checkpoint(reference: &str, checksum: &str, size: u64) -> MigrationRecord {
-    MigrationRecord::new(MigrationRecordOptions {
-        migration_id: "migration-bill-files".to_owned(),
+fn recovery_point(
+    reference: &str,
+    checksum: &str,
+    size: u64,
+    created_at_unix_seconds: i64,
+) -> RecoveryPointRecord {
+    RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-bill-files".to_owned(),
         project_id: "bill".to_owned(),
-        source_revision: "sha256:v7".to_owned(),
-        target_revision: "sha256:v8".to_owned(),
-        source_compatibility_fingerprint: "sha256:minio-2025".to_owned(),
-        target_compatibility_fingerprint: "sha256:minio-2025".to_owned(),
-        phase: MigrationPhase::TargetProvisioned,
-        backup_reference: Some(reference.to_owned()),
-        backup_artifact_sha256: Some(checksum.to_owned()),
-        backup_artifact_size_bytes: Some(size),
-        target_resource_id: Some("stackctl-bill-files".to_owned()),
-        rollback_reference: Some("v7:bill/files".to_owned()),
-        updated_at_unix_seconds: 47_000,
+        service_id: "files".to_owned(),
+        logical_resource_id: "bill/files/object-store".to_owned(),
+        resource_kind: "minio_bucket_policy".to_owned(),
+        compatibility_fingerprint: "sha256:minio-2025".to_owned(),
+        reference: reference.to_owned(),
+        artifact_sha256: checksum.to_owned(),
+        artifact_size_bytes: size,
+        created_at_unix_seconds,
+        verified_at_unix_seconds: created_at_unix_seconds,
     })
-    .expect("MinIO restore checkpoint")
+    .expect("MinIO recovery point")
 }
 
 fn owned_container() -> crate::control_plane::engine::OwnedContainer {

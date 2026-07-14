@@ -1,5 +1,6 @@
 use super::{
-    ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult, execute_redis_project_restore,
+    ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult, execute_minio_project_restore,
+    execute_redis_project_restore,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind,
@@ -66,6 +67,7 @@ where
     Entropy: CredentialEntropy,
 {
     match options.operation.kind() {
+        "minio_bucket_policy" => execute_minio_project_restore(engine, options).await,
         "redis_acl_prefix" | "valkey_acl_prefix" => {
             execute_redis_project_restore(engine, options).await
         }

@@ -4135,6 +4135,186 @@ fn queued_redis_restore_records_one_safety_snapshot_and_replays_in_place() {
     std::fs::remove_dir_all(root).expect("remove Redis restore fixture");
 }
 
+#[test]
+fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+        LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-minio-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let image = concat!(
+        "minio/minio@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let registry = plan_project_registry(&[ProjectSource::new(
+        project_path,
+        root.join("bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  files:\n    preset: minio\n    version: \"1\"\n    image: {image}\n"
+        ),
+    )])
+    .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared instances")
+        .pop()
+        .expect("MinIO instance");
+    let fingerprint = shared.fingerprint().as_str().to_owned();
+    let container_name = format!(
+        "stackctl-shared-{}",
+        fingerprint.strip_prefix("sha256:").expect("fingerprint")
+    );
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &container_name,
+        "install-1",
+        "minio-source",
+        &fingerprint,
+    )]);
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/files/object-store".to_owned(),
+        shared_resource_id: container_name,
+        project_id: "bill".to_owned(),
+        service_id: "files".to_owned(),
+        kind: "minio_bucket_policy".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: logical.logical_resource_id().to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "files".to_owned(),
+        username: "st_bill_files".to_owned(),
+        secret: "minio-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let backup_root = root.join("backups");
+    let identity = BackupResourceIdentity::from_logical(&logical, "install-1");
+    let stored = store_backup_artifact_for_identity(
+        &identity,
+        b"verified MinIO tar archive",
+        50_000,
+        &backup_root,
+    )
+    .expect("stored MinIO snapshot");
+    let evidence = verify_stored_backup_artifact(&stored, 50_001).expect("verified snapshot");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-minio".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "files".to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: evidence.artifact_sha256().to_owned(),
+        artifact_size_bytes: evidence.artifact_size_bytes(),
+        created_at_unix_seconds: 50_000,
+        verified_at_unix_seconds: 50_001,
+    })
+    .expect("MinIO recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical ownership");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .record_recovery_point(&recovery)
+        .expect("recovery point");
+    drop(store);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let execute = || {
+        runtime.block_on(execute_queued_project_restore(
+            engine.clone(),
+            FixedRestoreEntropy(0xbb),
+            ProjectRestoreExecutionOptions {
+                operation: QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+                    operation_id: "restore-minio".to_owned(),
+                    recovery_point_id: "backup-minio".to_owned(),
+                    project_id: "bill".to_owned(),
+                    service_id: "files".to_owned(),
+                    logical_resource_id: logical.logical_resource_id().to_owned(),
+                    kind: logical.kind().to_owned(),
+                    compatibility_fingerprint: fingerprint.clone(),
+                })
+                .expect("restore intent"),
+                shared: shared.clone(),
+                installation_id: "install-1".to_owned(),
+                network_name: "stackctl".to_owned(),
+                schema_version: 8,
+                state_database_path: database_path.clone(),
+                backup_root: backup_root.clone(),
+                updated_at_unix_seconds: 50_002,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+    };
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let first_calls = engine.command_arguments();
+    assert_eq!(first_calls.len(), 3);
+    assert!(first_calls[0][2].contains("version info"));
+    assert!(first_calls[1][2].contains("tar -C"));
+    assert!(first_calls[2][2].contains("mirror --overwrite --remove"));
+    assert!(!format!("{first_calls:?}").contains("minio-secret"));
+    assert!(
+        engine.command_environments()[..3]
+            .iter()
+            .all(|environment| environment["STACKCTL_SECRET_KEY"] == "minio-secret")
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    let points = store.recovery_points("bill").expect("recovery catalog");
+    assert_eq!(points.len(), 2);
+    let safety = points
+        .iter()
+        .find(|point| point.recovery_point_id() == "restore-minio-pre-restore")
+        .expect("safety recovery point");
+    assert_eq!(safety.created_at_unix_seconds(), 50_002);
+    drop(store);
+
+    assert_eq!(
+        execute().outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    assert_eq!(engine.command_arguments().len(), 4);
+    assert_eq!(
+        engine
+            .command_arguments()
+            .iter()
+            .filter(|arguments| arguments[2].contains("version info"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        SqliteStateStore::open(&database_path)
+            .expect("reopen replayed state")
+            .recovery_points("bill")
+            .expect("replayed recovery catalog")
+            .len(),
+        2
+    );
+    assert!(engine.created().is_empty());
+    assert!(engine.stopped().is_empty());
+    assert!(engine.removed().is_empty());
+
+    std::fs::remove_dir_all(root).expect("remove MinIO restore fixture");
+}
+
 struct FixedRestoreEntropy(u8);
 
 impl CredentialEntropy for FixedRestoreEntropy {
@@ -4195,6 +4375,20 @@ fn project_restore_queue_accepts_redis_and_valkey_prefixes() {
         })
         .expect("Redis-compatible restore intent");
     }
+}
+
+#[test]
+fn project_restore_queue_accepts_minio_buckets() {
+    QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "restore-minio".to_owned(),
+        recovery_point_id: "backup-minio".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "files".to_owned(),
+        logical_resource_id: "bill/files/object-store".to_owned(),
+        kind: "minio_bucket_policy".to_owned(),
+        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+    })
+    .expect("MinIO restore intent");
 }
 
 #[test]

@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made the legacy TCP health-check test server accept both expected successful
+  connections instead of racing listener shutdown after the first request.
 - Reported Redis and Valkey tenant prefixes as logical data-lifecycle
   resources even though their compatible server container is shared.
 - Denied Redis and Valkey tenant credentials access to `SCAN`, `KEYS`, and
@@ -16,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integrated unversioned MinIO recovery points into the daemon restore queue
+  with exact compatibility selection, a verified current-object safety backup,
+  in-place bucket replacement, and replay that reuses the operation-bound safety
+  evidence without provisioning or replacing the shared server.
 - Integrated Redis and Valkey recovery points into the daemon restore queue with
   exact compatibility-plan selection, a verified pre-restore safety snapshot,
   in-place tenant-prefix replacement, and crash replay that reuses the durable

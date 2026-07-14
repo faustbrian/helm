@@ -91,6 +91,7 @@ impl QueuedProjectRestore {
                 | "sqlserver_database"
                 | "redis_acl_prefix"
                 | "valkey_acl_prefix"
+                | "minio_bucket_policy"
         ) {
             return Err(format!(
                 "project restore kind '{}' is not implemented",

@@ -134,6 +134,7 @@ impl UnixDaemonRuntime {
             "sqlserver_database" => "sqlserver",
             "redis_acl_prefix" => "redis",
             "valkey_acl_prefix" => "valkey",
+            "minio_bucket_policy" => "minio",
             kind => {
                 return Some(Err(format!(
                     "recovery point '{}' has unsupported resource kind '{kind}'",

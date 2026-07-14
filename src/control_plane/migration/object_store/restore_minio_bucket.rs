@@ -6,7 +6,7 @@ use crate::control_plane::migration::MigrationOperationError;
 use crate::control_plane::retention::{
     BackupResourceIdentity, open_stored_backup_artifact, verify_stored_backup_artifact,
 };
-use crate::control_plane::state::{CredentialLifecycle, MigrationPhase, ResourceLifecycle};
+use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
 
 const RESTORE_SCRIPT: &str = "set -eu\n\
@@ -27,22 +27,12 @@ pub(crate) async fn restore_minio_bucket(
     options: &MinioRestoreOptions<'_>,
 ) -> Result<(), MigrationOperationError> {
     validate(container, options)?;
-    let checkpoint = options.checkpoint;
-    let reference = required(
-        checkpoint.backup_reference(),
-        "MinIO restore checkpoint has no backup reference",
-    )?;
-    let expected_checksum = required(
-        checkpoint.backup_artifact_sha256(),
-        "MinIO restore checkpoint has no backup checksum",
-    )?;
-    let expected_size = checkpoint.backup_artifact_size_bytes().ok_or_else(|| {
-        MigrationOperationError::new("MinIO restore checkpoint has no backup size")
-    })?;
-    let identity = BackupResourceIdentity::from_logical(
-        options.source_logical_resource,
-        options.installation_id,
-    );
+    let recovery = options.recovery_point;
+    let reference = recovery.reference();
+    let expected_checksum = recovery.artifact_sha256();
+    let expected_size = recovery.artifact_size_bytes();
+    let identity =
+        BackupResourceIdentity::from_logical(options.logical_resource, options.installation_id);
     let stored = open_stored_backup_artifact(reference)
         .map_err(|error| operation_error("MinIO restore backup is unavailable", error))?;
     let evidence = verify_stored_backup_artifact(&stored, options.verified_at_unix_seconds)
@@ -52,7 +42,7 @@ pub(crate) async fn restore_minio_bucket(
         || evidence.artifact_size_bytes() != expected_size
     {
         return Err(MigrationOperationError::new(
-            "MinIO restore backup does not match its durable checkpoint",
+            "MinIO restore backup does not match its recovery point",
         ));
     }
 
@@ -97,46 +87,40 @@ fn validate(
     container: &OwnedContainer,
     options: &MinioRestoreOptions<'_>,
 ) -> Result<(), MigrationOperationError> {
-    let checkpoint = options.checkpoint;
-    let logical = options.source_logical_resource;
+    let recovery = options.recovery_point;
+    let logical = options.logical_resource;
     let credential = options.credential;
     let identity = format!("{}-{}", logical.project_id(), logical.service_id());
     let expected_bucket = format!("stackctl-{identity}");
     let expected_username = format!("st_{}", identity.replace('-', "_"));
-    let invalid = checkpoint.phase() != MigrationPhase::TargetProvisioned
-        || options.installation_id.is_empty()
+    let exact_recovery = recovery.project_id() == logical.project_id()
+        && recovery.service_id() == logical.service_id()
+        && recovery.logical_resource_id() == logical.logical_resource_id()
+        && recovery.resource_kind() == logical.kind()
+        && recovery.compatibility_fingerprint() == logical.compatibility_fingerprint();
+    let invalid = options.installation_id.is_empty()
         || options.target_bucket_name != expected_bucket
         || options.target_bucket_name.len() > 63
-        || checkpoint.target_resource_id() != Some(options.target_bucket_name)
         || logical.kind() != "minio_bucket_policy"
-        || logical.project_id() != checkpoint.project_id()
         || logical.lifecycle() != ResourceLifecycle::Active
-        || logical.compatibility_fingerprint() != checkpoint.source_compatibility_fingerprint()
         || logical.logical_resource_id() != credential.credential_id()
-        || credential.project_id() != Some(checkpoint.project_id())
+        || credential.project_id() != Some(logical.project_id())
         || credential.service_id() != logical.service_id()
         || credential.username() != expected_username
         || credential.secret().is_empty()
         || credential.lifecycle() != CredentialLifecycle::Active
         || options.timeout.is_zero()
-        || options.verified_at_unix_seconds < checkpoint.updated_at_unix_seconds()
+        || options.verified_at_unix_seconds < recovery.verified_at_unix_seconds()
         || container.metadata().installation_id() != options.installation_id
-        || container.metadata().compatibility_fingerprint()
-            != checkpoint.target_compatibility_fingerprint();
+        || container.metadata().compatibility_fingerprint() != recovery.compatibility_fingerprint()
+        || !exact_recovery;
     if invalid {
         return Err(MigrationOperationError::new(
-            "MinIO restore request does not match its owned migration target",
+            "MinIO restore request does not match its owned recovery point",
         ));
     }
 
     Ok(())
-}
-
-fn required<'value>(
-    value: Option<&'value str>,
-    detail: &str,
-) -> Result<&'value str, MigrationOperationError> {
-    value.ok_or_else(|| MigrationOperationError::new(detail))
 }
 
 fn operation_error(context: &str, error: impl std::fmt::Display) -> MigrationOperationError {
