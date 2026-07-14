@@ -2135,6 +2135,136 @@ fn queued_logical_prune_dispatches_sql_server_adapter_and_retires_exact_state() 
 }
 
 #[test]
+fn queued_logical_prune_dispatches_rabbitmq_adapter_and_retires_exact_state() {
+    use crate::control_plane::retention::{LogicalPrunePlan, LogicalPrunePlanOptions};
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EngineProvider,
+        InstallationRecord, LogicalResourceRecord, LogicalResourceRecordOptions,
+    };
+
+    let root = temporary_directory("queued-rabbitmq-prune");
+    let fingerprint = format!("sha256:{}", "e".repeat(64));
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/rabbitmq".to_owned(),
+        shared_resource_id: "rabbitmq-4".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/rabbitmq".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let recovery_point = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "backup-rabbitmq".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        resource_kind: logical.kind().to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        reference: root
+            .join("backups/backup-rabbitmq.json")
+            .display()
+            .to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("installation");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical resource");
+    store
+        .insert_credential_if_absent(&credential)
+        .expect("tenant credential");
+    store
+        .record_recovery_point(&recovery_point)
+        .expect("recovery point");
+    let plan = LogicalPrunePlan::new(LogicalPrunePlanOptions {
+        installation_id: "install-1",
+        project_id: "bill",
+        service_id: "database",
+        recovery_point_id: "backup-rabbitmq",
+        project_registered: false,
+        logical_resources: std::slice::from_ref(&logical),
+        credentials: std::slice::from_ref(&credential),
+        recovery_points: std::slice::from_ref(&recovery_point),
+    })
+    .expect("RabbitMQ prune plan");
+    let operation = QueuedPostgresPrune::new(
+        "prune-rabbitmq".to_owned(),
+        &plan,
+        plan.confirmation_token().to_owned(),
+    )
+    .expect("queued RabbitMQ prune");
+    drop(store);
+    let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        "rabbitmq-container",
+        "install-1",
+        "rabbitmq-4",
+        &fingerprint,
+    )]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_postgres_prune(
+        engine.clone(),
+        PostgresPruneExecutionOptions {
+            operation,
+            state_database_path: database_path.clone(),
+            installation_id: "install-1".to_owned(),
+            schema_version: 8,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(()));
+    let calls = engine.command_arguments();
+    assert_eq!(calls[0][..2], ["rabbitmqctl", "list_users"]);
+    assert_eq!(calls[1], ["rabbitmqctl", "delete_user", "st_bill_database"]);
+    assert_eq!(calls[2][..2], ["rabbitmqctl", "list_vhosts"]);
+    assert_eq!(
+        calls[3],
+        ["rabbitmqctl", "delete_vhost", "stackctl_bill_database"]
+    );
+    let store = SqliteStateStore::open(&database_path).expect("reopen state");
+    assert!(
+        store
+            .logical_resources()
+            .expect("logical retired")
+            .is_empty()
+    );
+    assert!(store.credentials().expect("credential retired").is_empty());
+    assert_eq!(
+        store.recovery_points("bill").expect("recovery retained"),
+        vec![recovery_point]
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove prune fixture");
+}
+
+#[test]
 fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let root = temporary_directory("queued-postgres-restore");
     let project_path = root.join("bill");
@@ -6363,10 +6493,16 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
                     .expect("SQL Server verification login");
                 format!("{database}\t{username}\n").into_bytes()
             });
+        let rabbitmq_list_output = match request.arguments().get(1).map(String::as_str) {
+            Some("list_users") => Some(b"st_bill_database\nother_user\n".to_vec()),
+            Some("list_vhosts") => Some(b"/\nstackctl_bill_database\nother_vhost\n".to_vec()),
+            _ => None,
+        };
         let verification_output = postgres_verification_output
             .or(mysql_verification_output)
             .or(mongodb_verification_output)
-            .or(sql_server_verification_output);
+            .or(sql_server_verification_output)
+            .or(rabbitmq_list_output);
         let container_id = container.id().clone();
         let execution = self.execution.clone();
         Box::pin(async move {

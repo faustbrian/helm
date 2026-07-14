@@ -5,8 +5,9 @@ use crate::control_plane::engine::{
 use crate::control_plane::retention::{
     DataLifecycleStrategy, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
     PostgresLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
-    SqlServerLogicalPruneOptions, prune_mongodb_logical_resource, prune_mysql_logical_resource,
-    prune_postgres_logical_resource, prune_sql_server_logical_resource,
+    RabbitMqLogicalPruneOptions, SqlServerLogicalPruneOptions, prune_mongodb_logical_resource,
+    prune_mysql_logical_resource, prune_postgres_logical_resource, prune_rabbitmq_logical_resource,
+    prune_sql_server_logical_resource,
 };
 use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{
@@ -106,7 +107,7 @@ where
                     container,
                     logical_resource: logical,
                     credential,
-                    administrator,
+                    administrator: required_administrator(administrator)?,
                     timeout: options.timeout,
                 },
             )
@@ -122,7 +123,7 @@ where
                     container,
                     logical_resource: logical,
                     credential,
-                    administrator,
+                    administrator: required_administrator(administrator)?,
                     timeout: options.timeout,
                 },
             )
@@ -137,7 +138,7 @@ where
                     container,
                     logical_resource: logical,
                     credential,
-                    administrator,
+                    administrator: required_administrator(administrator)?,
                     timeout: options.timeout,
                 },
             )
@@ -152,7 +153,21 @@ where
                     container,
                     logical_resource: logical,
                     credential,
-                    administrator,
+                    administrator: required_administrator(administrator)?,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+        DataLifecycleStrategy::RabbitMqDefinitions => {
+            prune_rabbitmq_logical_resource(
+                engine,
+                RabbitMqLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    container,
+                    logical_resource: logical,
+                    credential,
                     timeout: options.timeout,
                 },
             )
@@ -203,7 +218,7 @@ fn exact_administrator<'state>(
     credentials: &'state [CredentialRecord],
     operation: &super::QueuedPostgresPrune,
     logical: &LogicalResourceRecord,
-) -> Result<&'state CredentialRecord, String> {
+) -> Result<Option<&'state CredentialRecord>, String> {
     let fingerprint = operation
         .compatibility_fingerprint()
         .strip_prefix("sha256:")
@@ -216,6 +231,7 @@ fn exact_administrator<'state>(
         },
         DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin"),
         DataLifecycleStrategy::SqlServerNative => ("sqlserver", "sa"),
+        DataLifecycleStrategy::RabbitMqDefinitions => return Ok(None),
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no administrator model"
@@ -236,6 +252,13 @@ fn exact_administrator<'state>(
             .collect(),
         "active shared service administrator",
     )
+    .map(Some)
+}
+
+fn required_administrator(
+    administrator: Option<&CredentialRecord>,
+) -> Result<&CredentialRecord, String> {
+    administrator.ok_or_else(|| "logical prune strategy requires a shared administrator".to_owned())
 }
 
 fn mysql_flavor(logical: &LogicalResourceRecord) -> Result<MySqlFlavor, String> {

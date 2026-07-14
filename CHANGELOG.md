@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Extended common recovery-bound logical prune execution to RabbitMQ with
+  user-first access revocation, exact vhost deletion, idempotent crash replay,
+  and atomic tenant-state retirement without touching the shared broker.
 - Added daemon-owned reversible SQL Server recovery execution with exact
   catalog selection, isolated persistent targets, native restore verification,
   atomic cutover, explicit source retirement, and retained-target rollback.

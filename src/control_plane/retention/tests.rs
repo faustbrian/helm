@@ -2,13 +2,13 @@ use super::{
     BackupArtifactManifest, BackupResourceIdentity, DataLifecycleStrategy,
     DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
     MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions, PostgresLogicalPrunePlan,
-    PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget, RestoreTargetError,
-    SqlServerLogicalPruneOptions, evaluate_deletion, open_stored_backup_artifact,
-    prune_mongodb_logical_resource, prune_mysql_logical_resource,
-    prune_sql_server_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
-    store_backup_artifact, store_backup_artifact_for_identity,
-    store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
-    verify_backup_artifact, verify_stored_backup_artifact,
+    PostgresLogicalPrunePlanOptions, PruneAuthorization, RabbitMqLogicalPruneOptions,
+    RestoreTarget, RestoreTargetError, SqlServerLogicalPruneOptions, evaluate_deletion,
+    open_stored_backup_artifact, prune_mongodb_logical_resource, prune_mysql_logical_resource,
+    prune_rabbitmq_logical_resource, prune_sql_server_logical_resource,
+    resolve_data_lifecycle_strategy, restore_verified_backup, store_backup_artifact,
+    store_backup_artifact_for_identity, store_backup_artifact_from_async_reader,
+    store_backup_artifact_from_reader, verify_backup_artifact, verify_stored_backup_artifact,
 };
 
 #[test]
@@ -69,24 +69,40 @@ use crate::control_plane::state::{
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention,
 };
 use futures_util::stream;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncReadExt;
 
 #[derive(Clone, Default)]
 struct RecordingPruneExecutor {
     arguments: Arc<Mutex<Vec<String>>>,
+    argument_calls: Arc<Mutex<Vec<Vec<String>>>>,
     environment: Arc<Mutex<BTreeMap<String, String>>>,
     stdin: Arc<Mutex<Vec<u8>>>,
+    outputs: Arc<Mutex<VecDeque<Vec<u8>>>>,
 }
 
 impl RecordingPruneExecutor {
+    fn with_outputs(outputs: Vec<Vec<u8>>) -> Self {
+        Self {
+            outputs: Arc::new(Mutex::new(outputs.into())),
+            ..Self::default()
+        }
+    }
+
     fn arguments(&self) -> Vec<String> {
         self.arguments.lock().expect("arguments lock").clone()
     }
 
     fn environment(&self) -> BTreeMap<String, String> {
         self.environment.lock().expect("environment lock").clone()
+    }
+
+    fn argument_calls(&self) -> Vec<Vec<String>> {
+        self.argument_calls
+            .lock()
+            .expect("argument calls lock")
+            .clone()
     }
 
     fn stdin(&self) -> Vec<u8> {
@@ -101,8 +117,18 @@ impl CommandExecutor for RecordingPruneExecutor {
         request: &'operation CommandRequest,
     ) -> EngineFuture<'operation, CommandSession> {
         *self.arguments.lock().expect("arguments lock") = request.arguments().to_vec();
+        self.argument_calls
+            .lock()
+            .expect("argument calls lock")
+            .push(request.arguments().to_vec());
         *self.environment.lock().expect("environment lock") = request.environment().clone();
         let stdin = Arc::clone(&self.stdin);
+        let output_bytes = self
+            .outputs
+            .lock()
+            .expect("command outputs lock")
+            .pop_front()
+            .unwrap_or_default();
         let container_id = container.id().clone();
 
         Box::pin(async move {
@@ -115,7 +141,13 @@ impl CommandExecutor for RecordingPruneExecutor {
                     .expect("read prune stdin");
                 *stdin.lock().expect("stdin lock") = bytes;
             });
-            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+            let output: ContainerLogStream<'static> = if output_bytes.is_empty() {
+                Box::pin(stream::empty())
+            } else {
+                Box::pin(stream::once(async move {
+                    Ok(crate::control_plane::engine::LogChunk::stdout(output_bytes))
+                }))
+            };
 
             Ok(CommandSession::new(
                 CommandExecutionId::new("prune-exec"),
@@ -375,6 +407,98 @@ fn sql_server_logical_prune_uses_exact_idempotent_database_and_login_deletion() 
     assert!(sql.contains("DROP DATABASE [stackctl_bill_database]"));
     assert!(sql.contains("DROP LOGIN [st_bill_database]"));
     assert!(!sql.contains("ProjectSecret1"));
+}
+
+#[test]
+fn rabbitmq_logical_prune_revokes_user_then_deletes_only_the_exact_vhost() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use std::time::Duration;
+
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: "sha256:rabbitmq-4".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("RabbitMQ metadata");
+    let observed = ObservedContainer::new(ContainerId::new("rabbitmq-4"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned RabbitMQ container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database/rabbitmq".to_owned(),
+        shared_resource_id: "rabbitmq-4".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "rabbitmq_vhost_user".to_owned(),
+        compatibility_fingerprint: "sha256:rabbitmq-4".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/rabbitmq".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let executor = RecordingPruneExecutor::with_outputs(vec![
+        b"st_bill_database\nother_user\n".to_vec(),
+        Vec::new(),
+        b"/\nstackctl_bill_database\nother_vhost\n".to_vec(),
+        Vec::new(),
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_rabbitmq_logical_resource(
+            &executor,
+            RabbitMqLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("prune RabbitMQ tenant");
+
+    let calls = executor.argument_calls();
+    assert_eq!(calls[0][..2], ["rabbitmqctl", "list_users"]);
+    assert_eq!(calls[1], ["rabbitmqctl", "delete_user", "st_bill_database"]);
+    assert_eq!(calls[2][..2], ["rabbitmqctl", "list_vhosts"]);
+    assert_eq!(
+        calls[3],
+        ["rabbitmqctl", "delete_vhost", "stackctl_bill_database"]
+    );
+    assert!(calls.iter().flatten().all(|value| value != "other_vhost"));
+    assert!(executor.environment().is_empty());
+    assert!(!String::from_utf8_lossy(&executor.stdin()).contains("project-secret"));
+
+    let replay = RecordingPruneExecutor::with_outputs(vec![Vec::new(), Vec::new()]);
+    runtime
+        .block_on(prune_rabbitmq_logical_resource(
+            &replay,
+            RabbitMqLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("replay already deleted RabbitMQ tenant");
+    assert_eq!(replay.argument_calls().len(), 2);
 }
 
 #[test]
