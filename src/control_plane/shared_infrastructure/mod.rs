@@ -52,7 +52,7 @@ pub(crate) use object_store::{
     reconcile_object_store_project_resources, reconcile_prepared_object_store_instance,
     store_object_store_policy,
 };
-pub(crate) use orphaned_rabbitmq_access_options::OrphanedRabbitMqAccessOptions;
+pub(crate) use orphaned_shared_access_options::OrphanedSharedAccessOptions;
 pub(crate) use os_credential_entropy::OsCredentialEntropy;
 pub(crate) use persistence_mode::PersistenceMode;
 pub(crate) use plan_shared_instances::plan_shared_instances;
@@ -82,14 +82,15 @@ pub(crate) use reconcile_prepared_shared_instance::reconcile_prepared_shared_ins
 pub(crate) use reconcile_shared_service::reconcile_shared_service;
 pub(crate) use reconcile_shared_volume::reconcile_shared_volume;
 pub(crate) use redis::{
-    PreparedRedisSharedInstance, RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisPlanError,
-    RedisPreparationError, RedisPreparationOptions, RedisProjectResources, RedisSharedInstancePlan,
-    RedisSharedInstancePlanOptions, StoredRedisAclPaths, plan_redis_project_resources,
-    prepare_redis_shared_instances, reconcile_prepared_redis_instance,
-    reconcile_redis_acl_snapshot, reload_redis_acl, store_redis_acl_snapshot,
+    PreparedRedisSharedInstance, RedisAccessRevocationOptions, RedisAclProject, RedisAclSnapshot,
+    RedisFlavor, RedisPlanError, RedisPreparationError, RedisPreparationOptions,
+    RedisProjectResources, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
+    StoredRedisAclPaths, plan_redis_project_resources, prepare_redis_shared_instances,
+    reconcile_prepared_redis_instance, reconcile_redis_acl_snapshot, reload_redis_acl,
+    revoke_redis_project_access, store_redis_acl_snapshot,
 };
 pub(crate) use resolve_execution_shared_instances::resolve_execution_shared_instances;
-pub(crate) use revoke_orphaned_rabbitmq_access::revoke_orphaned_rabbitmq_access;
+pub(crate) use revoke_orphaned_shared_access::revoke_orphaned_shared_access;
 pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
@@ -134,7 +135,7 @@ mod managed_secret_store_error;
 mod mongodb;
 mod mysql;
 mod object_store;
-mod orphaned_rabbitmq_access_options;
+mod orphaned_shared_access_options;
 mod os_credential_entropy;
 mod persistence_mode;
 mod plan_shared_instances;
@@ -148,7 +149,7 @@ mod reconcile_shared_service;
 mod reconcile_shared_volume;
 mod redis;
 mod resolve_execution_shared_instances;
-mod revoke_orphaned_rabbitmq_access;
+mod revoke_orphaned_shared_access;
 mod run_provisioning_job;
 mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;

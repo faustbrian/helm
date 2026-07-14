@@ -8,7 +8,7 @@ use super::{
     MongoDbSharedInstancePlanOptions, MySqlFlavor, MySqlMigrationInstancePlanOptions,
     MySqlMigrationPreparationOptions, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions,
     ObjectStoreFlavor, ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
-    ObjectStoreSharedInstancePlanOptions, OrphanedRabbitMqAccessOptions, PersistenceMode,
+    ObjectStoreSharedInstancePlanOptions, OrphanedSharedAccessOptions, PersistenceMode,
     PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
     PostgresMigrationPreparationOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
     PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
@@ -37,7 +37,7 @@ use super::{
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
-    revoke_orphaned_rabbitmq_access, revoke_rabbitmq_project_access, run_provisioning_job,
+    revoke_orphaned_shared_access, revoke_rabbitmq_project_access, run_provisioning_job,
     stop_unreferenced_shared_services, store_credential_secret, store_mailpit_authentication,
     store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
@@ -3148,14 +3148,15 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
         .expect("test runtime");
 
     let revoked = runtime
-        .block_on(revoke_orphaned_rabbitmq_access(
+        .block_on(revoke_orphaned_shared_access(
             &mut engine,
-            OrphanedRabbitMqAccessOptions {
+            OrphanedSharedAccessOptions {
                 resources: &[resource],
                 logical_resources: &[logical],
                 credentials: &[credential],
                 installation_id: "install-1",
                 schema_version: 8,
+                timeout: std::time::Duration::from_secs(15),
             },
         ))
         .expect("revoke orphaned RabbitMQ access");
@@ -3177,6 +3178,96 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
                 "st_bill_broker".to_owned(),
             ],
         ]
+    );
+}
+
+#[test]
+fn orphaned_redis_credentials_are_revoked_without_deleting_prefixed_data() {
+    let fingerprint = format!("sha256:{}", "a".repeat(64));
+    let owned = owned_shared_container("redis-container", &fingerprint);
+    let observed = ObservedContainer::new(owned.id().clone(), owned.metadata().labels());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: owned.id().as_str().to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: fingerprint.clone(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/cache/redis".to_owned(),
+        shared_resource_id: "redis-data".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "cache".to_owned(),
+        kind: "redis_acl_prefix".to_owned(),
+        compatibility_fingerprint: fingerprint,
+        desired_revision: "sha256:logical-v1".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: logical.logical_resource_id().to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "cache".to_owned(),
+        username: "st_bill_cache".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: format!("shared/{}/redis-bootstrap", "a".repeat(64)),
+        project_id: None,
+        service_id: "redis".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let mut engine = RecordingOrphanAccessEngine {
+        observed: vec![observed],
+        state: crate::control_plane::engine::ContainerState::Running,
+        started: Vec::new(),
+        commands: RecordingOutputExecutor::new(vec![b"1\n".to_vec()]),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let revoked = runtime
+        .block_on(revoke_orphaned_shared_access(
+            &mut engine,
+            OrphanedSharedAccessOptions {
+                resources: &[resource],
+                logical_resources: &[logical],
+                credentials: &[credential, administrator],
+                installation_id: "install-1",
+                schema_version: 8,
+                timeout: std::time::Duration::from_secs(15),
+            },
+        ))
+        .expect("revoke orphaned Redis access");
+
+    assert_eq!(revoked, 1);
+    assert_eq!(
+        *engine.commands.requests.lock().expect("recorded requests"),
+        [vec![
+            "redis-cli".to_owned(),
+            "--raw".to_owned(),
+            "--user".to_owned(),
+            "stackctl_admin".to_owned(),
+            "ACL".to_owned(),
+            "DELUSER".to_owned(),
+            "st_bill_cache".to_owned(),
+        ]]
+    );
+    assert!(
+        engine.commands.requests.lock().expect("requests")[0]
+            .iter()
+            .all(|argument| argument != "UNLINK" && argument != "EVAL")
     );
 }
 

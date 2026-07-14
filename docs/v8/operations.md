@@ -121,6 +121,9 @@ active -> orphaned -> stopped/credential-disabled -> retained
 For RabbitMQ, daemon reconciliation removes the exact disabled project user
 before an otherwise unreferenced broker is stopped. The vhost and queued
 messages remain retained for explicit restore, adoption, or prune.
+Redis and Valkey use the same ownership-proven lifecycle boundary to delete the
+disabled ACL user through the retained administrator credential. The tenant's
+key prefix and all matching data remain untouched.
 
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.

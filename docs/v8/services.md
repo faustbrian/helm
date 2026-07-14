@@ -94,3 +94,8 @@ For RabbitMQ, the daemon deletes only the exact ownership-proven disabled user
 before it idles an unreferenced broker. The vhost, queues, and messages remain
 retained. A stopped retained broker is started when revocation still needs to
 converge, and the vhost is never deleted implicitly.
+
+Redis and Valkey use the same shared-access strategy boundary to delete only
+the disabled project ACL user. The administrator secret is supplied through the
+Engine command environment, never arguments, while the tenant key prefix and
+all matching values remain retained.

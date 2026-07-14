@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Generalized orphaned shared-service access reconciliation behind one
+  ownership-verifying strategy boundary and added Redis/Valkey `ACL DELUSER`
+  handling. Removed cache projects lose access without deleting any retained
+  namespaced keys or exposing administrator secrets in command arguments.
 - Connected orphaned RabbitMQ credential revocation to singleton-daemon
   reconciliation before unreferenced shared brokers idle. The daemon now
   starts a retained stopped broker when needed, deletes only the exact

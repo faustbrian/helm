@@ -26,10 +26,10 @@ use crate::control_plane::network::{
 };
 use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
-    OrphanedRabbitMqAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
+    OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
     SharedInfrastructureReconcileError, SharedPreparationOptions, UnreferencedSharedServiceOptions,
     reconcile_prepared_shared_instance, resolve_execution_shared_instances,
-    revoke_orphaned_rabbitmq_access, stop_unreferenced_shared_services,
+    revoke_orphaned_shared_access, stop_unreferenced_shared_services,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -638,21 +638,20 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let revoked_rabbitmq = self
-            .engine_runtime
-            .block_on(revoke_orphaned_rabbitmq_access(
-                engine,
-                OrphanedRabbitMqAccessOptions {
-                    resources: &current_resources,
-                    logical_resources: &current_logical_resources,
-                    credentials: &current_credentials,
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
-                },
-            ));
-        match revoked_rabbitmq {
+        let revoked_shared_access = self.engine_runtime.block_on(revoke_orphaned_shared_access(
+            engine,
+            OrphanedSharedAccessOptions {
+                resources: &current_resources,
+                logical_resources: &current_logical_resources,
+                credentials: &current_credentials,
+                installation_id: self.global_network_request.metadata().installation_id(),
+                schema_version: self.global_network_request.metadata().schema_version(),
+                timeout: Duration::from_secs(15),
+            },
+        ));
+        match revoked_shared_access {
             Ok(revoked) if revoked > 0 => {
-                tracing::info!(revoked, "revoked orphaned RabbitMQ project users");
+                tracing::info!(revoked, "revoked orphaned shared-service project users");
             }
             Ok(_) => {}
             Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
@@ -665,14 +664,14 @@ impl UnixDaemonRuntime {
                     attempt = retry.attempt(),
                     retry_milliseconds = retry.duration().as_millis(),
                     error = %error,
-                    "RabbitMQ access revocation lost the selected Engine; retry scheduled"
+                    "shared access revocation lost the selected Engine; retry scheduled"
                 );
 
                 return;
             }
             Err(error) => {
                 self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "RabbitMQ access revocation blocked");
+                tracing::error!(error = %error, "shared access revocation blocked");
 
                 return;
             }
