@@ -47,12 +47,13 @@ pub(crate) use mysql::{
     revoke_mysql_project_access,
 };
 pub(crate) use object_store::{
-    ObjectStoreFlavor, ObjectStorePlanError, ObjectStorePreparationError,
-    ObjectStorePreparationOptions, ObjectStoreProjectDefinition, ObjectStoreProjectResources,
-    ObjectStoreSharedInstancePlan, ObjectStoreSharedInstancePlanOptions,
-    PreparedObjectStoreSharedInstance, plan_object_store_project_resources,
-    prepare_object_store_shared_instances, provision_object_store_project_resources,
-    reconcile_object_store_project_resources, reconcile_prepared_object_store_instance,
+    MinioAccessRevocationOptions, ObjectStoreFlavor, ObjectStorePlanError,
+    ObjectStorePreparationError, ObjectStorePreparationOptions, ObjectStoreProjectDefinition,
+    ObjectStoreProjectResources, ObjectStoreSharedInstancePlan,
+    ObjectStoreSharedInstancePlanOptions, PreparedObjectStoreSharedInstance,
+    plan_object_store_project_resources, prepare_object_store_shared_instances,
+    provision_object_store_project_resources, reconcile_object_store_project_resources,
+    reconcile_prepared_object_store_instance, revoke_minio_project_access,
     store_object_store_policy,
 };
 pub(crate) use orphaned_shared_access_options::OrphanedSharedAccessOptions;

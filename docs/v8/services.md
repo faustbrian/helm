@@ -119,3 +119,8 @@ SQL Server disables only the exact ownership-proven project login. It retains
 the database, mapped user, permissions, and data for explicit adoption,
 restore, or prune, while the administrator secret is supplied only through the
 Engine command environment.
+
+MinIO disables only the exact ownership-proven enabled project identity after
+parsing its machine-readable user state. The identity, policy attachment,
+buckets, and objects remain available for explicit adoption, restore, or
+prune. RustFS stays dedicated until its separate IAM lifecycle is proven.

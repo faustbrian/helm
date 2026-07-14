@@ -1,8 +1,9 @@
 use super::{
-    CredentialSecret, MongoDbAccessRevocationOptions, MySqlAccessRevocationOptions, MySqlFlavor,
-    OrphanedSharedAccessOptions, PostgresAccessRevocationOptions, RabbitMqProjectDefinition,
-    RedisAccessRevocationOptions, RedisFlavor, SharedInfrastructureReconcileError,
-    SqlServerAccessRevocationOptions, revoke_mongodb_project_access, revoke_mysql_project_access,
+    CredentialSecret, MinioAccessRevocationOptions, MongoDbAccessRevocationOptions,
+    MySqlAccessRevocationOptions, MySqlFlavor, OrphanedSharedAccessOptions,
+    PostgresAccessRevocationOptions, RabbitMqProjectDefinition, RedisAccessRevocationOptions,
+    RedisFlavor, SharedInfrastructureReconcileError, SqlServerAccessRevocationOptions,
+    revoke_minio_project_access, revoke_mongodb_project_access, revoke_mysql_project_access,
     revoke_postgres_project_access, revoke_rabbitmq_project_access, revoke_redis_project_access,
     revoke_sql_server_project_access,
 };
@@ -18,6 +19,7 @@ use crate::control_plane::state::{
 
 #[derive(Clone, Copy)]
 enum AccessStrategy {
+    Minio,
     MongoDb,
     MySql(MySqlFlavor),
     Postgres,
@@ -114,6 +116,22 @@ where
         }
 
         let changed = match strategy {
+            AccessStrategy::Minio => {
+                let administrator = minio_administrator(logical, options.credentials)?;
+                revoke_minio_project_access(
+                    engine,
+                    MinioAccessRevocationOptions {
+                        installation_id: options.installation_id,
+                        container,
+                        logical_resource: logical,
+                        credential,
+                        administrator,
+                        timeout: options.timeout,
+                    },
+                )
+                .await
+                .map_err(|error| engine_error("revoke orphaned MinIO access", error))?
+            }
             AccessStrategy::MongoDb => {
                 let administrator = mongodb_administrator(logical, options.credentials)?;
                 revoke_mongodb_project_access(
@@ -224,6 +242,7 @@ where
 
 fn access_strategy(kind: &str) -> Option<AccessStrategy> {
     match kind {
+        "minio_bucket_policy" => Some(AccessStrategy::Minio),
         "mongodb_database" => Some(AccessStrategy::MongoDb),
         "mariadb_database" => Some(AccessStrategy::MySql(MySqlFlavor::MariaDb)),
         "mysql_database" => Some(AccessStrategy::MySql(MySqlFlavor::MySql)),
@@ -247,7 +266,8 @@ fn exact_project_credential<'credential>(
             logical.project_id(),
             logical.service_id()
         ),
-        AccessStrategy::MongoDb
+        AccessStrategy::Minio
+        | AccessStrategy::MongoDb
         | AccessStrategy::MySql(_)
         | AccessStrategy::RabbitMq
         | AccessStrategy::Redis(_)
@@ -273,6 +293,26 @@ fn exact_project_credential<'credential>(
     }
 
     Ok(credential)
+}
+
+fn minio_administrator<'credential>(
+    logical: &LogicalResourceRecord,
+    credentials: &'credential [CredentialRecord],
+) -> Result<&'credential CredentialRecord, SharedInfrastructureReconcileError> {
+    let fingerprint = logical
+        .compatibility_fingerprint()
+        .strip_prefix("sha256:")
+        .unwrap_or_default();
+    let credential_id = format!("shared/{fingerprint}/minio-root");
+    credentials
+        .iter()
+        .find(|credential| credential.credential_id() == credential_id)
+        .ok_or_else(|| {
+            conflict(format!(
+                "orphaned MinIO tenant '{}' has no retained administrator credential",
+                logical.logical_resource_id()
+            ))
+        })
 }
 
 fn mongodb_administrator<'credential>(

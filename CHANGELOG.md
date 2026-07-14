@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added idempotent MinIO identity disablement to orphaned shared-service
+  reconciliation. Removed projects lose bucket access while their identity,
+  policy attachment, buckets, and objects remain retained; RustFS continues to
+  use dedicated instances until its IAM lifecycle is proven.
 - Added SQL Server login disablement to orphaned shared-service
   reconciliation. Removed projects lose login access while their database,
   mapped user, permissions, and data remain retained, with the administrator

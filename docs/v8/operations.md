@@ -136,6 +136,10 @@ only from the Engine command environment.
 SQL Server applies `DISABLE` only to the exact disabled project login. Its
 database, mapped user, permissions, and data remain intact, and `sqlcmd` reads
 the administrator secret only from the Engine command environment.
+MinIO lists identities through machine-readable administrator output and
+disables only the exact enabled project user. The identity, policy attachment,
+buckets, and objects remain intact. RustFS remains dedicated and does not use
+MinIO IAM assumptions.
 
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.

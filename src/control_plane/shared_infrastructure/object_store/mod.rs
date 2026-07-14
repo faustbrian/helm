@@ -12,6 +12,7 @@ pub(crate) use prepared_object_store_shared_instance::PreparedObjectStoreSharedI
 pub(crate) use provision_object_store_project_resources::provision_object_store_project_resources;
 pub(crate) use reconcile_object_store_project_resources::reconcile_object_store_project_resources;
 pub(crate) use reconcile_prepared_object_store_instance::reconcile_prepared_object_store_instance;
+pub(crate) use revoke_minio_project_access::revoke_minio_project_access;
 pub(crate) use store_object_store_policy::store_object_store_policy;
 
 mod object_store_flavor;
@@ -28,4 +29,7 @@ mod prepared_object_store_shared_instance;
 mod provision_object_store_project_resources;
 mod reconcile_object_store_project_resources;
 mod reconcile_prepared_object_store_instance;
+mod revoke_minio_project_access;
 mod store_object_store_policy;
+pub(crate) use minio_access_revocation_options::MinioAccessRevocationOptions;
+mod minio_access_revocation_options;
