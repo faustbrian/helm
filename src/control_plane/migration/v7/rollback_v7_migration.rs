@@ -1,5 +1,5 @@
 use super::cutover_v7_migration::{cutover_rank, load_execution};
-use super::{V7MigrationExecutionError, V7MigrationExecutionJournal, V7MigrationRollbackOptions};
+use super::{V7MigrationExecutionError, V7MigrationRollbackOptions};
 use crate::control_plane::state::{V7MigrationExecutionPhase, V7MigrationExecutionRecord};
 
 /// Restores every source in reverse adapter order before journaling rollback.

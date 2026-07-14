@@ -5,11 +5,13 @@ use super::{
     V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
     V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
     V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
-    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
+    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
-    register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
+    register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
+    rollback_v7_migration, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -23,10 +25,12 @@ use crate::control_plane::migration::{
     MigrationRollbackPlan,
 };
 use crate::control_plane::state::{
+    AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
     StateStoreError, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
     V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
 };
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::Path;
@@ -948,6 +952,148 @@ fn v7_generated_environment_rollback_is_private_randomized_and_exact() {
     assert!(error.to_string().contains("changed after inventory"));
 
     std::fs::remove_dir_all(root).expect("remove rollback fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn protected_v7_environment_adapter_reuses_recovery_without_mutating_dotenv() {
+    run_test(async {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v7-environment-adapter-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        ));
+        let project_path = root.join("bill");
+        let backup_root = root.join("backups");
+        let environment_path = project_path.join(".env");
+        let hosts_path = root.join("hosts");
+        let environment_bytes = b"DB_PASSWORD=user-owned\n";
+        std::fs::create_dir_all(&project_path).expect("project fixture");
+        std::fs::write(&environment_path, environment_bytes).expect("legacy environment");
+        std::fs::write(&hosts_path, "127.0.0.1 localhost\n").expect("legacy hosts");
+        let artifacts = inventory_v7_host_artifacts(V7HostArtifactDiscoveryOptions {
+            environment_path: &environment_path,
+            hosts_path: &hosts_path,
+            caddy_state_path: &root.join("missing-caddy.toml"),
+            caddy_ca_candidates: &[],
+            route_domains: &[],
+            maximum_artifact_bytes: 1024,
+        })
+        .expect("legacy host inventory");
+        let source_revision = format!("sha256:{}", "a".repeat(64));
+        let inventory_json = serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": project_path,
+            "source_revision": source_revision,
+            "blockers": [],
+            "host_artifacts": { "generated_environment": { "path": environment_path } }
+        })
+        .to_string();
+        let evidence_revision = hex::encode(Sha256::digest(inventory_json.as_bytes()));
+        let rollback =
+            capture_v7_generated_environment_rollback(V7GeneratedEnvironmentRollbackOptions {
+                project_id: "bill",
+                evidence_revision: &evidence_revision,
+                expected: artifacts
+                    .generated_environment()
+                    .expect("generated environment evidence"),
+                backup_root: &backup_root,
+                maximum_environment_bytes: 1024,
+                created_at_unix_seconds: 40_000,
+            })
+            .expect("protected environment rollback");
+        let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: project_path.clone(),
+            source_revision,
+            inventory_json,
+            generated_environment_rollback: Some(
+                AcceptedV7EnvironmentRollback::new(
+                    rollback.recovery_point().to_path_buf(),
+                    rollback.artifact_sha256().to_owned(),
+                    rollback.artifact_size_bytes(),
+                )
+                .expect("accepted rollback"),
+            ),
+            accepted_at_unix_seconds: 40_001,
+        })
+        .expect("accepted inventory");
+        let target_environment = ManagedEnvironmentRecord::new(ManagedEnvironmentRecordOptions {
+            project_id: "bill".to_owned(),
+            revision: "sha256:v8-environment".to_owned(),
+            values: BTreeMap::from([("DB_PASSWORD".to_owned(), "managed".to_owned())]),
+            lifecycle: EnvironmentLifecycle::Active,
+        });
+        let checkpoint = V7MigrationAdapterCheckpoint::pending(
+            "environment",
+            "protected-generated-environment",
+            true,
+            40_001,
+        )
+        .expect("environment checkpoint");
+        let plan = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: project_path.clone(),
+            evidence_revision: accepted.evidence_revision().to_owned(),
+            adapter_plan_revision: "b".repeat(64),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: vec![checkpoint],
+            updated_at_unix_seconds: 40_001,
+        })
+        .expect("environment execution");
+        let mut registry = V7MigrationAdapterRegistry::default();
+        assert!(
+            register_v7_protected_environment_migration_adapter(
+                &mut registry,
+                &plan,
+                V7ProtectedGeneratedEnvironmentAdapterOptions {
+                    accepted: &accepted,
+                    target_environment: &target_environment,
+                    verified_at_unix_seconds: 40_002,
+                    maximum_environment_bytes: 1024,
+                },
+            )
+            .expect("register protected environment adapter")
+        );
+        let mut journal = RecordingV7Journal::default();
+        let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 40_002)
+            .await
+            .expect("prepare protected environment");
+        assert_eq!(
+            prepared.checkpoints()[0].recovery_reference(),
+            rollback.recovery_point().to_str()
+        );
+        assert_eq!(
+            prepared.checkpoints()[0].target_reference(),
+            Some("managed-environment:bill:sha256:v8-environment")
+        );
+        let desired_state = MigrationCutoverPlan::new(
+            ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new()),
+            target_environment,
+        )
+        .expect("environment cutover state");
+        cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 40_003,
+        })
+        .await
+        .expect("cut over environment");
+        confirm_v7_migration(&mut journal, &plan, &mut registry, 40_004)
+            .await
+            .expect("confirm environment");
+
+        assert_eq!(
+            std::fs::read(&environment_path).expect("read user environment"),
+            environment_bytes
+        );
+        std::fs::remove_dir_all(root).expect("remove adapter fixture");
+    });
 }
 
 #[test]

@@ -69,13 +69,15 @@ pub(crate) use v7::{
     V7MigrationExecutionError, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
     V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
     V7MigrationServiceSelection, V7MigrationServiceSource, V7ProjectInventory,
-    V7ProjectInventoryOptions, V7ProjectInventoryRequest, V7PublicFileArtifact, V7RouteInventory,
+    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7ProtectedGeneratedEnvironmentAdapterOptions, V7PublicFileArtifact, V7RouteInventory,
     V7RouteMigrationAdapter, V7RuntimeFeature, V7ServiceInventory, V7TrustMigrationAdapter,
     V7VolumeInventory, V7VolumeMigrationAdapter, V7VolumeSource,
     capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
     inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
     prepare_v7_migration, read_v7_generated_environment_rollback,
-    register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
+    register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
+    rollback_v7_migration, select_v7_migration_adapters,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,

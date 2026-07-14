@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a concrete protected generated-environment v7 adapter. It re-verifies
+  accepted private rollback evidence, binds the exact active managed
+  environment revision as its target, and leaves the user-owned project
+  `.env` byte-for-byte untouched through cutover and confirmation.
 - Added the matching atomic v7 rollback commit for restored route ownership,
   project intent, managed environment, retained logical targets, and execution
   proof. Restored identity is preflighted before adapter side effects run.

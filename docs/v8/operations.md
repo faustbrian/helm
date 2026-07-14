@@ -286,6 +286,12 @@ through target verification, cutover, and confirmation. They cover absent
 routes, trust, generated environments, and named volumes, plus volume state
 whose recovery is explicitly owned by a logical-data adapter. A no-op entry
 cannot satisfy a recovery-requiring checkpoint.
+The protected generated-environment strategy reopens and verifies the exact
+private rollback artifact accepted for the immutable evidence revision before
+it binds the active managed-environment revision as its target. Project `.env`
+files remain user-owned and are neither rewritten nor deleted during prepare,
+cutover, rollback, or confirmation; v8 environment publication and restoration
+occur through the atomic managed-state transactions and container injection.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application
