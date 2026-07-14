@@ -1,8 +1,9 @@
 use super::{
     PreparedProjectService, ProjectServicePreparationError, opensearch_initial_admin_password,
-    plan_elasticsearch_project_resources, plan_meilisearch_project_resources,
-    plan_memcached_project_resources, plan_opensearch_project_resources,
-    plan_soketi_project_resources, plan_typesense_project_resources,
+    plan_elasticsearch_project_resources, plan_localstack_project_resources,
+    plan_meilisearch_project_resources, plan_memcached_project_resources,
+    plan_opensearch_project_resources, plan_soketi_project_resources,
+    plan_typesense_project_resources,
 };
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
@@ -11,6 +12,7 @@ use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
 #[derive(Clone, Copy)]
 pub(crate) enum ProjectServicePreparationStrategy {
     Elasticsearch,
+    LocalStack,
     Memcached,
     Meilisearch,
     OpenSearch,
@@ -24,6 +26,7 @@ impl ProjectServicePreparationStrategy {
     ) -> Result<Option<Self>, ProjectServicePreparationError> {
         let strategy = match service.desired().preset() {
             Some("elasticsearch") => Some(Self::Elasticsearch),
+            Some("localstack") => Some(Self::LocalStack),
             Some("memcached") => Some(Self::Memcached),
             Some("meilisearch") => Some(Self::Meilisearch),
             Some("opensearch") => Some(Self::OpenSearch),
@@ -48,6 +51,7 @@ impl ProjectServicePreparationStrategy {
             service.desired().preset(),
             Some(
                 "elasticsearch"
+                    | "localstack"
                     | "meilisearch"
                     | "memcached"
                     | "opensearch"
@@ -58,13 +62,14 @@ impl ProjectServicePreparationStrategy {
     }
 
     pub(crate) const fn requires_credential(self) -> bool {
-        !matches!(self, Self::Memcached)
+        !matches!(self, Self::LocalStack | Self::Memcached)
     }
 
     pub(crate) fn finalize_candidate_secret(self, secret: CredentialSecret) -> CredentialSecret {
         match self {
             Self::OpenSearch => opensearch_initial_admin_password(secret),
             Self::Elasticsearch
+            | Self::LocalStack
             | Self::Meilisearch
             | Self::Memcached
             | Self::Soketi
@@ -81,17 +86,15 @@ impl ProjectServicePreparationStrategy {
             Self::Elasticsearch => {
                 plan_elasticsearch_project_resources(service, required(secret, "Elasticsearch")?)
             }
+            Self::LocalStack => plan_without_credential(secret, "LocalStack", || {
+                plan_localstack_project_resources(service)
+            }),
             Self::Meilisearch => {
                 plan_meilisearch_project_resources(service, required(secret, "Meilisearch")?)
             }
-            Self::Memcached => {
-                if secret.is_some() {
-                    return Err(ProjectServicePreparationError::new(
-                        "Memcached preparation does not accept credentials".to_owned(),
-                    ));
-                }
+            Self::Memcached => plan_without_credential(secret, "Memcached", || {
                 plan_memcached_project_resources(service)
-            }
+            }),
             Self::OpenSearch => {
                 plan_opensearch_project_resources(service, required(secret, "OpenSearch")?)
             }
@@ -101,6 +104,20 @@ impl ProjectServicePreparationStrategy {
             }
         }
     }
+}
+
+fn plan_without_credential(
+    secret: Option<CredentialSecret>,
+    preset: &str,
+    plan: impl FnOnce() -> Result<PreparedProjectService, ProjectServicePreparationError>,
+) -> Result<PreparedProjectService, ProjectServicePreparationError> {
+    if secret.is_some() {
+        return Err(ProjectServicePreparationError::new(format!(
+            "{preset} preparation does not accept credentials"
+        )));
+    }
+
+    plan()
 }
 
 fn required(

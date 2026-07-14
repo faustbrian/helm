@@ -1194,6 +1194,7 @@ fn queued_project_volume_backup_resolves_owned_service_and_quiesces_it() {
 
 #[test]
 fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
+    use crate::control_plane::project_infrastructure::plan_localstack_project_resources;
     use sha2::Digest as _;
 
     let root = temporary_directory("queued-project-volume-restore");
@@ -1208,10 +1209,17 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
     );
     let registry = plan_project_registry(&[source]).expect("desired registry");
     let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let localstack = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "aws")
+        .expect("LocalStack execution service");
+    let prepared =
+        vec![plan_localstack_project_resources(localstack).expect("prepared LocalStack")];
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
-        prepared_project_services: &[],
+        prepared_project_services: &prepared,
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5459,6 +5467,8 @@ fn steady_engine_plans_exclude_ephemeral_browser_services() {
 
 #[test]
 fn dedicated_stateful_services_plan_one_retained_project_volume() {
+    use crate::control_plane::project_infrastructure::plan_localstack_project_resources;
+
     let image = concat!(
         "localstack/localstack@sha256:",
         "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -5472,11 +5482,18 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
     );
     let registry = plan_project_registry(&[source]).expect("desired registry");
     let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let localstack = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "aws")
+        .expect("LocalStack execution service");
+    let prepared =
+        vec![plan_localstack_project_resources(localstack).expect("prepared LocalStack")];
 
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
-        prepared_project_services: &[],
+        prepared_project_services: &prepared,
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],

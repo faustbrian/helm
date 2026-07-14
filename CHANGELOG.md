@@ -31,6 +31,9 @@ All notable changes to this project are documented in this file.
 - Generalized project-service preparation to support credential-free adapters
   and added generated Memcached host and port values without fabricating or
   persisting a meaningless service secret.
+- Added credential-free LocalStack preparation with persistence enabled, a
+  generated private gateway endpoint, and fixed non-secret SDK defaults without
+  publishing a host port or implicit route.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

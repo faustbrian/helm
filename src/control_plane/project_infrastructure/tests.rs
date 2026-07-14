@@ -484,6 +484,66 @@ fn memcached_preparation_injects_an_endpoint_without_creating_credentials() {
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn localstack_preparation_enables_persistence_and_injects_sdk_defaults() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  aws:\n    preset: localstack\n    version: '4'\n    image: localstack/localstack@sha256:{}\n",
+            "1".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-localstack-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let prepared = prepare_project_services(&mut store, &execution, &FixedEntropy(0xdd))
+        .expect("LocalStack preparation");
+
+    assert_eq!(prepared.len(), 1);
+    assert!(prepared[0].credential().is_none());
+    assert!(store.credentials().expect("credentials").is_empty());
+    assert_eq!(
+        prepared[0].container_environment().get("GATEWAY_LISTEN"),
+        Some(&"0.0.0.0:4566".to_owned())
+    );
+    assert_eq!(
+        prepared[0].container_environment().get("LOCALSTACK_HOST"),
+        Some(&"stackctl-bill-aws:4566".to_owned())
+    );
+    assert_eq!(
+        prepared[0].container_environment().get("PERSISTENCE"),
+        Some(&"1".to_owned())
+    );
+    assert_eq!(
+        prepared[0].environment().values().get("AWS_ENDPOINT_URL"),
+        Some(&"http://stackctl-bill-aws:4566".to_owned())
+    );
+    assert_eq!(
+        prepared[0].environment().values().get("AWS_ACCESS_KEY_ID"),
+        Some(&"test".to_owned())
+    );
+    assert_eq!(
+        prepared[0]
+            .environment()
+            .values()
+            .get("AWS_SECRET_ACCESS_KEY"),
+        Some(&"test".to_owned())
+    );
+    assert_eq!(
+        prepared[0].environment().values().get("AWS_DEFAULT_REGION"),
+        Some(&"us-east-1".to_owned())
+    );
+    assert_eq!(prepared[0].route(), None);
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {
