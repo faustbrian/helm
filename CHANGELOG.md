@@ -26,6 +26,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added typed daemon IPC for token-confirmed installation deletion and durable
+  lifecycle progress, including remaining logical-resource counts and active
+  operation IDs for deterministic terminal polling.
 - Added daemon-owned terminal teardown that waits for empty logical and durable
   work, removes exact installation-owned Engine objects, commits terminal state
   only after cleanup succeeds, and keeps reconciliation frozen while the

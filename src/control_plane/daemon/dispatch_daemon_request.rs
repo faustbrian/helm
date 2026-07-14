@@ -9,9 +9,10 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
     IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcInstallationDeletionPlan,
-    IpcManagedEnvironment, IpcMigrationDecision, IpcMigrationStatus, IpcPayload, IpcProjectCommand,
-    IpcProjectStatus, IpcRecoveryPoint, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
-    IpcResponse, IpcResult,
+    IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcManagedEnvironment,
+    IpcMigrationDecision, IpcMigrationStatus, IpcPayload, IpcProjectCommand, IpcProjectStatus,
+    IpcRecoveryPoint, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse,
+    IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -388,6 +389,60 @@ where
                 )],
             ),
         },
+        IpcPayload::ExecuteInstallationDeletion { confirmation_token } => control_plane
+            .begin_confirmed_installation_deletion(confirmation_token, now_unix_seconds)
+            .map(|_| {
+                IpcResponse::success(request.request_id(), IpcResult::InstallationDeletionStarted)
+            })
+            .unwrap_or_else(|message| {
+                IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "installation_deletion_confirmation_failed",
+                        message,
+                        false,
+                    )],
+                )
+            }),
+        IpcPayload::InstallationDeletionStatus => {
+            let status = control_plane
+                .installation_lifecycle()
+                .map_err(|error| error.to_string())
+                .and_then(|lifecycle| {
+                    lifecycle.ok_or_else(|| "installation identity is not initialized".to_owned())
+                })
+                .and_then(|lifecycle| {
+                    let remaining_logical_resources = control_plane
+                        .logical_resources()
+                        .map_err(|error| error.to_string())?
+                        .len();
+                    let active_operation_ids = control_plane
+                        .active_daemon_operations()
+                        .map_err(|error| error.to_string())?
+                        .into_iter()
+                        .map(|operation| operation.operation_id().to_owned())
+                        .collect();
+                    IpcInstallationDeletionStatus::new(
+                        IpcInstallationLifecycle::from(lifecycle),
+                        remaining_logical_resources,
+                        active_operation_ids,
+                    )
+                });
+            match status {
+                Ok(status) => IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::InstallationDeletionStatus { status },
+                ),
+                Err(message) => IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "installation_deletion_status_failed",
+                        message,
+                        true,
+                    )],
+                ),
+            }
+        }
         IpcPayload::PlanPostgresPrune {
             project_id,
             service_id,

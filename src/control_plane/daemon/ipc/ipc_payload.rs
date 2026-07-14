@@ -34,6 +34,10 @@ pub(crate) enum IpcPayload {
     ProjectRecoveryPoints { canonical_path: PathBuf },
     /// Proves complete installation deletion intent without mutation.
     PlanInstallationDeletion,
+    /// Freezes and starts exact installation deletion after token revalidation.
+    ExecuteInstallationDeletion { confirmation_token: String },
+    /// Reads terminal progress for an explicitly started installation deletion.
+    InstallationDeletionStatus,
     /// Plans an exact retained PostgreSQL tenant deletion without mutation.
     PlanPostgresPrune {
         project_id: String,

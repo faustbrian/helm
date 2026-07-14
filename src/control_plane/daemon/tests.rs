@@ -6916,6 +6916,109 @@ fn installation_deletion_finalizes_after_logical_and_durable_work_is_empty() {
 }
 
 #[test]
+fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
+    use crate::control_plane::daemon::ipc::IpcInstallationLifecycle;
+    use crate::control_plane::state::{EngineProvider, InstallationRecord};
+
+    let root = temporary_directory("installation-delete-ipc");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "/docker.sock",
+        ))
+        .expect("initialize installation");
+    let mut control_plane = ControlPlane::new(store);
+    let mut event_journal = IpcEventJournal::default();
+    let mut commands = ProjectCommandQueue::default();
+    let mut backups = ProjectBackupQueue::default();
+    let mut prunes = PostgresPruneQueue::default();
+    let mut restores = ProjectRestoreQueue::default();
+    let mut decisions = MigrationDecisionQueue::default();
+    let mut logs = ProjectLogSessionRegistry::default();
+    let health = ResourceHealthRegistry::default();
+    let plan_request = IpcRequest::new("delete-plan", IpcPayload::PlanInstallationDeletion);
+    let plan_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &plan_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut commands,
+        project_backups: &mut backups,
+        postgres_prunes: &mut prunes,
+        project_restores: &mut restores,
+        migration_decisions: &mut decisions,
+        project_logs: &mut logs,
+        resource_health: &health,
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_000,
+    });
+    let IpcOutcome::Success {
+        result: IpcResult::InstallationDeletionPlan { plan },
+    } = plan_response.outcome()
+    else {
+        panic!("expected installation deletion plan: {plan_response:?}");
+    };
+    let execute_request = IpcRequest::new(
+        "delete-execute",
+        IpcPayload::ExecuteInstallationDeletion {
+            confirmation_token: plan.confirmation_token().to_owned(),
+        },
+    );
+    let execute_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &execute_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut commands,
+        project_backups: &mut backups,
+        postgres_prunes: &mut prunes,
+        project_restores: &mut restores,
+        migration_decisions: &mut decisions,
+        project_logs: &mut logs,
+        resource_health: &health,
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_001,
+    });
+    assert_eq!(
+        execute_response,
+        IpcResponse::success("delete-execute", IpcResult::InstallationDeletionStarted)
+    );
+    let status_request = IpcRequest::new("delete-status", IpcPayload::InstallationDeletionStatus);
+    let status_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &status_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut commands,
+        project_backups: &mut backups,
+        postgres_prunes: &mut prunes,
+        project_restores: &mut restores,
+        migration_decisions: &mut decisions,
+        project_logs: &mut logs,
+        resource_health: &health,
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_002,
+    });
+    let IpcOutcome::Success {
+        result: IpcResult::InstallationDeletionStatus { status },
+    } = status_response.outcome()
+    else {
+        panic!("expected installation deletion status: {status_response:?}");
+    };
+    assert_eq!(status.lifecycle(), IpcInstallationLifecycle::Deleting);
+    assert_eq!(status.remaining_logical_resources(), 0);
+    assert!(status.active_operation_ids().is_empty());
+
+    std::fs::remove_dir_all(root).expect("remove deletion IPC fixture");
+}
+
+#[test]
 fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
     let root = temporary_directory("ipc-project-restore");
     let project_path = root.join("bill");

@@ -1,11 +1,11 @@
 use super::{
     IPC_PROTOCOL_VERSION, IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions,
     IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind,
-    IpcInstallationDeletionPlan, IpcLogChunk, IpcLogSessionState, IpcMigrationStatus,
-    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcPostgresPrunePlan,
-    IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest, IpcResourceHealth,
-    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, decode_request_frame,
-    decode_response_frame, encode_frame,
+    IpcInstallationDeletionPlan, IpcInstallationDeletionStatus, IpcInstallationLifecycle,
+    IpcLogChunk, IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream,
+    IpcPayload, IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    decode_request_frame, decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -129,11 +129,29 @@ fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
 #[test]
 fn installation_deletion_plans_round_trip_as_secret_free_exact_intent() {
     let request = IpcRequest::new("delete-plan-42", IpcPayload::PlanInstallationDeletion);
+    let execute = IpcRequest::new(
+        "delete-execute-42",
+        IpcPayload::ExecuteInstallationDeletion {
+            confirmation_token: "a".repeat(64),
+        },
+    );
+    let status_request =
+        IpcRequest::new("delete-status-42", IpcPayload::InstallationDeletionStatus);
     let plan = IpcInstallationDeletionPlan::new(Vec::new(), "a".repeat(64))
         .expect("empty installation deletion plan");
     let response = IpcResponse::success(
         "delete-plan-42",
         IpcResult::InstallationDeletionPlan { plan },
+    );
+    let status = IpcInstallationDeletionStatus::new(
+        IpcInstallationLifecycle::Deleting,
+        2,
+        vec!["installation-delete-a".to_owned()],
+    )
+    .expect("deletion status");
+    let status_response = IpcResponse::success(
+        "delete-status-42",
+        IpcResult::InstallationDeletionStatus { status },
     );
 
     assert_eq!(
@@ -145,6 +163,21 @@ fn installation_deletion_plans_round_trip_as_secret_free_exact_intent() {
         decode_response_frame(&encode_frame(&response).expect("encode response"))
             .expect("decode response"),
         response
+    );
+    assert_eq!(
+        decode_request_frame(&encode_frame(&execute).expect("encode execute request"))
+            .expect("decode execute request"),
+        execute
+    );
+    assert_eq!(
+        decode_request_frame(&encode_frame(&status_request).expect("encode status request"))
+            .expect("decode status request"),
+        status_request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&status_response).expect("encode status response"))
+            .expect("decode status response"),
+        status_response
     );
     let json = serde_json::to_string(&response).expect("response JSON");
     assert!(!json.contains("secret"));
