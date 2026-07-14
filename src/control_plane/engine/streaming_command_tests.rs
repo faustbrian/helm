@@ -2,7 +2,8 @@ use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerId, ContainerLogStream, EngineFuture, LogChunk, LogStreamKind,
     ManagedResourceMetadata, ManagedResourceMetadataOptions, OwnedContainer, ResourceKind,
-    RetentionClass, StreamingCommandOptions, run_streaming_command,
+    RetentionClass, StreamingCommandOptions, V7ContainerCommandExecutor, V7ContainerCommandTarget,
+    run_streaming_command, run_v7_streaming_command,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
@@ -80,6 +81,44 @@ fn streaming_command_drains_stderr_without_exposing_its_contents() {
     assert!(output.is_empty());
 }
 
+#[test]
+fn v7_streaming_command_reuses_bounded_transport_with_legacy_authorization() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("v7 streaming runtime");
+    let executor = StreamingExecutor::new(b"legacy-dump".to_vec(), 0);
+    let target = V7ContainerCommandTarget::new(
+        ContainerId::new("legacy-postgres"),
+        "bill-database",
+        "database",
+        "database",
+    )
+    .expect("v7 streaming target");
+    let request = CommandRequest::new(vec!["pg_dump".to_owned()], BTreeMap::new(), None)
+        .expect("v7 streaming request");
+    let options = StreamingCommandOptions::new(
+        request,
+        "dump accepted v7 PostgreSQL database",
+        Duration::from_secs(5),
+    )
+    .expect("v7 streaming options");
+    let mut input = std::io::Cursor::new(Vec::<u8>::new());
+    let mut output = Vec::new();
+
+    runtime
+        .block_on(run_v7_streaming_command(
+            &executor,
+            &target,
+            &options,
+            &mut input,
+            &mut output,
+        ))
+        .expect("v7 stream command");
+
+    assert_eq!(output, b"legacy-dump");
+}
+
 struct StreamingExecutor {
     output: Vec<LogChunk>,
     input: Arc<Mutex<Vec<u8>>>,
@@ -105,17 +144,10 @@ impl StreamingExecutor {
             exit_status,
         }
     }
-}
 
-impl CommandExecutor for StreamingExecutor {
-    fn start_command<'operation>(
-        &'operation self,
-        container: &'operation OwnedContainer,
-        _request: &'operation CommandRequest,
-    ) -> EngineFuture<'operation, CommandSession> {
+    fn start_session(&self, container_id: ContainerId) -> EngineFuture<'_, CommandSession> {
         let captured = Arc::clone(&self.input);
         let output = self.output.clone();
-        let container_id = container.id().clone();
 
         Box::pin(async move {
             let (writer, mut reader) = duplex(1_024);
@@ -138,6 +170,16 @@ impl CommandExecutor for StreamingExecutor {
             ))
         })
     }
+}
+
+impl CommandExecutor for StreamingExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        _request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.start_session(container.id().clone())
+    }
 
     fn command_status<'operation>(
         &'operation self,
@@ -145,6 +187,24 @@ impl CommandExecutor for StreamingExecutor {
         _container_id: &'operation ContainerId,
     ) -> EngineFuture<'operation, CommandStatus> {
         Box::pin(async move { Ok(CommandStatus::Exited(self.exit_status)) })
+    }
+}
+
+impl V7ContainerCommandExecutor for StreamingExecutor {
+    fn start_v7_command<'operation>(
+        &'operation self,
+        target: &'operation V7ContainerCommandTarget,
+        _request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.start_session(target.container_id().clone())
+    }
+
+    fn v7_command_status<'operation>(
+        &'operation self,
+        execution_id: &'operation CommandExecutionId,
+        container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        self.command_status(execution_id, container_id)
     }
 }
 

@@ -8,6 +8,7 @@ mod command_execution_id;
 mod command_executor;
 mod command_request;
 mod command_session;
+mod command_session_executor;
 mod command_status;
 mod container_completion;
 mod container_create_options;
@@ -84,6 +85,7 @@ pub(crate) use command_execution_id::CommandExecutionId;
 pub(crate) use command_executor::CommandExecutor;
 pub(crate) use command_request::CommandRequest;
 pub(crate) use command_session::{CommandInput, CommandSession};
+use command_session_executor::CommandSessionExecutor;
 pub(crate) use command_status::CommandStatus;
 pub(crate) use container_completion::ContainerCompletion;
 pub(crate) use container_create_options::ContainerCreateOptions;
@@ -143,8 +145,11 @@ pub(crate) use resource_kind::ResourceKind;
 pub(crate) use resource_metrics::ResourceMetrics;
 pub(crate) use retention_class::RetentionClass;
 pub(crate) use run_attached_command::run_attached_command_output;
-pub(crate) use run_attached_command::{run_attached_command, run_attached_command_capture};
-pub(crate) use run_streaming_command::run_streaming_command;
+pub(crate) use run_attached_command::{
+    run_attached_command, run_attached_command_capture, run_v7_attached_command,
+    run_v7_attached_command_capture,
+};
+pub(crate) use run_streaming_command::{run_streaming_command, run_v7_streaming_command};
 pub(crate) use streaming_command_options::StreamingCommandOptions;
 pub(crate) use v7_container_command_executor::V7ContainerCommandExecutor;
 pub(crate) use v7_container_command_target::V7ContainerCommandTarget;

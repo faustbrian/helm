@@ -1,4 +1,7 @@
-use super::{CommandExecutor, CommandStatus, EngineError, OwnedContainer, StreamingCommandOptions};
+use super::{
+    CommandExecutor, CommandSessionExecutor, CommandStatus, EngineError, OwnedContainer,
+    StreamingCommandOptions, V7ContainerCommandExecutor, V7ContainerCommandTarget,
+};
 use futures_util::StreamExt;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -17,20 +20,13 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    tokio::time::timeout(
-        options.timeout(),
-        execute(executor, container, options, input, output),
-    )
-    .await
-    .map_err(|_| EngineError::Timeout {
-        action: options.action().to_owned(),
-        timeout_milliseconds: u64::try_from(options.timeout().as_millis()).unwrap_or(u64::MAX),
-    })?
+    run_streaming_command_for(executor, container, options, input, output).await
 }
 
-async fn execute<R, W>(
-    executor: &impl CommandExecutor,
-    container: &OwnedContainer,
+/// Runs the shared bounded transport against an exact accepted v7 target.
+pub(crate) async fn run_v7_streaming_command<R, W>(
+    executor: &(impl V7ContainerCommandExecutor + ?Sized),
+    target: &V7ContainerCommandTarget,
     options: &StreamingCommandOptions,
     input: &mut R,
     output: &mut W,
@@ -39,7 +35,45 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let session = executor.start_command(container, options.request()).await?;
+    run_streaming_command_for(executor, target, options, input, output).await
+}
+
+async fn run_streaming_command_for<R, W, E, Target>(
+    executor: &E,
+    target: &Target,
+    options: &StreamingCommandOptions,
+    input: &mut R,
+    output: &mut W,
+) -> Result<(), EngineError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+    E: CommandSessionExecutor<Target> + ?Sized,
+{
+    tokio::time::timeout(
+        options.timeout(),
+        execute(executor, target, options, input, output),
+    )
+    .await
+    .map_err(|_| EngineError::Timeout {
+        action: options.action().to_owned(),
+        timeout_milliseconds: u64::try_from(options.timeout().as_millis()).unwrap_or(u64::MAX),
+    })?
+}
+
+async fn execute<R, W, E, Target>(
+    executor: &E,
+    target: &Target,
+    options: &StreamingCommandOptions,
+    input: &mut R,
+    output: &mut W,
+) -> Result<(), EngineError>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+    E: CommandSessionExecutor<Target> + ?Sized,
+{
+    let session = executor.start_session(target, options.request()).await?;
     let (execution_id, container_id, mut command_input, mut command_output) = session.into_parts();
     let write_input = async {
         tokio::io::copy(input, &mut command_input)
@@ -70,7 +104,7 @@ where
 
     loop {
         match executor
-            .command_status(&execution_id, &container_id)
+            .session_status(&execution_id, &container_id)
             .await?
         {
             CommandStatus::Running => {

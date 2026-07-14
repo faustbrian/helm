@@ -335,6 +335,10 @@ Before each attached command starts, the Docker-compatible adapter re-inspects
 that ID and requires `com.stackctl.managed=true` and exact values for all three
 identity labels. Drift refuses execution before the Engine creates an exec
 session; later status checks remain bound to that exact container ID.
+After authorization, accepted-v7 and v8-owned sessions use the same bounded
+attached and streaming transport. Timeout enforcement, secret-safe stderr
+draining, output limits, status polling, and exit-code handling therefore have
+one implementation; only target authorization and session creation differ.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

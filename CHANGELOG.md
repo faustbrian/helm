@@ -35,6 +35,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Shared the bounded attached and streaming command transport between v8-owned
+  containers and separately authorized accepted-v7 targets, keeping timeout,
+  output, status polling, and exit handling single-sourced.
 - Added a narrow typed Engine command boundary for accepted v7 containers.
   Docker-compatible execution now re-inspects the immutable container ID and
   requires exact legacy managed, container, service, and kind labels before
