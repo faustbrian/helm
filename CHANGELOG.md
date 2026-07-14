@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Required certificate generation directories and every persisted certificate
+  or key path to be real filesystem objects before idempotent reuse, loading,
+  or activation. TLS reconciliation can no longer adopt external bundle
+  material through correctly named symbolic links.
 - Refused symbolic-link and non-file daemon lease paths before locking,
   permission changes, truncation, or PID publication. Singleton acquisition can
   no longer overwrite an external host file through the managed lease path.

@@ -1064,6 +1064,57 @@ fn certificate_store_refuses_unexpected_state_in_its_private_root() {
 
 #[cfg(unix)]
 #[test]
+fn certificate_store_refuses_a_symbolic_link_bundle_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let stored = store.persist(&bundle).expect("persist certificate bundle");
+    let victim = root.with_extension("bundle-victim");
+    std::fs::rename(stored.directory(), &victim).expect("move bundle outside store");
+    symlink(&victim, stored.directory()).expect("link bundle directory");
+
+    let error = store
+        .load_directory(stored.directory())
+        .expect_err("linked bundle directory must fail closed");
+
+    assert!(error.to_string().contains("real directory"));
+    assert!(victim.join("ca.key").is_file());
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+    std::fs::remove_dir_all(victim).expect("remove bundle victim");
+}
+
+#[cfg(unix)]
+#[test]
+fn certificate_store_refuses_a_symbolic_link_bundle_file() {
+    use std::os::unix::fs::symlink;
+
+    let root = temporary_certificate_root();
+    let bundle =
+        generate_local_certificates(datetime!(2026-07-13 12:00 UTC)).expect("local TLS bundle");
+    let store = FilesystemCertificateStore::new(root.clone());
+    let stored = store.persist(&bundle).expect("persist certificate bundle");
+    let victim = root.with_extension("key-victim");
+    std::fs::rename(stored.ca_private_key(), &victim).expect("move key outside store");
+    symlink(&victim, stored.ca_private_key()).expect("link bundle key");
+
+    let error = store
+        .load_directory(stored.directory())
+        .expect_err("linked bundle file must fail closed");
+
+    assert!(error.to_string().contains("real file"));
+    assert_eq!(
+        std::fs::read_to_string(&victim).expect("read key victim"),
+        bundle.ca_private_key_pem()
+    );
+    std::fs::remove_dir_all(root).expect("remove certificate root");
+    std::fs::remove_file(victim).expect("remove key victim");
+}
+
+#[cfg(unix)]
+#[test]
 fn certificate_bundle_loading_rejects_a_corrupt_renewal_deadline() {
     let root = temporary_certificate_root();
     let bundle =

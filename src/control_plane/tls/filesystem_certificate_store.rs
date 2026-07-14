@@ -149,14 +149,31 @@ impl FilesystemCertificateStore {
 
         fs::create_dir_all(&self.root)
             .map_err(|error| io_error("create certificate root", &self.root, error))?;
+        require_real_directory(&self.root, "certificate root")?;
         fs::set_permissions(&self.root, fs::Permissions::from_mode(0o700))
             .map_err(|error| io_error("restrict certificate root", &self.root, error))?;
 
         let revision = bundle_revision(bundle);
         let final_directory = self.root.join(format!("bundle-{revision}"));
 
-        if final_directory.exists() {
-            return verify_existing_bundle(&final_directory, bundle);
+        match fs::symlink_metadata(&final_directory) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                return verify_existing_bundle(&final_directory, bundle);
+            }
+            Ok(_) => {
+                return Err(LocalCertificateError::new(format!(
+                    "certificate bundle '{}' must be a real directory",
+                    final_directory.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(io_error(
+                    "inspect certificate bundle",
+                    &final_directory,
+                    error,
+                ));
+            }
         }
 
         let staging_directory = self
@@ -269,6 +286,7 @@ impl FilesystemCertificateStore {
                 self.root.display()
             )));
         }
+        require_real_directory(directory, "certificate bundle")?;
 
         let paths = StoredCertificatePaths::new(directory.to_path_buf());
         let bundle = self.load(&paths)?;
@@ -394,8 +412,7 @@ fn verify_existing_bundle(
 
     for (name, contents) in expected {
         let path = directory.join(name);
-        let found = fs::read_to_string(&path)
-            .map_err(|error| io_error("read existing certificate file", &path, error))?;
+        let found = read_certificate_file(&path)?;
 
         if found != contents {
             return Err(LocalCertificateError::new(format!(
@@ -409,7 +426,28 @@ fn verify_existing_bundle(
 }
 
 fn read_certificate_file(path: &Path) -> Result<String, LocalCertificateError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| io_error("inspect certificate bundle file", path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(LocalCertificateError::new(format!(
+            "certificate bundle file '{}' must be a real file",
+            path.display()
+        )));
+    }
     fs::read_to_string(path).map_err(|error| io_error("read certificate bundle file", path, error))
+}
+
+fn require_real_directory(path: &Path, kind: &str) -> Result<(), LocalCertificateError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| io_error("inspect certificate directory", path, error))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(LocalCertificateError::new(format!(
+            "{kind} '{}' must be a real directory",
+            path.display()
+        )));
+    }
+
+    Ok(())
 }
 
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> LocalCertificateError {
