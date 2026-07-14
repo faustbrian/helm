@@ -16,9 +16,9 @@ use super::{
     execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
     plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
-    requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
-    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
-    select_accepted_v7_migration_adapters,
+    register_accepted_v7_recreated_adapters, requires_followup_reconciliation,
+    resolve_accepted_v7_logical_data_inputs, restore_daemon_operation_queues,
+    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -33,8 +33,9 @@ use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
     MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
     MySqlRestoreOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
-    read_v7_generated_environment_rollback, restore_mongodb_database, restore_mysql_database,
-    restore_sql_server_database, verify_mongodb_target, verify_sql_server_target,
+    V7MigrationAdapterRegistry, prepare_v7_migration, read_v7_generated_environment_rollback,
+    restore_mongodb_database, restore_mysql_database, restore_sql_server_database,
+    verify_mongodb_target, verify_sql_server_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -46,7 +47,8 @@ use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
     MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectRecord, RecoveryPointRecord,
     RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, SqliteStateStore, StateStore,
+    ResourceRetention, SqliteStateStore, StateStore, V7MigrationAdapterCheckpoint,
+    V7MigrationExecutionPhase, V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -6688,6 +6690,126 @@ database = "legacy_database"
     let error = resolve_accepted_v7_logical_data_inputs(&accepted, 1024 * 1024)
         .expect_err("changed config must require fresh acceptance");
     assert!(error.contains("changed after inventory acceptance"));
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn accepted_v7_recreated_adapters_bind_only_exact_active_v8_targets() {
+    let root = temporary_directory("accepted-v7-recreated-adapters");
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: format!("sha256:{}", "a".repeat(64)),
+        inventory_json: format!(
+            r#"{{"project_id":"bill","canonical_project_path":"/work/bill","source_revision":"sha256:{}","blockers":[]}}"#,
+            "a".repeat(64)
+        ),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+    let execution = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        evidence_revision: accepted.evidence_revision().to_owned(),
+        adapter_plan_revision: "b".repeat(64),
+        phase: V7MigrationExecutionPhase::Planned,
+        checkpoints: [
+            ("route", "no-routes"),
+            ("service/app", "recreate-project-workload"),
+            ("service/browser", "recreate-ephemeral"),
+            ("service/mail", "recreate-stateless"),
+        ]
+        .into_iter()
+        .map(|(id, kind)| {
+            V7MigrationAdapterCheckpoint::pending(id, kind, false, 10).expect("checkpoint")
+        })
+        .collect(),
+        updated_at_unix_seconds: 10,
+    })
+    .expect("execution");
+    let application = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-app-v8".to_owned(),
+        installation_id: "installation".to_owned(),
+        kind: "project_service".to_owned(),
+        compatibility_fingerprint: "sha256:app".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:app-revision".to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let mail = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "bill/mail".to_owned(),
+            shared_resource_id: "shared-mailpit".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "mail".to_owned(),
+            kind: "mailbox".to_owned(),
+            compatibility_fingerprint: "sha256:mail".to_owned(),
+            desired_revision: "sha256:mail-revision".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let mut registry = V7MigrationAdapterRegistry::default();
+    assert_eq!(
+        register_accepted_v7_recreated_adapters(
+            &mut registry,
+            &execution,
+            std::slice::from_ref(&application),
+            std::slice::from_ref(&mail),
+        )
+        .expect("register exact reconciled targets"),
+        4
+    );
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("journal");
+    store
+        .record_accepted_v7_inventory(&accepted)
+        .expect("persist accepted source");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime");
+    let prepared = runtime
+        .block_on(prepare_v7_migration(
+            &mut store,
+            &execution,
+            &mut registry,
+            11,
+        ))
+        .expect("prepare recreated targets");
+    let targets = prepared
+        .checkpoints()
+        .iter()
+        .map(|checkpoint| {
+            (
+                checkpoint.adapter_id(),
+                checkpoint.target_reference().map(str::to_owned),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        targets["service/app"],
+        Some("resource:container-app-v8".to_owned())
+    );
+    assert_eq!(targets["service/browser"], None);
+    assert_eq!(
+        targets["service/mail"],
+        Some("logical-resource:bill/mail".to_owned())
+    );
+
+    let ambiguous = register_accepted_v7_recreated_adapters(
+        &mut V7MigrationAdapterRegistry::default(),
+        &execution,
+        std::slice::from_ref(&application),
+        &[mail.clone(), mail],
+    )
+    .expect_err("ambiguous reconciled target must block");
+    assert!(ambiguous.contains("ambiguous"));
 
     std::fs::remove_dir_all(root).expect("remove fixture");
 }

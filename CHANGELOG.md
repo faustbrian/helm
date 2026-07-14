@@ -42,6 +42,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-side accepted-v7 registry composition for explicit no-op and
+  normally reconciled workload, stateless logical-resource, and ephemeral
+  targets. Missing or ambiguous active v8 state now blocks binding.
 - Added exact accepted-v7 logical migration input resolution. The daemon
   reopens only the accepted revision of the canonical legacy config, verifies
   its service identity and Engine mount evidence, and binds driver-specific
