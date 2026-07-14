@@ -1,10 +1,11 @@
 use super::{
     ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult, execute_minio_project_restore,
-    execute_rabbitmq_project_restore, execute_redis_project_restore,
+    execute_project_volume_restore, execute_rabbitmq_project_restore,
+    execute_redis_project_restore,
 };
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, ResourceKind,
-    VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerVolumeArchive,
+    HealthObserver, ResourceKind, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
 };
 use crate::control_plane::migration::{
     EnginePostgresSourceRetirement, MigrationCutoverPlan, MigrationRollbackPlan,
@@ -38,6 +39,7 @@ where
     E: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerVolumeArchive
         + HealthObserver
         + VolumeDiscovery
         + VolumeManager
@@ -60,6 +62,7 @@ where
     E: CommandExecutor
         + ContainerDiscovery
         + ContainerLifecycle
+        + ContainerVolumeArchive
         + HealthObserver
         + VolumeDiscovery
         + VolumeManager
@@ -67,6 +70,7 @@ where
     Entropy: CredentialEntropy,
 {
     match options.operation.kind() {
+        "volume" => execute_project_volume_restore(engine, options).await,
         "minio_bucket_policy" => execute_minio_project_restore(engine, options).await,
         "rabbitmq_vhost_user" => execute_rabbitmq_project_restore(engine, options).await,
         "redis_acl_prefix" | "valkey_acl_prefix" => {
@@ -158,7 +162,7 @@ where
     let target = reconcile_sql_server_migration_target(
         &mut store,
         engine,
-        &options.shared,
+        options.shared_target()?,
         entropy,
         SqlServerMigrationPreparationOptions {
             migration_id: options.operation.operation_id(),
@@ -343,7 +347,7 @@ where
     let target = reconcile_mongodb_migration_target(
         &mut store,
         engine,
-        &options.shared,
+        options.shared_target()?,
         entropy,
         MongoDbMigrationPreparationOptions {
             migration_id: options.operation.operation_id(),
@@ -520,7 +524,7 @@ where
     let target = reconcile_postgres_migration_target(
         &mut store,
         engine,
-        &options.shared,
+        options.shared_target()?,
         entropy,
         PostgresMigrationPreparationOptions {
             migration_id: options.operation.operation_id(),
@@ -697,7 +701,7 @@ where
     let target = reconcile_mysql_migration_target(
         &mut store,
         engine,
-        &options.shared,
+        options.shared_target()?,
         entropy,
         MySqlMigrationPreparationOptions {
             migration_id: options.operation.operation_id(),
@@ -898,7 +902,8 @@ fn validate(options: &ProjectRestoreExecutionOptions) -> Result<(), String> {
         || !options.backup_root.is_absolute()
         || options.updated_at_unix_seconds < 0
         || options.timeout.is_zero()
-        || options.shared.fingerprint().as_str() != options.operation.compatibility_fingerprint()
+        || options.shared_target()?.fingerprint().as_str()
+            != options.operation.compatibility_fingerprint()
     {
         return Err("project restore execution options are incomplete or incompatible".to_owned());
     }

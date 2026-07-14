@@ -62,10 +62,13 @@ identity as its container. Existing identity drift fails before container
 replacement and requires explicit migration. A project backup resolves the
 exact live service and named volume again, stops the service when necessary,
 streams an Engine archive into immutable checksummed recovery storage, and
-restores its prior running state. Dedicated-volume restore and destructive
-authorization remain unavailable until empty-volume recreation and verified
-restore are implemented. Memcached, MailHog, and Soketi remain volume-free
-because their current dedicated contracts are stateless.
+restores its prior running state. Restore first records a separate verified
+safety recovery point for the current contents, then removes only the exact
+owned service and volume, recreates the desired empty target, uploads the
+selected archive before start, and requires readiness. Destructive
+authorization remains unavailable until deletion planning binds one exact
+verified recovery point to the volume. Memcached, MailHog, and Soketi remain
+volume-free because their current dedicated contracts are stateless.
 
 Dusk and Selenium are never steady project services. Each browser-test command
 gets a deterministic operation-scoped container using the locked immutable

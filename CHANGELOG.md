@@ -35,17 +35,21 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Integrated dedicated project volumes into daemon restore admission with an
+  exact desired-service plan, deterministic operation-bound safety backup,
+  immediate artifact reverification, empty-volume recreation, archive upload
+  before service start, and readiness verification.
 - Added an ownership-bound dedicated-volume restore primitive that immediately
   re-verifies cataloged recovery evidence, removes only the exact owned service
   and volume, recreates the desired empty target, streams the archive through
   the Engine API before start, and requires the restored service to become
-  ready. Daemon restore admission remains fail-closed until safety snapshots
-  are integrated.
+  ready. The daemon invokes it only after cataloging the current volume as a
+  separate verified safety recovery point.
 - Added daemon-owned backups for dedicated project-service volumes that resolve
   exact live container and volume ownership, quiesce only the matching service,
   stream the named volume through the Engine API into immutable checksummed
   recovery storage, and restore the prior running state after success or
-  failure. Restore and deletion authorization remain fail-closed.
+  failure. Destructive deletion authorization remains fail-closed.
 - Added `daemon service uninstall --delete-data --confirm-delete-data` execution
   that plans and confirms exact teardown, resumes interrupted deletion, polls
   durable terminal state, removes matching CA trust, stops the login service,

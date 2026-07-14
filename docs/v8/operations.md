@@ -162,6 +162,18 @@ target. Other logical service kinds fail closed until they have service-specific
 backup, restore, and deletion adapters; Stackctl does not reinterpret container
 removal as data deletion.
 
+Dedicated project-volume backup resolves the exact active physical ownership,
+quiesces only its owning service, streams the named mount through the Engine
+API, and restarts the service even when archive creation fails. Restore accepts
+only a cataloged recovery point matching that active volume and the current
+validated YAML plan. Before replacing data, the daemon creates a deterministic
+`{operation-id}-pre-restore` safety recovery point for the current volume. It
+then removes the exact service and volume, recreates the empty desired volume,
+uploads the selected archive before start, and waits for service readiness.
+Missing artifacts, checksum drift, ambiguous ownership, or a mismatched desired
+plan fail before destructive restore begins. Dedicated-volume deletion remains
+blocked until its explicit recovery-bound prune authorization is implemented.
+
 RabbitMQ vhost recovery exports and restores exact definitions only after both
 the selected recovery point and the current safety snapshot prove the vhost has
 no queued messages. Restore deletes only the exact vhost, imports its verified

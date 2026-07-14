@@ -93,6 +93,7 @@ impl QueuedProjectRestore {
                 | "valkey_acl_prefix"
                 | "minio_bucket_policy"
                 | "rabbitmq_vhost_user"
+                | "volume"
         ) {
             return Err(format!(
                 "project restore kind '{}' is not implemented",

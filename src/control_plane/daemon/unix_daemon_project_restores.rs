@@ -1,12 +1,16 @@
 use super::ipc::IpcEventKind;
 use super::{
     ActiveProjectRestore, EngineConnectionOutcome, ProjectRestoreExecutionOptions,
-    UnixDaemonRuntime, execute_queued_project_restore, publish_project_restore_result,
+    ProjectRestoreTargetPlan, UnixDaemonRuntime, execute_queued_project_restore,
+    publish_project_restore_result,
 };
 use crate::control_plane::shared_infrastructure::{
-    OsCredentialEntropy, SharedInstancePlan, resolve_execution_shared_instances,
+    OsCredentialEntropy, resolve_execution_shared_instances,
 };
 use crate::control_plane::state::{DaemonOperationStatus, DaemonOperationTransitionOptions};
+use crate::control_plane::workload::{
+    DedicatedProjectServiceOptions, plan_dedicated_project_service,
+};
 use std::time::{Duration, Instant};
 
 const PROJECT_RESTORE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -55,12 +59,12 @@ impl UnixDaemonRuntime {
         let Some(operation) = self.project_restores.front() else {
             return;
         };
-        let Some(shared) = self.project_restore_shared_plan(operation) else {
+        let Some(target) = self.project_restore_target_plan(operation) else {
             return;
         };
         let operation_id = operation.operation_id().to_owned();
-        let shared = match shared {
-            Ok(shared) => shared,
+        let target = match target {
+            Ok(target) => target,
             Err(message) => {
                 self.reject_queued_project_restore(&operation_id, &message, now_unix_seconds);
 
@@ -95,7 +99,7 @@ impl UnixDaemonRuntime {
             OsCredentialEntropy,
             ProjectRestoreExecutionOptions {
                 operation,
-                shared,
+                target,
                 installation_id: self
                     .global_network_request
                     .metadata()
@@ -113,15 +117,55 @@ impl UnixDaemonRuntime {
         self.engine_runtime.block_on(tokio::task::yield_now());
     }
 
-    fn project_restore_shared_plan(
+    fn project_restore_target_plan(
         &self,
         operation: &super::QueuedProjectRestore,
-    ) -> Option<Result<SharedInstancePlan, String>> {
+    ) -> Option<Result<ProjectRestoreTargetPlan, String>> {
         let execution = self.engine_reconciliation.execution_plan()?;
         let platform = match super::unix_daemon_runtime::runtime_linux_platform() {
             Ok(platform) => platform,
             Err(error) => return Some(Err(error)),
         };
+        if operation.kind() == "volume" {
+            let matches = execution
+                .services()
+                .iter()
+                .filter(|service| {
+                    service.project().as_str() == operation.project_id()
+                        && service.service().as_str() == operation.service_id()
+                })
+                .filter_map(|service| {
+                    plan_dedicated_project_service(DedicatedProjectServiceOptions {
+                        service,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                        platform,
+                        network_name: self.global_network_request.name(),
+                    })
+                    .ok()
+                })
+                .filter(|plan| {
+                    plan.request().metadata().compatibility_fingerprint()
+                        == operation.compatibility_fingerprint()
+                        && plan.volume().is_some_and(|volume| {
+                            volume.name() == operation.logical_resource_id()
+                                && volume.metadata().compatibility_fingerprint()
+                                    == operation.compatibility_fingerprint()
+                        })
+                })
+                .collect::<Vec<_>>();
+            return Some(match matches.as_slice() {
+                [plan] => Ok(ProjectRestoreTargetPlan::Dedicated(plan.clone())),
+                [] => Err(format!(
+                    "recovery point '{}' has no exact dedicated service plan",
+                    operation.recovery_point_id()
+                )),
+                _ => Err(format!(
+                    "recovery point '{}' matched multiple dedicated service plans",
+                    operation.recovery_point_id()
+                )),
+            });
+        }
         let shared = match resolve_execution_shared_instances(execution, platform) {
             Ok(shared) => shared,
             Err(error) => return Some(Err(error.to_string())),
@@ -151,7 +195,7 @@ impl UnixDaemonRuntime {
             })
             .collect::<Vec<_>>();
         Some(match matches.as_slice() {
-            [shared] => Ok(shared.clone()),
+            [shared] => Ok(ProjectRestoreTargetPlan::Shared(shared.clone())),
             [] => Err(format!(
                 "recovery point '{}' has no exact {implementation} compatibility plan",
                 operation.recovery_point_id(),

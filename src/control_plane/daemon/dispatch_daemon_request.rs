@@ -1681,6 +1681,48 @@ where
                 recovery_point_id
             )
         })?;
+    if recovery_point.resource_kind() == "volume" {
+        let resource_matches = control_plane
+            .resources()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|resource| {
+                resource.project_id() == Some(recovery_point.project_id())
+                    && resource.scope_id() == Some(recovery_point.service_id())
+                    && resource.resource_id() == recovery_point.logical_resource_id()
+                    && resource.kind() == recovery_point.resource_kind()
+                    && resource.compatibility_fingerprint()
+                        == recovery_point.compatibility_fingerprint()
+                    && resource.retention() == ResourceRetention::Persistent
+                    && resource.lifecycle() == ResourceLifecycle::Active
+            })
+            .collect::<Vec<_>>();
+        let resource = match resource_matches.as_slice() {
+            [resource] => resource,
+            [] => {
+                return Err(format!(
+                    "recovery point '{}' has no exact active persistent volume",
+                    recovery_point_id
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "recovery point '{}' matches multiple active persistent volumes",
+                    recovery_point_id
+                ));
+            }
+        };
+
+        return QueuedProjectRestore::new(QueuedProjectRestoreOptions {
+            operation_id: operation_id.to_owned(),
+            recovery_point_id: recovery_point.recovery_point_id().to_owned(),
+            project_id: resource.project_id().unwrap_or_default().to_owned(),
+            service_id: resource.scope_id().unwrap_or_default().to_owned(),
+            logical_resource_id: resource.resource_id().to_owned(),
+            kind: resource.kind().to_owned(),
+            compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        });
+    }
     let logical_matches = control_plane
         .logical_resources()
         .map_err(|error| error.to_string())?

@@ -228,12 +228,13 @@ fn validate_options(options: &ProjectRestoreExecutionOptions) -> Result<(), Stri
         || !options.backup_root.is_absolute()
         || options.updated_at_unix_seconds < 0
         || options.timeout.is_zero()
-        || options.shared.fingerprint().as_str() != options.operation.compatibility_fingerprint()
+        || options.shared_target()?.fingerprint().as_str()
+            != options.operation.compatibility_fingerprint()
     {
         return Err("Redis restore execution options are incomplete or incompatible".to_owned());
     }
     let flavor = redis_flavor(options.operation.kind())?;
-    if options.shared.profile().implementation() != flavor.implementation() {
+    if options.shared_target()?.profile().implementation() != flavor.implementation() {
         return Err("Redis restore selected an incompatible shared service plan".to_owned());
     }
 

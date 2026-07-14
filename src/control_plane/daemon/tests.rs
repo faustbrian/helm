@@ -7,13 +7,14 @@ use super::{
     ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
     ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
     ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
-    ProjectRestoreExecutionResult, ProjectRestoreQueue, QueuedPostgresPrune, QueuedProjectBackup,
-    QueuedProjectCommand, QueuedProjectRestore, ResourceHealthRegistry, RetryBackoff,
-    RetryBackoffOptions, SingletonLease, collect_benchmark_snapshot, discover_project_sources,
-    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
-    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
-    execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
-    plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
+    ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
+    QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
+    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, SingletonLease,
+    collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
+    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
+    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
     requires_followup_reconciliation, restore_daemon_operation_queues,
     retry_failed_installation_deletion_prune,
@@ -1106,6 +1107,159 @@ fn queued_project_volume_backup_resolves_owned_service_and_quiesces_it() {
     assert_eq!(engine.stopped(), ["search-container"]);
     assert_eq!(engine.lifecycle_started(), ["search-container"]);
     std::fs::remove_dir_all(backup_root).expect("remove volume backup fixture");
+}
+
+#[test]
+fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
+    use sha2::Digest as _;
+
+    let root = temporary_directory("queued-project-volume-restore");
+    let backup_root = root.join("backups");
+    let source = ProjectSource::new(
+        root.join("bill"),
+        root.join("bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  aws:\n    preset: localstack\n    version: '4'\n    image: localstack/localstack@sha256:{}\n",
+            "c".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("dedicated restore plan");
+    let target = plan
+        .dedicated_services()
+        .first()
+        .expect("dedicated service")
+        .clone();
+    let volume = target.volume().expect("retained volume");
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: volume.name().to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: volume.metadata().compatibility_fingerprint().to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: volume.metadata().desired_revision().to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("aws");
+    let identity =
+        crate::control_plane::retention::BackupResourceIdentity::from_resource(&resource);
+    let selected = crate::control_plane::retention::store_backup_artifact_for_identity(
+        &identity,
+        b"selected volume archive",
+        80_000,
+        &backup_root,
+    )
+    .expect("selected volume backup");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "volume-backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "aws".to_owned(),
+        logical_resource_id: resource.resource_id().to_owned(),
+        resource_kind: resource.kind().to_owned(),
+        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        reference: selected.recovery_point().display().to_string(),
+        artifact_sha256: hex::encode(sha2::Sha256::digest(b"selected volume archive")),
+        artifact_size_bytes: 23,
+        created_at_unix_seconds: 80_000,
+        verified_at_unix_seconds: 80_000,
+    })
+    .expect("selected recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("restore state");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist volume resource");
+    store
+        .record_recovery_point(&recovery)
+        .expect("catalog selected recovery");
+    drop(store);
+    let engine = RecordingProjectCommandEngine::new(vec![
+        crate::control_plane::engine::ObservedContainer::new(
+            crate::control_plane::engine::ContainerId::new("localstack-container"),
+            target.request().metadata().labels(),
+        ),
+    ])
+    .with_observed_volumes(vec![crate::control_plane::engine::ObservedVolume::new(
+        volume.name(),
+        volume.metadata().labels(),
+    )])
+    .with_volume_archive(b"current volume archive".to_vec());
+    let operation = QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "restore-volume-42".to_owned(),
+        recovery_point_id: recovery.recovery_point_id().to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "aws".to_owned(),
+        logical_resource_id: resource.resource_id().to_owned(),
+        kind: resource.kind().to_owned(),
+        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+    })
+    .expect("volume restore intent");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    let result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0xaa),
+        ProjectRestoreExecutionOptions {
+            operation,
+            target: ProjectRestoreTargetPlan::Dedicated(target.clone()),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 80_001,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(result.outcome(), &Ok(MigrationExecutionResult::Confirmed));
+    assert_eq!(
+        *engine
+            .execution
+            .volume_upload
+            .lock()
+            .expect("uploaded restore archive"),
+        b"selected volume archive"
+    );
+    assert_eq!(engine.created(), [target.request().name()]);
+    assert_eq!(
+        engine
+            .execution
+            .created_volumes
+            .lock()
+            .expect("created restore volumes")
+            .as_slice(),
+        [volume.name()]
+    );
+    let recovery_points = SqliteStateStore::open(&database_path)
+        .expect("reopen restore state")
+        .recovery_points("bill")
+        .expect("load recovery points");
+    assert!(
+        recovery_points
+            .iter()
+            .any(|point| point.recovery_point_id() == "restore-volume-42-pre-restore")
+    );
+    std::fs::remove_dir_all(root).expect("remove volume restore fixture");
 }
 
 #[test]
@@ -2996,7 +3150,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 compatibility_fingerprint: fingerprint.clone(),
             })
             .expect("restore intent"),
-            shared: shared.clone(),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
@@ -3298,7 +3452,7 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                 compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
-            shared: shared.clone(),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
@@ -3600,7 +3754,7 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
                 compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
-            shared: shared.clone(),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
@@ -3897,7 +4051,7 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
                 compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
-            shared: shared.clone(),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
@@ -4149,7 +4303,7 @@ fn queued_redis_restore_records_one_safety_snapshot_and_replays_in_place() {
                     compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
-                shared: shared.clone(),
+                target: ProjectRestoreTargetPlan::Shared(shared.clone()),
                 installation_id: "install-1".to_owned(),
                 network_name: "stackctl".to_owned(),
                 schema_version: 8,
@@ -4329,7 +4483,7 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
                     compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
-                shared: shared.clone(),
+                target: ProjectRestoreTargetPlan::Shared(shared.clone()),
                 installation_id: "install-1".to_owned(),
                 network_name: "stackctl".to_owned(),
                 schema_version: 8,
@@ -4506,7 +4660,7 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
                     compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
-                shared: shared.clone(),
+                target: ProjectRestoreTargetPlan::Shared(shared.clone()),
                 installation_id: "install-1".to_owned(),
                 network_name: "stackctl".to_owned(),
                 schema_version: 8,
@@ -7389,6 +7543,98 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
 }
 
 #[test]
+fn daemon_project_volume_restore_requires_exact_active_physical_ownership() {
+    let root = temporary_directory("ipc-project-volume-restore");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-aws-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:localstack-4".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("aws");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "volume-backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "aws".to_owned(),
+        logical_resource_id: resource.resource_id().to_owned(),
+        resource_kind: resource.kind().to_owned(),
+        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        reference: root.join("backups/volume-backup-42").display().to_string(),
+        artifact_sha256: "a".repeat(64),
+        artifact_size_bytes: 42,
+        created_at_unix_seconds: 39_000,
+        verified_at_unix_seconds: 39_100,
+    })
+    .expect("volume recovery point");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist volume resource");
+    store
+        .record_recovery_point(&recovery)
+        .expect("persist volume recovery");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new(
+        "restore-volume-42",
+        IpcPayload::RestoreProjectService {
+            canonical_path: project_path,
+            recovery_point_id: recovery.recovery_point_id().to_owned(),
+        },
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let mut project_commands = ProjectCommandQueue::default();
+    let mut project_backups = ProjectBackupQueue::default();
+    let mut project_restores = ProjectRestoreQueue::default();
+    let mut project_logs = ProjectLogSessionRegistry::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut project_backups,
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut project_restores,
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 40_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "restore-volume-42",
+            IpcResult::Accepted {
+                operation_id: "restore-volume-42".to_owned(),
+            },
+        )
+    );
+    let queued = project_restores.pop_front().expect("queued volume restore");
+    assert_eq!(queued.recovery_point_id(), "volume-backup-42");
+    assert_eq!(queued.project_id(), "bill");
+    assert_eq!(queued.service_id(), "aws");
+    assert_eq!(queued.logical_resource_id(), resource.resource_id());
+    assert_eq!(queued.kind(), "volume");
+
+    std::fs::remove_dir_all(root).expect("remove volume restore fixture");
+}
+
+#[test]
 fn daemon_migration_decision_persists_one_exact_operator_choice() {
     let root = temporary_directory("ipc-migration-decision");
     let project_path = root.join("bill");
@@ -7894,8 +8140,10 @@ struct RecordingProjectCommandExecution {
     stopped: std::sync::Mutex<Vec<String>>,
     removed: std::sync::Mutex<Vec<String>>,
     created_volumes: std::sync::Mutex<Vec<String>>,
+    removed_volumes: std::sync::Mutex<Vec<String>>,
     rabbitmq_queue_output: std::sync::Mutex<Vec<u8>>,
     volume_archive: std::sync::Mutex<Vec<u8>>,
+    volume_upload: std::sync::Mutex<Vec<u8>>,
 }
 
 impl RecordingProjectCommandEngine {
@@ -8400,12 +8648,22 @@ impl crate::control_plane::engine::ContainerVolumeArchive for RecordingProjectCo
         &'operation self,
         _container: &'operation crate::control_plane::engine::OwnedContainer,
         _volume: &'operation crate::control_plane::engine::OwnedVolume,
-        _archive: &'operation Path,
+        archive: &'operation Path,
     ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
-        Box::pin(async {
-            Err(crate::control_plane::engine::EngineError::InvalidRequest {
-                detail: "upload is outside backup test scope".to_owned(),
-            })
+        let archive = archive.to_path_buf();
+        let execution = self.execution.clone();
+        Box::pin(async move {
+            let bytes = tokio::fs::read(archive).await.map_err(|error| {
+                crate::control_plane::engine::EngineError::Backend {
+                    detail: error.to_string(),
+                }
+            })?;
+            *execution
+                .volume_upload
+                .lock()
+                .expect("record volume upload") = bytes;
+
+            Ok(())
         })
     }
 }
@@ -8439,8 +8697,13 @@ impl crate::control_plane::engine::VolumeManager for RecordingProjectCommandEngi
 
     fn remove_volume<'operation>(
         &'operation mut self,
-        _volume: &'operation crate::control_plane::engine::OwnedVolume,
+        volume: &'operation crate::control_plane::engine::OwnedVolume,
     ) -> crate::control_plane::engine::EngineFuture<'operation, ()> {
+        self.execution
+            .removed_volumes
+            .lock()
+            .expect("removed volumes")
+            .push(volume.name().to_owned());
         Box::pin(async { Ok(()) })
     }
 }

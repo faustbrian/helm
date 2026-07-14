@@ -186,8 +186,9 @@ fn validate_options(options: &ProjectRestoreExecutionOptions) -> Result<(), Stri
         || !options.backup_root.is_absolute()
         || options.updated_at_unix_seconds < 0
         || options.timeout.is_zero()
-        || options.shared.profile().implementation() != "rabbitmq"
-        || options.shared.fingerprint().as_str() != options.operation.compatibility_fingerprint()
+        || options.shared_target()?.profile().implementation() != "rabbitmq"
+        || options.shared_target()?.fingerprint().as_str()
+            != options.operation.compatibility_fingerprint()
     {
         return Err("RabbitMQ restore execution options are incomplete or incompatible".to_owned());
     }
