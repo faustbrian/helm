@@ -53,6 +53,9 @@ impl GotenbergSharedInstancePlan {
             desired_revision: options.desired_revision,
             retention: RetentionClass::Disposable,
         })
+        .and_then(|metadata| {
+            metadata.with_compatibility_profile(profile.implementation(), profile.major_version())
+        })
         .map_err(|error| GotenbergPlanError::new(error.to_string()))?;
         let health_check = ContainerHealthCheck::new(
             vec![

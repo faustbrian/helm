@@ -85,7 +85,9 @@ impl RedisSharedInstancePlan {
             ResourceKind::SharedService,
             retention,
             fingerprint,
-        )?;
+        )?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| RedisPlanError::new(error.to_string()))?;
         let acl_mount = BindMount::read_only(acl_directory, ACL_MOUNT_TARGET)
             .map_err(|error| RedisPlanError::new(error.to_string()))?;
         let mut container = ContainerCreateOptions::new(

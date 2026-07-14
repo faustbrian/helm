@@ -5612,13 +5612,16 @@ fn discovery_scheduler_coalesces_editor_events_and_bounds_continuous_writes() {
     )
     .expect("scheduler options");
     let mut scheduler = DiscoveryScheduler::new(start, options);
+    assert!(scheduler.has_pending_change());
 
     assert_eq!(
         scheduler.take_due(start),
         Some(DiscoveryScanReason::Initial)
     );
+    assert!(!scheduler.has_pending_change());
 
     scheduler.record_filesystem_event(start + Duration::from_secs(1));
+    assert!(scheduler.has_pending_change());
     scheduler.record_filesystem_event(start + Duration::from_millis(1_100));
     assert_eq!(
         scheduler.next_deadline(),
@@ -5632,6 +5635,7 @@ fn discovery_scheduler_coalesces_editor_events_and_bounds_continuous_writes() {
         scheduler.take_due(start + Duration::from_millis(1_350)),
         Some(DiscoveryScanReason::FilesystemEvents)
     );
+    assert!(!scheduler.has_pending_change());
 
     scheduler.record_filesystem_event(start + Duration::from_secs(2));
     for offset in [400_u64, 800, 1_200, 1_600, 2_000, 2_400] {
@@ -5897,6 +5901,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     engine_schedule.observe(&applied).expect("resolve registry");
     assert!(engine_schedule.may_reconcile());
     assert!(engine_schedule.is_due());
+    assert!(!engine_schedule.is_converged());
     assert_eq!(
         engine_schedule
             .desired_registry()
@@ -5915,11 +5920,14 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
             .collect::<Vec<_>>(),
         vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
-    engine_schedule.complete();
+    engine_schedule.mark_converged();
     assert!(!engine_schedule.is_due());
+    assert!(engine_schedule.is_converged());
     engine_schedule.request();
     assert!(engine_schedule.is_due());
+    assert!(!engine_schedule.is_converged());
     engine_schedule.complete();
+    assert!(!engine_schedule.is_converged());
     assert_eq!(applied.report().sources().len(), 1);
     assert_eq!(
         applied
@@ -5945,6 +5953,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     engine_schedule.observe(&blocked).expect("block registry");
     assert!(!engine_schedule.may_reconcile());
     assert!(!engine_schedule.is_due());
+    assert!(!engine_schedule.is_converged());
     assert_eq!(
         engine_schedule
             .desired_registry()
@@ -6084,14 +6093,22 @@ fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
     let root = temporary_directory("ipc-benchmark-snapshot");
     let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
     let mut control_plane = ControlPlane::new(store);
-    let request = IpcRequest::new("benchmark-42", IpcPayload::BenchmarkSnapshot);
+    let request = IpcRequest::new(
+        "benchmark-42",
+        IpcPayload::BenchmarkSnapshot {
+            require_converged: true,
+        },
+    );
     let snapshot = IpcBenchmarkSnapshot::new(
         10_000,
-        0,
+        Vec::new(),
         vec![
             IpcBenchmarkContainerMetrics::new(IpcBenchmarkContainerMetricsOptions {
                 container_id: "container-gateway".to_owned(),
                 resource_kind: "gateway".to_owned(),
+                compatibility_fingerprint: "gateway-v1".to_owned(),
+                compatibility_implementation: None,
+                compatibility_major_version: None,
                 project_id: None,
                 resource_id: None,
                 cpu_usage_basis_points: 125,
@@ -6133,7 +6150,7 @@ fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
         response,
         IpcResponse::success("benchmark-42", IpcResult::BenchmarkSnapshot { snapshot })
     );
-    assert_eq!(provider.requests, vec![(0, 10_000)]);
+    assert_eq!(provider.requests, vec![(Vec::new(), 10_000, true)]);
     assert!(
         control_plane
             .resources()
@@ -6161,7 +6178,7 @@ fn benchmark_collection_samples_only_exact_current_installation_ownership() {
             &engine,
             "install-1",
             8,
-            40,
+            (0..40).map(|index| format!("project-{index}")).collect(),
             10_000,
         ))
         .expect("complete benchmark snapshot");
@@ -8549,17 +8566,18 @@ struct RecordingImageReferenceResolution {
 
 struct FixedBenchmarkSnapshotProvider {
     snapshot: IpcBenchmarkSnapshot,
-    requests: Vec<(usize, i64)>,
+    requests: Vec<(Vec<String>, i64, bool)>,
 }
 
 impl BenchmarkSnapshotProvider for FixedBenchmarkSnapshotProvider {
     fn snapshot(
         &mut self,
-        project_count: usize,
+        project_ids: Vec<String>,
         observed_at_unix_seconds: i64,
+        require_converged: bool,
     ) -> Result<IpcBenchmarkSnapshot, String> {
         self.requests
-            .push((project_count, observed_at_unix_seconds));
+            .push((project_ids, observed_at_unix_seconds, require_converged));
 
         Ok(self.snapshot.clone())
     }

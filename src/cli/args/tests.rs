@@ -109,6 +109,26 @@ fn global_v8_paths_and_behavior_flags_parse() {
 }
 
 #[test]
+fn benchmark_accepts_an_exact_expected_project_count() {
+    let cli = Cli::try_parse_from(["stackctl", "daemon", "benchmark", "--expect-projects", "40"]);
+
+    assert!(cli.is_ok());
+}
+
+#[test]
+fn benchmark_accepts_a_typed_evidence_scenario() {
+    let cli = Cli::try_parse_from([
+        "stackctl",
+        "daemon",
+        "benchmark",
+        "--evidence-scenario",
+        "v8-forty-split",
+    ]);
+
+    assert!(cli.is_ok());
+}
+
+#[test]
 fn strict_v8_configuration_and_lock_commands_are_explicit() {
     let schema = Cli::parse_from(["stackctl", "config", "schema"]);
     assert!(matches!(

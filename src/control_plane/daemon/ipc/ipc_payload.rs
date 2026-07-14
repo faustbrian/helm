@@ -13,7 +13,7 @@ pub(crate) enum IpcPayload {
     /// Requests one complete reconciliation of every authoritative watched root.
     Reconcile,
     /// Samples exact owned workload-plane resources without mutating them.
-    BenchmarkSnapshot,
+    BenchmarkSnapshot { require_converged: bool },
     /// Resolves exact mutable registry sources through the selected Engine.
     ResolveImageReferences {
         references: BTreeMap<String, String>,

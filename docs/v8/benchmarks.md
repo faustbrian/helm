@@ -67,6 +67,26 @@ STACKCTL_BENCHMARK_HOST_METRICS_FILE='external-host-metrics.txt' \
 ```
 
 `stackctl daemon benchmark` requests each sample from the authoritative daemon.
+The harness passes a typed evidence scenario into every request. Before
+emitting JSON, Stackctl verifies that the authoritative registered project-ID
+set exactly equals both application and worker ownership, the expected number
+of application fingerprints, the canonical worker resource identity, the exact
+shared-service implementation profile, PostgreSQL 17/18 major split, one
+gateway, and the exact total container count.
+The compatible and split forty-project fixtures therefore cannot be
+substituted for one another, and stale or partially reconciled fixtures cannot
+produce accepted evidence.
+
+`stackctl daemon benchmark --evidence-scenario <scenario>` performs the full
+topology check and requires the daemon to have completed a successful Engine
+reconciliation for the latest validated desired registry, with no pending
+filesystem change or Engine rescan. A blocked, failed, or pending convergence
+therefore cannot emit evidence. `--expect-projects <count>` remains available
+for narrower ad-hoc assertions, while omitting both options retains read-only
+inspection. Every sample is written to a same-directory temporary file and
+renamed only after validation and serialization succeed, so a failed sample
+never appears at its final evidence path.
+
 The daemon discovers current managed containers through the typed Engine API,
 proves current-installation ownership, samples normalized CPU, memory, process,
 and network counters, and includes only published ports belonging to those exact

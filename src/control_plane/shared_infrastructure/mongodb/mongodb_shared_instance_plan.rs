@@ -191,7 +191,9 @@ fn materialize(
     })?;
     let secret_mount = BindMount::read_only(secret_file, BOOTSTRAP_SECRET_TARGET)
         .map_err(|error| MongoDbPlanError::new(error.to_string()))?;
-    let container_metadata = metadata(&options, options.kind, retention, fingerprint)?;
+    let container_metadata = metadata(&options, options.kind, retention, fingerprint)?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| MongoDbPlanError::new(error.to_string()))?;
     let mut container = ContainerCreateOptions::new(
         &options.container_name,
         profile.image_digest(),

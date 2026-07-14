@@ -75,7 +75,9 @@ impl MailpitSharedInstancePlan {
             retention,
             fingerprint,
             &effective_revision,
-        )?;
+        )?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| MailpitPlanError::new(error.to_string()))?;
         let authentication_mount =
             BindMount::read_only(authentication_directory, AUTHENTICATION_MOUNT_TARGET)
                 .map_err(|error| MailpitPlanError::new(error.to_string()))?;

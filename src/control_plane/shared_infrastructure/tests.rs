@@ -4659,6 +4659,14 @@ fn postgres_migration_target_is_separate_owned_and_retained() {
         plan.container().metadata().labels(),
         BTreeMap::from([
             (
+                "dev.stackctl.compatibility.implementation".to_owned(),
+                "postgresql".to_owned(),
+            ),
+            (
+                "dev.stackctl.compatibility.major-version".to_owned(),
+                "17".to_owned(),
+            ),
+            (
                 "dev.stackctl.desired".to_owned(),
                 "sha256:restore-v1".to_owned()
             ),

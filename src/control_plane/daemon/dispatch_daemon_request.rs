@@ -122,9 +122,12 @@ where
                 }
             }
         }
-        IpcPayload::BenchmarkSnapshot => {
-            let project_count = match control_plane.projects() {
-                Ok(projects) => projects.len(),
+        IpcPayload::BenchmarkSnapshot { require_converged } => {
+            let project_ids = match control_plane.projects() {
+                Ok(projects) => projects
+                    .into_iter()
+                    .map(|project| project.project_name().to_owned())
+                    .collect(),
                 Err(error) => {
                     return IpcResponse::failure(
                         request.request_id(),
@@ -137,20 +140,22 @@ where
                 }
             };
             match benchmark_snapshot {
-                Some(provider) => match provider.snapshot(project_count, now_unix_seconds) {
-                    Ok(snapshot) => IpcResponse::success(
-                        request.request_id(),
-                        IpcResult::BenchmarkSnapshot { snapshot },
-                    ),
-                    Err(message) => IpcResponse::failure(
-                        request.request_id(),
-                        vec![IpcDiagnostic::new(
-                            "benchmark_snapshot_failed",
-                            message,
-                            true,
-                        )],
-                    ),
-                },
+                Some(provider) => {
+                    match provider.snapshot(project_ids, now_unix_seconds, *require_converged) {
+                        Ok(snapshot) => IpcResponse::success(
+                            request.request_id(),
+                            IpcResult::BenchmarkSnapshot { snapshot },
+                        ),
+                        Err(message) => IpcResponse::failure(
+                            request.request_id(),
+                            vec![IpcDiagnostic::new(
+                                "benchmark_snapshot_failed",
+                                message,
+                                true,
+                            )],
+                        ),
+                    }
+                }
                 None => IpcResponse::failure(
                     request.request_id(),
                     vec![IpcDiagnostic::new(

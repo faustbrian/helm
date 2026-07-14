@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct IpcBenchmarkContainerMetrics {
     container_id: String,
     resource_kind: String,
+    compatibility_fingerprint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compatibility_implementation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compatibility_major_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     project_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -24,6 +29,9 @@ impl IpcBenchmarkContainerMetrics {
         let IpcBenchmarkContainerMetricsOptions {
             container_id,
             resource_kind,
+            compatibility_fingerprint,
+            compatibility_implementation,
+            compatibility_major_version,
             project_id,
             resource_id,
             cpu_usage_basis_points,
@@ -34,13 +42,25 @@ impl IpcBenchmarkContainerMetrics {
             published_tcp_ports,
         } = options;
 
-        if container_id.is_empty() || resource_kind.is_empty() {
+        if container_id.is_empty()
+            || resource_kind.is_empty()
+            || compatibility_fingerprint.is_empty()
+        {
             return Err("benchmark container identity must not be empty".to_owned());
+        }
+        if compatibility_implementation.is_some() != compatibility_major_version.is_some() {
+            return Err(
+                "benchmark compatibility implementation and major version must be paired"
+                    .to_owned(),
+            );
         }
 
         Ok(Self {
             container_id,
             resource_kind,
+            compatibility_fingerprint,
+            compatibility_implementation,
+            compatibility_major_version,
             project_id,
             resource_id,
             cpu_usage_basis_points,
@@ -58,6 +78,18 @@ impl IpcBenchmarkContainerMetrics {
 
     pub(crate) fn resource_kind(&self) -> &str {
         &self.resource_kind
+    }
+
+    pub(crate) fn compatibility_fingerprint(&self) -> &str {
+        &self.compatibility_fingerprint
+    }
+
+    pub(crate) fn compatibility_implementation(&self) -> Option<&str> {
+        self.compatibility_implementation.as_deref()
+    }
+
+    pub(crate) fn compatibility_major_version(&self) -> Option<&str> {
+        self.compatibility_major_version.as_deref()
     }
 
     pub(crate) fn project_id(&self) -> Option<&str> {

@@ -13,7 +13,7 @@ pub(crate) async fn collect_benchmark_snapshot<E>(
     engine: &E,
     installation_id: &str,
     schema_version: u32,
-    project_count: usize,
+    project_ids: Vec<String>,
     observed_at_unix_seconds: i64,
 ) -> Result<IpcBenchmarkSnapshot, String>
 where
@@ -64,6 +64,15 @@ where
             IpcBenchmarkContainerMetricsOptions {
                 container_id: owned.id().as_str().to_owned(),
                 resource_kind: owned.metadata().kind().label().to_owned(),
+                compatibility_fingerprint: owned.metadata().compatibility_fingerprint().to_owned(),
+                compatibility_implementation: owned
+                    .metadata()
+                    .compatibility_implementation()
+                    .map(str::to_owned),
+                compatibility_major_version: owned
+                    .metadata()
+                    .compatibility_major_version()
+                    .map(str::to_owned),
                 project_id: owned.metadata().project_id().map(str::to_owned),
                 resource_id: owned.metadata().resource_id().map(str::to_owned),
                 cpu_usage_basis_points: required_metric(
@@ -96,7 +105,7 @@ where
         )?);
     }
 
-    IpcBenchmarkSnapshot::new(observed_at_unix_seconds, project_count, containers)
+    IpcBenchmarkSnapshot::new(observed_at_unix_seconds, project_ids, containers)
 }
 
 fn required_metric(name: &str, container_id: &str, value: Option<u64>) -> Result<u64, String> {

@@ -5,6 +5,8 @@
 mod adopt;
 mod backup;
 mod backups;
+mod benchmark;
+mod benchmark_evidence_scenario;
 mod migration;
 mod prune;
 mod restore;
@@ -17,6 +19,8 @@ use std::path::PathBuf;
 pub(crate) use adopt::DaemonAdoptArgs;
 pub(crate) use backup::DaemonBackupArgs;
 pub(crate) use backups::DaemonBackupsArgs;
+pub(crate) use benchmark::DaemonBenchmarkArgs;
+pub(crate) use benchmark_evidence_scenario::BenchmarkEvidenceScenario;
 pub(crate) use migration::{
     DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
     DaemonMigrationStatusArgs,
@@ -48,7 +52,7 @@ pub(crate) enum DaemonCommands {
     /// Request one immediate complete watched-root reconciliation
     Reconcile,
     /// Emit one read-only JSON snapshot of owned Engine resource usage
-    Benchmark,
+    Benchmark(DaemonBenchmarkArgs),
     /// Explicitly reactivate the exact retained state for one project
     Adopt(DaemonAdoptArgs),
     /// Create a verified recovery point for one project data service

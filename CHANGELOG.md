@@ -6,6 +6,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made benchmark scenario identity fail closed by verifying complete
+  registered project ownership against per-project apps and canonical workers,
+  application fingerprints, shared-service implementations and major versions,
+  the singleton gateway, and exact container totals before atomically
+  publishing each sample. Compatible, split, stale, partial, substituted, and
+  failed records can no longer be silently mislabeled or left as truncated
+  evidence. Evidence mode additionally requires a successful Engine
+  reconciliation for the current desired registry with no pending discovery or
+  observed-state pass.
 - Made the declared Cargo lint policy executable across production and test
   targets. Removed every enforced `expect()` path from v8 production code,
   propagated invalid plans, preserved FIFO work on durable-claim failures, and

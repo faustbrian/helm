@@ -40,7 +40,9 @@ readonly INTERVAL_SECONDS="${4:-5}"
 readonly STACKCTL_BIN="${STACKCTL_BIN:-target/release/stackctl}"
 
 case "$SCENARIO" in
-  v8-one|v8-forty-compatible|v8-forty-split) ;;
+  v8-one|v8-forty-compatible|v8-forty-split)
+    readonly EVIDENCE_SCENARIO="$SCENARIO"
+    ;;
   *)
     printf 'unsupported benchmark scenario: %s\n' "$SCENARIO" >&2
     usage >&2
@@ -107,7 +109,13 @@ cp "$STACKCTL_BENCHMARK_HOST_METRICS_FILE" "$OUTPUT_DIRECTORY/host-metrics.txt"
 
 for ((sample = 1; sample <= SAMPLE_COUNT; sample++)); do
   file="$(printf '%s/samples/%03d.json' "$OUTPUT_DIRECTORY" "$sample")"
-  "$STACKCTL_BIN" daemon benchmark > "$file"
+  temporary="${file}.tmp"
+  if ! "$STACKCTL_BIN" daemon benchmark \
+    --evidence-scenario "$EVIDENCE_SCENARIO" > "$temporary"; then
+    rm -f "$temporary"
+    exit 1
+  fi
+  mv "$temporary" "$file"
   if (( sample < SAMPLE_COUNT )); then
     sleep "$INTERVAL_SECONDS"
   fi

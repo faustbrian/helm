@@ -12,12 +12,12 @@ pub(crate) use app::{
     ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs, OpenArgs, PhpToolArgs,
 };
 pub(crate) use daemon::{
-    DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
-    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
-    DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs,
-    DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands,
-    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
-    DaemonTrustCommands, DaemonWatchArgs,
+    BenchmarkEvidenceScenario, DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs,
+    DaemonBenchmarkArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,
+    DaemonMigrationDecisionArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
+    DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs,
+    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+    DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
 };
 pub(crate) use lifecycle::UrlArgs;
 pub(crate) use meta::{CompletionsArgs, ConfigArgs, LockArgs};

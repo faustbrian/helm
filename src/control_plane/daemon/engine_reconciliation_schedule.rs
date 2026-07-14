@@ -7,6 +7,7 @@ use crate::control_plane::{ExecutionPlan, ServiceStrategyError, resolve_executio
 pub(crate) struct EngineReconciliationSchedule {
     permitted: bool,
     due: bool,
+    converged: bool,
     desired_registry: Option<DesiredRegistry>,
     execution_plan: Option<ExecutionPlan>,
 }
@@ -17,15 +18,15 @@ impl EngineReconciliationSchedule {
         &mut self,
         reconciliation: &DiscoveryReconciliationResult,
     ) -> Result<(), ServiceStrategyError> {
+        self.permitted = false;
+        self.due = false;
+        self.converged = false;
         if let Some(registry) = reconciliation.registry() {
             let execution_plan = resolve_execution_plan(registry)?;
             self.desired_registry = Some(registry.clone());
             self.execution_plan = Some(execution_plan);
             self.permitted = true;
             self.due = true;
-        } else {
-            self.permitted = false;
-            self.due = false;
         }
 
         Ok(())
@@ -43,6 +44,7 @@ impl EngineReconciliationSchedule {
     pub(crate) fn request(&mut self) {
         if self.permitted {
             self.due = true;
+            self.converged = false;
         }
     }
 
@@ -58,5 +60,16 @@ impl EngineReconciliationSchedule {
     /// Records successful convergence or a durable non-Engine conflict.
     pub(crate) fn complete(&mut self) {
         self.due = false;
+        self.converged = false;
+    }
+
+    /// Records that the current desired execution plan fully converged.
+    pub(crate) fn mark_converged(&mut self) {
+        self.due = false;
+        self.converged = true;
+    }
+
+    pub(crate) const fn is_converged(&self) -> bool {
+        self.converged
     }
 }

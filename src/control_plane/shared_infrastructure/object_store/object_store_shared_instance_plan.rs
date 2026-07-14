@@ -107,7 +107,9 @@ impl ObjectStoreSharedInstancePlan {
             ResourceKind::SharedService,
             retention,
             fingerprint,
-        )?;
+        )?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| ObjectStorePlanError::new(error.to_string()))?;
         let policy_mount = BindMount::read_only(policy_directory, POLICY_MOUNT_TARGET)
             .map_err(|error| ObjectStorePlanError::new(error.to_string()))?;
         let mut container = ContainerCreateOptions::new(

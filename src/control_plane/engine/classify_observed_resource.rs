@@ -1,5 +1,6 @@
 use super::managed_resource_metadata::{
-    DESIRED_LABEL, FINGERPRINT_LABEL, INSTALLATION_LABEL, KIND_LABEL, MANAGED_LABEL, PROJECT_LABEL,
+    COMPATIBILITY_IMPLEMENTATION_LABEL, COMPATIBILITY_MAJOR_VERSION_LABEL, DESIRED_LABEL,
+    FINGERPRINT_LABEL, INSTALLATION_LABEL, KIND_LABEL, MANAGED_LABEL, PROJECT_LABEL,
     RESOURCE_LABEL, RETENTION_LABEL, SCHEMA_LABEL,
 };
 use super::{
@@ -75,6 +76,24 @@ pub(crate) fn classify_observed_resource(
         }
         None => None,
     };
+    let compatibility_profile = match (
+        labels.get(COMPATIBILITY_IMPLEMENTATION_LABEL),
+        labels.get(COMPATIBILITY_MAJOR_VERSION_LABEL),
+    ) {
+        (Some(implementation), Some(major_version))
+            if !implementation.is_empty() && !major_version.is_empty() =>
+        {
+            Some((implementation.clone(), major_version.clone()))
+        }
+        (None, None) => None,
+        _ => {
+            return ObservedResourceOwnership::Malformed {
+                detail:
+                    "managed compatibility implementation and major-version labels must be paired"
+                        .to_owned(),
+            };
+        }
+    };
 
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: installation_id.to_owned(),
@@ -84,6 +103,12 @@ pub(crate) fn classify_observed_resource(
         schema_version,
         desired_revision,
         retention,
+    })
+    .and_then(|metadata| match compatibility_profile {
+        Some((implementation, major_version)) => {
+            metadata.with_compatibility_profile(implementation, major_version)
+        }
+        None => Ok(metadata),
     })
     .and_then(|metadata| match resource_id {
         Some(resource_id) => metadata.with_resource_id(resource_id),

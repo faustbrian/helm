@@ -4,6 +4,9 @@ use super::IpcBenchmarkTcpPort;
 pub(crate) struct IpcBenchmarkContainerMetricsOptions {
     pub(crate) container_id: String,
     pub(crate) resource_kind: String,
+    pub(crate) compatibility_fingerprint: String,
+    pub(crate) compatibility_implementation: Option<String>,
+    pub(crate) compatibility_major_version: Option<String>,
     pub(crate) project_id: Option<String>,
     pub(crate) resource_id: Option<String>,
     pub(crate) cpu_usage_basis_points: u64,

@@ -202,7 +202,7 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 pub(crate) use invalidate_engine_connection::invalidate_engine_connection;
 #[cfg(unix)]
 pub(crate) use ipc::{
-    IpcDataLifecycle, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind,
+    IpcBenchmarkSnapshot, IpcDataLifecycle, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind,
     IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState,
     IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager, IpcOutcome,
     IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest,

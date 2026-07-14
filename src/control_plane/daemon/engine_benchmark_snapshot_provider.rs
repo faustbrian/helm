@@ -9,6 +9,7 @@ pub(crate) struct EngineBenchmarkSnapshotProvider<'runtime> {
     engine: BollardEngineAdapter,
     installation_id: String,
     schema_version: u32,
+    convergence_proven: bool,
 }
 
 impl<'runtime> EngineBenchmarkSnapshotProvider<'runtime> {
@@ -17,12 +18,14 @@ impl<'runtime> EngineBenchmarkSnapshotProvider<'runtime> {
         engine: BollardEngineAdapter,
         installation_id: String,
         schema_version: u32,
+        convergence_proven: bool,
     ) -> Self {
         Self {
             runtime,
             engine,
             installation_id,
             schema_version,
+            convergence_proven,
         }
     }
 }
@@ -30,15 +33,45 @@ impl<'runtime> EngineBenchmarkSnapshotProvider<'runtime> {
 impl BenchmarkSnapshotProvider for EngineBenchmarkSnapshotProvider<'_> {
     fn snapshot(
         &mut self,
-        project_count: usize,
+        project_ids: Vec<String>,
         observed_at_unix_seconds: i64,
+        require_converged: bool,
     ) -> Result<IpcBenchmarkSnapshot, String> {
+        validate_convergence(require_converged, self.convergence_proven)?;
         self.runtime.block_on(collect_benchmark_snapshot(
             &self.engine,
             &self.installation_id,
             self.schema_version,
-            project_count,
+            project_ids,
             observed_at_unix_seconds,
         ))
+    }
+}
+
+fn validate_convergence(require_converged: bool, convergence_proven: bool) -> Result<(), String> {
+    if require_converged && !convergence_proven {
+        return Err(
+            "benchmark evidence requires a successful current Engine reconciliation".to_owned(),
+        );
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_convergence;
+
+    #[test]
+    fn evidence_fails_closed_without_current_engine_convergence() {
+        let error = validate_convergence(true, false)
+            .expect_err("stale desired state must block benchmark evidence");
+
+        assert_eq!(
+            error,
+            "benchmark evidence requires a successful current Engine reconciliation"
+        );
+        assert!(validate_convergence(false, false).is_ok());
+        assert!(validate_convergence(true, true).is_ok());
     }
 }

@@ -26,14 +26,22 @@ fn request_frames_round_trip_with_version_id_and_typed_payload() {
 
 #[test]
 fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
-    let request = IpcRequest::new("benchmark-42", IpcPayload::BenchmarkSnapshot);
+    let request = IpcRequest::new(
+        "benchmark-42",
+        IpcPayload::BenchmarkSnapshot {
+            require_converged: true,
+        },
+    );
     let snapshot = IpcBenchmarkSnapshot::new(
         10_000,
-        40,
+        (0..40).map(|index| format!("project-{index}")).collect(),
         vec![
             IpcBenchmarkContainerMetrics::new(IpcBenchmarkContainerMetricsOptions {
                 container_id: "gateway-container".to_owned(),
                 resource_kind: "gateway".to_owned(),
+                compatibility_fingerprint: "gateway-v1".to_owned(),
+                compatibility_implementation: None,
+                compatibility_major_version: None,
                 project_id: None,
                 resource_id: None,
                 cpu_usage_basis_points: 125,
@@ -68,6 +76,7 @@ fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
     );
     let json = serde_json::to_string(&snapshot).expect("benchmark JSON");
     assert!(json.contains("\"memory_usage_bytes\":67108864"));
+    assert!(json.contains("\"compatibility_fingerprint\":\"gateway-v1\""));
     assert!(!json.contains("null"));
 }
 

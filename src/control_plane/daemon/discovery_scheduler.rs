@@ -34,6 +34,10 @@ impl DiscoveryScheduler {
             .unwrap_or(self.periodic_deadline)
     }
 
+    pub(crate) const fn has_pending_change(&self) -> bool {
+        self.initial_deadline.is_some() || self.first_pending_event.is_some()
+    }
+
     pub(crate) fn take_due(&mut self, now: Instant) -> Option<DiscoveryScanReason> {
         if self
             .initial_deadline

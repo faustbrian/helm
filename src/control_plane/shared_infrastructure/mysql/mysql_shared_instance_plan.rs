@@ -175,7 +175,9 @@ fn materialize(
     let platform = profile.platform_architecture().ok_or_else(|| {
         MySqlPlanError::new("MySQL-family compatibility profile has no Linux platform")
     })?;
-    let container_metadata = metadata(&options, options.kind, retention, fingerprint)?;
+    let container_metadata = metadata(&options, options.kind, retention, fingerprint)?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| MySqlPlanError::new(error.to_string()))?;
     let mut container = ContainerCreateOptions::new(
         &options.container_name,
         profile.image_digest(),

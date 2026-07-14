@@ -53,11 +53,20 @@ fn managed_metadata_generates_complete_reserved_ownership_labels() {
         desired_revision: "sha256:def456".to_owned(),
         retention: RetentionClass::Persistent,
     })
+    .and_then(|metadata| metadata.with_compatibility_profile("postgresql", "17"))
     .expect("valid managed metadata");
 
     assert_eq!(
         metadata.labels(),
         BTreeMap::from([
+            (
+                "dev.stackctl.compatibility.implementation".to_owned(),
+                "postgresql".to_owned()
+            ),
+            (
+                "dev.stackctl.compatibility.major-version".to_owned(),
+                "17".to_owned()
+            ),
             (
                 "dev.stackctl.fingerprint".to_owned(),
                 "sha256:abc123".to_owned()
@@ -1416,7 +1425,9 @@ fn empty_desired_revision_is_rejected_before_resource_creation() {
 
 #[test]
 fn complete_current_installation_labels_reconstruct_owned_metadata() {
-    let metadata = project_metadata(ResourceKind::ProjectApplication);
+    let metadata = project_metadata(ResourceKind::ProjectApplication)
+        .with_compatibility_profile("php", "8.4")
+        .expect("compatibility profile");
 
     let ownership = classify_observed_resource(&metadata.labels(), "install-1", 8);
 

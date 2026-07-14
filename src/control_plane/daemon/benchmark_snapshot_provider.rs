@@ -4,7 +4,8 @@ use super::ipc::IpcBenchmarkSnapshot;
 pub(crate) trait BenchmarkSnapshotProvider {
     fn snapshot(
         &mut self,
-        project_count: usize,
+        project_ids: Vec<String>,
         observed_at_unix_seconds: i64,
+        require_converged: bool,
     ) -> Result<IpcBenchmarkSnapshot, String>;
 }

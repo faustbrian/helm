@@ -202,6 +202,9 @@ impl UnixDaemonRuntime {
                     .installation_id()
                     .to_owned(),
                 self.global_network_request.metadata().schema_version(),
+                self.engine_reconciliation.is_converged()
+                    && !self.scheduler.has_pending_change()
+                    && reconciliation.is_none(),
             )
         });
         let request = self.listener.try_serve_next(|request| {
@@ -1159,7 +1162,7 @@ impl UnixDaemonRuntime {
                     return;
                 }
                 self.resource_health = health_snapshot;
-                self.engine_reconciliation.complete();
+                self.engine_reconciliation.mark_converged();
                 tracing::debug!(
                     action = ?gateway.gateway_action(),
                     health = ?gateway.health(),

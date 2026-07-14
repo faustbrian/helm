@@ -7,6 +7,10 @@ pub(super) const KIND_LABEL: &str = "dev.stackctl.kind";
 pub(super) const PROJECT_LABEL: &str = "dev.stackctl.project";
 pub(super) const RESOURCE_LABEL: &str = "dev.stackctl.resource";
 pub(super) const FINGERPRINT_LABEL: &str = "dev.stackctl.fingerprint";
+pub(super) const COMPATIBILITY_IMPLEMENTATION_LABEL: &str =
+    "dev.stackctl.compatibility.implementation";
+pub(super) const COMPATIBILITY_MAJOR_VERSION_LABEL: &str =
+    "dev.stackctl.compatibility.major-version";
 pub(super) const SCHEMA_LABEL: &str = "dev.stackctl.schema";
 pub(super) const DESIRED_LABEL: &str = "dev.stackctl.desired";
 pub(super) const RETENTION_LABEL: &str = "dev.stackctl.retention";
@@ -19,6 +23,8 @@ pub(crate) struct ManagedResourceMetadata {
     project_id: Option<String>,
     resource_id: Option<String>,
     compatibility_fingerprint: String,
+    compatibility_implementation: Option<String>,
+    compatibility_major_version: Option<String>,
     schema_version: u32,
     desired_revision: String,
     retention: RetentionClass,
@@ -63,10 +69,32 @@ impl ManagedResourceMetadata {
             project_id: options.project_id,
             resource_id: None,
             compatibility_fingerprint: options.compatibility_fingerprint,
+            compatibility_implementation: None,
+            compatibility_major_version: None,
             schema_version: options.schema_version,
             desired_revision: options.desired_revision,
             retention: options.retention,
         })
+    }
+
+    /// Adds the stable human-readable identity behind a compatibility hash.
+    pub(crate) fn with_compatibility_profile(
+        mut self,
+        implementation: impl Into<String>,
+        major_version: impl Into<String>,
+    ) -> Result<Self, EngineError> {
+        let implementation = implementation.into();
+        let major_version = major_version.into();
+        if implementation.is_empty() || major_version.is_empty() {
+            return Err(EngineError::InvalidRequest {
+                detail: "managed compatibility implementation and major version must not be empty"
+                    .to_owned(),
+            });
+        }
+        self.compatibility_implementation = Some(implementation);
+        self.compatibility_major_version = Some(major_version);
+
+        Ok(self)
     }
 
     /// Adds a stable identity for repeated resources of the same kind.
@@ -112,6 +140,19 @@ impl ManagedResourceMetadata {
         if let Some(resource_id) = &self.resource_id {
             labels.insert(RESOURCE_LABEL.to_owned(), resource_id.clone());
         }
+        if let (Some(implementation), Some(major_version)) = (
+            &self.compatibility_implementation,
+            &self.compatibility_major_version,
+        ) {
+            labels.insert(
+                COMPATIBILITY_IMPLEMENTATION_LABEL.to_owned(),
+                implementation.clone(),
+            );
+            labels.insert(
+                COMPATIBILITY_MAJOR_VERSION_LABEL.to_owned(),
+                major_version.clone(),
+            );
+        }
 
         labels
     }
@@ -138,6 +179,14 @@ impl ManagedResourceMetadata {
 
     pub(crate) fn compatibility_fingerprint(&self) -> &str {
         &self.compatibility_fingerprint
+    }
+
+    pub(crate) fn compatibility_implementation(&self) -> Option<&str> {
+        self.compatibility_implementation.as_deref()
+    }
+
+    pub(crate) fn compatibility_major_version(&self) -> Option<&str> {
+        self.compatibility_major_version.as_deref()
     }
 
     pub(crate) fn desired_revision(&self) -> &str {

@@ -17,12 +17,12 @@ pub(crate) use commands::LogsArgs;
 pub(crate) use commands::OpenArgs;
 pub(crate) use commands::PhpToolArgs;
 pub(crate) use commands::{
-    DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
-    DaemonMigrationArgs, DaemonMigrationCommands, DaemonMigrationDecisionArgs,
-    DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs,
-    DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs, DaemonServiceCommands,
-    DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
-    DaemonTrustCommands, DaemonWatchArgs,
+    BenchmarkEvidenceScenario, DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs,
+    DaemonBenchmarkArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,
+    DaemonMigrationDecisionArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
+    DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs,
+    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+    DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;

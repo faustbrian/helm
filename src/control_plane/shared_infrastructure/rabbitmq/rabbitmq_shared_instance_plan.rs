@@ -66,7 +66,9 @@ impl RabbitMqSharedInstancePlan {
             ResourceKind::SharedService,
             retention,
             fingerprint,
-        )?;
+        )?
+        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
         let config_mount = BindMount::read_only(definitions_directory, CONFIG_MOUNT_TARGET)
             .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
         let mut container = ContainerCreateOptions::new(
