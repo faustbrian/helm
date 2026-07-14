@@ -1,8 +1,11 @@
 //! User-service definitions for login-time daemon watch startup.
 
 mod launchd;
+mod service_install_snapshot;
 mod store_definition;
 mod systemd;
+
+use service_install_snapshot::ServiceInstallSnapshot;
 
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -21,6 +24,7 @@ thread_local! {
     static TEST_SERVICE_BINARY: RefCell<Option<String>> = const { RefCell::new(None) };
     static TEST_SERVICE_MANAGER: RefCell<Option<ServiceManager>> = const { RefCell::new(None) };
     static TEST_SERVICE_COMMANDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static TEST_SERVICE_COMMAND_FAILURE: RefCell<Option<String>> = const { RefCell::new(None) };
     static TEST_SERVICE_RUNNING: RefCell<Option<bool>> = const { RefCell::new(None) };
 }
 
@@ -61,19 +65,17 @@ pub(crate) fn install_service(
         fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
+    let was_running =
+        definition.path.exists() && service_is_running(definition.manager, &definition.label)?;
+    let snapshot = ServiceInstallSnapshot::capture(&definition.path, was_running)?;
     store_definition::store_definition(&definition.path, &definition.contents)?;
 
-    match definition.manager {
-        ServiceManager::Launchd => install_launchd(&definition)?,
-        ServiceManager::SystemdUser => install_systemd(&definition)?,
-    }
-    set_test_service_running_state(true);
-    if !service_is_running(definition.manager, &definition.label)? {
-        bail!(
-            "{} accepted the Stackctl service definition but did not keep '{}' running",
-            manager_name(definition.manager),
-            definition.label
-        );
+    if let Err(error) = activate_service(&definition) {
+        if let Err(rollback) = rollback_service_install(&definition, snapshot) {
+            bail!("service activation failed: {error}; rollback failed: {rollback}");
+        }
+
+        return Err(error);
     }
 
     Ok(DaemonServiceStatus {
@@ -83,6 +85,39 @@ pub(crate) fn install_service(
         installed: true,
         running: true,
     })
+}
+
+fn activate_service(definition: &DaemonServiceDefinition) -> Result<()> {
+    match definition.manager {
+        ServiceManager::Launchd => install_launchd(definition)?,
+        ServiceManager::SystemdUser => install_systemd(definition)?,
+    }
+    set_test_service_running_state(true);
+    if service_is_running(definition.manager, &definition.label)? {
+        return Ok(());
+    }
+
+    bail!(
+        "{} accepted the Stackctl service definition but did not keep '{}' running",
+        manager_name(definition.manager),
+        definition.label
+    )
+}
+
+fn rollback_service_install(
+    definition: &DaemonServiceDefinition,
+    snapshot: ServiceInstallSnapshot,
+) -> Result<()> {
+    let was_running = snapshot.was_running();
+    snapshot.restore(&definition.path)?;
+    if was_running {
+        activate_service(definition)
+    } else {
+        match definition.manager {
+            ServiceManager::Launchd => uninstall_launchd(&definition.path),
+            ServiceManager::SystemdUser => uninstall_systemd(&definition.path),
+        }
+    }
 }
 
 pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
@@ -283,7 +318,17 @@ fn uninstall_systemd(path: &Path) -> Result<()> {
 fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()> {
     #[cfg(test)]
     if test_mode_enabled() {
-        record_test_command(program, args);
+        let rendered = record_test_command(program, args);
+        let should_fail = TEST_SERVICE_COMMAND_FAILURE.with(|failure| {
+            if failure.borrow().as_deref() != Some(rendered.as_str()) {
+                return false;
+            }
+            failure.borrow_mut().take();
+            true
+        });
+        if should_fail {
+            bail!("test service command failed: {rendered}");
+        }
         return Ok(());
     }
 
@@ -313,14 +358,15 @@ fn run_status(program: &str, args: &[String]) -> Result<bool> {
 }
 
 #[cfg(test)]
-fn record_test_command(program: &str, args: &[String]) {
+fn record_test_command(program: &str, args: &[String]) -> String {
+    let rendered = std::iter::once(program.to_owned())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
     TEST_SERVICE_COMMANDS.with(|commands| {
-        let rendered = std::iter::once(program.to_owned())
-            .chain(args.iter().cloned())
-            .collect::<Vec<_>>()
-            .join(" ");
-        commands.borrow_mut().push(rendered);
+        commands.borrow_mut().push(rendered.clone());
     });
+    rendered
 }
 
 #[cfg(not(test))]
@@ -411,6 +457,7 @@ pub(crate) fn set_test_service_home(home: &str) {
 pub(crate) fn clear_test_service_home() {
     TEST_SERVICE_HOME.with(|value| *value.borrow_mut() = None);
     TEST_SERVICE_RUNNING.with(|value| *value.borrow_mut() = None);
+    TEST_SERVICE_COMMAND_FAILURE.with(|value| *value.borrow_mut() = None);
 }
 
 #[cfg(test)]
@@ -448,6 +495,13 @@ pub(crate) fn set_test_service_running(running: bool) {
     set_test_service_running_state(running);
 }
 
+#[cfg(test)]
+pub(crate) fn set_test_service_command_failure(command: &str) {
+    TEST_SERVICE_COMMAND_FAILURE.with(|failure| {
+        *failure.borrow_mut() = Some(command.to_owned());
+    });
+}
+
 struct ServiceContext {
     binary: String,
     args: Vec<String>,
@@ -461,8 +515,9 @@ mod tests {
         DaemonServiceInstallOptions, ServiceManager, clear_test_service_binary,
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
         format_launchd_domain, install_service, print_service, service_status,
-        set_test_service_binary, set_test_service_home, set_test_service_manager,
-        set_test_service_running, take_test_service_commands, uninstall_service,
+        set_test_service_binary, set_test_service_command_failure, set_test_service_home,
+        set_test_service_manager, set_test_service_running, take_test_service_commands,
+        uninstall_service,
     };
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -670,6 +725,72 @@ mod tests {
         assert_eq!(
             take_test_service_commands(),
             ["systemctl --user is-active --quiet stackctl-daemon-watch.service"]
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_fresh_install_removes_its_definition_and_partial_manager_state() {
+        let home = temp_home("fresh-install-rollback");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        set_test_service_command_failure(
+            "systemctl --user enable --now stackctl-daemon-watch.service",
+        );
+        let definition = print_service(&service_options()).expect("service definition");
+
+        let error = install_service(&service_options()).expect_err("failed activation");
+
+        assert!(error.to_string().contains("enable --now"));
+        assert!(!definition.path.exists());
+        assert!(take_test_service_commands().iter().any(|command| {
+            command == "systemctl --user disable --now stackctl-daemon-watch.service"
+        }));
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn failed_update_restores_and_restarts_the_previous_service_definition() {
+        let home = temp_home("update-install-rollback");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, "previous service definition\n")
+            .expect("write previous definition");
+        set_test_service_running(true);
+        set_test_service_command_failure(
+            "systemctl --user enable --now stackctl-daemon-watch.service",
+        );
+
+        let error = install_service(&service_options()).expect_err("failed update");
+
+        assert!(error.to_string().contains("enable --now"));
+        assert_eq!(
+            fs::read_to_string(&definition.path).expect("restored definition"),
+            "previous service definition\n"
+        );
+        let commands = take_test_service_commands();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| {
+                    command.as_str()
+                        == "systemctl --user enable --now stackctl-daemon-watch.service"
+                })
+                .count(),
+            2
         );
 
         clear_test_service_binary();

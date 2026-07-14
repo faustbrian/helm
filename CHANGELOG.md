@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made login-service installation transactional across its atomically written
+  host definition and launchd/systemd activation. A failed fresh install now
+  removes partial manager state and its definition; a failed update restores
+  and restarts the exact prior definition, with rollback failures reported
+  alongside the original activation error.
 - Made login-service status query launchd or systemd instead of treating a
   leftover definition file as proof that the singleton daemon is running.
   Status now reports installed-but-stopped services explicitly and gives the

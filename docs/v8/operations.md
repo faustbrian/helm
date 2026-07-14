@@ -140,6 +140,13 @@ addition to the definition file. A stale launchd plist or systemd user unit is
 reported as installed but not running, with an explicit reinstall command; it
 is never presented as a healthy login-time daemon.
 
+Service installation snapshots an existing regular definition before atomic
+replacement. If manager activation or the immediate running-state check fails,
+a fresh install removes its partial definition and manager state. An update
+restores and reactivates the exact previous definition when it had been
+running. Failure to complete that rollback is reported together with the
+original activation error instead of leaving an apparently successful setup.
+
 ## Retention, backup, and deletion
 
 Removing or invalidating config follows:
