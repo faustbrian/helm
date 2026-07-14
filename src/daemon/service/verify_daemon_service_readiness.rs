@@ -12,28 +12,31 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Verifies that the activated singleton accepts the current IPC protocol.
 pub(super) fn verify() -> Result<()> {
+    wait_for_readiness(READINESS_TIMEOUT, POLL_INTERVAL, probe)
+}
+
+/// Performs one bounded correlated readiness probe without retrying.
+pub(super) fn probe() -> Result<()> {
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
-    wait_for_readiness(READINESS_TIMEOUT, POLL_INTERVAL, || {
-        let request_id = format!(
-            "service-readiness-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or_default()
-        );
-        let response = send_unix_request(
-            &socket_path,
-            &IpcRequest::new(request_id, IpcPayload::Ping),
-            PROBE_TIMEOUT,
-        )?;
-        match response.outcome() {
-            IpcOutcome::Success {
-                result: IpcResult::Pong,
-            } => Ok(()),
-            outcome => bail!("unexpected daemon readiness response: {outcome:?}"),
-        }
-    })
+    let request_id = format!(
+        "service-readiness-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    );
+    let response = send_unix_request(
+        &socket_path,
+        &IpcRequest::new(request_id, IpcPayload::Ping),
+        PROBE_TIMEOUT,
+    )?;
+    match response.outcome() {
+        IpcOutcome::Success {
+            result: IpcResult::Pong,
+        } => Ok(()),
+        outcome => bail!("unexpected daemon readiness response: {outcome:?}"),
+    }
 }
 
 fn wait_for_readiness(

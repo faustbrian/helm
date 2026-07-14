@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made login-service status perform a bounded daemon IPC probe after the
+  launchd/systemd running check. A manager-active but unresponsive singleton is
+  now reported as an error instead of being presented as healthy.
 - Required login-service installation to receive a bounded, correlated IPC
   `Ping`/`Pong` before succeeding. A process that appears active but never
   becomes protocol-ready now triggers the same exact fresh-install or update

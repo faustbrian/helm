@@ -165,7 +165,9 @@ reported as a completed trust transition.
 `stackctl daemon service status` checks the selected service manager in
 addition to the definition file. A stale launchd plist or systemd user unit is
 reported as installed but not running, with an explicit reinstall command; it
-is never presented as a healthy login-time daemon.
+is never presented as a healthy login-time daemon. A manager-active process
+must also answer one bounded, correlated IPC probe; an unresponsive singleton
+fails status with the same explicit reinstall guidance.
 
 Service installation snapshots an existing regular definition before atomic
 replacement. After manager activation and the immediate running-state check,

@@ -59,6 +59,7 @@ pub(crate) struct DaemonServiceStatus {
     pub(crate) path: PathBuf,
     pub(crate) installed: bool,
     pub(crate) running: bool,
+    pub(crate) responsive: bool,
 }
 
 pub(crate) fn install_service(
@@ -117,6 +118,7 @@ fn install_service_with_readiness(
         path: definition.path,
         installed: true,
         running: true,
+        responsive: true,
     })
 }
 
@@ -178,21 +180,32 @@ pub(crate) fn uninstall_service() -> Result<DaemonServiceStatus> {
         path: definition.path,
         installed,
         running: false,
+        responsive: false,
     })
 }
 
 pub(crate) fn service_status() -> Result<DaemonServiceStatus> {
+    #[cfg(test)]
+    return service_status_with_readiness(|| true);
+
+    #[cfg(not(test))]
+    service_status_with_readiness(|| verify_daemon_service_readiness::probe().is_ok())
+}
+
+fn service_status_with_readiness(readiness: impl FnOnce() -> bool) -> Result<DaemonServiceStatus> {
     let definition = service_definition(&DaemonServiceInstallOptions {
         watch_dirs: Vec::new(),
         interval_secs: 30,
     })?;
     let installed = definition.path.exists();
     let running = installed && service_is_running(definition.manager, &definition.label)?;
+    let responsive = running && readiness();
     Ok(DaemonServiceStatus {
         manager: definition.manager,
         label: definition.label,
         installed,
         running,
+        responsive,
         path: definition.path,
     })
 }
@@ -548,9 +561,9 @@ mod tests {
         DaemonServiceInstallOptions, ServiceManager, clear_test_service_binary,
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
         format_launchd_domain, install_service, install_service_with_readiness, print_service,
-        service_status, set_test_service_binary, set_test_service_command_failure,
-        set_test_service_home, set_test_service_manager, set_test_service_running,
-        take_test_service_commands, uninstall_service,
+        service_status, service_status_with_readiness, set_test_service_binary,
+        set_test_service_command_failure, set_test_service_home, set_test_service_manager,
+        set_test_service_running, take_test_service_commands, uninstall_service,
     };
     use std::cell::Cell;
     use std::fs;
@@ -785,6 +798,30 @@ mod tests {
             take_test_service_commands(),
             ["systemctl --user is-active --quiet stackctl-daemon-watch.service"]
         );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn status_distinguishes_a_running_but_unresponsive_daemon() {
+        let home = temp_home("unresponsive-status");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, definition.contents).expect("write definition");
+        set_test_service_running(true);
+
+        let status = service_status_with_readiness(|| false).expect("service status");
+
+        assert!(status.installed);
+        assert!(status.running);
+        assert!(!status.responsive);
 
         clear_test_service_binary();
         clear_test_service_home();

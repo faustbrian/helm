@@ -36,9 +36,16 @@ fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {
 
 fn handle_status() -> Result<()> {
     let status = daemon::service_status()?;
-    let message = if status.running {
+    let message = if status.responsive {
         format!(
-            "{} daemon watch service {} is running from {}",
+            "{} daemon watch service {} is running and responsive from {}",
+            manager_name(status.manager),
+            status.label,
+            status.path.display()
+        )
+    } else if status.running {
+        anyhow::bail!(
+            "{} daemon watch service {} is running from {} but is not responding to IPC; rerun `stackctl daemon service install --dir <DIR>`",
             manager_name(status.manager),
             status.label,
             status.path.display()
