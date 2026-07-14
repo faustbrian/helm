@@ -3,7 +3,9 @@ use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, PreparedSharedInstance, SharedInstancePlan, SharedPreparationError,
     SharedPreparationOptions, prepare_shared_instances,
 };
-use crate::control_plane::state::{ProjectRecord, ResourceRecord, StateStore};
+use crate::control_plane::state::{
+    InstallationLifecycle, ProjectRecord, ResourceRecord, StateStore,
+};
 use std::path::PathBuf;
 
 /// The v8 application boundary coordinating pure plans and durable state.
@@ -23,6 +25,15 @@ where
     /// Loads the complete authoritative watched-root set.
     pub(crate) fn watched_roots(&self) -> Result<Vec<PathBuf>, ControlPlaneError> {
         self.state_store.watched_roots().map_err(Into::into)
+    }
+
+    /// Loads the durable installation lifecycle gate.
+    pub(crate) fn installation_lifecycle(
+        &self,
+    ) -> Result<Option<InstallationLifecycle>, ControlPlaneError> {
+        self.state_store
+            .installation_lifecycle()
+            .map_err(Into::into)
     }
 
     /// Loads durable physical ownership for lifecycle reconciliation.

@@ -17,8 +17,83 @@ fn opening_a_new_store_applies_the_current_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 13);
+    assert_eq!(store.schema_version().expect("schema version"), 14);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn beginning_installation_deletion_atomically_freezes_and_orphans_projects() {
+    let database_path = temporary_database_path("installation-deletion");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let logical = logical_resource_record("bill/database", "bill", "database");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "unix:///engine.sock",
+        ))
+        .expect("installation identity");
+    store
+        .replace_watched_roots(&[PathBuf::from("/work")])
+        .expect("watched root");
+    store.replace_project(&project).expect("project state");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("physical resource");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("logical resource");
+    store
+        .insert_credential_if_absent(&credential_record("secret-first"))
+        .expect("credential");
+    store
+        .replace_managed_environment(&managed_environment(BTreeMap::new()))
+        .expect("environment");
+
+    store
+        .begin_installation_deletion(70_000)
+        .expect("begin deletion");
+    store
+        .begin_installation_deletion(70_000)
+        .expect("idempotent replay");
+
+    assert_eq!(
+        store
+            .installation_lifecycle()
+            .expect("installation lifecycle"),
+        Some(super::InstallationLifecycle::Deleting)
+    );
+    assert!(store.watched_roots().expect("watched roots").is_empty());
+    assert!(store.projects().expect("projects").is_empty());
+    assert_eq!(
+        store.resources().expect("resources")[0].lifecycle(),
+        ResourceLifecycle::Orphaned
+    );
+    assert_eq!(
+        store.logical_resources().expect("logical resources")[0].lifecycle(),
+        ResourceLifecycle::Orphaned
+    );
+    assert_eq!(
+        store.credentials().expect("credentials")[0].lifecycle(),
+        CredentialLifecycle::Disabled
+    );
+    assert_eq!(
+        store.managed_environments().expect("environments")[0].lifecycle(),
+        EnvironmentLifecycle::Disabled
+    );
+    let error = store
+        .replace_project(&project)
+        .expect_err("deleting installation must not reactivate projects");
+    assert!(
+        error
+            .to_string()
+            .contains("project reconciliation is frozen")
+    );
 
     drop(store);
     remove_database(&database_path);
@@ -1870,7 +1945,7 @@ fn version_one_state_migrates_without_losing_project_ownership() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 13);
+    assert_eq!(store.schema_version().expect("schema version"), 14);
     assert_eq!(
         store.projects().expect("preserved projects"),
         vec![project_record(
@@ -1926,7 +2001,7 @@ fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
 
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 13);
+    assert_eq!(store.schema_version().expect("schema version"), 14);
     assert_eq!(
         store.credentials().expect("preserved credentials"),
         vec![credential_record("secret-first")]
@@ -1970,7 +2045,7 @@ fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
     let store = SqliteStateStore::open(&database_path).expect("migrate state store");
     let resources = store.resources().expect("preserved resources");
 
-    assert_eq!(store.schema_version().expect("schema version"), 13);
+    assert_eq!(store.schema_version().expect("schema version"), 14);
     assert_eq!(resources.len(), 1);
     assert_eq!(resources[0].resource_id(), "shared-postgres");
     assert_eq!(resources[0].scope_id(), None);

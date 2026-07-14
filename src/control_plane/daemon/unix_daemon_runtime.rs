@@ -32,7 +32,7 @@ use crate::control_plane::shared_infrastructure::{
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
 };
-use crate::control_plane::state::{SqliteStateStore, StateStore};
+use crate::control_plane::state::{InstallationLifecycle, SqliteStateStore, StateStore};
 use crate::control_plane::workload::{
     DisposableContainerGarbageCollectionOptions, OrphanedProjectWorkloadOptions,
     ProjectVolumeReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
@@ -162,11 +162,13 @@ impl UnixDaemonRuntime {
         if now_unix_seconds < 0 {
             return Err(invalid("daemon wall-clock time must not be negative"));
         }
-        if self.filesystem_watcher.take_change()? {
+        let deleting =
+            self.control_plane.installation_lifecycle()? == Some(InstallationLifecycle::Deleting);
+        if self.filesystem_watcher.take_change()? && !deleting {
             self.record_filesystem_event(now);
         }
 
-        let scan_reason = self.scheduler.take_due(now);
+        let scan_reason = (!deleting).then(|| self.scheduler.take_due(now)).flatten();
         let reconciliation = scan_reason
             .map(|_reason| {
                 reconcile_watched_roots(

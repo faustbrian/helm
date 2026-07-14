@@ -1,7 +1,8 @@
 use super::{
     CredentialRecord, DaemonEventRecord, DaemonOperationRecord, DaemonOperationTransitionOptions,
-    InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord,
-    ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
+    InstallationLifecycle, InstallationRecord, LogicalResourceRecord, ManagedEnvironmentRecord,
+    MigrationRecord, ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, ResourceRecord,
+    StateStoreError,
 };
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,15 @@ pub(crate) trait StateStore: Send {
 
     /// Loads the selected installation and Engine endpoint when initialized.
     fn installation(&self) -> Result<Option<InstallationRecord>, StateStoreError>;
+
+    /// Loads whether normal reconciliation is active or deletion has begun.
+    fn installation_lifecycle(&self) -> Result<Option<InstallationLifecycle>, StateStoreError>;
+
+    /// Atomically freezes discovery and orphans every registered project.
+    fn begin_installation_deletion(
+        &mut self,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError>;
 
     /// Atomically replaces the complete set of canonical watched roots.
     fn replace_watched_roots(&mut self, roots: &[PathBuf]) -> Result<(), StateStoreError>;

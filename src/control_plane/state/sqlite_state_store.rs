@@ -10,17 +10,17 @@ use super::persisted_migration::PersistedMigration;
 use super::{
     CredentialLifecycle, CredentialRecord, DaemonEventRecord, DaemonOperationRecord,
     DaemonOperationRecordOptions, DaemonOperationStatus, DaemonOperationTransitionOptions,
-    EngineProvider, EnvironmentLifecycle, InstallationRecord, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
-    MigrationPhase, MigrationRecord, ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord,
-    RecoveryPointRecordOptions, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
-    ResourceRetention, StateStore, StateStoreError,
+    EngineProvider, EnvironmentLifecycle, InstallationLifecycle, InstallationRecord,
+    LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
+    ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, ProjectAdoptionPlan,
+    ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore, StateStoreError,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 13;
+const CURRENT_SCHEMA_VERSION: u32 = 14;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -290,6 +290,34 @@ impl SqliteStateStore {
             )?;
         }
 
+        if found < 14 {
+            let installation_exists = transaction.query_row(
+                "SELECT EXISTS(
+                     SELECT 1 FROM sqlite_master
+                     WHERE type = 'table' AND name = 'installation'
+                 )",
+                [],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if installation_exists {
+                transaction.execute_batch(
+                    "ALTER TABLE installation ADD COLUMN lifecycle TEXT NOT NULL
+                         DEFAULT 'active' CHECK(lifecycle IN ('active', 'deleting'));",
+                )?;
+            } else {
+                transaction.execute_batch(
+                    "CREATE TABLE installation (
+                         singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
+                         installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),
+                         engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),
+                         engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0),
+                         lifecycle TEXT NOT NULL DEFAULT 'active'
+                             CHECK(lifecycle IN ('active', 'deleting'))
+                     ) STRICT;",
+                )?;
+            }
+        }
+
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
@@ -335,6 +363,49 @@ impl StateStore for SqliteStateStore {
         load_installation(&self.connection)
     }
 
+    fn installation_lifecycle(&self) -> Result<Option<InstallationLifecycle>, StateStoreError> {
+        load_installation_lifecycle(&self.connection)
+    }
+
+    fn begin_installation_deletion(
+        &mut self,
+        orphaned_at_unix_seconds: i64,
+    ) -> Result<(), StateStoreError> {
+        if orphaned_at_unix_seconds < 0 {
+            return Err(StateStoreError::CorruptState {
+                detail: "installation deletion time must not be negative".to_owned(),
+            });
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated = transaction.execute(
+            "UPDATE installation SET lifecycle = 'deleting' WHERE singleton = 1",
+            [],
+        )?;
+        if updated != 1 {
+            return Err(StateStoreError::CorruptState {
+                detail: "installation deletion requires initialized state".to_owned(),
+            });
+        }
+        let projects = {
+            let mut statement =
+                transaction.prepare("SELECT project_name FROM projects ORDER BY canonical_path")?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        for project_id in projects {
+            orphan_project_state(&transaction, &project_id, orphaned_at_unix_seconds)?;
+        }
+        transaction.execute("DELETE FROM route_claims", [])?;
+        transaction.execute("DELETE FROM projects", [])?;
+        transaction.execute("DELETE FROM watched_roots", [])?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
     fn replace_watched_roots(&mut self, roots: &[PathBuf]) -> Result<(), StateStoreError> {
         let roots = roots
             .iter()
@@ -376,6 +447,7 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_reconciliation_active(&transaction)?;
         replace_project_batch(&transaction, &exact_projects)?;
         transaction.commit()?;
 
@@ -398,6 +470,7 @@ impl StateStore for SqliteStateStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        ensure_reconciliation_active(&transaction)?;
 
         replace_project_batch(&transaction, &exact_projects)?;
         let existing_projects = {
@@ -2096,6 +2169,36 @@ fn load_installation(
         engine_provider,
         engine_endpoint,
     )))
+}
+
+fn load_installation_lifecycle(
+    connection: &Connection,
+) -> Result<Option<InstallationLifecycle>, StateStoreError> {
+    let lifecycle = connection
+        .query_row(
+            "SELECT lifecycle FROM installation WHERE singleton = 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    lifecycle
+        .map(|label| {
+            InstallationLifecycle::from_label(&label).ok_or_else(|| StateStoreError::CorruptState {
+                detail: format!("installation has unknown lifecycle '{label}'"),
+            })
+        })
+        .transpose()
+}
+
+fn ensure_reconciliation_active(transaction: &Transaction<'_>) -> Result<(), StateStoreError> {
+    let lifecycle = load_installation_lifecycle(transaction)?;
+    if lifecycle == Some(InstallationLifecycle::Deleting) {
+        return Err(StateStoreError::CorruptState {
+            detail: "installation deletion has begun; project reconciliation is frozen".to_owned(),
+        });
+    }
+
+    Ok(())
 }
 
 fn exact_path(path: &Path) -> Result<&str, StateStoreError> {

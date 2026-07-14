@@ -18,6 +18,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a durable installation-deletion lifecycle barrier that atomically
+  clears watched roots, orphans every registered project, disables its managed
+  credentials and environment, and prevents reconciliation from recreating
+  resources while explicit teardown is in progress.
 - Integrated empty-vhost RabbitMQ recovery points into the daemon restore queue
   with exact compatibility selection, a verified topology safety backup,
   idempotent in-place replacement, post-import verification, and replay that
