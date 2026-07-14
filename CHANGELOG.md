@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added daemon-owned v7 migration execution planning. Fresh accepted inventory
+  now persists its deterministic project-wide service, volume, route, trust,
+  and environment checkpoint set, and idempotent acceptance revalidates the
+  exact durable plan before reporting success.
 - Added an accepted-v7 RabbitMQ logical migration provider. It verifies the
   exact legacy user and default vhost from exported definitions, refuses queues
   containing messages or topology that escapes the accepted scope, rewrites

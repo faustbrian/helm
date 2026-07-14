@@ -259,8 +259,11 @@ missing required public CA evidence, and accepted environments without a
 protected rollback artifact fail closed before execution. Live cutover remains
 a separate later phase.
 
-Before an adapter performs work, Stackctl persists a schema-18 execution
-record keyed by the canonical project path and accepted evidence revision. Its
+As part of successful inventory acceptance, Stackctl persists a schema-18
+execution record keyed by the canonical project path and accepted evidence
+revision. Repeated acceptance must reload the identical record before reporting
+success, so a crash between append-only inventory storage and execution-plan
+storage is repaired by an exact replay rather than leaving unjournaled work. Its
 immutable checkpoint set contains every selected service and volume adapter
 plus the route, installation-trust, and generated-environment adapters. Each
 checkpoint states whether it requires a recovery artifact and advances only

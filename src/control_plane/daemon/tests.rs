@@ -6367,6 +6367,17 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         select_accepted_v7_migration_adapters(&accepted).expect("accepted adapter plan");
     assert_eq!(adapter_plan.evidence_revision(), evidence_revision);
     assert!(adapter_plan.services().is_empty());
+    let execution = control_plane
+        .v7_migration_execution(&project_path, &evidence_revision)
+        .expect("v7 execution state")
+        .expect("durable planned v7 execution");
+    assert_eq!(execution.project_id(), "bill");
+    assert_eq!(
+        execution.adapter_plan_revision(),
+        adapter_plan.plan_revision()
+    );
+    assert_eq!(execution.phase().label(), "planned");
+    assert_eq!(execution.checkpoints().len(), 3);
 
     let replay_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -6395,6 +6406,13 @@ fn daemon_accepts_only_fresh_confirmation_bound_v7_inventory() {
         }
     ));
     assert_eq!(provider.rollback_captures, 1);
+    assert_eq!(
+        control_plane
+            .v7_migration_execution(&project_path, &evidence_revision)
+            .expect("replayed v7 execution state")
+            .expect("replayed durable v7 execution"),
+        execution
+    );
 
     provider.source_revision = format!("sha256:{}", "b".repeat(64));
     let stale_request = IpcRequest::new(
