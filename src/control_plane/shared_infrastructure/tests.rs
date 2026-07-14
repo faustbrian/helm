@@ -2236,12 +2236,15 @@ fn managed_secret_store_is_private_immutable_and_exact() {
     let secret = CredentialSecret::new("root-secret".to_owned());
 
     let stored = store_credential_secret(&secret, &path).expect("store secret");
+    let interrupted = root.join(".mongodb-root.tmp");
+    std::fs::write(&interrupted, "interrupted-secret").expect("interrupted secret write");
     store_credential_secret(&secret, &path).expect("reconcile secret");
     let error =
         store_credential_secret(&CredentialSecret::new("different-secret".to_owned()), &path)
             .expect_err("reject secret replacement");
 
     assert_eq!(stored, path);
+    assert!(!interrupted.exists());
     assert_eq!(
         std::fs::read_to_string(&path).expect("secret file"),
         "root-secret"
@@ -2689,9 +2692,12 @@ fn rabbitmq_definitions_store_is_private_hash_only_and_atomically_replaceable() 
     .expect("replacement definitions");
 
     let stored = store_rabbitmq_definitions(&initial, &root).expect("initial store");
+    let interrupted = root.join("mounted/.definitions.json.tmp");
+    std::fs::write(&interrupted, "partial definitions").expect("interrupted definitions write");
     store_rabbitmq_definitions(&replacement, &root).expect("replacement store");
 
     assert_eq!(stored.directory(), root);
+    assert!(!interrupted.exists());
     assert_eq!(stored.mount_directory(), root.join("mounted"));
     assert_eq!(stored.config_file(), root.join("mounted/rabbitmq.conf"));
     assert_eq!(
@@ -3789,9 +3795,13 @@ fn mailpit_authentication_store_is_private_hash_only_and_atomically_replaceable(
     .expect("replacement snapshot");
 
     let stored = store_mailpit_authentication(&initial, &root).expect("initial store");
+    let interrupted = root.join("mounted/.smtp-passwords.tmp");
+    std::fs::write(&interrupted, "partial authentication")
+        .expect("interrupted authentication write");
     store_mailpit_authentication(&replacement, &root).expect("replacement store");
 
     assert_eq!(stored.directory(), root);
+    assert!(!interrupted.exists());
     assert_eq!(stored.mount_directory(), root.join("mounted"));
     assert_eq!(stored.password_file(), root.join("mounted/smtp-passwords"));
     let contents = std::fs::read_to_string(stored.password_file()).expect("password file");
@@ -4190,9 +4200,12 @@ fn redis_acl_store_atomically_replaces_a_private_directory_mounted_file() {
             .expect("replacement ACL");
 
     let stored = store_redis_acl_snapshot(&initial, &root).expect("store initial ACL");
+    let interrupted = root.join("mounted/.users.tmp");
+    std::fs::write(&interrupted, "partial ACL").expect("interrupted ACL write");
     store_redis_acl_snapshot(&replacement, &root).expect("replace ACL");
 
     assert_eq!(stored.directory(), root);
+    assert!(!interrupted.exists());
     assert_eq!(stored.mount_directory(), root.join("mounted"));
     assert_eq!(stored.acl_file(), root.join("mounted/users.acl"));
     assert_eq!(

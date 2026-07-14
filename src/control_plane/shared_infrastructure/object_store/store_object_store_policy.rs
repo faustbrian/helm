@@ -16,16 +16,17 @@ pub(crate) fn store_object_store_policy(
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict policy directory", directory, error))?;
     let path = directory.join(format!("{}.json", definition.policy_name()));
-    let temporary = directory.join(format!(
-        ".{}.json-{}.tmp",
-        definition.policy_name(),
-        std::process::id()
-    ));
-    if temporary.exists() {
-        return Err(ObjectStorePlanError::new(format!(
-            "temporary object-store policy '{}' already exists",
-            temporary.display()
-        )));
+    let temporary = directory.join(format!(".{}.json.tmp", definition.policy_name()));
+    match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io_error(
+                "remove interrupted object-store policy",
+                &temporary,
+                error,
+            ));
+        }
     }
     let mut file = OpenOptions::new()
         .write(true)

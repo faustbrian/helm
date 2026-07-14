@@ -27,6 +27,28 @@ pub(crate) fn store_credential_secret(
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict secret directory", directory, error))?;
 
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            ManagedSecretStoreError::new(format!(
+                "managed secret path '{}' must end in a UTF-8 file name",
+                path.display()
+            ))
+        })?;
+    let temporary = directory.join(format!(".{name}.tmp"));
+    match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io_error(
+                "remove interrupted managed secret",
+                &temporary,
+                error,
+            ));
+        }
+    }
+
     if path.exists() {
         let found = fs::read(path).map_err(|error| io_error("read managed secret", path, error))?;
         if found != secret.expose().as_bytes() {
@@ -37,20 +59,13 @@ pub(crate) fn store_credential_secret(
         }
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|error| io_error("restrict managed secret", path, error))?;
+        File::open(directory)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| io_error("sync secret directory", directory, error))?;
 
         return Ok(path.to_path_buf());
     }
 
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            ManagedSecretStoreError::new(format!(
-                "managed secret path '{}' must end in a UTF-8 file name",
-                path.display()
-            ))
-        })?;
-    let temporary = directory.join(format!(".{name}-{}.tmp", std::process::id()));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

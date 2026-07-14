@@ -23,12 +23,13 @@ pub(crate) fn store_redis_acl_snapshot(
         .map_err(|error| io_error("prepare ACL mount directory", &mount_directory, error))?;
 
     let acl_file = mount_directory.join("users.acl");
-    let temporary = mount_directory.join(format!(".users-{}.tmp", std::process::id()));
-    if temporary.exists() {
-        return Err(RedisPlanError::new(format!(
-            "temporary Redis ACL file '{}' already exists",
-            temporary.display()
-        )));
+    let temporary = mount_directory.join(".users.tmp");
+    match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io_error("remove interrupted ACL file", &temporary, error));
+        }
     }
     let mut file = OpenOptions::new()
         .write(true)

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced PID-suffixed shared-service staging files with stable private pending
+  paths that are removed on the next reconciliation. Interrupted credential,
+  Redis/Valkey ACL, RabbitMQ definition, Mailpit authentication, and object-store
+  policy writes no longer accumulate abandoned host files.
 - Bounded routine TLS renewal storage. After the gateway confirms the active
   leaf certificate, Stackctl removes inactive generations signed by that same
   CA while retaining different-CA generations required for rotation rollback.

@@ -72,12 +72,17 @@ fn replace_file(path: &Path, contents: &[u8]) -> Result<(), RabbitMqPlanError> {
                 path.display()
             ))
         })?;
-    let temporary = directory.join(format!(".{file_name}-{}.tmp", std::process::id()));
-    if temporary.exists() {
-        return Err(RabbitMqPlanError::new(format!(
-            "temporary RabbitMQ file '{}' already exists",
-            temporary.display()
-        )));
+    let temporary = directory.join(format!(".{file_name}.tmp"));
+    match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(io_error(
+                "remove interrupted RabbitMQ file",
+                &temporary,
+                error,
+            ));
+        }
     }
     let mut file = OpenOptions::new()
         .write(true)
