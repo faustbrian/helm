@@ -5,7 +5,8 @@ use crate::control_plane::engine::{
 use crate::control_plane::retention::{
     DataLifecycleStrategy, MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions,
     PostgresLogicalPruneOptions, PostgresLogicalPrunePlan, PostgresLogicalPrunePlanOptions,
-    prune_mongodb_logical_resource, prune_mysql_logical_resource, prune_postgres_logical_resource,
+    SqlServerLogicalPruneOptions, prune_mongodb_logical_resource, prune_mysql_logical_resource,
+    prune_postgres_logical_resource, prune_sql_server_logical_resource,
 };
 use crate::control_plane::shared_infrastructure::MySqlFlavor;
 use crate::control_plane::state::{
@@ -143,6 +144,21 @@ where
             .await
             .map_err(|error| error.to_string())?;
         }
+        DataLifecycleStrategy::SqlServerNative => {
+            prune_sql_server_logical_resource(
+                engine,
+                SqlServerLogicalPruneOptions {
+                    installation_id: &options.installation_id,
+                    container,
+                    logical_resource: logical,
+                    credential,
+                    administrator,
+                    timeout: options.timeout,
+                },
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no destructive adapter"
@@ -199,6 +215,7 @@ fn exact_administrator<'state>(
             MySqlFlavor::MariaDb => ("mariadb", "root"),
         },
         DataLifecycleStrategy::MongoDbLogical => ("mongodb", "stackctl_admin"),
+        DataLifecycleStrategy::SqlServerNative => ("sqlserver", "sa"),
         strategy => {
             return Err(format!(
                 "logical prune strategy {strategy:?} has no administrator model"

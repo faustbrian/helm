@@ -3,8 +3,9 @@ use super::{
     DataLifecycleStrategyError, DeletionDecision, LogicalPrunePlan, LogicalPrunePlanOptions,
     MongoDbLogicalPruneOptions, MySqlLogicalPruneOptions, PostgresLogicalPrunePlan,
     PostgresLogicalPrunePlanOptions, PruneAuthorization, RestoreTarget, RestoreTargetError,
-    evaluate_deletion, open_stored_backup_artifact, prune_mongodb_logical_resource,
-    prune_mysql_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
+    SqlServerLogicalPruneOptions, evaluate_deletion, open_stored_backup_artifact,
+    prune_mongodb_logical_resource, prune_mysql_logical_resource,
+    prune_sql_server_logical_resource, resolve_data_lifecycle_strategy, restore_verified_backup,
     store_backup_artifact, store_backup_artifact_for_identity,
     store_backup_artifact_from_async_reader, store_backup_artifact_from_reader,
     verify_backup_artifact, verify_stored_backup_artifact,
@@ -294,6 +295,86 @@ fn mongodb_logical_prune_uses_exact_idempotent_database_and_user_deletion() {
     assert!(script.contains("dropDatabase()"));
     assert!(script.contains("administrator-secret"));
     assert!(!script.contains("project-secret"));
+}
+
+#[test]
+fn sql_server_logical_prune_uses_exact_idempotent_database_and_login_deletion() {
+    use crate::control_plane::engine::{
+        ContainerId, ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer,
+        ResourceKind, RetentionClass, reconstruct_owned_container,
+    };
+    use std::time::Duration;
+
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::SharedService,
+        project_id: None,
+        compatibility_fingerprint: "sha256:sqlserver-2022".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("SQL Server metadata");
+    let observed = ObservedContainer::new(ContainerId::new("sqlserver-2022"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned SQL Server container");
+    let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "stackctl_bill_database".to_owned(),
+        shared_resource_id: "sqlserver-2022".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "sqlserver_database".to_owned(),
+        compatibility_fingerprint: "sha256:sqlserver-2022".to_owned(),
+        desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(40_000),
+    });
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/database/sqlserver".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "database".to_owned(),
+        username: "st_bill_database".to_owned(),
+        secret: "ProjectSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/sqlserver-2022/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "sqlserver".to_owned(),
+        username: "sa".to_owned(),
+        secret: "AdministratorSecret1".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPruneExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(prune_sql_server_logical_resource(
+            &executor,
+            SqlServerLogicalPruneOptions {
+                installation_id: "install-1",
+                container: &container,
+                logical_resource: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                timeout: Duration::from_secs(60),
+            },
+        ))
+        .expect("prune SQL Server tenant");
+
+    assert_eq!(executor.arguments()[0], "/opt/mssql-tools18/bin/sqlcmd");
+    assert_eq!(
+        executor.environment().get("SQLCMDPASSWORD"),
+        Some(&"AdministratorSecret1".to_owned())
+    );
+    let sql = String::from_utf8(executor.stdin()).expect("SQL Server prune SQL");
+    assert!(sql.contains("IF DB_ID(N'stackctl_bill_database') IS NOT NULL"));
+    assert!(sql.contains("DROP DATABASE [stackctl_bill_database]"));
+    assert!(sql.contains("DROP LOGIN [st_bill_database]"));
+    assert!(!sql.contains("ProjectSecret1"));
 }
 
 #[test]

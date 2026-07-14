@@ -19,11 +19,13 @@ mod prune_authorization;
 mod prune_mongodb_logical_resource;
 mod prune_mysql_logical_resource;
 mod prune_postgres_logical_resource;
+mod prune_sql_server_logical_resource;
 mod resolve_data_lifecycle_strategy;
 mod restore_error;
 mod restore_target;
 mod restore_target_error;
 mod restore_verified_backup;
+mod sql_server_logical_prune_options;
 mod store_backup_artifact;
 mod store_backup_artifact_from_async_reader;
 mod stored_backup_artifact;
@@ -48,11 +50,13 @@ pub(crate) use prune_authorization::PruneAuthorization;
 pub(crate) use prune_mongodb_logical_resource::prune_mongodb_logical_resource;
 pub(crate) use prune_mysql_logical_resource::prune_mysql_logical_resource;
 pub(crate) use prune_postgres_logical_resource::prune_postgres_logical_resource;
+pub(crate) use prune_sql_server_logical_resource::prune_sql_server_logical_resource;
 pub(crate) use resolve_data_lifecycle_strategy::resolve_data_lifecycle_strategy;
 pub(crate) use restore_error::RestoreError;
 pub(crate) use restore_target::RestoreTarget;
 pub(crate) use restore_target_error::RestoreTargetError;
 pub(crate) use restore_verified_backup::restore_verified_backup;
+pub(crate) use sql_server_logical_prune_options::SqlServerLogicalPruneOptions;
 pub(crate) use store_backup_artifact::{
     store_backup_artifact, store_backup_artifact_for_identity, store_backup_artifact_from_reader,
 };

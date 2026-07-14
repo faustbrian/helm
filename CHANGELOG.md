@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Extended common token-bound logical prune execution to SQL Server with exact
+  recovery and ownership revalidation, runtime-only SA credentials, idempotent
+  database/login deletion, and atomic tenant-state retirement.
 - Extended common token-bound logical prune execution to MongoDB with exact
   orphan, credential, recovery-point, installation, and compatibility checks,
   idempotent in-container tenant deletion, and atomic state retirement.
