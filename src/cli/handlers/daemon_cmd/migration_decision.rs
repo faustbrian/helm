@@ -48,14 +48,6 @@ pub(super) fn handle_migration_decision(
     follow_decision(&operation_id, &args.migration_id, decision)
 }
 
-#[cfg(not(unix))]
-pub(super) fn handle_migration_decision(
-    _args: &DaemonMigrationDecisionArgs,
-    _decision: IpcMigrationDecision,
-) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn follow_decision(
     operation_id: &str,

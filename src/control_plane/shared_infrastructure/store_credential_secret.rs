@@ -70,17 +70,6 @@ pub(crate) fn store_credential_secret(
     Ok(path.to_path_buf())
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_credential_secret(
-    _secret: &CredentialSecret,
-    path: &Path,
-) -> Result<PathBuf, ManagedSecretStoreError> {
-    Err(ManagedSecretStoreError::new(format!(
-        "secure managed-secret persistence is not implemented for '{}' on this platform",
-        path.display()
-    )))
-}
-
 #[cfg(unix)]
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> ManagedSecretStoreError {
     ManagedSecretStoreError::new(format!("failed to {action} '{}': {error}", path.display()))

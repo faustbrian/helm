@@ -66,20 +66,6 @@ pub(crate) fn store_caddy_bootstrap(
     ))
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_caddy_bootstrap(
-    _document: &CaddyGatewayDocument,
-    config_path: &Path,
-    _runtime_directory: &Path,
-) -> Result<StoredGatewayBootstrapPaths, GatewayError> {
-    Err(GatewayError::Provider {
-        detail: format!(
-            "secure gateway bootstrap persistence is not implemented for '{}'",
-            config_path.display()
-        ),
-    })
-}
-
 #[cfg(unix)]
 fn verify_existing(path: &Path, expected: &[u8]) -> Result<(), GatewayError> {
     let found = std::fs::read(path)

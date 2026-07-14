@@ -71,8 +71,3 @@ fn restrict_permissions(file: &File, lock_path: &Path) -> Result<(), SingletonLe
             source,
         })
 }
-
-#[cfg(not(unix))]
-fn restrict_permissions(_file: &File, _lock_path: &Path) -> Result<(), SingletonLeaseError> {
-    Ok(())
-}

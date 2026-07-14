@@ -48,18 +48,6 @@ pub(crate) fn store_object_store_policy(
     Ok(path)
 }
 
-/// Reports an explicit unsupported boundary instead of weak permissions.
-#[cfg(not(unix))]
-pub(crate) fn store_object_store_policy(
-    _definition: &ObjectStoreProjectDefinition,
-    directory: &Path,
-) -> Result<PathBuf, ObjectStorePlanError> {
-    Err(ObjectStorePlanError::new(format!(
-        "secure object-store policy persistence is not implemented for '{}' on this platform",
-        directory.display()
-    )))
-}
-
 #[cfg(unix)]
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> ObjectStorePlanError {
     ObjectStorePlanError::new(format!("failed to {action} '{}': {error}", path.display()))

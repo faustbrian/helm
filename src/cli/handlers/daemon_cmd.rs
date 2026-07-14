@@ -87,11 +87,6 @@ fn handle_daemon_backups(args: &DaemonBackupsArgs) -> Result<()> {
     }
 }
 
-#[cfg(not(unix))]
-fn handle_daemon_backups(_args: &DaemonBackupsArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 fn handle_daemon_migration(args: &DaemonMigrationArgs) -> Result<()> {
     match &args.command {
         DaemonMigrationCommands::Status(status) => handle_daemon_migration_status(status),
@@ -157,11 +152,6 @@ fn handle_daemon_migration_status(args: &DaemonMigrationStatusArgs) -> Result<()
     }
 }
 
-#[cfg(not(unix))]
-fn handle_daemon_migration_status(_args: &DaemonMigrationStatusArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn handle_daemon_adopt(args: &DaemonAdoptArgs) -> Result<()> {
     use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
@@ -192,20 +182,11 @@ fn handle_daemon_adopt(args: &DaemonAdoptArgs) -> Result<()> {
     }
 }
 
-#[cfg(not(unix))]
-fn handle_daemon_adopt(_args: &DaemonAdoptArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 fn handle_daemon_watch(args: &DaemonWatchArgs) -> Result<()> {
-    #[cfg(unix)]
-    return handle_daemon_watch_with_runtime_directory(
+    handle_daemon_watch_with_runtime_directory(
         args,
         &crate::control_plane::default_unix_daemon_runtime_directory()?,
-    );
-
-    #[cfg(not(unix))]
-    anyhow::bail!("Stackctl v8 requires a Unix host")
+    )
 }
 
 #[cfg(unix)]
@@ -278,11 +259,6 @@ fn handle_daemon_status() -> Result<()> {
     }
 }
 
-#[cfg(not(unix))]
-fn handle_daemon_status() -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn handle_daemon_reconcile() -> Result<()> {
     use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
@@ -329,11 +305,6 @@ fn handle_daemon_reconcile() -> Result<()> {
         }
         outcome => anyhow::bail!("unexpected singleton reconciliation response: {outcome:?}"),
     }
-}
-
-#[cfg(not(unix))]
-fn handle_daemon_reconcile() -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
 }
 
 #[cfg(unix)]

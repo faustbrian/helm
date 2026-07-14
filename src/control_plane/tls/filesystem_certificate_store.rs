@@ -153,17 +153,6 @@ impl FilesystemCertificateStore {
         Ok(StoredCertificatePaths::new(final_directory))
     }
 
-    #[cfg(not(unix))]
-    pub(crate) fn persist(
-        &self,
-        _bundle: &LocalCertificateBundle,
-    ) -> Result<StoredCertificatePaths, LocalCertificateError> {
-        Err(LocalCertificateError::new(format!(
-            "secure certificate persistence is not implemented for '{}'",
-            self.root.display()
-        )))
-    }
-
     pub(crate) fn load_directory(
         &self,
         directory: &Path,

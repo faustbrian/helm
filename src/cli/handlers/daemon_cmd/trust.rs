@@ -31,12 +31,6 @@ pub(super) fn handle_daemon_trust(args: &DaemonTrustArgs) -> Result<()> {
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         bail!("singleton CA trust is not implemented for this Unix platform");
     }
-
-    #[cfg(not(unix))]
-    {
-        let _ = args;
-        bail!("Stackctl v8 requires a Unix host");
-    }
 }
 
 /// Removes only the trust entry matching the persisted Stackctl CA.

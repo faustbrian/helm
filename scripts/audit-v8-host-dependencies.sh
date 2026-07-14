@@ -78,6 +78,16 @@ while IFS= read -r -d '' file; do
     "$file"
 done < <(find src docs .github -type f \( -name '*.rs' -o -name '*.md' -o -name '*.yml' -o -name '*.yaml' \) -print0)
 
+while IFS= read -r -d '' file; do
+  if [[ "$file" == "src/main.rs" ]]; then
+    continue
+  fi
+  report_matches \
+    "v8 contains an unreachable non-Unix compatibility branch" \
+    'cfg\(not\(unix\)\)' \
+    "$file"
+done < <(find src -type f -name '*.rs' -print0)
+
 if ((violations > 0)); then
   printf 'v8 host-dependency audit failed with %d violating file(s)\n' "$violations" >&2
   exit 1

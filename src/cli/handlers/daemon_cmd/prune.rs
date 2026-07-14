@@ -104,11 +104,6 @@ fn follow_prune(operation_id: &str) -> Result<()> {
     }
 }
 
-#[cfg(not(unix))]
-fn handle_daemon_prune_execute(_args: &DaemonPruneExecuteArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn handle_daemon_prune_plan(args: &DaemonPrunePlanArgs) -> Result<()> {
     use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
@@ -154,9 +149,4 @@ fn handle_daemon_prune_plan(args: &DaemonPrunePlanArgs) -> Result<()> {
                 .join("; ")
         ),
     }
-}
-
-#[cfg(not(unix))]
-fn handle_daemon_prune_plan(_args: &DaemonPrunePlanArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
 }

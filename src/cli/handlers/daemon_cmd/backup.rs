@@ -41,11 +41,6 @@ pub(super) fn handle_daemon_backup(args: &DaemonBackupArgs) -> Result<()> {
     follow_backup(&operation_id)
 }
 
-#[cfg(not(unix))]
-pub(super) fn handle_daemon_backup(_args: &DaemonBackupArgs) -> Result<()> {
-    anyhow::bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn follow_backup(operation_id: &str) -> Result<()> {
     use crate::control_plane::{IpcEventKind, IpcOutcome, IpcOutputStream, IpcPayload, IpcResult};

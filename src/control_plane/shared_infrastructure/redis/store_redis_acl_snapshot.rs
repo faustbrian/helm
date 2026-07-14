@@ -55,17 +55,6 @@ pub(crate) fn store_redis_acl_snapshot(
     ))
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_redis_acl_snapshot(
-    _snapshot: &RedisAclSnapshot,
-    directory: &Path,
-) -> Result<StoredRedisAclPaths, RedisPlanError> {
-    Err(RedisPlanError::new(format!(
-        "secure Redis ACL persistence is not implemented for '{}' on this platform",
-        directory.display()
-    )))
-}
-
 #[cfg(unix)]
 fn io_error(action: &str, path: &Path, error: std::io::Error) -> RedisPlanError {
     RedisPlanError::new(format!("failed to {action} '{}': {error}", path.display()))

@@ -262,11 +262,7 @@ fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()
 }
 
 fn launchd_domain() -> Result<String> {
-    #[cfg(unix)]
-    return Ok(format_launchd_domain(rustix::process::geteuid().as_raw()));
-
-    #[cfg(not(unix))]
-    bail!("launchd services require a Unix user identity")
+    Ok(format_launchd_domain(rustix::process::geteuid().as_raw()))
 }
 
 fn format_launchd_domain(uid: u32) -> String {

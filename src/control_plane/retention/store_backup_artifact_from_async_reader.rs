@@ -113,18 +113,3 @@ impl Drop for PendingBackupCleanup {
         drop(std::fs::remove_dir_all(&self.path));
     }
 }
-
-#[cfg(not(unix))]
-pub(crate) async fn store_backup_artifact_from_async_reader(
-    _resource: &BackupResourceIdentity,
-    _artifact: &mut (impl AsyncRead + Unpin),
-    _created_at_unix_seconds: i64,
-    root: &Path,
-) -> Result<StoredBackupArtifact, BackupVerificationError> {
-    Err(BackupVerificationError::Storage {
-        detail: format!(
-            "secure asynchronous backup persistence is not implemented for '{}' on this platform",
-            root.display()
-        ),
-    })
-}

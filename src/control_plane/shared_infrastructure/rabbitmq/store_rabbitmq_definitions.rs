@@ -37,17 +37,6 @@ pub(crate) fn store_rabbitmq_definitions(
     ))
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_rabbitmq_definitions(
-    _definitions: &RabbitMqDefinitions,
-    directory: &Path,
-) -> Result<StoredRabbitMqPaths, RabbitMqPlanError> {
-    Err(RabbitMqPlanError::new(format!(
-        "secure RabbitMQ definitions persistence is not implemented for '{}' on this platform",
-        directory.display()
-    )))
-}
-
 #[cfg(unix)]
 fn store_immutable_file(path: &Path, contents: &[u8]) -> Result<(), RabbitMqPlanError> {
     if path.exists() {

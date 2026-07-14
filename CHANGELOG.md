@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed unreachable non-Unix compatibility fallbacks from the v8 CLI,
+  daemon, gateway, state, TLS, backup, and shared-secret paths. The host audit
+  now permits only the single top-level unsupported-host compile boundary.
 - Removed the obsolete pre-v8 CLI, TOML/config, Docker CLI, per-project
   lifecycle, host Caddy, hosts-file, swarm, sharing, and runtime source trees.
   The shipped CLI now exposes only strict v8 YAML and singleton-daemon commands.

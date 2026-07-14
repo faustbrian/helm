@@ -29,17 +29,6 @@ pub(crate) fn store_mailpit_authentication(
     ))
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_mailpit_authentication(
-    _snapshot: &MailpitAuthenticationSnapshot,
-    directory: &Path,
-) -> Result<StoredMailpitAuthenticationPaths, MailpitPlanError> {
-    Err(MailpitPlanError::new(format!(
-        "secure Mailpit authentication persistence is not implemented for '{}' on this platform",
-        directory.display()
-    )))
-}
-
 #[cfg(unix)]
 fn replace_file(path: &Path, contents: &[u8]) -> Result<(), MailpitPlanError> {
     use std::fs::{self, File, OpenOptions};

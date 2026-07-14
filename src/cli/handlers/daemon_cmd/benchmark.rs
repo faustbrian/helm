@@ -29,8 +29,3 @@ pub(super) fn handle_daemon_benchmark() -> Result<()> {
         }
     }
 }
-
-#[cfg(not(unix))]
-pub(super) fn handle_daemon_benchmark() -> Result<()> {
-    bail!("Stackctl v8 requires a Unix host")
-}

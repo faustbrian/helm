@@ -93,36 +93,6 @@ fn store_backup_artifact_from_reader_for_identity(
     )
 }
 
-#[cfg(not(unix))]
-pub(crate) fn store_backup_artifact_from_reader(
-    _resource: &ResourceRecord,
-    _artifact: impl Read,
-    _created_at_unix_seconds: i64,
-    root: &Path,
-) -> Result<StoredBackupArtifact, BackupVerificationError> {
-    Err(BackupVerificationError::Storage {
-        detail: format!(
-            "secure backup persistence is not implemented for '{}' on this platform",
-            root.display()
-        ),
-    })
-}
-
-#[cfg(not(unix))]
-fn store_backup_artifact_from_reader_for_identity(
-    _resource: &BackupResourceIdentity,
-    _artifact: impl Read,
-    _created_at_unix_seconds: i64,
-    root: &Path,
-) -> Result<StoredBackupArtifact, BackupVerificationError> {
-    Err(BackupVerificationError::Storage {
-        detail: format!(
-            "secure backup persistence is not implemented for '{}' on this platform",
-            root.display()
-        ),
-    })
-}
-
 fn backup_identity_hash(resource: &BackupResourceIdentity) -> String {
     let mut digest = Sha256::new();
     digest.update(b"stackctl-backup-resource-v1\0");

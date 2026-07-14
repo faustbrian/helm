@@ -142,22 +142,12 @@ fn protect_backup_directory(path: &Path) -> Result<(), StateStoreError> {
         .map_err(|source| backup_io("protect directory", path, source))
 }
 
-#[cfg(not(unix))]
-fn protect_backup_directory(_path: &Path) -> Result<(), StateStoreError> {
-    Ok(())
-}
-
 #[cfg(unix)]
 fn protect_backup_file(path: &Path) -> Result<(), StateStoreError> {
     use std::os::unix::fs::PermissionsExt;
 
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))
         .map_err(|source| backup_io("protect file", path, source))
-}
-
-#[cfg(not(unix))]
-fn protect_backup_file(_path: &Path) -> Result<(), StateStoreError> {
-    Ok(())
 }
 
 fn prune_old_backups(path: &Path) -> Result<(), StateStoreError> {

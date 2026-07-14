@@ -46,11 +46,6 @@ pub(super) fn prepare_delete_data_uninstall(service_installed: bool) -> Result<O
     Ok(Some(runtime_directory))
 }
 
-#[cfg(not(unix))]
-pub(super) fn prepare_delete_data_uninstall(_service_installed: bool) -> Result<Option<PathBuf>> {
-    bail!("Stackctl v8 requires a Unix host")
-}
-
 #[cfg(unix)]
 fn begin_or_resume_installation_deletion() -> Result<()> {
     use crate::control_plane::IpcInstallationLifecycle;
