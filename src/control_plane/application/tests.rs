@@ -183,7 +183,8 @@ fn installation_deletion_refuses_unprotected_project_volumes() {
             retention: ResourceRetention::Persistent,
             lifecycle: ResourceLifecycle::Retained,
             orphaned_at_unix_seconds: Some(9_000),
-        })])
+        })
+        .with_scope_id("search")])
         .expect("persist project volume");
     let control_plane = ControlPlane::new(store);
 
@@ -192,9 +193,99 @@ fn installation_deletion_refuses_unprotected_project_volumes() {
         .expect_err("unprotected project volume must block installation deletion");
 
     assert!(error.contains("stackctl-bill-search-data"));
-    assert!(error.contains("no ownership-bound recovery adapter"));
+    assert!(error.contains("no exact verified recovery point"));
     drop(control_plane);
     remove_database(&database_path);
+}
+
+#[test]
+fn installation_deletion_binds_verified_project_volume_recovery() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity,
+    };
+    use sha2::{Digest, Sha256};
+
+    let database_path = temporary_database_path();
+    let backup_root = database_path.with_extension("volume-backups");
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-search-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:search-3".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Retained,
+        orphaned_at_unix_seconds: Some(9_000),
+    })
+    .with_scope_id("search");
+    let stored = store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_resource(&resource),
+        b"volume archive",
+        9_100,
+        &backup_root,
+    )
+    .expect("store volume recovery");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "volume-backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "search".to_owned(),
+        logical_resource_id: resource.resource_id().to_owned(),
+        resource_kind: resource.kind().to_owned(),
+        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: hex::encode(Sha256::digest(b"volume archive")),
+        artifact_size_bytes: 14,
+        created_at_unix_seconds: 9_100,
+        verified_at_unix_seconds: 9_100,
+    })
+    .expect("volume recovery point");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "unix:///engine.sock",
+        ))
+        .expect("initialize installation");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist project volume");
+    store
+        .record_recovery_point(&recovery)
+        .expect("catalog volume recovery");
+    let mut control_plane = ControlPlane::new(store);
+
+    let plan = control_plane
+        .plan_installation_deletion()
+        .expect("protected project volume plan");
+    let [deletion] = plan.volume_deletions() else {
+        panic!("expected one volume deletion");
+    };
+    assert_eq!(deletion.resource_id(), resource.resource_id());
+    assert_eq!(deletion.recovery_point_id(), recovery.recovery_point_id());
+    control_plane
+        .begin_confirmed_installation_deletion(plan.confirmation_token(), 9_200)
+        .expect("freeze verified volume deletion");
+    assert_eq!(
+        control_plane
+            .verified_installation_volume_deletions(9_201)
+            .expect("reverify cleanup authorization"),
+        [resource.resource_id()]
+    );
+    std::fs::write(stored.artifact_file(), b"tampered volume archive")
+        .expect("tamper volume recovery");
+    assert!(
+        control_plane
+            .verified_installation_volume_deletions(9_202)
+            .expect_err("tampered cleanup authorization must fail")
+            .contains("checksum")
+    );
+
+    drop(control_plane);
+    remove_database(&database_path);
+    std::fs::remove_dir_all(backup_root).expect("remove volume backup fixture");
 }
 
 #[test]

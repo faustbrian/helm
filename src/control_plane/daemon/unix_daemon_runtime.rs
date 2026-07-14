@@ -281,7 +281,7 @@ impl UnixDaemonRuntime {
                     self.drive_project_restores(now, now_unix_seconds);
                     self.drive_migration_decisions(now, now_unix_seconds);
                     self.drive_project_logs(now);
-                    self.drive_installation_deletion(now);
+                    self.drive_installation_deletion(now, now_unix_seconds);
                 }
                 Err(error) => {
                     tracing::error!(error = %error, "singleton daemon iteration failed");

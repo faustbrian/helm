@@ -137,7 +137,7 @@ fn installation_deletion_plans_round_trip_as_secret_free_exact_intent() {
     );
     let status_request =
         IpcRequest::new("delete-status-42", IpcPayload::InstallationDeletionStatus);
-    let plan = IpcInstallationDeletionPlan::new(Vec::new(), "a".repeat(64))
+    let plan = IpcInstallationDeletionPlan::new(Vec::new(), Vec::new(), "a".repeat(64))
         .expect("empty installation deletion plan");
     let response = IpcResponse::success(
         "delete-plan-42",

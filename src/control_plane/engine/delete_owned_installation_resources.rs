@@ -1,15 +1,15 @@
 use super::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, NetworkDiscovery,
-    NetworkManager, ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume,
-    ResourceKind, RetentionClass, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
+    InstallationResourceDeletionOptions, NetworkDiscovery, NetworkManager,
+    ObservedResourceOwnership, OwnedContainer, OwnedNetwork, OwnedVolume, ResourceKind,
+    RetentionClass, VolumeDiscovery, VolumeManager, reconstruct_owned_container,
     reconstruct_owned_network, reconstruct_owned_volume,
 };
 
 /// Deletes exact installation-owned Engine objects in dependency-safe order.
 pub(crate) async fn delete_owned_installation_resources<E>(
     engine: &mut E,
-    installation_id: &str,
-    schema_version: u32,
+    options: InstallationResourceDeletionOptions<'_>,
 ) -> Result<(), EngineError>
 where
     E: ContainerDiscovery
@@ -19,7 +19,13 @@ where
         + NetworkDiscovery
         + NetworkManager,
 {
-    if installation_id.is_empty() || schema_version == 0 {
+    if options.installation_id.is_empty()
+        || options.schema_version == 0
+        || options
+            .authorized_persistent_volumes
+            .iter()
+            .any(String::is_empty)
+    {
         return Err(EngineError::InvalidRequest {
             detail: "installation cleanup identity is incomplete".to_owned(),
         });
@@ -30,7 +36,11 @@ where
         .iter()
         .filter_map(|observed| {
             owned_or_foreign(
-                reconstruct_owned_container(observed, installation_id, schema_version),
+                reconstruct_owned_container(
+                    observed,
+                    options.installation_id,
+                    options.schema_version,
+                ),
                 "container",
                 observed.id().as_str(),
             )
@@ -42,7 +52,7 @@ where
         .iter()
         .filter_map(|observed| {
             owned_or_foreign(
-                reconstruct_owned_volume(observed, installation_id, schema_version),
+                reconstruct_owned_volume(observed, options.installation_id, options.schema_version),
                 "volume",
                 observed.name(),
             )
@@ -54,7 +64,11 @@ where
         .iter()
         .filter_map(|observed| {
             owned_or_foreign(
-                reconstruct_owned_network(observed, installation_id, schema_version),
+                reconstruct_owned_network(
+                    observed,
+                    options.installation_id,
+                    options.schema_version,
+                ),
                 "network",
                 observed.id().as_str(),
             )
@@ -63,7 +77,12 @@ where
     containers.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
     volumes.sort_by(|left, right| left.name().cmp(right.name()));
     networks.sort_by(|left, right| left.id().as_str().cmp(right.id().as_str()));
-    validate_kinds(&containers, &volumes, &networks)?;
+    validate_kinds(
+        &containers,
+        &volumes,
+        &networks,
+        options.authorized_persistent_volumes,
+    )?;
 
     for container in &containers {
         match engine.inspect(container).await? {
@@ -106,6 +125,7 @@ fn validate_kinds(
     containers: &[OwnedContainer],
     volumes: &[OwnedVolume],
     networks: &[OwnedNetwork],
+    authorized_persistent_volumes: &[String],
 ) -> Result<(), EngineError> {
     let invalid_container = containers.iter().find(|container| {
         matches!(
@@ -128,10 +148,13 @@ fn validate_kinds(
     if let Some(volume) = volumes.iter().find(|volume| {
         volume.metadata().retention() == RetentionClass::Persistent
             && volume.metadata().project_id().is_some()
+            && !authorized_persistent_volumes
+                .iter()
+                .any(|authorized| authorized == volume.name())
     }) {
         return Err(EngineError::InvalidRequest {
             detail: format!(
-                "installation cleanup refuses project-owned persistent volume '{}' without explicit recovery authorization",
+                "installation cleanup refuses project-owned persistent volume '{}' without exact recovery authorization",
                 volume.name()
             ),
         });

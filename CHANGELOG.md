@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Bound project-owned persistent volumes into installation delete-data plans
+  with user-visible resource and recovery identities, confirmation tokens that
+  include exact artifact evidence, reverification at freeze and immediately
+  before cleanup, and an exact Engine volume-name authorization list. Unlisted
+  Engine-observed volumes still block teardown before mutation.
 - Integrated dedicated project volumes into daemon restore admission with an
   exact desired-service plan, deterministic operation-bound safety backup,
   immediate artifact reverification, empty-volume recreation, archive upload
@@ -49,7 +54,7 @@ All notable changes to this project are documented in this file.
   exact live container and volume ownership, quiesce only the matching service,
   stream the named volume through the Engine API into immutable checksummed
   recovery storage, and restore the prior running state after success or
-  failure. Destructive deletion authorization remains fail-closed.
+  failure.
 - Added `daemon service uninstall --delete-data --confirm-delete-data` execution
   that plans and confirms exact teardown, resumes interrupted deletion, polls
   durable terminal state, removes matching CA trust, stops the login service,

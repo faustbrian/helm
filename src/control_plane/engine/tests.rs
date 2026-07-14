@@ -5,15 +5,15 @@ use super::{
     ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
     ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
     GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder, ImageId,
-    ImageReferenceResolver, ImageResolver, ImmutableImageReference, LogChunk, LogSource,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
-    NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedNetwork,
-    ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference, ResourceKind,
-    ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery, VolumeManager,
-    VolumeMount, classify_observed_resource, delete_owned_installation_resources,
-    gateway_container_request, reconstruct_owned_container, reconstruct_owned_network,
-    reconstruct_owned_volume,
+    ImageReferenceResolver, ImageResolver, ImmutableImageReference,
+    InstallationResourceDeletionOptions, LogChunk, LogSource, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkDiscovery, NetworkId,
+    NetworkManager, ObservedContainer, ObservedNetwork, ObservedResourceOwnership, ObservedVolume,
+    OwnedContainer, OwnedNetwork, OwnedVolume, PublishedPortBinding, PublishedPortDiscovery,
+    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_network, reconstruct_owned_volume,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -1642,8 +1642,11 @@ fn installation_cleanup_deletes_only_exact_owned_resources_in_dependency_order()
     runtime
         .block_on(delete_owned_installation_resources(
             &mut backend,
-            "install-1",
-            8,
+            InstallationResourceDeletionOptions {
+                installation_id: "install-1",
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
         ))
         .expect("owned installation cleanup");
 
@@ -1676,8 +1679,11 @@ fn installation_cleanup_refuses_ambiguous_owned_labels_before_mutation() {
     let error = runtime
         .block_on(delete_owned_installation_resources(
             &mut backend,
-            "install-1",
-            8,
+            InstallationResourceDeletionOptions {
+                installation_id: "install-1",
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
         ))
         .expect_err("ambiguous ownership must fail closed");
 
@@ -1701,18 +1707,45 @@ fn installation_cleanup_refuses_unprotected_observed_project_volumes() {
     let error = runtime
         .block_on(delete_owned_installation_resources(
             &mut backend,
-            "install-1",
-            8,
+            InstallationResourceDeletionOptions {
+                installation_id: "install-1",
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
         ))
         .expect_err("unprotected observed project volume must fail closed");
 
     assert!(error.to_string().contains("stackctl-bill-search-data"));
-    assert!(
-        error
-            .to_string()
-            .contains("explicit recovery authorization")
-    );
+    assert!(error.to_string().contains("exact recovery authorization"));
     assert!(backend.removals.is_empty());
+}
+
+#[test]
+fn installation_cleanup_deletes_only_exact_authorized_project_volume() {
+    let volume_name = "stackctl-bill-search-data".to_owned();
+    let mut backend = RecordingContainerBackend {
+        observed_volumes: vec![ObservedVolume::new(
+            &volume_name,
+            project_metadata(ResourceKind::Volume).labels(),
+        )],
+        ..RecordingContainerBackend::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(delete_owned_installation_resources(
+            &mut backend,
+            InstallationResourceDeletionOptions {
+                installation_id: "install-1",
+                schema_version: 8,
+                authorized_persistent_volumes: std::slice::from_ref(&volume_name),
+            },
+        ))
+        .expect("authorized project volume cleanup");
+
+    assert_eq!(backend.removals, ["volume:stackctl-bill-search-data"]);
 }
 
 #[test]

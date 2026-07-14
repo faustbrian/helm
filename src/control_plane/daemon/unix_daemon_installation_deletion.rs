@@ -4,7 +4,7 @@ use std::time::Instant;
 
 impl UnixDaemonRuntime {
     /// Removes the Engine plane only after serialized logical teardown is empty.
-    pub(super) fn drive_installation_deletion(&mut self, now: Instant) {
+    pub(super) fn drive_installation_deletion(&mut self, now: Instant, now_unix_seconds: i64) {
         match self.control_plane.installation_lifecycle() {
             Ok(Some(InstallationLifecycle::Deleting)) => {}
             Ok(_) => return,
@@ -45,6 +45,7 @@ impl UnixDaemonRuntime {
             &mut self.control_plane,
             &mut engine,
             self.global_network_request.metadata().schema_version(),
+            now_unix_seconds,
         ));
         match result {
             Ok(true) => tracing::info!("installation deletion reached terminal state"),

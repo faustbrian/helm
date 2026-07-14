@@ -1,9 +1,10 @@
 use super::ControlPlane;
 use crate::control_plane::retention::{
     InstallationDeletionPlan, InstallationDeletionPlanOptions, verify_recovery_point_artifact,
+    verify_resource_recovery_point_artifact,
 };
 use crate::control_plane::state::{
-    CredentialRecord, LogicalResourceRecord, RecoveryPointRecord, ResourceRetention, StateStore,
+    CredentialRecord, LogicalResourceRecord, RecoveryPointRecord, ResourceRecord, StateStore,
 };
 use std::collections::BTreeSet;
 
@@ -13,30 +14,13 @@ where
 {
     /// Proves every retained tenant is recoverable before installation teardown.
     pub(crate) fn plan_installation_deletion(&self) -> Result<InstallationDeletionPlan, String> {
-        let mut unprotected_volumes = self
-            .resources()
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .filter(|resource| {
-                resource.kind() == "volume"
-                    && resource.retention() == ResourceRetention::Persistent
-                    && resource.project_id().is_some()
-            })
-            .map(|resource| resource.resource_id().to_owned())
-            .collect::<Vec<_>>();
-        unprotected_volumes.sort();
-        if !unprotected_volumes.is_empty() {
-            return Err(format!(
-                "installation deletion is blocked because project-owned persistent volume(s) [{}] have no ownership-bound recovery adapter",
-                unprotected_volumes.join(", ")
-            ));
-        }
-        let (installation_id, logical_resources, credentials, recovery_points) =
+        let (installation_id, logical_resources, resources, credentials, recovery_points) =
             self.installation_deletion_snapshot()?;
 
         InstallationDeletionPlan::new(InstallationDeletionPlanOptions {
             installation_id: &installation_id,
             logical_resources: &logical_resources,
+            resources: &resources,
             credentials: &credentials,
             recovery_points: &recovery_points,
         })
@@ -66,7 +50,7 @@ where
                     .join(", ")
             ));
         }
-        let (installation_id, logical_resources, _, recovery_points) =
+        let (installation_id, logical_resources, resources, _, recovery_points) =
             self.installation_deletion_snapshot()?;
         for prune in plan.logical_prunes() {
             let logical = logical_resources
@@ -88,6 +72,22 @@ where
             verify_recovery_point_artifact(recovery, logical, &installation_id, now_unix_seconds)
                 .map_err(|error| error.to_string())?;
         }
+        for deletion in plan.volume_deletions() {
+            let resource = resources
+                .iter()
+                .find(|resource| resource.resource_id() == deletion.resource_id())
+                .ok_or_else(|| {
+                    "installation deletion volume intent changed before freeze".to_owned()
+                })?;
+            let recovery = recovery_points
+                .iter()
+                .find(|recovery| recovery.recovery_point_id() == deletion.recovery_point_id())
+                .ok_or_else(|| {
+                    "installation deletion volume recovery changed before freeze".to_owned()
+                })?;
+            verify_resource_recovery_point_artifact(recovery, resource, now_unix_seconds)
+                .map_err(|error| error.to_string())?;
+        }
         self.state_store
             .begin_installation_deletion(now_unix_seconds)
             .map_err(|error| error.to_string())?;
@@ -102,12 +102,42 @@ where
             .map_err(|error| error.to_string())
     }
 
+    /// Re-verifies exact volume recovery evidence immediately before Engine cleanup.
+    pub(crate) fn verified_installation_volume_deletions(
+        &self,
+        now_unix_seconds: i64,
+    ) -> Result<Vec<String>, String> {
+        let plan = self.plan_installation_deletion()?;
+        let (_, _, resources, _, recovery_points) = self.installation_deletion_snapshot()?;
+        let mut authorized = Vec::with_capacity(plan.volume_deletions().len());
+        for deletion in plan.volume_deletions() {
+            let resource = resources
+                .iter()
+                .find(|resource| resource.resource_id() == deletion.resource_id())
+                .ok_or_else(|| {
+                    "installation deletion volume authorization changed before cleanup".to_owned()
+                })?;
+            let recovery = recovery_points
+                .iter()
+                .find(|recovery| recovery.recovery_point_id() == deletion.recovery_point_id())
+                .ok_or_else(|| {
+                    "installation deletion recovery authorization changed before cleanup".to_owned()
+                })?;
+            verify_resource_recovery_point_artifact(recovery, resource, now_unix_seconds)
+                .map_err(|error| error.to_string())?;
+            authorized.push(resource.resource_id().to_owned());
+        }
+
+        Ok(authorized)
+    }
+
     fn installation_deletion_snapshot(
         &self,
     ) -> Result<
         (
             String,
             Vec<LogicalResourceRecord>,
+            Vec<ResourceRecord>,
             Vec<CredentialRecord>,
             Vec<RecoveryPointRecord>,
         ),
@@ -120,10 +150,12 @@ where
         let logical_resources = self
             .logical_resources()
             .map_err(|error| error.to_string())?;
+        let resources = self.resources().map_err(|error| error.to_string())?;
         let credentials = self.credentials().map_err(|error| error.to_string())?;
         let project_ids = logical_resources
             .iter()
             .map(|logical| logical.project_id())
+            .chain(resources.iter().filter_map(ResourceRecord::project_id))
             .collect::<BTreeSet<_>>();
         let mut recovery_points = Vec::new();
         for project_id in project_ids {
@@ -136,6 +168,7 @@ where
         Ok((
             installation.installation_id().to_owned(),
             logical_resources,
+            resources,
             credentials,
             recovery_points,
         ))

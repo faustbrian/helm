@@ -80,12 +80,13 @@ fn begin_installation_deletion() -> Result<()> {
         IpcPayload::PlanInstallationDeletion,
         DELETION_REQUEST_TIMEOUT,
     )?;
-    let (confirmation_token, logical_count) = match response.outcome() {
+    let (confirmation_token, logical_count, volume_count) = match response.outcome() {
         IpcOutcome::Success {
             result: IpcResult::InstallationDeletionPlan { plan },
         } => (
             plan.confirmation_token().to_owned(),
             plan.logical_prunes().len(),
+            plan.volume_deletions().len(),
         ),
         IpcOutcome::Success { .. } => {
             bail!("daemon returned an unexpected installation deletion plan")
@@ -99,7 +100,7 @@ fn begin_installation_deletion() -> Result<()> {
         "daemon",
         LogLevel::Info,
         &format!(
-            "Deleting {logical_count} retained logical service(s) through verified recovery adapters"
+            "Deleting {logical_count} retained logical service(s) and {volume_count} persistent volume(s) through verified recovery adapters"
         ),
         Persistence::Persistent,
     );

@@ -7295,6 +7295,7 @@ fn installation_deletion_finalizes_after_logical_and_durable_work_is_empty() {
                 &mut control_plane,
                 &mut engine,
                 8,
+                40_001,
             ))
             .expect("pending durable work blocks finalization")
     );
@@ -7320,6 +7321,7 @@ fn installation_deletion_finalizes_after_logical_and_durable_work_is_empty() {
                 &mut control_plane,
                 &mut engine,
                 8,
+                40_003,
             ))
             .expect("finalize installation deletion")
     );
@@ -7332,6 +7334,136 @@ fn installation_deletion_finalizes_after_logical_and_durable_work_is_empty() {
     assert!(engine.removed().is_empty());
 
     std::fs::remove_dir_all(root).expect("remove finalization fixture");
+}
+
+#[test]
+fn installation_deletion_finalizes_exact_recovery_authorized_volume() {
+    use crate::control_plane::retention::{
+        BackupResourceIdentity, store_backup_artifact_for_identity,
+    };
+    use crate::control_plane::state::{EngineProvider, InstallationLifecycle, InstallationRecord};
+    use sha2::{Digest, Sha256};
+
+    let root = temporary_directory("installation-deletion-volume-finalize");
+    let database_path = root.join("state.sqlite3");
+    let backup_root = root.join("backups");
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "stackctl-bill-search-data".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "volume".to_owned(),
+        compatibility_fingerprint: "sha256:search-3".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("search");
+    let stored = store_backup_artifact_for_identity(
+        &BackupResourceIdentity::from_resource(&resource),
+        b"volume archive",
+        40_000,
+        &backup_root,
+    )
+    .expect("store volume backup");
+    let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+        recovery_point_id: "volume-backup-42".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "search".to_owned(),
+        logical_resource_id: resource.resource_id().to_owned(),
+        resource_kind: resource.kind().to_owned(),
+        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        reference: stored.recovery_point().display().to_string(),
+        artifact_sha256: hex::encode(Sha256::digest(b"volume archive")),
+        artifact_size_bytes: 14,
+        created_at_unix_seconds: 40_000,
+        verified_at_unix_seconds: 40_000,
+    })
+    .expect("volume recovery");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .initialize_installation(&InstallationRecord::new(
+            "install-1",
+            EngineProvider::Docker,
+            "unix:///engine.sock",
+        ))
+        .expect("installation identity");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist project volume");
+    store
+        .record_recovery_point(&recovery)
+        .expect("catalog volume recovery");
+    let mut control_plane = ControlPlane::new(store);
+    let plan = control_plane
+        .plan_installation_deletion()
+        .expect("volume deletion plan");
+    let ipc_plan = crate::control_plane::daemon::ipc::IpcInstallationDeletionPlan::from(&plan);
+    assert_eq!(ipc_plan.volume_deletions().len(), 1);
+    assert_eq!(
+        ipc_plan.volume_deletions()[0].resource_id(),
+        resource.resource_id()
+    );
+    assert_eq!(
+        ipc_plan.volume_deletions()[0].recovery_point_id(),
+        recovery.recovery_point_id()
+    );
+    control_plane
+        .begin_confirmed_installation_deletion(plan.confirmation_token(), 40_001)
+        .expect("freeze volume deletion");
+    let volume_metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::Volume,
+            project_id: Some("bill".to_owned()),
+            compatibility_fingerprint: "sha256:search-3".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("volume metadata")
+    .with_resource_id("search")
+    .expect("volume service identity");
+    let mut engine = RecordingProjectCommandEngine::new(Vec::new()).with_observed_volumes(vec![
+        crate::control_plane::engine::ObservedVolume::new(
+            resource.resource_id(),
+            volume_metadata.labels(),
+        ),
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    assert!(
+        runtime
+            .block_on(finalize_installation_deletion(
+                &mut control_plane,
+                &mut engine,
+                8,
+                40_002,
+            ))
+            .expect("finalize protected volume deletion")
+    );
+    assert_eq!(
+        engine
+            .execution
+            .removed_volumes
+            .lock()
+            .expect("removed protected volumes")
+            .as_slice(),
+        [resource.resource_id()]
+    );
+    assert_eq!(
+        control_plane
+            .installation_lifecycle()
+            .expect("deleted installation"),
+        Some(InstallationLifecycle::Deleted)
+    );
+
+    std::fs::remove_dir_all(root).expect("remove volume deletion fixture");
 }
 
 #[test]

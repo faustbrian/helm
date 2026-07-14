@@ -171,8 +171,12 @@ validated YAML plan. Before replacing data, the daemon creates a deterministic
 then removes the exact service and volume, recreates the empty desired volume,
 uploads the selected archive before start, and waits for service readiness.
 Missing artifacts, checksum drift, ambiguous ownership, or a mismatched desired
-plan fail before destructive restore begins. Dedicated-volume deletion remains
-blocked until its explicit recovery-bound prune authorization is implemented.
+plan fail before destructive restore begins. Installation delete-data includes
+every dedicated volume and its selected recovery identity in the visible plan
+and confirmation token. The artifact is re-verified at confirmation and again
+immediately before cleanup; only the exact resulting volume-name set can pass
+the Engine deletion guard. A project-owned volume observed in the Engine but
+absent from durable authorization blocks the entire cleanup before mutation.
 
 RabbitMQ vhost recovery exports and restores exact definitions only after both
 the selected recovery point and the current safety snapshot prove the vhost has

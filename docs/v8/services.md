@@ -66,9 +66,12 @@ restores its prior running state. Restore first records a separate verified
 safety recovery point for the current contents, then removes only the exact
 owned service and volume, recreates the desired empty target, uploads the
 selected archive before start, and requires readiness. Destructive
-authorization remains unavailable until deletion planning binds one exact
-verified recovery point to the volume. Memcached, MailHog, and Soketi remain
-volume-free because their current dedicated contracts are stateless.
+authorization binds one exact verified recovery point to every volume in the
+user-visible installation plan and confirmation token, re-verifies it before
+cleanup, and passes only those exact volume names to Engine deletion. An
+unlisted Engine-observed volume fails teardown before mutation. Memcached,
+MailHog, and Soketi remain volume-free because their current dedicated
+contracts are stateless.
 
 Dusk and Selenium are never steady project services. Each browser-test command
 gets a deterministic operation-scoped container using the locked immutable

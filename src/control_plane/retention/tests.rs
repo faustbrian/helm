@@ -780,6 +780,7 @@ fn installation_deletion_plan_selects_latest_exact_recovery_before_freeze() {
     let plan = InstallationDeletionPlan::new(InstallationDeletionPlanOptions {
         installation_id: "install-1",
         logical_resources: std::slice::from_ref(&logical),
+        resources: &[],
         credentials: std::slice::from_ref(&credential),
         recovery_points: &[older, latest],
     })
