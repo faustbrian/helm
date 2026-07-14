@@ -6,12 +6,13 @@ use super::{
     V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
     V7MigrationServiceSource, V7ProjectInventory, V7ProjectInventoryOptions,
     V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
-    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
-    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
-    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
+    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
+    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
-    rollback_v7_migration, select_v7_migration_adapters,
+    register_v7_recreated_service_migration_adapter, rollback_v7_migration,
+    select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -26,9 +27,11 @@ use crate::control_plane::migration::{
 };
 use crate::control_plane::state::{
     AcceptedV7EnvironmentRollback, AcceptedV7InventoryRecord, AcceptedV7InventoryRecordOptions,
-    EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord,
-    StateStoreError, V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase,
-    V7MigrationExecutionRecord, V7MigrationExecutionRecordOptions,
+    EnvironmentLifecycle, LogicalResourceRecord, LogicalResourceRecordOptions,
+    ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, ProjectRecord, ResourceLifecycle,
+    ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStoreError,
+    V7MigrationAdapterCheckpoint, V7MigrationExecutionPhase, V7MigrationExecutionRecord,
+    V7MigrationExecutionRecordOptions,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
@@ -578,6 +581,108 @@ fn explicit_v7_no_op_strategies_participate_in_the_complete_lifecycle() {
             .await
             .expect("confirm no-op strategies");
         assert_eq!(confirmed.phase(), V7MigrationExecutionPhase::Confirmed);
+    });
+}
+
+#[test]
+fn recreated_v7_services_require_typed_active_targets() {
+    run_test(async {
+        let checkpoints = [
+            ("service/app", "recreate-project-workload"),
+            ("service/mail", "recreate-stateless"),
+            ("service/browser", "recreate-ephemeral"),
+        ]
+        .into_iter()
+        .map(|(adapter_id, adapter_kind)| {
+            V7MigrationAdapterCheckpoint::pending(adapter_id, adapter_kind, false, 10)
+                .expect("recreated service checkpoint")
+        })
+        .collect();
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, checkpoints, 10);
+        let app = ResourceRecord::new(ResourceRecordOptions {
+            resource_id: "container-app-v8".to_owned(),
+            installation_id: "installation".to_owned(),
+            kind: "project_service".to_owned(),
+            compatibility_fingerprint: "sha256:app".to_owned(),
+            project_id: Some("bill".to_owned()),
+            schema_version: 8,
+            desired_revision: "sha256:app-revision".to_owned(),
+            retention: ResourceRetention::Disposable,
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        })
+        .with_scope_id("app");
+        let mail = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: "bill/mail".to_owned(),
+            shared_resource_id: "shared-mailpit".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "mail".to_owned(),
+            kind: "mailbox".to_owned(),
+            compatibility_fingerprint: "sha256:mailpit".to_owned(),
+            desired_revision: "sha256:mail-revision".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        });
+        let error = register_v7_recreated_service_migration_adapter(
+            &mut V7MigrationAdapterRegistry::default(),
+            &plan,
+            "app",
+            V7RecreatedServiceTarget::Ephemeral,
+        )
+        .expect_err("project workload requires an observed target");
+        assert!(error.contains("does not match selected kind"));
+        let mut registry = V7MigrationAdapterRegistry::default();
+        register_v7_recreated_service_migration_adapter(
+            &mut registry,
+            &plan,
+            "app",
+            V7RecreatedServiceTarget::Workload(app),
+        )
+        .expect("register application recreation");
+        register_v7_recreated_service_migration_adapter(
+            &mut registry,
+            &plan,
+            "mail",
+            V7RecreatedServiceTarget::Logical(mail),
+        )
+        .expect("register stateless recreation");
+        register_v7_recreated_service_migration_adapter(
+            &mut registry,
+            &plan,
+            "browser",
+            V7RecreatedServiceTarget::Ephemeral,
+        )
+        .expect("register ephemeral recreation");
+        let mut journal = RecordingV7Journal::default();
+
+        let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 11)
+            .await
+            .expect("prepare recreated services");
+        assert_eq!(
+            prepared
+                .checkpoints()
+                .iter()
+                .map(V7MigrationAdapterCheckpoint::target_reference)
+                .collect::<Vec<_>>(),
+            vec![
+                Some("resource:container-app-v8"),
+                None,
+                Some("logical-resource:bill/mail"),
+            ]
+        );
+        let desired_state = v7_cutover_state();
+        cutover_v7_migration(V7MigrationCutoverOptions {
+            journal: &mut journal,
+            plan: &plan,
+            registry: &mut registry,
+            desired_state: &desired_state,
+            updated_at_unix_seconds: 12,
+        })
+        .await
+        .expect("cut over recreated services");
+        confirm_v7_migration(&mut journal, &plan, &mut registry, 13)
+            .await
+            .expect("confirm recreated services");
     });
 }
 

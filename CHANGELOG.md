@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added concrete recreation adapters for v7 project workloads, stateless
+  services, and ephemeral services. Preparation now requires exact active v8
+  workload or logical-resource ownership, while only explicitly ephemeral
+  services may have no durable target identity.
 - Added a concrete protected generated-environment v7 adapter. It re-verifies
   accepted private rollback evidence, binds the exact active managed
   environment revision as its target, and leaves the user-owned project

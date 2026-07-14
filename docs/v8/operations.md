@@ -292,6 +292,13 @@ it binds the active managed-environment revision as its target. Project `.env`
 files remain user-owned and are neither rewritten nor deleted during prepare,
 cutover, rollback, or confirmation; v8 environment publication and restoration
 occur through the atomic managed-state transactions and container injection.
+Recreated project workloads and stateless services bind only to an active v8
+`ResourceRecord` or project-scoped `LogicalResourceRecord` whose service
+identity matches the immutable checkpoint. An explicitly ephemeral adapter is
+the only recreation strategy allowed to prepare without a durable target.
+Cutover, rollback, and confirmation then follow normal desired-state
+reconciliation and retention instead of introducing a second container
+lifecycle path inside migration.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application
