@@ -3,13 +3,13 @@ use std::fmt::{Display, Formatter};
 use std::io;
 use std::path::PathBuf;
 
-/// A durable state migration, validation, or transaction failure.
+/// A durable state initialization, validation, or transaction failure.
 #[derive(Debug)]
 #[non_exhaustive]
 pub(crate) enum StateStoreError {
     /// SQLite rejected an operation.
     Database(rusqlite::Error),
-    /// A persisted database uses a schema newer than this build.
+    /// A persisted database does not use this clean v8 schema.
     UnsupportedSchema { found: u32, supported: u32 },
     /// A canonical path cannot be represented exactly in SQLite text.
     NonUtf8Path { path: PathBuf },
@@ -88,7 +88,7 @@ impl Display for StateStoreError {
             Self::Database(error) => write!(formatter, "state database error: {error}"),
             Self::UnsupportedSchema { found, supported } => write!(
                 formatter,
-                "state schema version {found} is newer than supported version {supported}"
+                "state schema version {found} is unsupported; this build requires version {supported} from a clean v8 installation"
             ),
             Self::NonUtf8Path { path } => write!(
                 formatter,

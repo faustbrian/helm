@@ -12,15 +12,40 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
-fn opening_a_new_store_applies_the_current_schema_atomically() {
-    let database_path = temporary_database_path("migration");
+fn opening_a_new_store_creates_the_clean_v8_schema_atomically() {
+    let database_path = temporary_database_path("clean-v8-schema");
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 15);
+    assert_eq!(store.schema_version().expect("schema version"), 16);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
+fn opening_a_store_rejects_a_non_v8_schema() {
+    let database_path = temporary_database_path("unsupported-schema");
+    let connection = rusqlite::Connection::open(&database_path).expect("open old state");
+    connection
+        .execute_batch("PRAGMA user_version = 14;")
+        .expect("mark old schema");
+    drop(connection);
+
+    let error = match SqliteStateStore::open(&database_path) {
+        Ok(_) => panic!("old state must be rejected"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        super::StateStoreError::UnsupportedSchema {
+            found: 14,
+            supported: 16
+        }
+    ));
+
     remove_database(&database_path);
 }
 
@@ -1973,144 +1998,6 @@ fn explicit_project_adoption_reactivates_resources_credentials_and_environment_a
     assert_eq!(
         store.managed_environments().expect("active environment")[0].lifecycle(),
         EnvironmentLifecycle::Active
-    );
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn version_one_state_migrates_without_losing_project_ownership() {
-    let database_path = temporary_database_path("v1-migration");
-    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
-    connection
-        .execute_batch(
-            "CREATE TABLE projects (\n\
-                 canonical_path TEXT PRIMARY KEY NOT NULL,\n\
-                 project_name TEXT NOT NULL\n\
-             ) STRICT;\n\
-             CREATE TABLE route_claims (\n\
-                 domain TEXT PRIMARY KEY NOT NULL,\n\
-                 canonical_path TEXT NOT NULL\n\
-                     REFERENCES projects(canonical_path) ON DELETE CASCADE\n\
-             ) STRICT;\n\
-             INSERT INTO projects VALUES ('/work/bill', 'bill');\n\
-             INSERT INTO route_claims VALUES\n\
-                 ('bill-app.stackctl.localhost', '/work/bill');\n\
-             PRAGMA user_version = 1;",
-        )
-        .expect("seed legacy schema");
-    drop(connection);
-
-    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
-
-    assert_eq!(store.schema_version().expect("schema version"), 15);
-    assert_eq!(
-        store.projects().expect("preserved projects"),
-        vec![project_record(
-            "/work/bill",
-            "bill",
-            &["bill-app.stackctl.localhost"]
-        )]
-    );
-    assert!(store.resources().expect("new resource table").is_empty());
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn version_five_credentials_migrate_without_losing_ownership_or_secrets() {
-    let database_path = temporary_database_path("v5-credential-migration");
-    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
-    connection
-        .execute_batch(
-            "CREATE TABLE resources (\n\
-                 resource_id TEXT PRIMARY KEY NOT NULL,\n\
-                 installation_id TEXT NOT NULL,\n\
-                 kind TEXT NOT NULL,\n\
-                 compatibility_fingerprint TEXT NOT NULL,\n\
-                 project_id TEXT,\n\
-                 resource_schema_version INTEGER NOT NULL\n\
-                     CHECK(resource_schema_version > 0),\n\
-                 desired_revision TEXT NOT NULL,\n\
-                 retention TEXT NOT NULL\n\
-                     CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
-                 lifecycle TEXT NOT NULL\n\
-                     CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
-                 orphaned_at_unix_seconds INTEGER\n\
-             ) STRICT;\n\
-             CREATE TABLE credentials (\n\
-                 credential_id TEXT PRIMARY KEY NOT NULL,\n\
-                 project_id TEXT NOT NULL CHECK(length(project_id) > 0),\n\
-                 service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
-                 username TEXT NOT NULL CHECK(length(username) > 0),\n\
-                 secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
-                 lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
-             ) STRICT;\n\
-             CREATE INDEX credentials_project_idx ON credentials(project_id);\n\
-             INSERT INTO credentials VALUES (\n\
-                 'bill/database/primary', 'bill', 'database',\n\
-                 'stackctl_bill', 'secret-first', 'active'\n\
-             );\n\
-             PRAGMA user_version = 5;",
-        )
-        .expect("seed version-five credentials");
-    drop(connection);
-
-    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
-
-    assert_eq!(store.schema_version().expect("schema version"), 15);
-    assert_eq!(
-        store.credentials().expect("preserved credentials"),
-        vec![credential_record("secret-first")]
-    );
-
-    drop(store);
-    remove_database(&database_path);
-}
-
-#[test]
-fn version_nine_resources_gain_an_empty_scope_without_losing_ownership() {
-    let database_path = temporary_database_path("v9-resource-scope-migration");
-    let connection = rusqlite::Connection::open(&database_path).expect("open legacy state");
-    connection
-        .execute_batch(
-            "CREATE TABLE resources (\n\
-                 resource_id TEXT PRIMARY KEY NOT NULL,\n\
-                 installation_id TEXT NOT NULL,\n\
-                 kind TEXT NOT NULL,\n\
-                 compatibility_fingerprint TEXT NOT NULL,\n\
-                 project_id TEXT,\n\
-                 resource_schema_version INTEGER NOT NULL\n\
-                     CHECK(resource_schema_version > 0),\n\
-                 desired_revision TEXT NOT NULL,\n\
-                 retention TEXT NOT NULL\n\
-                     CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
-                 lifecycle TEXT NOT NULL\n\
-                     CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
-                 orphaned_at_unix_seconds INTEGER\n\
-             ) STRICT;\n\
-             INSERT INTO resources VALUES (\n\
-                 'shared-postgres', 'install-1', 'shared_service',\n\
-                 'sha256:postgres-17', NULL, 8, 'sha256:desired-v1',\n\
-                 'persistent', 'active', NULL\n\
-             );\n\
-             PRAGMA user_version = 9;",
-        )
-        .expect("seed version-nine resources");
-    drop(connection);
-
-    let store = SqliteStateStore::open(&database_path).expect("migrate state store");
-    let resources = store.resources().expect("preserved resources");
-
-    assert_eq!(store.schema_version().expect("schema version"), 15);
-    assert_eq!(resources.len(), 1);
-    assert_eq!(resources[0].resource_id(), "shared-postgres");
-    assert_eq!(resources[0].scope_id(), None);
-    assert_eq!(
-        resources[0].compatibility_fingerprint(),
-        "sha256:postgres-17"
     );
 
     drop(store);

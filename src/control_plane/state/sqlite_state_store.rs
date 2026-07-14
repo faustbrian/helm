@@ -21,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 15;
+const CURRENT_SCHEMA_VERSION: u32 = 16;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -29,7 +29,7 @@ pub(crate) struct SqliteStateStore {
 }
 
 impl SqliteStateStore {
-    /// Opens a store and atomically applies every supported migration.
+    /// Opens a store and atomically creates the clean v8 schema when absent.
     pub(crate) fn open(database_path: &Path) -> Result<Self, StateStoreError> {
         let connection = Connection::open(database_path)?;
         connection.execute_batch(
@@ -39,7 +39,7 @@ impl SqliteStateStore {
              PRAGMA busy_timeout = 5000;",
         )?;
         let mut store = Self { connection };
-        store.migrate()?;
+        store.initialize_schema()?;
 
         Ok(store)
     }
@@ -58,10 +58,10 @@ impl SqliteStateStore {
             .map_err(Into::into)
     }
 
-    fn migrate(&mut self) -> Result<(), StateStoreError> {
+    fn initialize_schema(&mut self) -> Result<(), StateStoreError> {
         let found = self.schema_version()?;
 
-        if found > CURRENT_SCHEMA_VERSION {
+        if found != 0 && found != CURRENT_SCHEMA_VERSION {
             return Err(StateStoreError::UnsupportedSchema {
                 found,
                 supported: CURRENT_SCHEMA_VERSION,
@@ -76,9 +76,8 @@ impl SqliteStateStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        if found < 1 {
-            transaction.execute_batch(
-                "CREATE TABLE projects (\n\
+        transaction.execute_batch(
+            "CREATE TABLE projects (\n\
                  canonical_path TEXT PRIMARY KEY NOT NULL,\n\
                  project_name TEXT NOT NULL\n\
              ) STRICT;\n\
@@ -88,13 +87,8 @@ impl SqliteStateStore {
                      REFERENCES projects(canonical_path) ON DELETE CASCADE\n\
              ) STRICT;\n\
              CREATE INDEX route_claims_project_idx\n\
-                 ON route_claims(canonical_path);",
-            )?;
-        }
-
-        if found < 2 {
-            transaction.execute_batch(
-                "CREATE TABLE resources (\n\
+                 ON route_claims(canonical_path);\n\
+             CREATE TABLE resources (\n\
                      resource_id TEXT PRIMARY KEY NOT NULL,\n\
                      installation_id TEXT NOT NULL,\n\
                      kind TEXT NOT NULL,\n\
@@ -104,58 +98,26 @@ impl SqliteStateStore {
                      desired_revision TEXT NOT NULL,\n\
                      retention TEXT NOT NULL CHECK(retention IN ('persistent', 'disposable', 'build_cache')),\n\
                      lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'orphaned', 'retained')),\n\
-                     orphaned_at_unix_seconds INTEGER\n\
+                     orphaned_at_unix_seconds INTEGER,\n\
+                     scope_id TEXT CHECK(scope_id IS NULL OR length(scope_id) > 0)\n\
                  ) STRICT;\n\
                  CREATE INDEX resources_project_idx ON resources(project_id);\n\
                  CREATE INDEX resources_fingerprint_idx\n\
-                     ON resources(compatibility_fingerprint);",
-            )?;
-        }
-
-        if found < 3 {
-            transaction.execute_batch(
-                "CREATE TABLE installation (\n\
+                     ON resources(compatibility_fingerprint);\n\
+                 CREATE INDEX resources_scope_idx\n\
+                     ON resources(installation_id, kind, project_id, scope_id);\n\
+             CREATE TABLE installation (\n\
                      singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),\n\
                      installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),\n\
                      engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),\n\
-                     engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0)\n\
+                     engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0),\n\
+                     lifecycle TEXT NOT NULL DEFAULT 'active'\n\
+                         CHECK(lifecycle IN ('active', 'deleting', 'deleted'))\n\
                  ) STRICT;\n\
                  CREATE TABLE watched_roots (\n\
                      canonical_path TEXT PRIMARY KEY NOT NULL\n\
-                 ) STRICT;",
-            )?;
-        }
-
-        if found < 4 {
-            transaction.execute_batch(
-                "CREATE TABLE credentials (\n\
-                     credential_id TEXT PRIMARY KEY NOT NULL,\n\
-                     project_id TEXT NOT NULL CHECK(length(project_id) > 0),\n\
-                     service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
-                     username TEXT NOT NULL CHECK(length(username) > 0),\n\
-                     secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
-                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
                  ) STRICT;\n\
-                 CREATE INDEX credentials_project_idx ON credentials(project_id);",
-            )?;
-        }
-
-        if found < 5 {
-            transaction.execute_batch(
-                "CREATE TABLE managed_environments (\n\
-                     project_id TEXT PRIMARY KEY NOT NULL CHECK(length(project_id) > 0),\n\
-                     revision TEXT NOT NULL CHECK(length(revision) > 0),\n\
-                     values_json TEXT NOT NULL,\n\
-                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
-                 ) STRICT;",
-            )?;
-        }
-
-        if found < 6 {
-            transaction.execute_batch(
-                "ALTER TABLE credentials RENAME TO credentials_v5;\n\
-                 DROP INDEX credentials_project_idx;\n\
-                 CREATE TABLE credentials (\n\
+             CREATE TABLE credentials (\n\
                      credential_id TEXT PRIMARY KEY NOT NULL,\n\
                      project_id TEXT,\n\
                      service_id TEXT NOT NULL CHECK(length(service_id) > 0),\n\
@@ -163,18 +125,14 @@ impl SqliteStateStore {
                      secret TEXT NOT NULL CHECK(length(secret) > 0),\n\
                      lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
                  ) STRICT;\n\
-                 INSERT INTO credentials\n\
-                     (credential_id, project_id, service_id, username, secret, lifecycle)\n\
-                 SELECT credential_id, project_id, service_id, username, secret, lifecycle\n\
-                 FROM credentials_v5;\n\
-                 DROP TABLE credentials_v5;\n\
-                 CREATE INDEX credentials_project_idx ON credentials(project_id);",
-            )?;
-        }
-
-        if found < 7 {
-            transaction.execute_batch(
-                "CREATE TABLE logical_resources (
+                 CREATE INDEX credentials_project_idx ON credentials(project_id);\n\
+             CREATE TABLE managed_environments (\n\
+                     project_id TEXT PRIMARY KEY NOT NULL CHECK(length(project_id) > 0),\n\
+                     revision TEXT NOT NULL CHECK(length(revision) > 0),\n\
+                     values_json TEXT NOT NULL,\n\
+                     lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'disabled'))\n\
+                 ) STRICT;\n\
+             CREATE TABLE logical_resources (
                      logical_resource_id TEXT PRIMARY KEY NOT NULL,
                      shared_resource_id TEXT NOT NULL CHECK(length(shared_resource_id) > 0),
                      project_id TEXT NOT NULL CHECK(length(project_id) > 0),
@@ -190,13 +148,8 @@ impl SqliteStateStore {
                  CREATE INDEX logical_resources_project_idx
                      ON logical_resources(project_id);
                  CREATE INDEX logical_resources_shared_idx
-                     ON logical_resources(shared_resource_id, lifecycle);",
-            )?;
-        }
-
-        if found < 8 {
-            transaction.execute_batch(
-                "CREATE TABLE migrations (
+                     ON logical_resources(shared_resource_id, lifecycle);
+             CREATE TABLE migrations (
                      migration_id TEXT PRIMARY KEY NOT NULL CHECK(length(migration_id) > 0),
                      project_id TEXT NOT NULL CHECK(length(project_id) > 0),
                      source_revision TEXT NOT NULL CHECK(length(source_revision) > 0),
@@ -215,40 +168,17 @@ impl SqliteStateStore {
                          CHECK(backup_artifact_size_bytes >= 0),
                      target_resource_id TEXT,
                      rollback_reference TEXT,
+                     backup_reference TEXT,
                      updated_at_unix_seconds INTEGER NOT NULL
                          CHECK(updated_at_unix_seconds >= 0)
                  ) STRICT;
-                 CREATE INDEX migrations_project_idx ON migrations(project_id);",
-            )?;
-        }
-
-        if found < 9 {
-            transaction
-                .execute_batch("ALTER TABLE migrations ADD COLUMN backup_reference TEXT;")?;
-        }
-
-        if found < 10 {
-            transaction.execute_batch(
-                "ALTER TABLE resources ADD COLUMN scope_id TEXT
-                     CHECK(scope_id IS NULL OR length(scope_id) > 0);
-                 CREATE INDEX resources_scope_idx
-                     ON resources(installation_id, kind, project_id, scope_id);",
-            )?;
-        }
-
-        if found < 11 {
-            transaction.execute_batch(
-                "CREATE TABLE daemon_events (
+                 CREATE INDEX migrations_project_idx ON migrations(project_id);
+             CREATE TABLE daemon_events (
                      sequence INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                      operation_id TEXT NOT NULL CHECK(length(operation_id) > 0),
                      kind_json TEXT NOT NULL CHECK(length(kind_json) > 0)
-                 ) STRICT;",
-            )?;
-        }
-
-        if found < 12 {
-            transaction.execute_batch(
-                "CREATE TABLE daemon_operations (
+                 ) STRICT;
+             CREATE TABLE daemon_operations (
                      operation_id TEXT PRIMARY KEY NOT NULL CHECK(length(operation_id) > 0),
                      kind TEXT NOT NULL CHECK(length(kind) > 0),
                      payload_json TEXT NOT NULL CHECK(length(payload_json) > 0),
@@ -261,13 +191,8 @@ impl SqliteStateStore {
                          CHECK(updated_at_unix_seconds >= created_at_unix_seconds)
                  ) STRICT;
                  CREATE INDEX daemon_operations_active_idx
-                     ON daemon_operations(status, created_at_unix_seconds);",
-            )?;
-        }
-
-        if found < 13 {
-            transaction.execute_batch(
-                "CREATE TABLE recovery_points (
+                     ON daemon_operations(status, created_at_unix_seconds);
+             CREATE TABLE recovery_points (
                      recovery_point_id TEXT PRIMARY KEY NOT NULL
                          CHECK(length(recovery_point_id) > 0),
                      project_id TEXT NOT NULL CHECK(length(project_id) > 0),
@@ -288,55 +213,7 @@ impl SqliteStateStore {
                  ) STRICT;
                  CREATE INDEX recovery_points_project_idx
                      ON recovery_points(project_id, created_at_unix_seconds DESC);",
-            )?;
-        }
-
-        if found < 14 {
-            let installation_exists = transaction.query_row(
-                "SELECT EXISTS(
-                     SELECT 1 FROM sqlite_master
-                     WHERE type = 'table' AND name = 'installation'
-                 )",
-                [],
-                |row| row.get::<_, bool>(0),
-            )?;
-            if installation_exists {
-                transaction.execute_batch(
-                    "ALTER TABLE installation ADD COLUMN lifecycle TEXT NOT NULL
-                         DEFAULT 'active' CHECK(lifecycle IN ('active', 'deleting'));",
-                )?;
-            } else {
-                transaction.execute_batch(
-                    "CREATE TABLE installation (
-                         singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
-                         installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),
-                         engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),
-                         engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0),
-                         lifecycle TEXT NOT NULL DEFAULT 'active'
-                             CHECK(lifecycle IN ('active', 'deleting'))
-                     ) STRICT;",
-                )?;
-            }
-        }
-
-        if found < 15 {
-            transaction.execute_batch(
-                "ALTER TABLE installation RENAME TO installation_v14;
-                 CREATE TABLE installation (
-                     singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
-                     installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),
-                     engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),
-                     engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0),
-                     lifecycle TEXT NOT NULL DEFAULT 'active'
-                         CHECK(lifecycle IN ('active', 'deleting', 'deleted'))
-                 ) STRICT;
-                 INSERT INTO installation
-                     (singleton, installation_id, engine_provider, engine_endpoint, lifecycle)
-                 SELECT singleton, installation_id, engine_provider, engine_endpoint, lifecycle
-                 FROM installation_v14;
-                 DROP TABLE installation_v14;",
-            )?;
-        }
+        )?;
 
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;

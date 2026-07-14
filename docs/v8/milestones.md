@@ -21,7 +21,7 @@ Documentation is not completion. Each milestone requires executable evidence.
 ## M3: Singleton state and IPC
 
 - One daemon owns multiple watched roots and projects.
-- SQLite migrations and transactions survive forced interruption.
+- SQLite schema initialization and transactions survive forced interruption.
 - Filesystem events plus rescan converge adds, changes, removals, and editor
   rename writes.
 - The Unix-socket contract is versioned and permission-tested.
