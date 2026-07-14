@@ -1,6 +1,7 @@
 use super::{
-    IpcBenchmarkSnapshot, IpcEvent, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,
-    IpcMigrationStatus, IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint,
+    IpcBenchmarkSnapshot, IpcEvent, IpcInstallationDeletionPlan, IpcLogChunk, IpcLogSessionState,
+    IpcManagedEnvironment, IpcMigrationStatus, IpcPostgresPrunePlan, IpcProjectStatus,
+    IpcRecoveryPoint,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -36,6 +37,8 @@ pub(crate) enum IpcResult {
     ProjectRecoveryPoints {
         recovery_points: Vec<IpcRecoveryPoint>,
     },
+    /// Returns complete secret-free installation deletion intent.
+    InstallationDeletionPlan { plan: IpcInstallationDeletionPlan },
     /// Returns an exact secret-free deletion plan and confirmation token.
     PostgresPrunePlan { plan: IpcPostgresPrunePlan },
     /// Returns explicitly requested managed values over the user-only channel.

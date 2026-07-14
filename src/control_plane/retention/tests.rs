@@ -791,6 +791,12 @@ fn installation_deletion_plan_selects_latest_exact_recovery_before_freeze() {
     assert_eq!(item.project_id(), "bill");
     assert_eq!(item.service_id(), "database");
     assert_eq!(item.recovery_point_id(), "backup-42");
+    assert_eq!(plan.confirmation_token().len(), 64);
+    assert!(
+        plan.confirmation_token()
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    );
 }
 
 #[test]

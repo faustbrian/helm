@@ -8,9 +8,10 @@ use super::{
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
-    IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcManagedEnvironment, IpcMigrationDecision,
-    IpcMigrationStatus, IpcPayload, IpcProjectCommand, IpcProjectStatus, IpcRecoveryPoint,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
+    IpcDataLifecycle, IpcDiagnostic, IpcEventKind, IpcInstallationDeletionPlan,
+    IpcManagedEnvironment, IpcMigrationDecision, IpcMigrationStatus, IpcPayload, IpcProjectCommand,
+    IpcProjectStatus, IpcRecoveryPoint, IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus,
+    IpcResponse, IpcResult,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -371,6 +372,22 @@ where
                 ),
             }
         }
+        IpcPayload::PlanInstallationDeletion => match control_plane.plan_installation_deletion() {
+            Ok(plan) => IpcResponse::success(
+                request.request_id(),
+                IpcResult::InstallationDeletionPlan {
+                    plan: IpcInstallationDeletionPlan::from(&plan),
+                },
+            ),
+            Err(message) => IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "installation_deletion_plan_failed",
+                    message,
+                    false,
+                )],
+            ),
+        },
         IpcPayload::PlanPostgresPrune {
             project_id,
             service_id,

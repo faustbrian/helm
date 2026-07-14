@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a secret-free daemon IPC response for complete installation-deletion
+  preflight, including stable ordered per-tenant intents and one whole-plan
+  confirmation token that changes when any protected state changes.
 - Added a deterministic installation-deletion preflight that refuses teardown
   unless every retained logical tenant has one supported destructive adapter,
   one exact credential, and a latest matching verified recovery-point record.

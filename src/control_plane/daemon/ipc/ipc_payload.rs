@@ -32,6 +32,8 @@ pub(crate) enum IpcPayload {
     },
     /// Reads durable verified recovery points for one registered project.
     ProjectRecoveryPoints { canonical_path: PathBuf },
+    /// Proves complete installation deletion intent without mutation.
+    PlanInstallationDeletion,
     /// Plans an exact retained PostgreSQL tenant deletion without mutation.
     PlanPostgresPrune {
         project_id: String,

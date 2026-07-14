@@ -1,10 +1,11 @@
 use super::{
     IPC_PROTOCOL_VERSION, IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions,
-    IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind, IpcLogChunk,
-    IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream, IpcPayload,
-    IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
-    decode_request_frame, decode_response_frame, encode_frame,
+    IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind,
+    IpcInstallationDeletionPlan, IpcLogChunk, IpcLogSessionState, IpcMigrationStatus,
+    IpcNodePackageManager, IpcOutputStream, IpcPayload, IpcPostgresPrunePlan,
+    IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest, IpcResourceHealth,
+    IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult, decode_request_frame,
+    decode_response_frame, encode_frame,
 };
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::BTreeMap;
@@ -119,6 +120,31 @@ fn postgres_prune_plans_round_trip_without_credentials_or_backup_paths() {
         decode_request_frame(&encode_frame(&execute).expect("encode execute request"))
             .expect("decode execute request"),
         execute
+    );
+    let json = serde_json::to_string(&response).expect("response JSON");
+    assert!(!json.contains("secret"));
+    assert!(!json.contains("/backups/"));
+}
+
+#[test]
+fn installation_deletion_plans_round_trip_as_secret_free_exact_intent() {
+    let request = IpcRequest::new("delete-plan-42", IpcPayload::PlanInstallationDeletion);
+    let plan = IpcInstallationDeletionPlan::new(Vec::new(), "a".repeat(64))
+        .expect("empty installation deletion plan");
+    let response = IpcResponse::success(
+        "delete-plan-42",
+        IpcResult::InstallationDeletionPlan { plan },
+    );
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
     );
     let json = serde_json::to_string(&response).expect("response JSON");
     assert!(!json.contains("secret"));

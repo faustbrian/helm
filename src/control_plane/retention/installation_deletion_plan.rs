@@ -1,10 +1,12 @@
 use super::{InstallationDeletionPlanOptions, LogicalPrunePlan, LogicalPrunePlanOptions};
 use crate::control_plane::state::{LogicalResourceRecord, RecoveryPointRecord};
+use sha2::{Digest, Sha256};
 
 /// Deterministic, secret-free proof that every retained tenant is recoverable.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InstallationDeletionPlan {
     logical_prunes: Vec<LogicalPrunePlan>,
+    confirmation_token: String,
 }
 
 impl InstallationDeletionPlan {
@@ -24,13 +26,38 @@ impl InstallationDeletionPlan {
             .into_iter()
             .map(|logical| build_logical_prune(&options, logical))
             .collect::<Result<Vec<_>, _>>()?;
+        let confirmation_token = confirmation_token(options.installation_id, &logical_prunes);
 
-        Ok(Self { logical_prunes })
+        Ok(Self {
+            logical_prunes,
+            confirmation_token,
+        })
     }
 
     pub(crate) fn logical_prunes(&self) -> &[LogicalPrunePlan] {
         &self.logical_prunes
     }
+
+    pub(crate) fn confirmation_token(&self) -> &str {
+        &self.confirmation_token
+    }
+}
+
+fn confirmation_token(installation_id: &str, logical_prunes: &[LogicalPrunePlan]) -> String {
+    let mut hasher = Sha256::new();
+    for field in std::iter::once("stackctl-installation-delete-v1")
+        .chain(std::iter::once(installation_id))
+        .chain(
+            logical_prunes
+                .iter()
+                .map(LogicalPrunePlan::confirmation_token),
+        )
+    {
+        hasher.update(field.len().to_be_bytes());
+        hasher.update(field.as_bytes());
+    }
+
+    hex::encode(hasher.finalize())
 }
 
 fn build_logical_prune(
