@@ -1,8 +1,8 @@
 use super::{
-    CredentialSecret, OrphanedSharedAccessOptions, PostgresAccessRevocationOptions,
-    RabbitMqProjectDefinition, RedisAccessRevocationOptions, RedisFlavor,
-    SharedInfrastructureReconcileError, revoke_postgres_project_access,
-    revoke_rabbitmq_project_access, revoke_redis_project_access,
+    CredentialSecret, MySqlAccessRevocationOptions, MySqlFlavor, OrphanedSharedAccessOptions,
+    PostgresAccessRevocationOptions, RabbitMqProjectDefinition, RedisAccessRevocationOptions,
+    RedisFlavor, SharedInfrastructureReconcileError, revoke_mysql_project_access,
+    revoke_postgres_project_access, revoke_rabbitmq_project_access, revoke_redis_project_access,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
@@ -16,6 +16,7 @@ use crate::control_plane::state::{
 
 #[derive(Clone, Copy)]
 enum AccessStrategy {
+    MySql(MySqlFlavor),
     Postgres,
     RabbitMq,
     Redis(RedisFlavor),
@@ -109,6 +110,23 @@ where
         }
 
         let changed = match strategy {
+            AccessStrategy::MySql(flavor) => {
+                let administrator = mysql_administrator(logical, flavor, options.credentials)?;
+                revoke_mysql_project_access(
+                    engine,
+                    MySqlAccessRevocationOptions {
+                        installation_id: options.installation_id,
+                        container,
+                        logical_resource: logical,
+                        credential,
+                        administrator,
+                        flavor,
+                        timeout: options.timeout,
+                    },
+                )
+                .await
+                .map_err(|error| engine_error("revoke orphaned MySQL-family access", error))?
+            }
             AccessStrategy::Postgres => {
                 let administrator = postgres_administrator(logical, options.credentials)?;
                 revoke_postgres_project_access(
@@ -170,6 +188,8 @@ where
 
 fn access_strategy(kind: &str) -> Option<AccessStrategy> {
     match kind {
+        "mariadb_database" => Some(AccessStrategy::MySql(MySqlFlavor::MariaDb)),
+        "mysql_database" => Some(AccessStrategy::MySql(MySqlFlavor::MySql)),
         "postgres_database_and_role" => Some(AccessStrategy::Postgres),
         "rabbitmq_vhost_user" => Some(AccessStrategy::RabbitMq),
         "redis_acl_prefix" => Some(AccessStrategy::Redis(RedisFlavor::Redis)),
@@ -189,7 +209,7 @@ fn exact_project_credential<'credential>(
             logical.project_id(),
             logical.service_id()
         ),
-        AccessStrategy::RabbitMq | AccessStrategy::Redis(_) => {
+        AccessStrategy::MySql(_) | AccessStrategy::RabbitMq | AccessStrategy::Redis(_) => {
             logical.logical_resource_id().to_owned()
         }
     };
@@ -213,6 +233,28 @@ fn exact_project_credential<'credential>(
     }
 
     Ok(credential)
+}
+
+fn mysql_administrator<'credential>(
+    logical: &LogicalResourceRecord,
+    flavor: MySqlFlavor,
+    credentials: &'credential [CredentialRecord],
+) -> Result<&'credential CredentialRecord, SharedInfrastructureReconcileError> {
+    let fingerprint = logical
+        .compatibility_fingerprint()
+        .strip_prefix("sha256:")
+        .unwrap_or_default();
+    let credential_id = format!("shared/{fingerprint}/{}-bootstrap", flavor.implementation());
+    credentials
+        .iter()
+        .find(|credential| credential.credential_id() == credential_id)
+        .ok_or_else(|| {
+            conflict(format!(
+                "orphaned {} tenant '{}' has no retained administrator credential",
+                flavor.implementation(),
+                logical.logical_resource_id()
+            ))
+        })
 }
 
 fn postgres_administrator<'credential>(

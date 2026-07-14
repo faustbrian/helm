@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added MySQL and MariaDB tenant-user revocation to orphaned shared-service
+  reconciliation. Removed projects lose database login access while their
+  schemas and data remain retained and administrator secrets stay out of
+  command arguments.
 - Added ownership-proven PostgreSQL role revocation to orphaned shared-service
   reconciliation. Removed projects receive `NOLOGIN` without dropping their
   retained database or exposing the administrator secret in command arguments.

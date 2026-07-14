@@ -104,3 +104,8 @@ PostgreSQL applies `NOLOGIN` to the exact ownership-proven disabled project role
 through that boundary. It retains the database and role so explicit adoption,
 restore, or prune remains possible, and keeps the administrator secret out of
 command arguments.
+
+MySQL and MariaDB delete only the exact ownership-proven disabled tenant user.
+Their project schema and data remain available for explicit adoption, restore,
+or prune, while the root secret is supplied only through the Engine command
+environment.

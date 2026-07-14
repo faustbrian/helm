@@ -1,3 +1,4 @@
+mod mysql_access_revocation_options;
 mod mysql_flavor;
 mod mysql_logical_resource_plan;
 mod mysql_migration_instance_plan_options;
@@ -17,7 +18,9 @@ mod provision_mysql_logical_resource;
 mod reconcile_mysql_migration_target;
 mod reconcile_mysql_project_resources;
 mod reconcile_prepared_mysql_instance;
+mod revoke_mysql_project_access;
 
+pub(crate) use mysql_access_revocation_options::MySqlAccessRevocationOptions;
 pub(crate) use mysql_flavor::MySqlFlavor;
 pub(crate) use mysql_logical_resource_plan::MySqlLogicalResourcePlan;
 pub(crate) use mysql_migration_instance_plan_options::MySqlMigrationInstancePlanOptions;
@@ -37,3 +40,4 @@ pub(crate) use provision_mysql_logical_resource::provision_mysql_logical_resourc
 pub(crate) use reconcile_mysql_migration_target::reconcile_mysql_migration_target;
 pub(crate) use reconcile_mysql_project_resources::reconcile_mysql_project_resources;
 pub(crate) use reconcile_prepared_mysql_instance::reconcile_prepared_mysql_instance;
+pub(crate) use revoke_mysql_project_access::revoke_mysql_project_access;

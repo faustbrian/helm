@@ -14,7 +14,7 @@ impl MySqlFlavor {
         }
     }
 
-    pub(super) const fn implementation(self) -> &'static str {
+    pub(crate) const fn implementation(self) -> &'static str {
         match self {
             Self::MySql => "mysql",
             Self::MariaDb => "mariadb",
