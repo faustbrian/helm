@@ -29,24 +29,9 @@ pub(crate) fn handle_v8_env(cli: &Cli, context: &CliDispatchContext<'_>) -> Resu
     let Some(project) = resolve_v8_project(context)? else {
         return Ok(false);
     };
-    let Some(EnvCommands::Generate {
+    let EnvCommands::Generate {
         output: destination,
-    }) = &args.command
-    else {
-        bail!(
-            "v8 managed values require the explicit `stackctl env generate --output <path>` command"
-        );
-    };
-    if args.service().is_some()
-        || args.kind().is_some()
-        || args.env_file.is_some()
-        || args.sync
-        || args.purge
-        || args.persist_runtime
-        || args.create_missing
-    {
-        bail!("v8 environment export does not support legacy sync, selector, or mutation flags");
-    }
+    } = &args.command;
     if context.dry_run() {
         bail!("--dry-run is not supported for managed secret export");
     }

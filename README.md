@@ -1,36 +1,48 @@
 # stackctl
 
-`stackctl` standardizes local Laravel environments for faster setup and reliable
-daily development.
+Stackctl v8 is a clean-slate local development control plane for macOS and
+Linux. One per-user daemon reconciles strict `.stackctl.yaml` projects into
+Linux containers through the Engine API. It owns shared infrastructure, local
+HTTPS routing, credentials, recovery, and lifecycle state without installing
+PHP, databases, Caddy, or nginx on the host.
 
-## Quick Start
+## Start
 
-1. Install Stackctl:
+Create a project configuration:
 
-```bash
-cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --branch main --locked
+```yaml
+schema_version: 8
+project: bill
+services:
+  app:
+    preset: laravel
+  db:
+    preset: postgres
+    version: "18"
 ```
 
-2. Initialize config:
+Validate it, install trust, and install the login service for one or more
+watched roots:
 
 ```bash
-stackctl init
+stackctl config validate .stackctl.yaml
+stackctl daemon trust install
+stackctl daemon service install --dir ~/Developer
 ```
 
-3. Start services:
+The daemon discovers valid projects automatically. Inspect them with
+`stackctl status`, `stackctl logs`, and `stackctl url`.
 
-```bash
-stackctl start
-```
+V8 does not upgrade, migrate, adopt, or execute pre-v8 project configuration.
+Use a fresh installation and new `.stackctl.yaml` files.
 
 ## Documentation
 
-- Installation and upgrade: [`INSTALLATION.md`](INSTALLATION.md)
-- Full command and flag reference: [`USAGE.md`](USAGE.md)
-- Release changes: [`CHANGELOG.md`](CHANGELOG.md)
-
-For a detailed usage walkthrough, jump to [`USAGE.md`](USAGE.md).
+- [V8 design and operations](docs/v8/README.md)
+- [Installation](INSTALLATION.md)
+- [Command reference](USAGE.md)
+- [Release changes](CHANGELOG.md)
 
 ## License
 
-`stackctl` is licensed under MIT. See [`LICENSE.md`](LICENSE.md).
+Stackctl is licensed under MIT. See [LICENSE.md](LICENSE.md).

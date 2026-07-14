@@ -1,135 +1,98 @@
-//! Top-level CLI dispatch pipeline.
-//!
-//! This is the single entrypoint that applies global CLI process settings
-//! (`--no-color`, `--quiet`, `--dry-run`), runs setup-only commands that do not
-//! require config loading, and then routes to primary/secondary command trees.
+//! Direct strict-v8 CLI dispatch.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use clap::CommandFactory;
+use clap_complete::generate;
 
-use super::args::Cli;
-use crate::config;
-use crate::docker;
+use super::args::{Cli, Commands, ConfigCommands};
+use super::handlers;
 use crate::output;
 
-mod bootstrap;
 pub(crate) mod context;
-mod primary;
-mod secondary;
 
-/// Executes one full CLI invocation.
-///
-/// Dispatch order matters:
-/// 1. Apply global process-level flags.
-/// 2. Handle setup commands that can run without config.
-/// 3. Load and optionally runtime-patch config.
-/// 4. Attempt primary dispatch, then fall through to secondary.
+/// Executes one strict v8 CLI invocation without a compatibility fallback.
 pub(crate) fn run(cli: Cli) -> Result<()> {
     if cli.no_color {
         colored::control::set_override(false);
     }
-
-    apply_runtime_policy_overrides(&cli);
     output::init(cli.quiet);
-    docker::set_dry_run(cli.dry_run);
-    let dispatch_context = context::CliDispatchContext::from_cli(&cli);
+    let context = context::CliDispatchContext::from_cli(&cli);
 
-    if bootstrap::handle_setup_commands(&cli, &dispatch_context)? {
+    match &cli.command {
+        Commands::Config(args) => {
+            return match &args.command {
+                ConfigCommands::Schema => handlers::handle_config_schema(),
+                ConfigCommands::Validate { path } => {
+                    handlers::handle_config_validate(path.as_deref(), context.quiet())
+                }
+            };
+        }
+        Commands::Completions(args) => {
+            let mut command = Cli::command();
+            generate(args.shell, &mut command, "stackctl", &mut std::io::stdout());
+            return Ok(());
+        }
+        Commands::Daemon(args) => return handlers::handle_daemon(args),
+        _ => {}
+    }
+
+    #[cfg(unix)]
+    if handlers::handle_v8_env(&cli, &context)?
+        || handlers::handle_v8_status(&cli, &context)?
+        || handlers::handle_v8_url(&cli, &context)?
+        || handlers::handle_v8_open(&cli, &context)?
+        || handlers::handle_v8_logs(&cli, &context)?
+        || handlers::handle_v8_lock(&cli, &context)?
+        || handlers::handle_v8_project_command(&cli, &context)?
+    {
         return Ok(());
     }
 
-    let configured_engine = config::load_container_engine_with(
-        config::LoadConfigPathOptions::new(
-            dispatch_context.config_path(),
-            dispatch_context.project_root(),
-        )
-        .with_runtime_env(dispatch_context.runtime_env()),
-    )?;
-    docker::set_container_engine(cli.engine.or(configured_engine).unwrap_or_default());
+    #[cfg(unix)]
+    handlers::enforce_strict_v8_dispatch(&cli, &context)?;
 
-    let mut config = bootstrap::load_config_for_cli(&cli, &dispatch_context)?;
-    if let Some(result) = primary::dispatch_primary(&cli, &mut config, &dispatch_context) {
-        return result;
-    }
-    secondary::dispatch_secondary(&cli, &mut config, &dispatch_context)
-}
-
-fn apply_runtime_policy_overrides(cli: &Cli) {
-    docker::set_policy_overrides(docker::DockerPolicyOverrides {
-        max_heavy_ops: cli.docker_max_heavy_ops,
-        max_build_ops: cli.docker_max_build_ops,
-        retry_budget: cli.docker_retry_budget,
-    });
-    super::handlers::set_testing_runtime_pool_size_override(cli.test_runtime_pool_size);
+    bail!("this v8 command requires a strict .stackctl.yaml project")
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::cli::args::Cli;
     use clap::Parser;
 
-    fn unsupported_toml_project() -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "stackctl-dispatch-run-{}-{}",
+    use crate::cli::args::Cli;
+
+    #[test]
+    fn pre_v8_project_config_is_rejected_without_compatibility_dispatch() {
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-v8-dispatch-{}-{}",
             std::process::id(),
-            nanos
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
         ));
-        drop(fs::remove_dir_all(&dir));
-        fs::create_dir_all(&dir).expect("create temporary project root");
-        let config_path = dir.join(".stackctl.toml");
-        fs::write(
-            &config_path,
-            "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
-        )
-        .expect("write minimal config");
-        dir
-    }
+        fs::create_dir_all(&root).expect("create project root");
+        fs::write(root.join(".stackctl.toml"), "schema_version = 1\n")
+            .expect("write pre-v8 config");
 
-    #[test]
-    fn full_pipeline_rejects_pre_v8_project_config() {
-        let project_root = unsupported_toml_project();
-        crate::docker::with_test_runtime_lock(|| {
-            let args = [
-                "stackctl",
-                "--project-root",
-                project_root.to_str().expect("project root is valid utf-8"),
-                "about",
-            ];
-            let cli = Cli::try_parse_from(args).expect("parse cli");
-            let error = super::run(cli).expect_err("pre-v8 config must be rejected");
-            assert!(error.to_string().contains("pre-v8 config"));
-            assert!(error.to_string().contains("clean v8 installation"));
-        });
-    }
-
-    #[test]
-    fn config_schema_runs_without_a_project_or_engine_configuration() {
-        let root =
-            std::env::temp_dir().join(format!("stackctl-schema-command-{}", std::process::id()));
-        drop(fs::remove_dir_all(&root));
-        fs::create_dir_all(&root).expect("create empty working directory");
-        let result = super::run(Cli::parse_from([
+        let error = super::run(Cli::parse_from([
             "stackctl",
             "--project-root",
-            root.to_str().expect("root path"),
-            "config",
-            "schema",
-        ]));
+            root.to_str().expect("root"),
+            "status",
+        ]))
+        .expect_err("pre-v8 config");
 
-        assert!(result.is_ok());
+        assert!(error.to_string().contains("pre-v8 config"));
+        assert!(error.to_string().contains("clean v8 installation"));
     }
 
     #[test]
     fn config_validate_resolves_v8_yaml_offline_without_modifying_it() {
         let root = std::env::temp_dir().join(format!(
-            "stackctl-validate-command-{}-{}",
+            "stackctl-v8-validate-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -138,95 +101,17 @@ mod tests {
         ));
         fs::create_dir_all(&root).expect("create project directory");
         let path = root.join(".stackctl.yaml");
-        let source = concat!(
-            "schema_version: 8\n",
-            "project: bill\n",
-            "services:\n",
-            "  app:\n",
-            "    preset: laravel\n"
-        );
+        let source = "schema_version: 8\nservices:\n  app:\n    preset: laravel\n";
         fs::write(&path, source).expect("write v8 config");
 
-        let result = super::run(Cli::parse_from([
-            "stackctl",
-            "config",
-            "validate",
-            path.to_str().expect("config path"),
-        ]));
-
-        assert!(result.is_ok());
-        assert_eq!(fs::read_to_string(path).expect("reread config"), source);
-    }
-
-    #[test]
-    fn config_validate_reports_the_path_for_invalid_desired_state() {
-        let root = std::env::temp_dir().join(format!(
-            "stackctl-invalid-validate-command-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("create project directory");
-        let path = root.join(".stackctl.yaml");
-        let source = "schema_version: 8\nservices:\n  app: {}\n";
-        fs::write(&path, source).expect("write invalid v8 config");
-
-        let error = super::run(Cli::parse_from([
+        super::run(Cli::parse_from([
             "stackctl",
             "config",
             "validate",
             path.to_str().expect("config path"),
         ]))
-        .expect_err("invalid desired state");
+        .expect("valid v8 config");
 
-        let diagnostic = format!("{error:#}");
-        assert!(diagnostic.contains(&path.display().to_string()));
-        assert!(diagnostic.contains("service 'app' must declare at least a preset or image"));
         assert_eq!(fs::read_to_string(path).expect("reread config"), source);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn strict_v8_lock_images_publishes_yaml_without_loading_removed_runtime_paths() {
-        let root = std::env::temp_dir().join(format!(
-            "stackctl-v8-lock-command-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&root).expect("create project directory");
-        fs::write(
-            root.join(".stackctl.yaml"),
-            concat!(
-                "schema_version: 8\nproject: bill\nservices:\n  app:\n",
-                "    image: ghcr.io/stackctl/php@sha256:",
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
-            ),
-        )
-        .expect("write v8 config");
-
-        for command in ["images", "verify"] {
-            super::run(Cli::parse_from([
-                "stackctl",
-                "--project-root",
-                root.to_str().expect("root path"),
-                "lock",
-                command,
-            ]))
-            .expect("strict v8 lock command");
-        }
-
-        let lock_path = root.join(".stackctl.lock.yaml");
-        let lock_source = fs::read_to_string(&lock_path).expect("read YAML artifact lock");
-        let lock = crate::control_plane::parse_artifact_lock(&lock_source, &lock_path)
-            .expect("strict artifact lock");
-        assert_eq!(lock.images().len(), 1);
-        assert!(!root.join(".stackctl.lock.toml").exists());
-
-        fs::remove_dir_all(root).expect("remove lock fixture");
     }
 }

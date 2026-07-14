@@ -53,17 +53,6 @@ fn log_invocation(
     project_root: &Path,
     declared_services: &[String],
 ) -> Result<V8LogInvocation> {
-    if args.access {
-        bail!("v8 logs --access is not supported because v8 has no host Caddy access-log path");
-    }
-    if args.kind().is_some() || args.profile().is_some() {
-        bail!("v8 logs requires exact --service values; --kind and --profile are not supported");
-    }
-    if args.since.is_some() || args.until.is_some() || args.timestamps {
-        bail!(
-            "v8 logs does not yet support --since, --until, or --timestamps; use --tail and --follow"
-        );
-    }
     let services = if args.all {
         declared_services.to_vec()
     } else if args.services().is_empty() {
@@ -287,18 +276,14 @@ mod tests {
 
     #[test]
     fn logs_reject_host_access_logs_and_undeclared_services() {
-        for arguments in [
-            vec!["stackctl", "logs", "--access"],
-            vec!["stackctl", "logs", "--service", "missing"],
-        ] {
-            let cli = Cli::parse_from(arguments);
-            let Commands::Logs(args) = cli.command else {
-                panic!("logs command");
-            };
-            let error = log_invocation(&args, Path::new("/work/bill"), &["app".to_owned()])
-                .expect_err("unsupported logs");
+        assert!(Cli::try_parse_from(["stackctl", "logs", "--access"]).is_err());
 
-            assert!(error.to_string().contains("not"));
-        }
+        let cli = Cli::parse_from(["stackctl", "logs", "--service", "missing"]);
+        let Commands::Logs(args) = cli.command else {
+            panic!("logs command");
+        };
+        let error = log_invocation(&args, Path::new("/work/bill"), &["app".to_owned()])
+            .expect_err("undeclared service");
+        assert!(error.to_string().contains("not declared"));
     }
 }

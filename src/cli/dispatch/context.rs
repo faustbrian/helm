@@ -9,8 +9,6 @@ pub(crate) struct CliDispatchContext<'a> {
     no_color: bool,
     dry_run: bool,
     non_interactive: bool,
-    repro: bool,
-    runtime_env: Option<&'a str>,
     config_path: Option<&'a Path>,
     project_root: Option<&'a Path>,
 }
@@ -22,8 +20,6 @@ impl<'a> CliDispatchContext<'a> {
             no_color: cli.no_color,
             dry_run: cli.dry_run,
             non_interactive: cli.non_interactive,
-            repro: cli.repro,
-            runtime_env: cli.runtime_env(),
             config_path: cli.config_path(),
             project_root: cli.project_root_path(),
         }
@@ -43,14 +39,6 @@ impl<'a> CliDispatchContext<'a> {
 
     pub(crate) const fn non_interactive(&self) -> bool {
         self.non_interactive
-    }
-
-    pub(crate) const fn repro(&self) -> bool {
-        self.repro
-    }
-
-    pub(crate) const fn runtime_env(&self) -> Option<&'a str> {
-        self.runtime_env
     }
 
     pub(crate) const fn config_path(&self) -> Option<&'a Path> {
@@ -78,8 +66,6 @@ mod tests {
             "--dry-run",
             "--non-interactive",
             "--no-color",
-            "--env",
-            "integration",
             "--project-root",
             "/tmp/example",
             "status",
@@ -90,7 +76,6 @@ mod tests {
         assert!(context.dry_run());
         assert!(context.non_interactive());
         assert!(context.no_color());
-        assert_eq!(context.runtime_env(), Some("integration"));
         assert_eq!(context.config_path(), None);
         assert_eq!(
             context.project_root().map(|path| path.to_string_lossy()),
@@ -107,8 +92,6 @@ mod tests {
         assert!(!context.no_color());
         assert!(!context.dry_run());
         assert!(!context.non_interactive());
-        assert!(!context.repro());
-        assert_eq!(context.runtime_env(), None);
         assert_eq!(context.config_path(), None);
         assert_eq!(context.project_root(), None);
     }

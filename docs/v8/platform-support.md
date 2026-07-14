@@ -24,8 +24,7 @@ systems are outside the product contract.
 | Docker Engine / Docker Desktop | Preview | The v8 daemon uses the typed Docker-compatible Engine API. Live platform recovery and benchmark records are still required. |
 | Podman | Unsupported | V8 persists a Docker Engine contract and has no completed socket, behavior-parity, recovery, or platform acceptance record for Podman. |
 
-The legacy CLI accepting `--engine podman` is not v8 support. Strict v8 projects
-must never enter that fallback path.
+V8 has no per-invocation `--engine` override or compatibility fallback.
 
 ## Evidence record requirements
 

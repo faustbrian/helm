@@ -1,44 +1,53 @@
 # Installation
 
-## Requirements
+Stackctl v8 supports macOS and Linux hosts with Docker Desktop or Docker
+Engine. It is a clean install: pre-v8 state and project files are not migrated
+or adopted.
 
-- Docker Desktop (or Docker Engine)
-- Rust toolchain with Cargo (for install methods below)
-
-## Install From Main Branch (Recommended)
-
-```bash
-cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --branch main --locked
-```
-
-## Install From Git Tag
-
-```bash
-cargo install --git git@github.com:faustbrian/stackctl.git --bin stackctl --tag v1.0.0 --locked
-```
-
-## Install From Local Source
-
-From the repository root:
+## Build from source
 
 ```bash
 cargo install --path . --locked
-```
-
-## Verify Installation
-
-```bash
 stackctl --version
 ```
 
-Expected output includes `stackctl 1.0.0`.
+Release binaries and their SBOM, provenance, signatures, and architecture
+evidence remain release-blocking artifacts until published in the v8 evidence
+record.
 
-## Upgrade
+## Configure the control plane
 
-Re-run the install command for the target ref/tag.
+Create strict `.stackctl.yaml` projects under one or more watched roots, then
+run:
 
-## Shell Completions (Optional)
+```bash
+stackctl daemon trust install
+stackctl daemon service install --dir ~/Developer
+stackctl daemon service status
+stackctl daemon status
+```
+
+The login service owns project discovery and reconciliation. Routine project
+commands communicate with it over user-only local IPC; they do not invoke a
+Docker or Podman CLI.
+
+## Shell completions
 
 ```bash
 stackctl completions zsh > ~/.zsh/completions/_stackctl
+```
+
+## Removal
+
+Preserve all state and Engine resources:
+
+```bash
+stackctl daemon service uninstall --keep-data
+```
+
+Deletion is a separate confirmed workflow and succeeds only when the daemon
+can prove exact ownership and required recovery evidence:
+
+```bash
+stackctl daemon service uninstall --delete-data --confirm-delete-data
 ```

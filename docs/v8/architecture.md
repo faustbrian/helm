@@ -1,29 +1,16 @@
 # V8 Architecture
 
-## Current repository constraints
+## Repository boundary
 
-The pre-v8 implementation does not provide the v8 ownership model:
+The v8 binary exposes only the strict-YAML, singleton-daemon command surface.
+The pre-v8 config, Docker CLI, per-project daemon, host Caddy, hosts-file,
+random-domain, swarm, sharing, and lifecycle-handler source trees have been
+removed rather than retained as a disabled compatibility runtime.
 
-- `src/daemon/supervisor.rs` runs one recovery loop per project and calls CLI
-  handlers rather than reconciling a global desired graph.
-- `src/daemon/state.rs` persists PID and log metadata in per-project TOML files;
-  it is not transactional control-plane state.
-- `src/daemon/discovery.rs` recursively rescans directories but has no
-  filesystem event source.
-- `src/docker/cmd.rs` treats Docker or Podman CLI processes as the runtime API.
-- `src/serve/caddy/process.rs` requires a host `caddy` executable.
-- `src/serve/hosts/write.rs` appends one host entry per domain through a
-  privileged shell.
-- `src/serve/trust/container.rs` discovers and copies Caddy CA files from
-  application containers.
-- `src/config/domain_names.rs` special-cases the app domain and offers a random
-  naming strategy.
-- `src/config/raw.rs` and `src/config/types/config_root.rs` model services as a
-  list and carry container-engine and domain-strategy concerns in project
-  configuration.
-
-These paths document behavior being replaced. V8 neither executes nor imports
-them; it starts from a new installation and new `.stackctl.yaml` projects.
+The remaining `src/daemon/` module contains only macOS launchd and Linux
+systemd user-service integration for the v8 singleton. Workload orchestration
+lives under `src/control_plane/` and reaches containers only through typed
+Engine capabilities.
 
 ## Clean-install boundary
 

@@ -27,9 +27,6 @@ pub(crate) fn handle_v8_url(cli: &Cli, context: &CliDispatchContext<'_>) -> Resu
     let Some(project) = resolve_v8_project(context)? else {
         return Ok(false);
     };
-    if args.kind().is_some() || args.driver().is_some() {
-        bail!("v8 URL lookup requires an exact --service; --kind and --driver are not supported");
-    }
     if !matches!(args.format.as_str(), "table" | "json") {
         bail!("v8 URL format must be 'table' or 'json'");
     }

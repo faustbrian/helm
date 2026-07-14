@@ -43,26 +43,12 @@ use clap::Parser;
 mod cli;
 
 use cli::args::Cli;
-mod config;
 mod control_plane;
 mod daemon;
-mod database;
-mod dependency_order;
-mod display;
-mod docker;
-mod env;
 mod javascript;
 mod output;
-mod parallel;
-mod serve;
-mod share;
-mod swarm;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     cli::dispatch::run(cli)
 }
-
-#[cfg(test)]
-#[path = "main_tests/mod.rs"]
-mod tests;

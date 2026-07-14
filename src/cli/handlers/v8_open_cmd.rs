@@ -3,8 +3,8 @@
 use anyhow::{Result, bail};
 
 use crate::cli::args::{Cli, Commands, OpenArgs};
+use crate::cli::browser_opener::try_open_in_browser;
 use crate::cli::dispatch::context::CliDispatchContext;
-use crate::cli::support::try_open_in_browser;
 use crate::control_plane::{IpcProjectStatus, IpcResourceHealth, IpcResourceLifecycle};
 
 use super::v8_project::resolve_v8_project;
@@ -87,19 +87,6 @@ fn ensure_routes_ready(status: &IpcProjectStatus, routes: &[(String, String)]) -
 }
 
 fn open_selection(args: &OpenArgs) -> Result<V8OpenSelection<'_>> {
-    if args.kind.is_some() || args.profile().is_some() {
-        bail!("v8 open requires an exact --service; --kind and --profile are not supported");
-    }
-    if args.database {
-        bail!(
-            "v8 open --database is not supported; export the daemon-owned managed environment explicitly"
-        );
-    }
-    if args.health_path().is_some() {
-        bail!(
-            "v8 open --health-path is not supported; daemon health must come from typed readiness state"
-        );
-    }
     if args.all {
         Ok(V8OpenSelection::All)
     } else {
@@ -145,19 +132,12 @@ mod tests {
     }
 
     #[test]
-    fn open_rejects_legacy_database_and_health_probing() {
+    fn parser_rejects_removed_database_and_health_probing_flags() {
         for arguments in [
             ["stackctl", "open", "--database"],
             ["stackctl", "open", "--health-path=/up"],
         ] {
-            let cli = Cli::parse_from(arguments);
-            let Commands::Open(args) = cli.command else {
-                panic!("open command");
-            };
-
-            let error = open_selection(&args).expect_err("legacy open mode");
-
-            assert!(error.to_string().contains("not supported"));
+            assert!(Cli::try_parse_from(arguments).is_err());
         }
     }
 

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed the obsolete pre-v8 CLI, TOML/config, Docker CLI, per-project
+  lifecycle, host Caddy, hosts-file, swarm, sharing, and runtime source trees.
+  The shipped CLI now exposes only strict v8 YAML and singleton-daemon commands.
+  Host JavaScript version-manager execution was reduced to lockfile and
+  `package.json` package-manager detection for containerized project commands.
 - Replaced every built-in v8 service preset's unbounded `latest` alias with a
   versioned vendor tag and dropped the MailHog and Soketi presets in favor of
   Mailpit and Laravel Reverb.

@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::cli::dispatch::context::CliDispatchContext;
-use crate::config::{self, ProjectRootPathOptions};
 use crate::control_plane::RawProjectConfig;
 use crate::control_plane::parse_project_config;
 
@@ -36,14 +35,8 @@ impl V8Project {
 }
 
 pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Option<V8Project>> {
-    let project_root = config::project_root_with(ProjectRootPathOptions::new(
-        context.config_path(),
-        context.project_root(),
-    ))?;
-    let config_path = match context.config_path() {
-        Some(path) => path.to_path_buf(),
-        None => config::config_path_in_dir(&project_root)?
-            .context("Stackctl config disappeared while resolving the project")?,
+    let Some((project_root, config_path)) = locate_project_config(context)? else {
+        return Ok(None);
     };
     if config_path.extension().and_then(|value| value.to_str()) != Some("yaml") {
         return Ok(None);
@@ -51,10 +44,6 @@ pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Opt
     if config_path.file_name().and_then(|value| value.to_str()) != Some(".stackctl.yaml") {
         bail!("strict v8 configuration must be named .stackctl.yaml");
     }
-    if context.runtime_env().is_some() {
-        bail!("--env is not supported by strict v8 YAML configuration");
-    }
-
     let source = fs::read_to_string(&config_path)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
     let config = parse_project_config(&source, &config_path)?;
@@ -66,6 +55,44 @@ pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Opt
         config,
         services,
     }))
+}
+
+pub(super) fn locate_project_config(
+    context: &CliDispatchContext<'_>,
+) -> Result<Option<(PathBuf, PathBuf)>> {
+    if let Some(path) = context.config_path() {
+        let root = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        return Ok(Some((root.to_path_buf(), path.to_path_buf())));
+    }
+
+    let start = context
+        .project_root()
+        .map(Path::to_path_buf)
+        .map_or_else(std::env::current_dir, Ok)
+        .context("failed to get current directory")?;
+    let mut current = Some(start.as_path());
+    while let Some(directory) = current {
+        let yaml = directory.join(".stackctl.yaml");
+        let toml = directory.join(".stackctl.toml");
+        if yaml.exists() && toml.exists() {
+            bail!(
+                "project directory '{}' contains both .stackctl.yaml and unsupported .stackctl.toml",
+                directory.display()
+            );
+        }
+        if yaml.exists() {
+            return Ok(Some((directory.to_path_buf(), yaml)));
+        }
+        if toml.exists() {
+            return Ok(Some((directory.to_path_buf(), toml)));
+        }
+        current = directory.parent();
+    }
+
+    Ok(None)
 }
 
 fn canonical_directory(path: &Path) -> Result<PathBuf> {

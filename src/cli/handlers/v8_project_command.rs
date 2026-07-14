@@ -89,7 +89,6 @@ fn resolve_v8_invocation(
 fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjectCommand)> {
     match &cli.command {
         Commands::Artisan(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
             let browser = args.browser
                 || args
                     .command
@@ -109,7 +108,6 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
             ))
         }
         Commands::Exec(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
             if args.command.first().is_none_or(String::is_empty) {
                 bail!(
                     "v8 exec requires a non-interactive command; interactive shells need daemon stdin and PTY support"
@@ -123,7 +121,6 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
             ))
         }
         Commands::Composer(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
             let arguments = if args.command.is_empty() {
                 vec!["list".to_owned()]
             } else {
@@ -135,12 +132,6 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
             ))
         }
         Commands::Node(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
-            if args.version_manager.is_some() || args.node_version.is_some() {
-                bail!(
-                    "v8 runtime versions are declarative; remove --version-manager and --node-version"
-                );
-            }
             let package_manager = args
                 .package_manager
                 .or_else(|| detect_node_package_manager(project_root))
@@ -155,30 +146,18 @@ fn command_from_cli(cli: &Cli, project_root: &Path) -> Result<(String, IpcProjec
                 },
             ))
         }
-        Commands::Bun(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
-            if args.bun_version.is_some() {
-                bail!("v8 runtime versions are declarative; remove --bun-version");
-            }
-            Ok((
-                args.service().unwrap_or("app").to_owned(),
-                IpcProjectCommand::Bun {
-                    arguments: args.command.clone(),
-                },
-            ))
-        }
-        Commands::Deno(args) => {
-            reject_legacy_selectors(args.kind.is_some(), args.profile())?;
-            if args.deno_version.is_some() {
-                bail!("v8 runtime versions are declarative; remove --deno-version");
-            }
-            Ok((
-                args.service().unwrap_or("app").to_owned(),
-                IpcProjectCommand::Deno {
-                    arguments: args.command.clone(),
-                },
-            ))
-        }
+        Commands::Bun(args) => Ok((
+            args.service().unwrap_or("app").to_owned(),
+            IpcProjectCommand::Bun {
+                arguments: args.command.clone(),
+            },
+        )),
+        Commands::Deno(args) => Ok((
+            args.service().unwrap_or("app").to_owned(),
+            IpcProjectCommand::Deno {
+                arguments: args.command.clone(),
+            },
+        )),
         Commands::Phpstan(args) => php_tool_invocation(args, IpcPhpTool::PhpStan),
         Commands::Ecs(args) => php_tool_invocation(args, IpcPhpTool::Ecs),
         Commands::PhpCsFixer(args) => php_tool_invocation(args, IpcPhpTool::PhpCsFixer),
@@ -195,7 +174,6 @@ fn php_tool_invocation(
     args: &PhpToolArgs,
     tool: IpcPhpTool,
 ) -> Result<(String, IpcProjectCommand)> {
-    reject_legacy_selectors(args.kind.is_some(), args.profile())?;
     Ok((
         args.service().unwrap_or("app").to_owned(),
         IpcProjectCommand::PhpTool {
@@ -203,13 +181,6 @@ fn php_tool_invocation(
             arguments: args.command.clone(),
         },
     ))
-}
-
-fn reject_legacy_selectors(kind: bool, profile: Option<&str>) -> Result<()> {
-    if kind || profile.is_some() {
-        bail!("v8 commands require an exact --service; --kind and --profile are not supported");
-    }
-    Ok(())
 }
 
 const fn ipc_package_manager(package_manager: PackageManager) -> IpcNodePackageManager {
@@ -426,29 +397,6 @@ mod tests {
     }
 
     #[test]
-    fn v8_rejects_legacy_selector_autofixing() {
-        let root = project(
-            ".stackctl.yaml",
-            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
-        );
-        let cli = Cli::parse_from([
-            "stackctl",
-            "--project-root",
-            root.to_str().expect("root"),
-            "composer",
-            "--kind",
-            "app",
-            "install",
-        ]);
-        let context = CliDispatchContext::from_cli(&cli);
-
-        let error = resolve_v8_invocation(&cli, &context).expect_err("legacy selector");
-
-        assert!(error.to_string().contains("--kind"));
-        assert!(error.to_string().contains("--service"));
-    }
-
-    #[test]
     fn v8_requires_the_exact_selected_service() {
         let root = project(
             ".stackctl.yaml",
@@ -500,22 +448,7 @@ mod tests {
 
     #[test]
     fn v8_exec_requires_a_non_interactive_command() {
-        let root = project(
-            ".stackctl.yaml",
-            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
-        );
-        let cli = Cli::parse_from([
-            "stackctl",
-            "--project-root",
-            root.to_str().expect("root"),
-            "exec",
-        ]);
-        let context = CliDispatchContext::from_cli(&cli);
-
-        let error = resolve_v8_invocation(&cli, &context).expect_err("interactive exec");
-
-        assert!(error.to_string().contains("non-interactive command"));
-        assert!(error.to_string().contains("PTY"));
+        assert!(Cli::try_parse_from(["stackctl", "exec",]).is_err());
     }
 
     #[test]
@@ -577,29 +510,5 @@ mod tests {
                 arguments: vec!["analyse".to_owned(), "--memory-limit=1G".to_owned()],
             }
         );
-    }
-
-    #[test]
-    fn v8_deno_runtime_versions_remain_declarative() {
-        let root = project(
-            ".stackctl.yaml",
-            "schema_version: 8\nservices:\n  app:\n    preset: app\n",
-        );
-        let cli = Cli::parse_from([
-            "stackctl",
-            "--project-root",
-            root.to_str().expect("root"),
-            "deno",
-            "--deno-version",
-            "2.1.0",
-            "task",
-            "check",
-        ]);
-        let context = CliDispatchContext::from_cli(&cli);
-
-        let error = resolve_v8_invocation(&cli, &context).expect_err("runtime override");
-
-        assert!(error.to_string().contains("declarative"));
-        assert!(error.to_string().contains("--deno-version"));
     }
 }

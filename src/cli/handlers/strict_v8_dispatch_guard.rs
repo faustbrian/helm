@@ -1,20 +1,16 @@
 //! Prevent project commands from entering removed pre-v8 runtime dispatch.
 
-use std::path::{Path, PathBuf};
+use anyhow::{Result, bail};
 
-use anyhow::{Context, Result, bail};
-
+use super::v8_project::{locate_project_config, resolve_v8_project};
 use crate::cli::args::Cli;
 use crate::cli::dispatch::context::CliDispatchContext;
-use crate::config;
-
-use super::v8_project::resolve_v8_project;
 
 pub(crate) fn enforce_strict_v8_dispatch(
     _cli: &Cli,
     context: &CliDispatchContext<'_>,
 ) -> Result<()> {
-    let Some(path) = project_config_path(context)? else {
+    let Some((_, path)) = locate_project_config(context)? else {
         return Ok(());
     };
     if path.extension().and_then(|value| value.to_str()) != Some("yaml") {
@@ -28,30 +24,6 @@ pub(crate) fn enforce_strict_v8_dispatch(
     }
 
     Ok(())
-}
-
-fn project_config_path(context: &CliDispatchContext<'_>) -> Result<Option<PathBuf>> {
-    if let Some(path) = context.config_path() {
-        return Ok(Some(path.to_path_buf()));
-    }
-
-    let start = match context.project_root() {
-        Some(path) => path.to_path_buf(),
-        None => std::env::current_dir().context("failed to get current directory")?,
-    };
-    find_project_config_in_ancestors(&start)
-}
-
-fn find_project_config_in_ancestors(start: &Path) -> Result<Option<PathBuf>> {
-    let mut current = Some(start);
-    while let Some(directory) = current {
-        if let Some(path) = config::config_path_in_dir(directory)? {
-            return Ok(Some(path));
-        }
-        current = directory.parent();
-    }
-
-    Ok(None)
 }
 
 #[cfg(test)]

@@ -1,6 +1,4 @@
-//! cli args commands module.
-//!
-//! Contains cli args commands logic used by Stackctl command workflows.
+//! Strict v8 CLI command surface.
 
 use clap::Subcommand;
 
@@ -10,12 +8,8 @@ mod lifecycle;
 mod meta;
 mod operations;
 
-#[cfg(test)]
-pub(crate) use app::TaskDepsArgs;
 pub(crate) use app::{
-    AppCreateArgs, ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, EnvScrubArgs, ExecArgs, NodeArgs,
-    OpenArgs, PhpToolArgs, ServeArgs, ShareArgs, ShareCommands, ShareProviderSelectionArgs,
-    TaskArgs, TaskCommands, TaskDepsCommands,
+    ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs, OpenArgs, PhpToolArgs,
 };
 pub(crate) use daemon::{
     DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs, DaemonCommands,
@@ -25,149 +19,58 @@ pub(crate) use daemon::{
     DaemonServiceInstallArgs, DaemonServicePrintArgs, DaemonServiceUninstallArgs, DaemonTrustArgs,
     DaemonTrustCommands, DaemonWatchArgs,
 };
-
-#[cfg(test)]
-pub(crate) use app::{ShareStartArgs, ShareStatusArgs, ShareStopArgs};
-
-pub(crate) use lifecycle::{
-    ApplyArgs, DownArgs, RecreateArgs, RelabelArgs, RestartArgs, RmArgs, SetupArgs, StartArgs,
-    StopArgs, UpArgs, UpdateArgs, UrlArgs,
-};
-
-pub(crate) use meta::{CompletionsArgs, ConfigArgs, DoctorArgs, LockArgs, PresetArgs, ProfileArgs};
-
-pub(crate) use operations::{
-    AboutArgs, AttachArgs, CpArgs, DumpArgs, EnvArgs, EventsArgs, HealthArgs, InspectArgs,
-    KillArgs, LogsArgs, LsArgs, PauseArgs, PortArgs, PruneArgs, PsArgs, PullArgs, RestoreArgs,
-    StatsArgs, SwarmArgs, TopArgs, UnpauseArgs, WaitArgs,
-};
+pub(crate) use lifecycle::UrlArgs;
+pub(crate) use meta::{CompletionsArgs, ConfigArgs, LockArgs};
+pub(crate) use operations::{EnvArgs, LogsArgs, PsArgs};
 
 #[derive(Subcommand)]
 #[non_exhaustive]
 pub(crate) enum Commands {
-    /// Initialize a new .stackctl.toml config file
-    Init,
-    /// Print resolved configuration
+    /// Inspect or validate strict v8 YAML configuration
     Config(ConfigArgs),
-    /// Inspect available service presets
-    Preset(PresetArgs),
-    /// Inspect profile groupings
-    Profile(ProfileArgs),
-    /// Validate local setup and config health
-    Doctor(DoctorArgs),
-    /// Manage workspace lockfile for reproducible image resolution
+    /// Manage the immutable v8 artifact lock
     Lock(LockArgs),
-    /// Manage per-project Stackctl daemon processes
+    /// Manage the authoritative per-user Stackctl daemon
     Daemon(DaemonArgs),
-    /// Prepare service(s)
-    Setup(SetupArgs),
-    /// Run doctor, start services, bootstrap app runtime, then open app URLs
-    Start(StartArgs),
-    /// Start service container(s)
-    Up(UpArgs),
-    /// Converge services and apply configured data seeds
-    Apply(ApplyArgs),
-    /// Pull latest images and restart selected services
-    Update(UpdateArgs),
-    /// Stop and remove service container(s)
-    Down(DownArgs),
-    /// Stop service container(s)
-    Stop(StopArgs),
-    /// Remove service container(s)
-    Rm(RmArgs),
-    /// Destroy and recreate service container(s) from scratch
-    Recreate(RecreateArgs),
-    /// Restart service container(s)
-    Restart(RestartArgs),
-    /// Recreate containers to apply current Stackctl ownership labels
-    Relabel(RelabelArgs),
-    /// Print connection URL(s)
+    /// Print authoritative project route(s)
     Url(UrlArgs),
-    /// Restore a SQL file into a database service
-    Restore(RestoreArgs),
-    /// Dump a database service to a SQL file
-    Dump(DumpArgs),
-    /// List service runtime status
+    /// Show authoritative project runtime status
     #[command(visible_alias = "status")]
     Ps(PsArgs),
-    /// Show project runtime overview
-    About(AboutArgs),
-    /// Check if service(s) are ready to accept connections
-    Health(HealthArgs),
-    /// Update .env with service connection values
+    /// Export daemon-owned managed environment values
     Env(EnvArgs),
-    /// Show container logs
+    /// Stream project logs through the daemon
     Logs(LogsArgs),
-    /// Show running processes in container(s)
-    Top(TopArgs),
-    /// Show a live stream of container resource usage
-    Stats(StatsArgs),
-    /// Show low-level details for container(s)
-    Inspect(InspectArgs),
-    /// Attach local standard input/output/error streams to a running container
-    Attach(AttachArgs),
-    /// Copy files/folders between host and container
-    Cp(CpArgs),
-    /// Force-stop running container(s)
-    Kill(KillArgs),
-    /// Pause all processes in container(s)
-    Pause(PauseArgs),
-    /// Unpause all processes in container(s)
-    Unpause(UnpauseArgs),
-    /// Block until container(s) stop and print exit status
-    Wait(WaitArgs),
-    /// Stream container runtime events (Stackctl scope by default)
-    Events(EventsArgs),
-    /// List port mappings for container(s)
-    Port(PortArgs),
-    /// Remove stopped Stackctl service containers (or all with --all)
-    Prune(PruneArgs),
-    /// Pull latest service image(s)
-    Pull(PullArgs),
-    /// Run a command inside a service container
+    /// Run a non-interactive command inside a project container
     Exec(ExecArgs),
-    /// Bootstrap Laravel app runtime (key, cache clear, migrate, storage link)
-    AppCreate(AppCreateArgs),
-    /// Run php artisan inside a serve container
+    /// Run PHP Artisan inside a project container
     Artisan(ArtisanArgs),
-    /// Run composer inside an app container
+    /// Run Composer inside a project container
     Composer(ComposerArgs),
-    /// Run phpstan inside an app container
+    /// Run PHPStan inside a project container
     Phpstan(PhpToolArgs),
-    /// Run ECS inside an app container
+    /// Run ECS inside a project container
     Ecs(PhpToolArgs),
-    /// Run php-cs-fixer inside an app container
+    /// Run PHP CS Fixer inside a project container
     PhpCsFixer(PhpToolArgs),
-    /// Run Psalm inside an app container
+    /// Run Psalm inside a project container
     Psalm(PhpToolArgs),
-    /// Run Pint inside an app container
+    /// Run Pint inside a project container
     Pint(PhpToolArgs),
-    /// Run Pest inside an app container
+    /// Run Pest inside a project container
     Pest(PhpToolArgs),
-    /// Run PHPUnit inside an app container
+    /// Run PHPUnit inside a project container
     Phpunit(PhpToolArgs),
-    /// Run Rector inside an app container
+    /// Run Rector inside a project container
     Rector(PhpToolArgs),
-    /// Run Node package manager commands inside an app container
+    /// Run a Node package-manager command inside a project container
     Node(NodeArgs),
-    /// Run Bun inside an app container
+    /// Run Bun inside a project container
     Bun(BunArgs),
-    /// Run Deno inside an app container
+    /// Run Deno inside a project container
     Deno(DenoArgs),
-    /// Run opinionated internal task workflows
-    Task(TaskArgs),
-    /// List configured services
-    Ls(LsArgs),
-    /// Run a stackctl command across configured swarm targets
-    Swarm(SwarmArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
-    /// Start an app serve target and expose it via local HTTPS domain
-    Serve(ServeArgs),
-    /// Print/open serve URL and show app/database health summary
+    /// Open one or all authoritative project routes
     Open(OpenArgs),
-    /// Share an app service through an external tunnel provider
-    Share(ShareArgs),
-    /// Scrub sensitive .env values with safe local placeholders
-    EnvScrub(EnvScrubArgs),
 }
