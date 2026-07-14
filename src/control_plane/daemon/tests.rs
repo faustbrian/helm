@@ -16,8 +16,9 @@ use super::{
     execute_queued_project_restore, finalize_installation_deletion, invalidate_engine_connection,
     plan_engine_reconciliation, publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune, select_accepted_v7_migration_adapters,
+    requires_followup_reconciliation, resolve_accepted_v7_logical_data_inputs,
+    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
+    select_accepted_v7_migration_adapters,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -6578,6 +6579,117 @@ fn accepted_v7_adapter_selection_rejects_unprotected_environment_and_unsupported
             .expect_err("unsupported accepted mount must block"),
         "accepted v7 service 'app' mount './app:/app' has unsupported source kind 'host_bind'"
     );
+}
+
+#[test]
+fn accepted_v7_logical_inputs_reopen_only_the_exact_accepted_config() {
+    use sha2::{Digest, Sha256};
+
+    let root = temporary_directory("accepted-v7-logical-inputs");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("legacy project directory");
+    let project_path = std::fs::canonicalize(project_path).expect("canonical project path");
+    let config = r#"project_type = "project"
+container_prefix = "bill"
+
+[[service]]
+preset = "postgres"
+name = "database"
+username = "legacy-user"
+password = "legacy-secret"
+database = "legacy_database"
+"#;
+    std::fs::write(project_path.join(".stackctl.toml"), config).expect("legacy config");
+    let source_revision = format!("sha256:{}", hex::encode(Sha256::digest(config.as_bytes())));
+    let inventory_json = serde_json::json!({
+        "project_id": "bill",
+        "canonical_project_path": project_path,
+        "source_revision": source_revision,
+        "schema_version": 1,
+        "services": [{
+            "service_id": "database",
+            "kind": "database",
+            "driver": "postgres",
+            "configured_image": "timescale/timescaledb-ha:pg18",
+            "observed_image": "sha256:postgres",
+            "container_name": "bill-database",
+            "observed_container_id": "legacy-postgres",
+            "configured_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-database-data",
+                "target": "/home/postgres/pgdata/data",
+                "read_only": false
+            }],
+            "observed_mounts": [{
+                "source_kind": "named_volume",
+                "source": "bill-database-data",
+                "target": "/home/postgres/pgdata/data",
+                "read_only": false
+            }],
+            "logical_data": {"database": "legacy_database"},
+            "credential_fields": ["password", "username"],
+            "environment_keys": [],
+            "environment_mapping": {},
+            "runtime_features": []
+        }],
+        "routes": [],
+        "blockers": [],
+        "requires_legacy_ca_capture": false,
+        "host_artifacts": {
+            "generated_environment": null,
+            "hosts_path": "/etc/hosts",
+            "hosts_domains": [],
+            "caddy_state_path": "/work/caddy/sites.toml",
+            "caddy_routes": {},
+            "caddy_ca_certificates": []
+        }
+    })
+    .to_string();
+    let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: project_path.clone(),
+        source_revision,
+        inventory_json,
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("accepted inventory");
+
+    let inputs = resolve_accepted_v7_logical_data_inputs(&accepted, 1024 * 1024)
+        .expect("accepted logical inputs");
+    assert_eq!(inputs.len(), 1);
+    assert_eq!(inputs[0].source().service_id(), "database");
+    assert_eq!(inputs[0].source().container_id(), "legacy-postgres");
+    assert_eq!(inputs[0].source().named_volumes(), ["bill-database-data"]);
+    assert_eq!(inputs[0].credential().kind(), "postgres");
+    let debug = format!("{:?}", inputs[0]);
+    assert!(!debug.contains("legacy-secret"));
+
+    let inconsistent = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: accepted.project_id().to_owned(),
+        canonical_project_path: accepted.canonical_project_path().to_path_buf(),
+        source_revision: accepted.source_revision().to_owned(),
+        inventory_json: accepted
+            .inventory_json()
+            .replace("timescale/timescaledb-ha:pg18", "postgres:17"),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("historical inconsistent inventory");
+    let error = resolve_accepted_v7_logical_data_inputs(&inconsistent, 1024 * 1024)
+        .expect_err("inconsistent accepted service identity must block");
+    assert!(error.contains("config identity differs from accepted evidence"));
+
+    std::fs::write(
+        project_path.join(".stackctl.toml"),
+        config.replace("legacy-secret", "changed-secret"),
+    )
+    .expect("changed legacy config");
+    let error = resolve_accepted_v7_logical_data_inputs(&accepted, 1024 * 1024)
+        .expect_err("changed config must require fresh acceptance");
+    assert!(error.contains("changed after inventory acceptance"));
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
 }
 
 struct RecordingLegacyContainerDiscovery {

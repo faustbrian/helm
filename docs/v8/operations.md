@@ -242,6 +242,16 @@ predates protected capture, acceptance permits only a one-way enrichment of
 its empty rollback fields while retaining its original inventory and acceptance
 time.
 
+Logical-data credentials are reconstructed only when an accepted migration is
+being composed. Stackctl reopens the canonical project's exact `.stackctl.toml`
+as a bounded regular non-symlink file, requires its SHA-256 revision to equal
+the accepted source revision before and after expansion, and verifies the
+configured service kind, driver, image, credential-field set, and configured
+versus Engine-observed named volumes against accepted evidence. Secret values
+exist only in driver-specific redacted credential types and are never added to
+the inventory or execution journal. Any config change requires a fresh
+inventory and acceptance instead of guessing or silently updating credentials.
+
 Adapter selection consumes only that immutable accepted record. It assigns
 each service both its normal v8 deployment strategy and exactly one migration
 adapter: a logical database, tenant prefix, bucket, vhost, named-volume

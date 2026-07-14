@@ -1,3 +1,4 @@
+mod accepted_v7_logical_data_input;
 mod active_migration_decision;
 mod active_postgres_prune;
 mod active_project_backup;
@@ -99,6 +100,7 @@ mod reconcile_watched_roots;
 mod record_accepted_v7_migration_plan;
 mod record_ipc_event;
 mod requires_followup_reconciliation;
+mod resolve_accepted_v7_logical_data_inputs;
 mod resource_health_registry;
 mod resource_health_registry_error;
 mod restore_daemon_operation_queues;
@@ -134,10 +136,12 @@ mod unix_daemon_runtime_options;
 #[cfg(unix)]
 mod unix_daemon_watch_options;
 mod v7_host_artifact_paths;
+mod v7_logical_data_credential;
 mod v7_project_inventory_provider;
 mod validate_project_workload_adoption;
 mod verify_accepted_v7_environment_rollback;
 
+pub(crate) use accepted_v7_logical_data_input::AcceptedV7LogicalDataInput;
 pub(crate) use active_migration_decision::ActiveMigrationDecision;
 pub(crate) use active_postgres_prune::ActivePostgresPrune;
 pub(crate) use active_project_backup::ActiveProjectBackup;
@@ -251,6 +255,7 @@ pub(crate) use queued_project_restore::{QueuedProjectRestore, QueuedProjectResto
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
 pub(crate) use record_accepted_v7_migration_plan::record_accepted_v7_migration_plan;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
+pub(crate) use resolve_accepted_v7_logical_data_inputs::resolve_accepted_v7_logical_data_inputs;
 pub(crate) use resource_health_registry::ResourceHealthRegistry;
 pub(crate) use resource_health_registry_error::ResourceHealthRegistryError;
 pub(crate) use restore_daemon_operation_queues::restore_daemon_operation_queues;
@@ -271,6 +276,7 @@ pub(crate) use unix_daemon_runtime_options::UnixDaemonRuntimeOptions;
 #[cfg(unix)]
 pub(crate) use unix_daemon_watch_options::UnixDaemonWatchOptions;
 pub(crate) use v7_host_artifact_paths::V7HostArtifactPaths;
+pub(crate) use v7_logical_data_credential::V7LogicalDataCredential;
 pub(crate) use v7_project_inventory_provider::V7ProjectInventoryProvider;
 pub(crate) use validate_project_workload_adoption::validate_project_workload_adoption;
 pub(crate) use verify_accepted_v7_environment_rollback::verify_accepted_v7_environment_rollback;

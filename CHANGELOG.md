@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added exact accepted-v7 logical migration input resolution. The daemon
+  reopens only the accepted revision of the canonical legacy config, verifies
+  its service identity and Engine mount evidence, and binds driver-specific
+  redacted credentials without persisting secret values in inventory.
 - Added daemon-owned v7 migration execution planning. Fresh accepted inventory
   now persists its deterministic project-wide service, volume, route, trust,
   and environment checkpoint set, and idempotent acceptance revalidates the
