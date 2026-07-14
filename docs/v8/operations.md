@@ -130,6 +130,9 @@ the administrator secret is passed only in the Engine command environment.
 MySQL and MariaDB delete only the exact disabled tenant user through their
 retained root credential. The project schema and all stored data remain intact,
 and the root secret is passed only in the Engine command environment.
+MongoDB likewise deletes only the exact disabled database user. Its database
+and collections remain intact, and `mongosh` reads the administrator secret
+only from the Engine command environment.
 
 Automatic collection is limited to proven-disposable temporary containers,
 expired build cache, superseded unreferenced images, and rotated logs.

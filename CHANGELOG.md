@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added MongoDB tenant-user revocation to orphaned shared-service
+  reconciliation. Removed projects lose database access while their database
+  and collections remain retained, with the administrator secret supplied only
+  through the Engine command environment.
 - Added MySQL and MariaDB tenant-user revocation to orphaned shared-service
   reconciliation. Removed projects lose database login access while their
   schemas and data remain retained and administrator secrets stay out of

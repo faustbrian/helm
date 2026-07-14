@@ -16,7 +16,9 @@ pub(crate) use provision_mongodb_logical_resource::provision_mongodb_logical_res
 pub(crate) use reconcile_mongodb_migration_target::reconcile_mongodb_migration_target;
 pub(crate) use reconcile_mongodb_project_resources::reconcile_mongodb_project_resources;
 pub(crate) use reconcile_prepared_mongodb_instance::reconcile_prepared_mongodb_instance;
+pub(crate) use revoke_mongodb_project_access::revoke_mongodb_project_access;
 
+mod mongodb_access_revocation_options;
 mod mongodb_logical_resource_plan;
 mod mongodb_migration_instance_plan_options;
 mod mongodb_migration_preparation_options;
@@ -35,3 +37,5 @@ mod provision_mongodb_logical_resource;
 mod reconcile_mongodb_migration_target;
 mod reconcile_mongodb_project_resources;
 mod reconcile_prepared_mongodb_instance;
+mod revoke_mongodb_project_access;
+pub(crate) use mongodb_access_revocation_options::MongoDbAccessRevocationOptions;

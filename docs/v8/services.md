@@ -109,3 +109,8 @@ MySQL and MariaDB delete only the exact ownership-proven disabled tenant user.
 Their project schema and data remain available for explicit adoption, restore,
 or prune, while the root secret is supplied only through the Engine command
 environment.
+
+MongoDB deletes only the exact ownership-proven disabled database user. The
+database and collections remain available for explicit adoption, restore, or
+prune, and the administrator secret is supplied only through the Engine command
+environment.
