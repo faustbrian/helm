@@ -998,6 +998,8 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
             "blockers": [],
             "services": [{
                 "service_id": "app",
+                "container_name": "bill-app",
+                "kind": "app",
                 "observed_container_id": "legacy-app-container",
                 "configured_mounts": [{
                     "source_kind": "named_volume",
@@ -1039,6 +1041,8 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
         let source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
+            "bill-app",
+            "app",
             vec![
                 V7NamedVolumeMigrationMount::new("bill-app-data", "/app/storage")
                     .expect("named volume mount"),
@@ -1048,6 +1052,8 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
         let drifted_source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
+            "bill-app",
+            "app",
             vec![
                 V7NamedVolumeMigrationMount::new("bill-other-data", "/app/storage")
                     .expect("drifted named volume mount"),

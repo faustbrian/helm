@@ -108,6 +108,14 @@ fn validate_accepted_source(
     {
         return Err("legacy volume container differs from accepted v7 evidence".to_owned());
     }
+    if service
+        .get("container_name")
+        .and_then(serde_json::Value::as_str)
+        != Some(options.source.container_name())
+        || service.get("kind").and_then(serde_json::Value::as_str) != Some(options.source.kind())
+    {
+        return Err("legacy volume container labels differ from accepted v7 evidence".to_owned());
+    }
     let configured_volumes = accepted_named_volume_mounts(service, "configured_mounts")?;
     let observed_volumes = accepted_named_volume_mounts(service, "observed_mounts")?;
     if configured_volumes != options.source.mounts() || observed_volumes != options.source.mounts()

@@ -6964,6 +6964,8 @@ fn accepted_v7_named_volume_sources_bind_exact_execution_checkpoints() {
     assert_eq!(sources.len(), 1);
     assert_eq!(sources[0].service_id(), "app");
     assert_eq!(sources[0].container_id(), "legacy-app");
+    assert_eq!(sources[0].container_name(), "bill-app");
+    assert_eq!(sources[0].kind(), "app");
     assert_eq!(sources[0].volume_names(), ["bill-cache", "bill-storage"]);
     assert_eq!(sources[0].mounts()[0].target(), "/app/cache");
     assert_eq!(sources[0].mounts()[1].target(), "/app/storage");

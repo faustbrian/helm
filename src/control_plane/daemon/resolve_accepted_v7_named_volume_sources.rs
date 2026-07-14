@@ -50,7 +50,13 @@ pub(crate) fn resolve_accepted_v7_named_volume_sources(
                     "accepted v7 named-volume service '{service_id}' configured and observed volumes differ"
                 ));
             }
-            V7NamedVolumeMigrationSource::new(service_id, container_id, configured)
+            V7NamedVolumeMigrationSource::new(
+                service_id,
+                container_id,
+                service.container_name(),
+                service.kind(),
+                configured,
+            )
         })
         .collect()
 }

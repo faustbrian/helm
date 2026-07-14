@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved accepted-v7 container names and kinds in named-volume source
+  identities so Engine authorization never reconstructs legacy labels.
 - Added a narrow Engine capability that quiesces and streams only exact
   accepted-v7 volume mounts after revalidating legacy labels and mount paths.
 - Bound every accepted-v7 named volume to its exact container mount target,
