@@ -8,8 +8,8 @@ use super::{
     V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter, V7VolumeSource,
     capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
     inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
-    prepare_v7_migration, read_v7_generated_environment_rollback, rollback_v7_migration,
-    select_v7_migration_adapters,
+    prepare_v7_migration, read_v7_generated_environment_rollback,
+    register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
 };
 use crate::config::{
     Config, Driver, HookOnError, HookPhase, HookRun, Kind, ProjectType, ServiceConfig, ServiceHook,
@@ -377,6 +377,52 @@ fn v7_cutover_replays_as_one_barrier_and_supports_confirmation_or_rollback() {
             calls.lock().expect("confirmation calls").as_slice(),
             ["confirm:route", "confirm:service/database"]
         );
+    });
+}
+
+#[test]
+fn explicit_v7_no_op_strategies_participate_in_the_complete_lifecycle() {
+    run_test(async {
+        let checkpoints = [
+            ("environment", "no-generated-environment"),
+            ("route", "no-routes"),
+            ("trust", "no-legacy-trust-transition"),
+            ("volume/cache", "no-named-volumes"),
+            ("volume/database", "logical-data-owns-storage"),
+        ]
+        .into_iter()
+        .map(|(adapter_id, adapter_kind)| {
+            V7MigrationAdapterCheckpoint::pending(adapter_id, adapter_kind, false, 10)
+                .expect("no-op checkpoint")
+        })
+        .collect();
+        let plan = v7_execution_record(V7MigrationExecutionPhase::Planned, checkpoints, 10);
+        let mut registry = V7MigrationAdapterRegistry::default();
+        assert_eq!(
+            register_v7_no_op_migration_adapters(&mut registry, &plan)
+                .expect("register no-op strategies"),
+            5
+        );
+        let mut journal = RecordingV7Journal::default();
+
+        let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 11)
+            .await
+            .expect("prepare no-op strategies");
+        assert_eq!(prepared.phase(), V7MigrationExecutionPhase::Prepared);
+        assert!(
+            prepared
+                .checkpoints()
+                .iter()
+                .all(|checkpoint| checkpoint.target_reference().is_none())
+        );
+        let cutover = cutover_v7_migration(&mut journal, &plan, &mut registry, 12)
+            .await
+            .expect("cut over no-op strategies");
+        assert_eq!(cutover.phase(), V7MigrationExecutionPhase::Cutover);
+        let confirmed = confirm_v7_migration(&mut journal, &plan, &mut registry, 13)
+            .await
+            .expect("confirm no-op strategies");
+        assert_eq!(confirmed.phase(), V7MigrationExecutionPhase::Confirmed);
     });
 }
 

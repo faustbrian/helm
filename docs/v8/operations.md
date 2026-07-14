@@ -281,6 +281,11 @@ journals all required recovery artifacts before target work, prioritizes those
 recoverable targets, and stops at the last successful checkpoint on any
 adapter error. Reconciliation resumes from that exact checkpoint rather than
 repeating a verified backup or trusting unrecorded in-memory progress.
+Selected no-op strategies are still concrete registry entries and advance
+through target verification, cutover, and confirmation. They cover absent
+routes, trust, generated environments, and named volumes, plus volume state
+whose recovery is explicitly owned by a logical-data adapter. A no-op entry
+cannot satisfy a recovery-requiring checkpoint.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds; interrupted side effects are

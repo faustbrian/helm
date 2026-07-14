@@ -73,8 +73,8 @@ pub(crate) use v7::{
     V7TrustMigrationAdapter, V7VolumeInventory, V7VolumeMigrationAdapter, V7VolumeSource,
     capture_v7_generated_environment_rollback, confirm_v7_migration, cutover_v7_migration,
     inventory_v7_host_artifacts, inventory_v7_project, plan_v7_migration_execution,
-    prepare_v7_migration, read_v7_generated_environment_rollback, rollback_v7_migration,
-    select_v7_migration_adapters,
+    prepare_v7_migration, read_v7_generated_environment_rollback,
+    register_v7_no_op_migration_adapters, rollback_v7_migration, select_v7_migration_adapters,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,

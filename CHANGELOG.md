@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added concrete no-op v7 strategies for absent routes, trust, environments,
+  and volumes, plus volume checkpoints whose data lifecycle is owned by a
+  logical service adapter. They remain explicit lifecycle participants and
+  reject any plan that incorrectly asks them to create recovery material.
 - Added an exact per-resource v7 adapter registry. Each immutable checkpoint
   receives its own strategy instance keyed by adapter ID and selected kind;
   missing, duplicate, extra, or kind-mismatched bindings fail before execution
