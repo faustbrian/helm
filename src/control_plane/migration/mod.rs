@@ -62,9 +62,11 @@ pub(crate) use redis::{
 };
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};
 pub(crate) use sql_server::{
-    SqlServerBackupOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
-    SqlServerRestoreOptions, SqlServerVerifyTargetOptions, backup_sql_server_database,
-    restore_sql_server_database, verify_sql_server_target,
+    EngineV7SqlServerSourceRetirement, SqlServerBackupOptions, SqlServerMigrationOperations,
+    SqlServerMigrationOperationsOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
+    V7SqlServerCredential, V7SqlServerMigrationProvider, V7SqlServerMigrationProviderOptions,
+    V7SqlServerSourceRetirement, backup_sql_server_database, restore_sql_server_database,
+    verify_sql_server_target,
 };
 pub(crate) use v7::{
     V7EnvironmentMigrationAdapter, V7GatewaySnapshotMigrationAdapterOptions,

@@ -393,6 +393,20 @@ rollback retains and verifies the separately authorized source, and only
 confirmation delegates its exact container and accepted named volumes to the
 shared Engine retirement capability.
 
+The SQL Server provider uses the accepted `sa` identity to create a native
+`COPY_ONLY` backup with page checksums inside the separately authorized v7
+container. Recovery storage is bound to the accepted evidence revision and is
+reverified before the target receives a command. The owned persistent migration
+target first runs `RESTORE VERIFYONLY`, then drops only the deterministic v8
+database and login, restores the archive under the deterministic database name,
+and reapplies the deterministic login, user, password, and role plan. This
+isolated target permits SQL Server to retain the backup's physical file layout
+without creating the legacy database identity or colliding with another tenant.
+The complete reset, restore, and provisioning sequence is replay-safe. Both the
+retained source and v8 target must return their expected database and login;
+confirmation alone delegates exact accepted resource retirement to the shared
+Engine capability.
+
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

@@ -35,6 +35,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an accepted-v7 SQL Server logical migration provider. It streams
+  checksummed native backups through exact legacy Engine authorization,
+  reverifies recovery before mutation, replay-safely resets and restores the
+  deterministic v8 database and login, verifies both authenticated identities,
+  and retains exact container and volume retirement until confirmation.
 - Added an accepted-v7 MongoDB logical migration provider. It streams a
   database-scoped archive through the separately authorized legacy container,
   binds recovery to accepted evidence, replay-safely rebuilds the deterministic
