@@ -21,6 +21,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a terminal `deleted` installation lifecycle that can only be committed
+  after every logical tenant has been retired, atomically clearing residual
+  physical ownership, credentials, environments, migrations, and recovery rows.
 - Added an installation-scoped Engine cleanup operation that reconstructs
   exact ownership, refuses ambiguous same-installation labels before mutation,
   ignores foreign installations, and removes containers, volumes, then networks.

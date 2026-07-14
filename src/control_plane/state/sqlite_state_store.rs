@@ -20,7 +20,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-const CURRENT_SCHEMA_VERSION: u32 = 14;
+const CURRENT_SCHEMA_VERSION: u32 = 15;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -318,6 +318,25 @@ impl SqliteStateStore {
             }
         }
 
+        if found < 15 {
+            transaction.execute_batch(
+                "ALTER TABLE installation RENAME TO installation_v14;
+                 CREATE TABLE installation (
+                     singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),
+                     installation_id TEXT NOT NULL CHECK(length(installation_id) > 0),
+                     engine_provider TEXT NOT NULL CHECK(engine_provider IN ('docker')),
+                     engine_endpoint TEXT NOT NULL CHECK(length(engine_endpoint) > 0),
+                     lifecycle TEXT NOT NULL DEFAULT 'active'
+                         CHECK(lifecycle IN ('active', 'deleting', 'deleted'))
+                 ) STRICT;
+                 INSERT INTO installation
+                     (singleton, installation_id, engine_provider, engine_endpoint, lifecycle)
+                 SELECT singleton, installation_id, engine_provider, engine_endpoint, lifecycle
+                 FROM installation_v14;
+                 DROP TABLE installation_v14;",
+            )?;
+        }
+
         transaction.pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION)?;
         transaction.commit()?;
 
@@ -401,6 +420,50 @@ impl StateStore for SqliteStateStore {
         transaction.execute("DELETE FROM route_claims", [])?;
         transaction.execute("DELETE FROM projects", [])?;
         transaction.execute("DELETE FROM watched_roots", [])?;
+        transaction.commit()?;
+
+        Ok(())
+    }
+
+    fn complete_installation_deletion(&mut self) -> Result<(), StateStoreError> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let lifecycle = load_installation_lifecycle(&transaction)?.ok_or_else(|| {
+            StateStoreError::CorruptState {
+                detail: "installation deletion completion requires initialized state".to_owned(),
+            }
+        })?;
+        if lifecycle == InstallationLifecycle::Deleted {
+            transaction.commit()?;
+
+            return Ok(());
+        }
+        if lifecycle != InstallationLifecycle::Deleting {
+            return Err(StateStoreError::CorruptState {
+                detail: "installation deletion has not begun".to_owned(),
+            });
+        }
+        let logical_count =
+            transaction.query_row("SELECT COUNT(*) FROM logical_resources", [], |row| {
+                row.get::<_, i64>(0)
+            })?;
+        if logical_count != 0 {
+            return Err(StateStoreError::CorruptState {
+                detail: format!(
+                    "installation deletion cannot complete while {logical_count} logical resources remain"
+                ),
+            });
+        }
+        transaction.execute("DELETE FROM resources", [])?;
+        transaction.execute("DELETE FROM credentials", [])?;
+        transaction.execute("DELETE FROM managed_environments", [])?;
+        transaction.execute("DELETE FROM migrations", [])?;
+        transaction.execute("DELETE FROM recovery_points", [])?;
+        transaction.execute(
+            "UPDATE installation SET lifecycle = 'deleted' WHERE singleton = 1",
+            [],
+        )?;
         transaction.commit()?;
 
         Ok(())

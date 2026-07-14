@@ -3,6 +3,7 @@
 pub(crate) enum InstallationLifecycle {
     Active,
     Deleting,
+    Deleted,
 }
 
 impl InstallationLifecycle {
@@ -10,6 +11,7 @@ impl InstallationLifecycle {
         match label {
             "active" => Some(Self::Active),
             "deleting" => Some(Self::Deleting),
+            "deleted" => Some(Self::Deleted),
             _ => None,
         }
     }

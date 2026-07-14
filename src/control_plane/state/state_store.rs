@@ -26,6 +26,9 @@ pub(crate) trait StateStore: Send {
         orphaned_at_unix_seconds: i64,
     ) -> Result<(), StateStoreError>;
 
+    /// Finalizes teardown only after all logical tenants have been retired.
+    fn complete_installation_deletion(&mut self) -> Result<(), StateStoreError>;
+
     /// Atomically replaces the complete set of canonical watched roots.
     fn replace_watched_roots(&mut self, roots: &[PathBuf]) -> Result<(), StateStoreError>;
 
