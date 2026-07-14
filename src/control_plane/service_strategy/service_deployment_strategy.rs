@@ -6,6 +6,7 @@ pub(crate) enum ServiceDeploymentStrategy {
     SharedStateless,
     DedicatedProject,
     DedicatedUntilIsolationProven,
+    DedicatedRoutableProject,
     ProjectApplication,
     ProjectProcess,
     ProjectScheduledCommand,
@@ -15,6 +16,9 @@ pub(crate) enum ServiceDeploymentStrategy {
 impl ServiceDeploymentStrategy {
     /// Whether this strategy produces one deterministic user-facing HTTP route.
     pub(crate) const fn claims_gateway_route(self) -> bool {
-        matches!(self, Self::ProjectApplication | Self::SharedWithAttribution)
+        matches!(
+            self,
+            Self::ProjectApplication | Self::SharedWithAttribution | Self::DedicatedRoutableProject
+        )
     }
 }

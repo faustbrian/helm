@@ -1,4 +1,8 @@
 use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
+use crate::control_plane::ExecutionPlan;
+use crate::control_plane::project_infrastructure::{
+    PreparedProjectService, ProjectServicePreparationError, prepare_project_services,
+};
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, PreparedSharedInstance, SharedInstancePlan, SharedPreparationError,
     SharedPreparationOptions, prepare_shared_instances,
@@ -48,6 +52,14 @@ where
         options: SharedPreparationOptions<'_>,
     ) -> Result<Vec<PreparedSharedInstance>, SharedPreparationError> {
         prepare_shared_instances(&mut self.state_store, shared, entropy, options)
+    }
+
+    pub(crate) fn prepare_project_services(
+        &mut self,
+        execution: &ExecutionPlan,
+        entropy: &impl CredentialEntropy,
+    ) -> Result<Vec<PreparedProjectService>, ProjectServicePreparationError> {
+        prepare_project_services(&mut self.state_store, execution, entropy)
     }
 
     pub(crate) fn record_resources(

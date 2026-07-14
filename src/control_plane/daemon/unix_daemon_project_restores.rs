@@ -137,6 +137,7 @@ impl UnixDaemonRuntime {
                 .filter_map(|service| {
                     plan_dedicated_project_service(DedicatedProjectServiceOptions {
                         service,
+                        generated_environment: None,
                         installation_id: self.global_network_request.metadata().installation_id(),
                         schema_version: self.global_network_request.metadata().schema_version(),
                         platform,

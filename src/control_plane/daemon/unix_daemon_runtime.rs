@@ -25,6 +25,7 @@ use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
+use crate::control_plane::project_infrastructure::PreparedProjectService;
 use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
     OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
@@ -431,7 +432,23 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let managed_environments = match merge_prepared_environments(execution, &prepared_shared) {
+        let prepared_project_services = match self
+            .control_plane
+            .prepare_project_services(execution, &OsCredentialEntropy)
+        {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "project service preparation blocked");
+
+                return;
+            }
+        };
+        let managed_environments = match merge_prepared_environments(
+            execution,
+            &prepared_shared,
+            &prepared_project_services,
+        ) {
             Ok(environments) => environments,
             Err(error) => {
                 self.engine_reconciliation.complete();
@@ -451,6 +468,7 @@ impl UnixDaemonRuntime {
         let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
             execution,
             prepared_shared_services: &prepared_shared_services,
+            prepared_project_services: &prepared_project_services,
             shared_routes: &shared_routes,
             managed_environments: &managed_environments,
             durable_resources: &durable_resources,
@@ -1325,7 +1343,8 @@ pub(super) fn runtime_linux_platform() -> Result<&'static str, String> {
 
 pub(super) fn merge_prepared_environments(
     execution: &crate::control_plane::ExecutionPlan,
-    prepared: &[PreparedSharedInstance],
+    prepared_shared: &[PreparedSharedInstance],
+    prepared_project_services: &[PreparedProjectService],
 ) -> Result<Vec<ManagedEnvironmentRecord>, String> {
     let mut generated = execution
         .services()
@@ -1333,9 +1352,14 @@ pub(super) fn merge_prepared_environments(
         .map(|service| (service.project().as_str().to_owned(), BTreeMap::new()))
         .collect::<BTreeMap<String, BTreeMap<String, String>>>();
 
-    for environment in prepared
+    for environment in prepared_shared
         .iter()
         .flat_map(PreparedSharedInstance::environments)
+        .chain(
+            prepared_project_services
+                .iter()
+                .map(PreparedProjectService::environment),
+        )
     {
         let project_id = environment.project_id();
         let values = generated.entry(project_id.to_owned()).or_default();

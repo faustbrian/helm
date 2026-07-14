@@ -25,6 +25,12 @@ pub(crate) fn plan_engine_reconciliation(
     let mut process_services = Vec::new();
     let mut scheduled_services = Vec::new();
     let mut routes = options.shared_routes.to_vec();
+    routes.extend(
+        options
+            .prepared_project_services
+            .iter()
+            .map(|prepared| prepared.route().clone()),
+    );
 
     for service in options.execution.services() {
         let is_shared = matches!(
@@ -58,10 +64,32 @@ pub(crate) fn plan_engine_reconciliation(
             service.strategy(),
             ServiceDeploymentStrategy::DedicatedProject
                 | ServiceDeploymentStrategy::DedicatedUntilIsolationProven
+                | ServiceDeploymentStrategy::DedicatedRoutableProject
         ) {
+            let generated_environment =
+                if service.strategy() == ServiceDeploymentStrategy::DedicatedRoutableProject {
+                    let prepared = options
+                        .prepared_project_services
+                        .iter()
+                        .find(|prepared| {
+                            prepared.project_id() == service.project().as_str()
+                                && prepared.service_id() == service.service().as_str()
+                        })
+                        .ok_or_else(|| {
+                            invalid(format!(
+                                "routable project service '{}-{}' was not prepared",
+                                service.project().as_str(),
+                                service.service().as_str()
+                            ))
+                        })?;
+                    Some(prepared.container_environment())
+                } else {
+                    None
+                };
             dedicated_services.push(
                 plan_dedicated_project_service(DedicatedProjectServiceOptions {
                     service,
+                    generated_environment,
                     installation_id: options.installation_id,
                     schema_version: options.schema_version,
                     platform: options.platform,

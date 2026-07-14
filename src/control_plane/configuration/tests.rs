@@ -84,7 +84,7 @@ fn artifact_lock_source_for_a_versioned_preset_is_deterministic() {
     .expect("project config");
     let lock = parse_artifact_lock(
         concat!(
-            "schema_version: 1\ncatalog_revision: 2026-07-14.2\nimages:\n  db:\n",
+            "schema_version: 1\ncatalog_revision: 2026-07-15.1\nimages:\n  db:\n",
             "    source: preset:postgres:17\n",
             "    resolved: postgres@sha256:",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"

@@ -10,6 +10,9 @@ All notable changes to this project are documented in this file.
   the v8 benchmark harness. Baselines now require and preserve independently
   captured host/VM metrics plus exact external runtime inventory instead of
   treating foreign resources as zero or leaving half the protocol uncaptured.
+- Added a dedicated routable Soketi preset with a pinned multi-architecture
+  artifact, stable redaction-safe project credentials, generated Pusher client
+  environment, and built-in gateway routing without host port publication.
 - Made runtime-image publication retain a revision-specific tag and verify the
   signed digest, Linux amd64/arm64 manifest entries, SBOM, and provenance before
   uploading one raw evidence bundle. A publication run now produces the
@@ -293,8 +296,8 @@ All notable changes to this project are documented in this file.
   Host JavaScript version-manager execution was reduced to lockfile and
   `package.json` package-manager detection for containerized project commands.
 - Replaced every built-in v8 service preset's unbounded `latest` alias with a
-  versioned vendor tag and dropped the MailHog and Soketi presets in favor of
-  Mailpit and Laravel Reverb.
+  versioned vendor tag, dropped MailHog in favor of Mailpit, and kept Soketi as
+  a dedicated project service backed by a pinned multi-architecture image.
 - Removed Windows-specific Engine, trust-store, IPC, CI, and documentation
   paths. V8 now targets only macOS and Linux hosts through Unix-native
   boundaries.

@@ -1211,6 +1211,7 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5180,6 +5181,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5220,6 +5222,7 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5254,6 +5257,86 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     assert!(plan.gateway().routes().is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn complete_engine_plans_bind_prepared_soketi_environment_and_route() {
+    use super::unix_daemon_runtime::merge_prepared_environments;
+    use crate::control_plane::project_infrastructure::plan_soketi_project_resources;
+    use crate::control_plane::shared_infrastructure::CredentialSecret;
+
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n",
+                "  app:\n    image: ghcr.io/acme/bill@sha256:{}\n",
+                "  websocket:\n    preset: soketi\n    version: '1'\n",
+                "    image: quay.io/soketi/soketi@sha256:{}\n"
+            ),
+            "a".repeat(64),
+            "b".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let soketi = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "websocket")
+        .expect("Soketi execution service");
+    let prepared = vec![
+        plan_soketi_project_resources(soketi, CredentialSecret::new("stable-secret".to_owned()))
+            .expect("prepared Soketi service"),
+    ];
+    let environments =
+        merge_prepared_environments(&execution, &[], &prepared).expect("managed environments");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        prepared_project_services: &prepared,
+        shared_routes: &[],
+        managed_environments: &environments,
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("complete Engine plan");
+
+    let dedicated = &plan.dedicated_services()[0];
+    assert_eq!(
+        dedicated
+            .request()
+            .environment()
+            .get("SOKETI_DEFAULT_APP_SECRET"),
+        Some(&"stable-secret".to_owned())
+    );
+    assert_eq!(
+        dedicated
+            .request()
+            .health_check()
+            .expect("Soketi readiness")
+            .engine_test()[..2],
+        ["CMD", "node"]
+    );
+    assert_eq!(
+        plan.applications()[0]
+            .request()
+            .environment()
+            .get("PUSHER_APP_SECRET"),
+        Some(&"stable-secret".to_owned())
+    );
+    assert_eq!(plan.gateway().routes().len(), 2);
+    assert_eq!(
+        plan.gateway().routes()[1].domain(),
+        "bill-websocket.stackctl.localhost"
+    );
+}
+
 #[test]
 fn steady_engine_plans_exclude_ephemeral_browser_services() {
     let application_image = concat!(
@@ -5277,6 +5360,7 @@ fn steady_engine_plans_exclude_ephemeral_browser_services() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5317,6 +5401,7 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5365,7 +5450,8 @@ fn managed_environment_planning_replaces_absent_shared_values_with_empty_state()
     let registry = plan_project_registry(&[source]).expect("desired registry");
     let execution = resolve_execution_plan(&registry).expect("execution plan");
 
-    let environments = merge_prepared_environments(&execution, &[]).expect("managed environments");
+    let environments =
+        merge_prepared_environments(&execution, &[], &[]).expect("managed environments");
 
     assert_eq!(environments.len(), 1);
     assert_eq!(environments[0].project_id(), "bill");
@@ -5392,6 +5478,7 @@ fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5445,6 +5532,7 @@ fn complete_engine_plans_schedule_commands_inside_the_application_runtime() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5495,6 +5583,7 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5543,6 +5632,7 @@ fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &retained,
@@ -5576,6 +5666,7 @@ fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &resources,
@@ -5622,6 +5713,7 @@ fn orphaned_dedicated_service_volumes_require_adoption_before_engine_planning() 
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[volume],
@@ -5666,6 +5758,7 @@ fn complete_engine_plans_include_prepared_attributed_shared_routes() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &prepared,
+        prepared_project_services: &[],
         shared_routes: &shared_routes,
         managed_environments: &[],
         durable_resources: &[],
@@ -5701,6 +5794,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
     let error = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &[],
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],
@@ -5721,6 +5815,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
     let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
         execution: &execution,
         prepared_shared_services: &prepared,
+        prepared_project_services: &[],
         shared_routes: &[],
         managed_environments: &[],
         durable_resources: &[],

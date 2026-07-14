@@ -1,5 +1,5 @@
 /// Every preset and compatibility alias accepted by v8 desired state.
-pub(crate) const KNOWN_SERVICE_PRESETS: [&str; 32] = [
+pub(crate) const KNOWN_SERVICE_PRESETS: [&str; 33] = [
     "mongodb",
     "postgres",
     "pg",
@@ -32,4 +32,5 @@ pub(crate) const KNOWN_SERVICE_PRESETS: [&str; 32] = [
     "gotenberg",
     "mailpit",
     "rabbitmq",
+    "soketi",
 ];

@@ -1,7 +1,7 @@
 use super::{PresetArtifact, PresetArtifactError};
 
 /// Revision binding preset-only lock entries to this exact catalog.
-pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-14.2";
+pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-15.1";
 
 /// Resolves one preset into a deliberate versioned registry source.
 pub(crate) fn resolve_preset_artifact(
@@ -78,6 +78,12 @@ pub(crate) fn resolve_preset_artifact(
             "selenium/standalone-chromium:4.43.0-20260404",
         )?,
         "mailpit" => fixed(preset, version, default, "axllent/mailpit:v1.30.0")?,
+        "soketi" => fixed(
+            preset,
+            version,
+            default,
+            "quay.io/soketi/soketi:5d188786beaf683aca2115a6247dcdc15c29ac77-16-debian",
+        )?,
         _ => return Err(unsupported(preset, version)),
     };
 
@@ -101,7 +107,9 @@ fn default_version(preset: &str) -> Option<&'static str> {
         "sqlserver" => Some("2022"),
         "redis" => Some("7"),
         "valkey" => Some("8"),
-        "dragonfly" | "memcached" | "minio" | "rustfs" | "meilisearch" | "mailpit" => Some("1"),
+        "dragonfly" | "memcached" | "minio" | "rustfs" | "meilisearch" | "mailpit" | "soketi" => {
+            Some("1")
+        }
         "garage" => Some("2"),
         "localstack" => Some("4"),
         "opensearch" => Some("3"),

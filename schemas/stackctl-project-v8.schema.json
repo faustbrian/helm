@@ -69,7 +69,8 @@
         "selenium",
         "gotenberg",
         "mailpit",
-        "rabbitmq"
+        "rabbitmq",
+        "soketi"
       ]
     },
     "service": {

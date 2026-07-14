@@ -36,9 +36,9 @@ logical resources reconcile independently and idempotently.
 | Dusk/Selenium | Ephemeral | Whole browser container | Disposable | Always per test/project run |
 | Gotenberg | Shared by exact image/config | Stateless HTTP | No service data | Fonts, policy, or config differs |
 | Mailpit | Shared | Authenticated SMTP username tag and deterministic route | Optional message export | Attribution or access isolation differs |
-| MailHog | Dedicated until attribution is proven | Whole project instance | Optional message export | Default; no equivalent authenticated attribution contract is proven |
+| MailHog | Unsupported; use Mailpit | None | None | No maintained multi-architecture artifact contract is available |
 | RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Broker-wide quiesced maintenance window; credential-free scoped topology plus durable persistent classic-queue message-store backup and network-isolated safety-backed restore; non-durable, non-persistent, quorum, and stream messages fail closed | Plugins, policies, topology, isolation, maintenance tolerance, or required recovery type differs |
-| Soketi | Shared only after credential isolation is proven | Project app ID/key/secret | Configuration export | Global settings or isolation differs |
+| Soketi | Dedicated routable project service | Stable project app ID/key/secret | Stateless; no service volume | Always project-scoped until cross-project isolation is proven |
 
 Every strategy also requires authenticated readiness, not merely a running
 container. Provisioning a logical resource must not restart a compatible
@@ -48,8 +48,10 @@ instance and explicit migration, never an in-place reinterpretation.
 Dedicated project services use a common Engine substrate: exact project and
 service ownership, deterministic container naming, immutable image and numeric
 major version, Linux platform selection, the private Stackctl network, declared
-command and environment, restart supervision, no host ports, and no implicit
-gateway route. This substrate does not by itself make a stateful preset
+command and environment, restart supervision, and no host ports. The dedicated
+routable strategy adds one deterministic gateway route and generated service
+credentials through the same planning boundary. This substrate does not by
+itself make a stateful preset
 complete; each such preset still requires its documented retained-volume,
 authenticated-readiness, backup, restore, and upgrade contracts.
 
@@ -69,9 +71,16 @@ selected archive before start, and requires readiness. Destructive
 authorization binds one exact verified recovery point to every volume in the
 user-visible installation plan and confirmation token, re-verifies it before
 cleanup, and passes only those exact volume names to Engine deletion. An
-unlisted Engine-observed volume fails teardown before mutation. Memcached,
-MailHog, and Soketi remain volume-free because their current dedicated
-contracts are stateless.
+unlisted Engine-observed volume fails teardown before mutation. Memcached and
+Soketi remain volume-free because their current dedicated contracts are
+stateless.
+
+Soketi receives one durable, redaction-safe project secret plus deterministic
+app ID and key. Stackctl injects the server-side Pusher values into project
+runtimes, the public Vite values for browser clients, and the generated Soketi
+values into only the dedicated service container. It publishes exactly
+`{project}-{service}.stackctl.localhost` through the built-in gateway and never
+binds Soketi to a host port. Declared values cannot override generated secrets.
 
 Dusk and Selenium are never steady project services. Each browser-test command
 gets a deterministic operation-scoped container using the locked immutable

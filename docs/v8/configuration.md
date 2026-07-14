@@ -69,7 +69,7 @@ the source declaration and an immutable sha256 digest:
 
 ```yaml
 schema_version: 1
-catalog_revision: 2026-07-14.2
+catalog_revision: 2026-07-15.1
 images:
   app:
     source: preset:laravel:8.5
@@ -88,7 +88,8 @@ lock or guesses a replacement.
 
 Built-in presets resolve through an explicitly revisioned catalog of versioned
 vendor tags. The catalog never uses the unbounded `latest` alias. Mailpit
-replaces the MailHog preset, while Laravel Reverb replaces the Soketi preset.
+replaces the unsupported MailHog preset. Soketi remains available as a
+dedicated routable project service with a pinned multi-architecture artifact.
 
 Discovery reads the lock only beside `.stackctl.yaml`, with the same byte bound,
 UTF-8 requirement, and symbolic-link prohibition as the project file. Projects

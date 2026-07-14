@@ -14,6 +14,7 @@ pub(crate) fn resolve_service_deployment_strategy(
         "memcached" | "localstack" => ServiceDeploymentStrategy::DedicatedProject,
         "dragonfly" | "garage" | "rustfs" | "opensearch" | "elasticsearch" | "meilisearch"
         | "typesense" => ServiceDeploymentStrategy::DedicatedUntilIsolationProven,
+        "soketi" => ServiceDeploymentStrategy::DedicatedRoutableProject,
         "frankenphp" | "laravel" | "reverb" => ServiceDeploymentStrategy::ProjectApplication,
         "horizon" | "queue-worker" | "queue" => ServiceDeploymentStrategy::ProjectProcess,
         "scheduler" => ServiceDeploymentStrategy::ProjectScheduledCommand,

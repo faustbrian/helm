@@ -198,6 +198,10 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
         ("gotenberg", ServiceDeploymentStrategy::SharedStateless),
         ("mailpit", ServiceDeploymentStrategy::SharedWithAttribution),
         ("rabbitmq", ServiceDeploymentStrategy::SharedByCompatibility),
+        (
+            "soketi",
+            ServiceDeploymentStrategy::DedicatedRoutableProject,
+        ),
     ];
 
     assert_eq!(
@@ -219,7 +223,7 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
             .to_string(),
         "unknown v8 service preset 'invented'"
     );
-    for removed in ["mailhog", "soketi"] {
+    for removed in ["mailhog"] {
         assert_eq!(
             resolve_service_deployment_strategy(removed)
                 .expect_err("removed preset")
@@ -231,7 +235,7 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
 
 #[test]
 fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
-    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-14.2");
+    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-15.1");
 
     for preset in KNOWN_SERVICE_PRESETS {
         let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
@@ -264,7 +268,14 @@ fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
             .reference(),
         "postgres:18"
     );
-    for removed in ["mailhog", "soketi"] {
+    assert_eq!(
+        resolve_preset_artifact("soketi", None)
+            .expect("Soketi policy")
+            .expect("Soketi artifact")
+            .reference(),
+        "quay.io/soketi/soketi:5d188786beaf683aca2115a6247dcdc15c29ac77-16-debian"
+    );
+    for removed in ["mailhog"] {
         assert!(
             resolve_preset_artifact(removed, None)
                 .expect_err("removed preset")

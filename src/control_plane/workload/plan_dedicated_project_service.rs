@@ -4,9 +4,10 @@ use sha2::{Digest, Sha256};
 use super::{DedicatedProjectServiceOptions, DedicatedProjectServicePlan, WorkloadPlanError};
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
-    ContainerCreateOptions, ContainerRestartPolicy, ManagedResourceMetadata,
+    ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
 };
+use std::time::Duration;
 
 /// Plans one isolated project service without exposing a host port or route.
 pub(crate) fn plan_dedicated_project_service(
@@ -17,6 +18,7 @@ pub(crate) fn plan_dedicated_project_service(
         service.strategy(),
         ServiceDeploymentStrategy::DedicatedProject
             | ServiceDeploymentStrategy::DedicatedUntilIsolationProven
+            | ServiceDeploymentStrategy::DedicatedRoutableProject
     ) {
         return Err(invalid(format!(
             "service '{}-{}' is not a dedicated project service",
@@ -60,7 +62,8 @@ pub(crate) fn plan_dedicated_project_service(
         image,
         options.platform,
     ]);
-    let desired_revision = desired_revision(&options, preset, version, image)?;
+    let environment = merged_environment(&options)?;
+    let desired_revision = desired_revision(&options, preset, version, image, &environment)?;
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id.to_owned(),
         kind: ResourceKind::ProjectService,
@@ -87,7 +90,7 @@ pub(crate) fn plan_dedicated_project_service(
     .map_err(invalid)?
     .with_network(options.network_name)
     .map_err(invalid)?
-    .with_environment(service.desired().environment().clone())
+    .with_environment(environment)
     .map_err(invalid)?;
     let request = match (&volume, persistent_data_path(preset)) {
         (Some(volume), Some(target)) => request
@@ -98,6 +101,29 @@ pub(crate) fn plan_dedicated_project_service(
     let request = match service.desired().command() {
         Some(command) => request.with_command(command.to_vec()).map_err(invalid)?,
         None => request,
+    };
+    let request = if preset == "soketi" {
+        request.with_health_check(
+            ContainerHealthCheck::new(
+                vec![
+                    "node".to_owned(),
+                    "-e".to_owned(),
+                    concat!(
+                        "require('http').get('http://127.0.0.1:6001/ready',",
+                        "response=>process.exit(response.statusCode===200?0:1))",
+                        ".on('error',()=>process.exit(1))"
+                    )
+                    .to_owned(),
+                ],
+                Duration::from_secs(10),
+                Duration::from_secs(3),
+                Duration::from_secs(10),
+                5,
+            )
+            .map_err(invalid)?,
+        )
+    } else {
+        request
     };
 
     Ok(DedicatedProjectServicePlan::new(
@@ -147,7 +173,7 @@ fn persistent_data_path(preset: &str) -> Option<&'static str> {
         "opensearch" => Some("/usr/share/opensearch/data"),
         "elasticsearch" => Some("/usr/share/elasticsearch/data"),
         "meilisearch" => Some("/meili_data"),
-        "memcached" => None,
+        "memcached" | "soketi" => None,
         _ => None,
     }
 }
@@ -157,6 +183,7 @@ fn desired_revision(
     preset: &str,
     version: &str,
     image: &str,
+    environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<String, WorkloadPlanError> {
     let service = options.service;
     let manifest = serde_json::to_vec(&DedicatedProjectServiceRevision {
@@ -169,11 +196,35 @@ fn desired_revision(
         platform: options.platform,
         network_name: options.network_name,
         command: service.desired().command().unwrap_or_default(),
-        environment: service.desired().environment(),
+        environment,
     })
     .map_err(invalid)?;
 
     Ok(format!("sha256:{}", hex::encode(Sha256::digest(manifest))))
+}
+
+fn merged_environment(
+    options: &DedicatedProjectServiceOptions<'_>,
+) -> Result<std::collections::BTreeMap<String, String>, WorkloadPlanError> {
+    let mut environment = options.service.desired().environment().clone();
+    let Some(generated) = options.generated_environment else {
+        return Ok(environment);
+    };
+    for (key, value) in generated {
+        if environment
+            .get(key)
+            .is_some_and(|declared| declared != value)
+        {
+            return Err(invalid(format!(
+                "dedicated service '{}-{}' cannot replace generated environment key '{key}'",
+                options.service.project().as_str(),
+                options.service.service().as_str()
+            )));
+        }
+        environment.insert(key.clone(), value.clone());
+    }
+
+    Ok(environment)
 }
 
 #[derive(Serialize)]

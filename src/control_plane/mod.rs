@@ -12,6 +12,7 @@ mod lock_directory;
 mod migration;
 mod network;
 mod project_identity;
+mod project_infrastructure;
 mod registry_conflict;
 mod retention;
 mod route_claim;
