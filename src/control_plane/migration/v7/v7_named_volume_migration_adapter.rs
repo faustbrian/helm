@@ -1,6 +1,6 @@
 use super::{
     V7MigrationAdapterExecutor, V7MigrationAdapterTarget, V7NamedVolumeMigrationAdapterOptions,
-    V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider, accepted_v7_named_volumes,
+    V7NamedVolumeMigrationMount, V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider,
 };
 use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
 use crate::control_plane::state::V7MigrationAdapterCheckpoint;
@@ -108,13 +108,42 @@ fn validate_accepted_source(
     {
         return Err("legacy volume container differs from accepted v7 evidence".to_owned());
     }
-    let configured_volumes = accepted_v7_named_volumes(service, "configured_mounts")?;
-    let observed_volumes = accepted_v7_named_volumes(service, "observed_mounts")?;
-    if configured_volumes != options.source.volume_names()
-        || observed_volumes != options.source.volume_names()
+    let configured_volumes = accepted_named_volume_mounts(service, "configured_mounts")?;
+    let observed_volumes = accepted_named_volume_mounts(service, "observed_mounts")?;
+    if configured_volumes != options.source.mounts() || observed_volumes != options.source.mounts()
     {
         return Err("legacy named volumes differ from accepted v7 evidence".to_owned());
     }
 
     Ok(())
+}
+
+fn accepted_named_volume_mounts(
+    service: &serde_json::Value,
+    field: &str,
+) -> Result<Vec<V7NamedVolumeMigrationMount>, String> {
+    let mut mounts = service
+        .get(field)
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| format!("accepted v7 service has no {field} evidence"))?
+        .iter()
+        .filter(|mount| {
+            mount.get("source_kind").and_then(serde_json::Value::as_str) == Some("named_volume")
+        })
+        .map(|mount| {
+            V7NamedVolumeMigrationMount::new(
+                mount
+                    .get("source")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+                mount
+                    .get("target")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    mounts.sort_by(|left, right| left.volume_name().cmp(right.volume_name()));
+
+    Ok(mounts)
 }

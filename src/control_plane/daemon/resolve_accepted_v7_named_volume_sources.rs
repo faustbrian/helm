@@ -1,5 +1,5 @@
 use super::ipc::{IpcV7Mount, IpcV7ProjectInventory, IpcV7ServiceInventory};
-use crate::control_plane::migration::V7NamedVolumeMigrationSource;
+use crate::control_plane::migration::{V7NamedVolumeMigrationMount, V7NamedVolumeMigrationSource};
 use crate::control_plane::state::{AcceptedV7InventoryRecord, V7MigrationExecutionRecord};
 
 /// Resolves exact named-volume sources only from immutable accepted evidence.
@@ -74,21 +74,25 @@ fn one_service<'inventory>(
     }
 }
 
-fn named_volumes(mounts: &[IpcV7Mount], service_id: &str) -> Result<Vec<String>, String> {
-    let mut names = mounts
+fn named_volumes(
+    mounts: &[IpcV7Mount],
+    service_id: &str,
+) -> Result<Vec<V7NamedVolumeMigrationMount>, String> {
+    let mut volumes = mounts
         .iter()
         .filter(|mount| mount.source_kind() == "named_volume")
-        .map(|mount| mount.source().to_owned())
-        .collect::<Vec<_>>();
-    names.sort();
-    if names.is_empty()
-        || names.iter().any(String::is_empty)
-        || names.windows(2).any(|pair| pair[0] == pair[1])
+        .map(|mount| V7NamedVolumeMigrationMount::new(mount.source(), mount.target()))
+        .collect::<Result<Vec<_>, _>>()?;
+    volumes.sort_by(|left, right| left.volume_name().cmp(right.volume_name()));
+    if volumes.is_empty()
+        || volumes
+            .windows(2)
+            .any(|pair| pair[0].volume_name() == pair[1].volume_name())
     {
         return Err(format!(
             "accepted v7 named-volume service '{service_id}' volume identity is invalid"
         ));
     }
 
-    Ok(names)
+    Ok(volumes)
 }

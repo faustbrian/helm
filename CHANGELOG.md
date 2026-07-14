@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Bound every accepted-v7 named volume to its exact container mount target,
+  refusing target-path drift and ambiguous multi-volume restore mappings.
 - Made accepted-v7 named-volume adapters own their validated source clone and
   execution-scoped provider, removing the final borrowed-provider lifetime
   barrier before live archive strategy composition.

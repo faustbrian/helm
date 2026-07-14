@@ -9,12 +9,12 @@ use super::{
     V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget, V7MigrationCutoverOptions,
     V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions, V7MigrationRollbackOptions,
     V7MigrationRouteSource, V7MigrationServiceAdapter, V7MigrationServiceSource,
-    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource, V7ProjectInventory,
-    V7ProjectInventoryOptions, V7ProjectInventoryRequest,
-    V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
-    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
-    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
-    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationMount,
+    V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
+    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
+    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
+    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
+    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_gateway_snapshot_migration_adapter,
     register_v7_installation_trust_migration_adapter, register_v7_logical_data_migration_adapter,
@@ -1039,13 +1039,19 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
         let source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
-            vec!["bill-app-data".to_owned()],
+            vec![
+                V7NamedVolumeMigrationMount::new("bill-app-data", "/app/storage")
+                    .expect("named volume mount"),
+            ],
         )
         .expect("named volume source");
         let drifted_source = V7NamedVolumeMigrationSource::new(
             "app",
             "legacy-app-container",
-            vec!["bill-other-data".to_owned()],
+            vec![
+                V7NamedVolumeMigrationMount::new("bill-other-data", "/app/storage")
+                    .expect("drifted named volume mount"),
+            ],
         )
         .expect("drifted named volume source");
         let drifted_provider = RecordingV7NamedVolumeProvider::default();

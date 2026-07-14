@@ -6965,8 +6965,10 @@ fn accepted_v7_named_volume_sources_bind_exact_execution_checkpoints() {
     assert_eq!(sources[0].service_id(), "app");
     assert_eq!(sources[0].container_id(), "legacy-app");
     assert_eq!(sources[0].volume_names(), ["bill-cache", "bill-storage"]);
+    assert_eq!(sources[0].mounts()[0].target(), "/app/cache");
+    assert_eq!(sources[0].mounts()[1].target(), "/app/storage");
 
-    let mut drifted_inventory = inventory;
+    let mut drifted_inventory = inventory.clone();
     drifted_inventory["services"][0]["observed_mounts"][1]["source"] =
         serde_json::json!("bill-other");
     let drifted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
@@ -6990,6 +6992,34 @@ fn accepted_v7_named_volume_sources_bind_exact_execution_checkpoints() {
     .expect("drifted execution");
     let error = resolve_accepted_v7_named_volume_sources(&drifted, &drifted_execution)
         .expect_err("configured and observed volume drift must block");
+    assert!(error.contains("configured and observed volumes differ"));
+
+    let mut target_drifted_inventory = inventory;
+    target_drifted_inventory["services"][0]["observed_mounts"][0]["target"] =
+        serde_json::json!("/app/other-storage");
+    let target_drifted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+        project_id: "bill".to_owned(),
+        canonical_project_path: PathBuf::from("/work/bill"),
+        source_revision: accepted.source_revision().to_owned(),
+        inventory_json: target_drifted_inventory.to_string(),
+        generated_environment_rollback: None,
+        accepted_at_unix_seconds: 10,
+    })
+    .expect("target-drifted accepted inventory");
+    let target_drifted_execution =
+        V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: PathBuf::from("/work/bill"),
+            evidence_revision: target_drifted.evidence_revision().to_owned(),
+            adapter_plan_revision: "d".repeat(64),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: execution.checkpoints().to_vec(),
+            updated_at_unix_seconds: 10,
+        })
+        .expect("target-drifted execution");
+    let error =
+        resolve_accepted_v7_named_volume_sources(&target_drifted, &target_drifted_execution)
+            .expect_err("configured and observed mount-target drift must block");
     assert!(error.contains("configured and observed volumes differ"));
 }
 
