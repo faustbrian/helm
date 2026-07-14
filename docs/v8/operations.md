@@ -436,6 +436,21 @@ complete replacement is safe to replay. Exact source and target credentials
 must each authenticate and stat their bound bucket; confirmation alone
 delegates exact accepted container and volume retirement to the Engine.
 
+The RabbitMQ logical-data provider binds the exact accepted container,
+named-volume set, default `/` vhost, legacy application credential, and recovery
+identity. It first inventories every queue and fails before export if any
+message is present, because a definitions archive cannot preserve message
+bodies. Definitions must contain exactly the accepted user and vhost, the
+exported salted password hash must match the supplied legacy credential, and
+global or cross-vhost topology is refused. Accepted empty-message topology is
+rewritten to only the deterministic v8 vhost and credential before private,
+accepted-revision-bound storage. Target preparation reverifies the artifact,
+replaces that exact vhost, and is safe to replay. Source and target definition
+exports must retain their exact scoped identities and remain empty of messages;
+confirmation alone delegates exact accepted container and volume retirement to
+the Engine. Projects with queued messages remain on v7 until a message-body
+migration or an explicit compatibility execution path is available.
+
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application

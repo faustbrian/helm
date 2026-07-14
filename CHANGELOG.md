@@ -35,6 +35,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added an accepted-v7 RabbitMQ logical migration provider. It verifies the
+  exact legacy user and default vhost from exported definitions, refuses queues
+  containing messages or topology that escapes the accepted scope, rewrites
+  empty-message topology to the deterministic v8 vhost and credential, rejects
+  tampered recovery before mutation, supports replay-safe restore, verifies
+  both endpoints, and defers exact Engine retirement to confirmation.
 - Added an accepted-v7 MinIO logical migration provider. It refuses versioned
   buckets that latest-object export cannot preserve, streams the exact legacy
   bucket through accepted Engine authorization, binds recovery to accepted
