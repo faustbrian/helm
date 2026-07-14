@@ -28,8 +28,8 @@ pub(crate) async fn backup_rabbitmq_vhost(
     prove_no_messages(executor, container, &vhost, options.timeout).await?;
 
     let definitions_file = format!(
-        "/tmp/.stackctl-rabbitmq-definitions-{}.json",
-        options.created_at_unix_seconds
+        "/tmp/.stackctl-rabbitmq-definitions-{}-{}.json",
+        vhost, options.created_at_unix_seconds
     );
     let request = CommandRequest::new(
         vec!["sh".to_owned(), "-c".to_owned(), EXPORT_SCRIPT.to_owned()],

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [7.0.0] - 2026-07-12
 
+### Fixed
+
+- Scoped RabbitMQ and MinIO in-container backup staging paths by deterministic
+  tenant identity as well as timestamp to prevent concurrent project overlap.
+
 ### Added
 
 - Added daemon-owned MinIO bucket backups with runtime-only tenant credentials,

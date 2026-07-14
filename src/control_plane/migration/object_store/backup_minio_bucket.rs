@@ -40,7 +40,10 @@ pub(crate) async fn backup_minio_bucket(
 ) -> Result<MigrationBackup, MigrationOperationError> {
     let bucket = validate(container, options)?;
     prove_unversioned(executor, container, options, &bucket).await?;
-    let prefix = format!("/tmp/.stackctl-minio-{}", options.created_at_unix_seconds);
+    let prefix = format!(
+        "/tmp/.stackctl-minio-{}-{}",
+        bucket, options.created_at_unix_seconds
+    );
     let environment = environment(
         options,
         &bucket,
@@ -103,7 +106,7 @@ async fn prove_unversioned(
     bucket: &str,
 ) -> Result<(), MigrationOperationError> {
     let config = format!(
-        "/tmp/.stackctl-minio-{}-version-config",
+        "/tmp/.stackctl-minio-{bucket}-{}-version-config",
         options.created_at_unix_seconds
     );
     let request = CommandRequest::new(

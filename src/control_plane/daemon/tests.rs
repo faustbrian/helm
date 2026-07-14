@@ -1088,6 +1088,10 @@ fn queued_rabbitmq_backup_refuses_message_loss_and_exports_exact_empty_vhost() {
     assert!(calls[1][2].contains("export_definitions"));
     assert!(calls[1][2].contains("STACKCTL_VHOST"));
     assert!(!format!("{calls:?}").contains("rabbit-secret"));
+    assert!(
+        engine.command_environments()[1]["STACKCTL_DEFINITIONS_FILE"]
+            .contains("stackctl_bill_database-40000")
+    );
     assert_eq!(backup.artifact_size_bytes(), 10);
     assert!(Path::new(backup.reference()).join("artifact.bin").is_file());
     assert!(
@@ -1244,6 +1248,10 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
     assert!(calls[1][2].contains(" mirror "));
     assert!(calls[1][2].contains("tar -C"));
     assert!(!format!("{calls:?}").contains("minio-secret"));
+    assert!(
+        engine.command_environments()[1]["STACKCTL_EXPORT_DIR"]
+            .contains("stackctl-bill-files-40000")
+    );
     assert_eq!(backup.artifact_size_bytes(), 10);
 
     std::fs::remove_dir_all(backup_root).expect("remove MinIO backup fixture");
