@@ -1335,6 +1335,45 @@ fn recoverable_open_replaces_interrupted_stable_state_backup_staging_file() {
     remove_database(&database_path);
 }
 
+#[cfg(unix)]
+#[test]
+fn recoverable_open_waits_for_the_state_backup_directory_lock() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let database_path = temporary_database_path("recoverable-open-directory-lock");
+    let backup_directory = database_path.with_extension("backups");
+    let project = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store.replace_project(&project).expect("persist project");
+    drop(store);
+    std::fs::create_dir_all(&backup_directory).expect("create backup directory");
+    let directory_lock = crate::control_plane::lock_directory(&backup_directory)
+        .expect("lock state backup directory");
+    let (sender, receiver) = mpsc::channel();
+    let database_path_for_thread = database_path.clone();
+    let backup_directory_for_thread = backup_directory.clone();
+    let backup_thread = std::thread::spawn(move || {
+        let result = SqliteStateStore::open_with_backups(
+            &database_path_for_thread,
+            &backup_directory_for_thread,
+            40_000,
+        );
+        sender.send(result.map(drop)).expect("report backup result");
+    });
+
+    assert!(receiver.recv_timeout(Duration::from_millis(100)).is_err());
+    directory_lock.unlock().expect("unlock backup directory");
+    receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("backup resumes after directory unlock")
+        .expect("state backup succeeds");
+    backup_thread.join().expect("join backup thread");
+
+    std::fs::remove_dir_all(&backup_directory).expect("remove state backups");
+    remove_database(&database_path);
+}
+
 #[test]
 fn orphaning_a_project_releases_its_active_shared_service_reference() {
     let database_path = temporary_database_path("logical-resource-orphan");

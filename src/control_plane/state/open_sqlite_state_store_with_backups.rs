@@ -64,6 +64,8 @@ fn create_verified_backup(
     created_at_unix_seconds: i64,
 ) -> Result<(), StateStoreError> {
     prepare_backup_directory(backup_directory)?;
+    let _backup_lock = crate::control_plane::lock_directory(backup_directory)
+        .map_err(|source| backup_io("lock directory", backup_directory, source))?;
     let pending = pending_path(backup_directory);
     match fs::remove_file(&pending) {
         Ok(()) => sync_directory(backup_directory)?,

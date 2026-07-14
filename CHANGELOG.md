@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Serialized SQLite recovery snapshot creation, idempotent reuse, and pruning
+  on the private backup directory. Competing daemon startups now wait instead
+  of deleting or replacing one another's stable snapshot staging file.
 - Serialized each backup stream and recovery-point publication on its exact
   resource directory. Existing recovery points must now be real directories,
   so concurrent attempts cannot remove one another's staging data and a
