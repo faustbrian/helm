@@ -1,19 +1,19 @@
 use super::{
-    V7MigrationAdapterExecutor, V7MigrationAdapterTarget, V7NamedVolumeMigrationAdapterOptions,
-    V7NamedVolumeMigrationSource, V7RecoverableMigrationProvider,
+    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource, V7MigrationAdapterExecutor,
+    V7MigrationAdapterTarget, V7RecoverableMigrationProvider,
 };
 use crate::control_plane::migration::{MigrationBackup, MigrationFuture, MigrationOperationError};
 use crate::control_plane::state::V7MigrationAdapterCheckpoint;
 
-/// Archives accepted legacy volumes and binds their restored v8 target.
-pub(super) struct V7NamedVolumeMigrationAdapter<'operation> {
-    source: &'operation V7NamedVolumeMigrationSource,
-    provider: &'operation mut dyn V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>,
+/// Runs one accepted logical-data transition through its driver provider.
+pub(super) struct V7LogicalDataMigrationAdapter<'operation> {
+    source: &'operation V7LogicalDataMigrationSource,
+    provider: &'operation mut dyn V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>,
 }
 
-impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
+impl<'operation> V7LogicalDataMigrationAdapter<'operation> {
     pub(super) fn new(
-        options: V7NamedVolumeMigrationAdapterOptions<'operation>,
+        options: V7LogicalDataMigrationAdapterOptions<'operation>,
     ) -> Result<Self, String> {
         validate_accepted_source(&options)?;
 
@@ -24,7 +24,7 @@ impl<'operation> V7NamedVolumeMigrationAdapter<'operation> {
     }
 }
 
-impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
+impl V7MigrationAdapterExecutor for V7LogicalDataMigrationAdapter<'_> {
     fn prepare_recovery<'operation>(
         &'operation mut self,
         _checkpoint: &'operation V7MigrationAdapterCheckpoint,
@@ -42,7 +42,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
         {
             return Box::pin(async {
                 Err(MigrationOperationError::new(
-                    "named-volume target requires verified recovery evidence",
+                    "logical-data target requires verified recovery evidence",
                 ))
             });
         }
@@ -57,7 +57,7 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
         let Some(target_reference) = checkpoint.target_reference() else {
             return Box::pin(async {
                 Err(MigrationOperationError::new(
-                    "named-volume checkpoint has no prepared target",
+                    "logical-data checkpoint has no prepared target",
                 ))
             });
         };
@@ -80,10 +80,10 @@ impl V7MigrationAdapterExecutor for V7NamedVolumeMigrationAdapter<'_> {
 }
 
 fn validate_accepted_source(
-    options: &V7NamedVolumeMigrationAdapterOptions<'_>,
+    options: &V7LogicalDataMigrationAdapterOptions<'_>,
 ) -> Result<(), String> {
     let inventory = serde_json::from_str::<serde_json::Value>(options.accepted.inventory_json())
-        .map_err(|error| format!("accepted v7 volume evidence is invalid: {error}"))?;
+        .map_err(|error| format!("accepted v7 logical-data evidence is invalid: {error}"))?;
     let services = inventory
         .get("services")
         .and_then(serde_json::Value::as_array)
@@ -98,45 +98,27 @@ fn validate_accepted_source(
         })
         .collect::<Vec<_>>();
     if matching.len() != 1 {
-        return Err("accepted v7 inventory has ambiguous named-volume service evidence".to_owned());
+        return Err("accepted v7 inventory has ambiguous logical-data service evidence".to_owned());
     }
     let service = matching[0];
-    if service
-        .get("observed_container_id")
-        .and_then(serde_json::Value::as_str)
-        != Some(options.source.container_id())
+    if service.get("driver").and_then(serde_json::Value::as_str) != Some(options.source.driver())
+        || service
+            .get("observed_container_id")
+            .and_then(serde_json::Value::as_str)
+            != Some(options.source.container_id())
     {
-        return Err("legacy volume container differs from accepted v7 evidence".to_owned());
+        return Err("legacy logical-data source differs from accepted v7 evidence".to_owned());
     }
-    let configured_volumes = named_volumes(service, "configured_mounts")?;
-    let observed_volumes = named_volumes(service, "observed_mounts")?;
-    if configured_volumes != options.source.volume_names()
-        || observed_volumes != options.source.volume_names()
-    {
-        return Err("legacy named volumes differ from accepted v7 evidence".to_owned());
+    let logical_data = service
+        .get("logical_data")
+        .cloned()
+        .ok_or_else(|| "accepted v7 service has no logical-data evidence".to_owned())?;
+    let logical_data =
+        serde_json::from_value::<std::collections::BTreeMap<String, String>>(logical_data)
+            .map_err(|error| format!("accepted v7 logical-data identity is invalid: {error}"))?;
+    if &logical_data != options.source.logical_data() {
+        return Err("legacy logical-data identity differs from accepted v7 evidence".to_owned());
     }
 
     Ok(())
-}
-
-fn named_volumes(service: &serde_json::Value, field: &str) -> Result<Vec<String>, String> {
-    let mut volumes = service
-        .get(field)
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| format!("accepted v7 service has no {field} evidence"))?
-        .iter()
-        .filter(|mount| {
-            mount.get("source_kind").and_then(serde_json::Value::as_str) == Some("named_volume")
-        })
-        .map(|mount| {
-            mount
-                .get("source")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned)
-                .ok_or_else(|| "accepted v7 named-volume identity is invalid".to_owned())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    volumes.sort();
-
-    Ok(volumes)
 }

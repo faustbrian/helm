@@ -35,6 +35,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added one shared recovery-first v7 provider contract for named volumes and
+  logical data, plus a logical-data adapter that binds the exact accepted
+  driver, container, and logical identity for every supported database, cache,
+  bucket, and vhost strategy before any provider mutation.
 - Added a concrete v7 named-volume strategy boundary. Registration matches the
   exact accepted container plus configured and Engine-observed volume set,
   requires recovery before restoring and verifying a v8 target, retains the

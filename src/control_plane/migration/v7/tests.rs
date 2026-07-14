@@ -1,20 +1,24 @@
+use super::V7RecoverableMigrationProvider;
+use super::register_v7_logical_data_migration_adapter::expected_driver;
 use super::{
     V7EnvironmentMigrationAdapter, V7GatewaySnapshotMigrationAdapterOptions,
     V7GeneratedEnvironmentRollbackOptions, V7HostArtifactDiscoveryOptions,
-    V7InstallationTrustMigrationAdapterOptions, V7InventoryBlocker, V7MigrationAdapterExecutor,
+    V7InstallationTrustMigrationAdapterOptions, V7InventoryBlocker,
+    V7LogicalDataMigrationAdapterOptions, V7LogicalDataMigrationSource, V7MigrationAdapterExecutor,
     V7MigrationAdapterRegistry, V7MigrationAdapterSelectionOptions, V7MigrationAdapterTarget,
     V7MigrationCutoverOptions, V7MigrationExecutionJournal, V7MigrationExecutionPlanOptions,
     V7MigrationRollbackOptions, V7MigrationRouteSource, V7MigrationServiceAdapter,
-    V7MigrationServiceSource, V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationProvider,
-    V7NamedVolumeMigrationSource, V7ProjectInventory, V7ProjectInventoryOptions,
-    V7ProjectInventoryRequest, V7ProtectedGeneratedEnvironmentAdapterOptions,
-    V7RecreatedServiceTarget, V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter,
-    V7VolumeMigrationAdapter, V7VolumeSource, capture_v7_generated_environment_rollback,
-    confirm_v7_migration, cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
+    V7MigrationServiceSource, V7NamedVolumeMigrationAdapterOptions, V7NamedVolumeMigrationSource,
+    V7ProjectInventory, V7ProjectInventoryOptions, V7ProjectInventoryRequest,
+    V7ProtectedGeneratedEnvironmentAdapterOptions, V7RecreatedServiceTarget,
+    V7RouteMigrationAdapter, V7RuntimeFeature, V7TrustMigrationAdapter, V7VolumeMigrationAdapter,
+    V7VolumeSource, capture_v7_generated_environment_rollback, confirm_v7_migration,
+    cutover_v7_migration, inventory_v7_host_artifacts, inventory_v7_project,
     plan_v7_migration_execution, prepare_v7_migration, read_v7_generated_environment_rollback,
     register_v7_gateway_snapshot_migration_adapter,
-    register_v7_installation_trust_migration_adapter, register_v7_named_volume_migration_adapter,
-    register_v7_no_op_migration_adapters, register_v7_protected_environment_migration_adapter,
+    register_v7_installation_trust_migration_adapter, register_v7_logical_data_migration_adapter,
+    register_v7_named_volume_migration_adapter, register_v7_no_op_migration_adapters,
+    register_v7_protected_environment_migration_adapter,
     register_v7_recreated_service_migration_adapter, rollback_v7_migration,
     select_v7_migration_adapters,
 };
@@ -1114,6 +1118,153 @@ fn v7_named_volume_adapter_restores_target_and_retains_source_for_rollback() {
 }
 
 #[test]
+fn v7_logical_data_adapter_binds_accepted_source_and_retains_it_for_rollback() {
+    run_test(async {
+        let source_revision = format!("sha256:{}", "a".repeat(64));
+        let logical_data = BTreeMap::from([("database".to_owned(), "legacy_bill".to_owned())]);
+        let inventory_json = serde_json::json!({
+            "project_id": "bill",
+            "canonical_project_path": "/work/bill",
+            "source_revision": source_revision,
+            "blockers": [],
+            "services": [{
+                "service_id": "database",
+                "driver": "postgres",
+                "observed_container_id": "legacy-postgres",
+                "logical_data": logical_data
+            }]
+        })
+        .to_string();
+        let accepted = AcceptedV7InventoryRecord::new(AcceptedV7InventoryRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            source_revision,
+            inventory_json,
+            generated_environment_rollback: None,
+            accepted_at_unix_seconds: 10,
+        })
+        .expect("accepted logical-data evidence");
+        let checkpoint = V7MigrationAdapterCheckpoint::pending(
+            "service/database",
+            "postgres-logical-database",
+            true,
+            10,
+        )
+        .expect("logical-data checkpoint");
+        let plan = V7MigrationExecutionRecord::new(V7MigrationExecutionRecordOptions {
+            project_id: "bill".to_owned(),
+            canonical_project_path: "/work/bill".into(),
+            evidence_revision: accepted.evidence_revision().to_owned(),
+            adapter_plan_revision: "b".repeat(64),
+            phase: V7MigrationExecutionPhase::Planned,
+            checkpoints: vec![checkpoint],
+            updated_at_unix_seconds: 10,
+        })
+        .expect("logical-data execution");
+        let source = V7LogicalDataMigrationSource::new(
+            "database",
+            "postgres",
+            "legacy-postgres",
+            logical_data,
+        )
+        .expect("logical-data source");
+        let drifted_source = V7LogicalDataMigrationSource::new(
+            "database",
+            "postgres",
+            "legacy-postgres",
+            BTreeMap::from([("database".to_owned(), "other_database".to_owned())]),
+        )
+        .expect("drifted logical-data source");
+        let mut drifted_provider = RecordingV7LogicalDataProvider::default();
+        let error = register_v7_logical_data_migration_adapter(
+            &mut V7MigrationAdapterRegistry::default(),
+            &plan,
+            V7LogicalDataMigrationAdapterOptions {
+                accepted: &accepted,
+                source: &drifted_source,
+                provider: &mut drifted_provider,
+            },
+        )
+        .expect_err("logical identity drift must reject registration");
+        assert!(error.contains("identity differs from accepted v7 evidence"));
+        assert!(drifted_provider.calls.is_empty());
+        let mut provider = RecordingV7LogicalDataProvider::default();
+        let mut journal = RecordingV7Journal::default();
+        {
+            let mut registry = V7MigrationAdapterRegistry::default();
+            assert!(
+                register_v7_logical_data_migration_adapter(
+                    &mut registry,
+                    &plan,
+                    V7LogicalDataMigrationAdapterOptions {
+                        accepted: &accepted,
+                        source: &source,
+                        provider: &mut provider,
+                    },
+                )
+                .expect("register logical-data adapter")
+            );
+            let prepared = prepare_v7_migration(&mut journal, &plan, &mut registry, 11)
+                .await
+                .expect("prepare logical-data migration");
+            assert_eq!(
+                prepared.checkpoints()[0].target_reference(),
+                Some("logical-resource:postgres/bill")
+            );
+            let desired_state = v7_cutover_state();
+            cutover_v7_migration(V7MigrationCutoverOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                desired_state: &desired_state,
+                updated_at_unix_seconds: 12,
+            })
+            .await
+            .expect("cut over logical data");
+            let restored_state = v7_rollback_state();
+            rollback_v7_migration(V7MigrationRollbackOptions {
+                journal: &mut journal,
+                plan: &plan,
+                registry: &mut registry,
+                restored_state: &restored_state,
+                updated_at_unix_seconds: 13,
+            })
+            .await
+            .expect("roll back logical data");
+        }
+
+        assert_eq!(
+            provider.calls,
+            [
+                "backup:postgres:legacy-postgres:database=legacy_bill",
+                "restore:logical-resource:postgres/bill",
+                "verify-target:logical-resource:postgres/bill",
+                "verify-source:postgres:legacy-postgres:database=legacy_bill",
+            ]
+        );
+    });
+}
+
+#[test]
+fn v7_logical_data_adapter_kinds_map_to_exact_provider_drivers() {
+    let cases = [
+        ("mongodb-logical-database", "mongodb"),
+        ("postgres-logical-database", "postgres"),
+        ("mysql-logical-database", "mysql"),
+        ("sqlserver-logical-database", "sqlserver"),
+        ("redis-tenant-prefix", "redis"),
+        ("valkey-tenant-prefix", "valkey"),
+        ("minio-bucket", "minio"),
+        ("rabbitmq-vhost", "rabbitmq"),
+    ];
+
+    for (adapter_kind, driver) in cases {
+        assert_eq!(expected_driver(adapter_kind), Some(driver));
+    }
+    assert_eq!(expected_driver("recreate-stateless"), None);
+}
+
+#[test]
 fn v7_adapter_selection_covers_every_legacy_driver_without_fallback() {
     use V7MigrationServiceAdapter as Adapter;
 
@@ -2121,7 +2272,9 @@ struct RecordingV7NamedVolumeProvider {
     calls: Vec<String>,
 }
 
-impl V7NamedVolumeMigrationProvider for RecordingV7NamedVolumeProvider {
+impl V7RecoverableMigrationProvider<V7NamedVolumeMigrationSource>
+    for RecordingV7NamedVolumeProvider
+{
     fn backup_source<'operation>(
         &'operation mut self,
         source: &'operation V7NamedVolumeMigrationSource,
@@ -2180,6 +2333,89 @@ impl V7NamedVolumeMigrationProvider for RecordingV7NamedVolumeProvider {
         ));
         Box::pin(async { Ok(()) })
     }
+}
+
+#[derive(Default)]
+struct RecordingV7LogicalDataProvider {
+    calls: Vec<String>,
+}
+
+impl V7RecoverableMigrationProvider<V7LogicalDataMigrationSource>
+    for RecordingV7LogicalDataProvider
+{
+    fn backup_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7LogicalDataMigrationSource,
+    ) -> MigrationFuture<'operation, MigrationBackup> {
+        self.calls.push(format!(
+            "backup:{}:{}:{}",
+            source.driver(),
+            source.container_id(),
+            logical_data_label(source)
+        ));
+        Box::pin(async { MigrationBackup::new("/private/logical-recovery", "d".repeat(64), 1) })
+    }
+
+    fn restore_and_verify_target<'operation>(
+        &'operation mut self,
+        _source: &'operation V7LogicalDataMigrationSource,
+        checkpoint: &'operation V7MigrationAdapterCheckpoint,
+    ) -> MigrationFuture<'operation, V7MigrationAdapterTarget> {
+        assert_eq!(
+            checkpoint.recovery_reference(),
+            Some("/private/logical-recovery")
+        );
+        self.calls
+            .push("restore:logical-resource:postgres/bill".to_owned());
+        Box::pin(async {
+            V7MigrationAdapterTarget::resource("logical-resource:postgres/bill")
+                .map_err(MigrationOperationError::new)
+        })
+    }
+
+    fn verify_target<'operation>(
+        &'operation mut self,
+        _source: &'operation V7LogicalDataMigrationSource,
+        target_reference: &'operation str,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!("verify-target:{target_reference}"));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn verify_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7LogicalDataMigrationSource,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!(
+            "verify-source:{}:{}:{}",
+            source.driver(),
+            source.container_id(),
+            logical_data_label(source)
+        ));
+        Box::pin(async { Ok(()) })
+    }
+
+    fn retire_source<'operation>(
+        &'operation mut self,
+        source: &'operation V7LogicalDataMigrationSource,
+    ) -> MigrationFuture<'operation, ()> {
+        self.calls.push(format!(
+            "retire:{}:{}:{}",
+            source.driver(),
+            source.container_id(),
+            logical_data_label(source)
+        ));
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn logical_data_label(source: &V7LogicalDataMigrationSource) -> String {
+    source
+        .logical_data()
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 impl RecordingV7TrustStore {

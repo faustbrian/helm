@@ -320,6 +320,14 @@ Rollback verifies the retained legacy source and leaves the prepared target as
 retained evidence. Only project-wide confirmation may ask the provider to
 retire the exact accepted legacy source; mismatched volume evidence fails during
 registration before provider mutation.
+Named volumes and logical data use the same recoverable-provider lifecycle
+rather than independent orchestration APIs. Logical-data registration binds the
+exact accepted service, driver, Engine container identity, and complete
+non-secret logical-data map. The selected adapter kind must match exactly one of
+the PostgreSQL, MySQL, MongoDB, SQL Server, Redis, Valkey, MinIO, or RabbitMQ
+providers. A driver-specific provider owns native backup, target provisioning,
+restore, and verification, but cannot bypass the common recovery-first barrier,
+rollback source verification, or confirmation-only retirement rule.
 Cutover invokes the prepared strategies in deterministic dependency order and
 publishes routes last. The journal advances the entire project to `cutover`
 only after every idempotent operation succeeds. Route ownership, application
