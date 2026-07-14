@@ -148,6 +148,90 @@ fn typesense_preparation_replays_stable_bootstrap_credentials_and_endpoints() {
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn meilisearch_preparation_replays_stable_master_key_and_private_endpoint() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  search:\n    preset: meilisearch\n    version: '1'\n    image: getmeili/meilisearch@sha256:{}\n",
+            "c".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-meilisearch-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x55))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0x66))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(
+        first[0].credential().secret(),
+        replayed[0].credential().secret()
+    );
+    assert_eq!(
+        first[0].container_environment().get("MEILI_MASTER_KEY"),
+        Some(&first[0].credential().secret().to_owned())
+    );
+    assert_eq!(
+        first[0].container_environment().get("MEILI_DB_PATH"),
+        Some(&"/meili_data".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("MEILISEARCH_HOST"),
+        Some(&"http://stackctl-bill-search:7700".to_owned())
+    );
+    assert_eq!(
+        first[0].environment().values().get("MEILISEARCH_KEY"),
+        Some(&first[0].credential().secret().to_owned())
+    );
+    assert_eq!(first[0].route(), None);
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn meilisearch_preparation_rejects_reserved_environment_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  search:\n",
+                "    preset: meilisearch\n    version: '1'\n",
+                "    image: getmeili/meilisearch@sha256:{}\n",
+                "    environment:\n      MEILI_MASTER_KEY: override\n"
+            ),
+            "c".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-meilisearch-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0x55))
+            .expect_err("reserved environment conflict")
+            .to_string(),
+        "Meilisearch service 'bill-search' cannot replace generated environment key \
+         'MEILI_MASTER_KEY'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {

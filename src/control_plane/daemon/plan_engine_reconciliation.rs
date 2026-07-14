@@ -70,11 +70,15 @@ pub(crate) fn plan_engine_reconciliation(
                 prepared.project_id() == service.project().as_str()
                     && prepared.service_id() == service.service().as_str()
             });
-            if service.strategy() == ServiceDeploymentStrategy::DedicatedRoutableProject
-                && prepared.is_none()
-            {
+            let requires_preparation = service.strategy()
+                == ServiceDeploymentStrategy::DedicatedRoutableProject
+                || matches!(
+                    service.desired().preset(),
+                    Some("meilisearch" | "typesense")
+                );
+            if requires_preparation && prepared.is_none() {
                 return Err(invalid(format!(
-                    "routable project service '{}-{}' was not prepared",
+                    "managed project service '{}-{}' was not prepared",
                     service.project().as_str(),
                     service.service().as_str()
                 )));

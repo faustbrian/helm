@@ -16,6 +16,9 @@ All notable changes to this project are documented in this file.
 - Added stable Typesense bootstrap credentials and generated private endpoint
   values so the accepted preset starts with its required data directory and API
   key without user-maintained secrets or host port publication.
+- Added stable Meilisearch master credentials, explicit private-network binding,
+  and generated application endpoint values so the dedicated preset starts
+  protected without project-maintained secrets or host port publication.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.
