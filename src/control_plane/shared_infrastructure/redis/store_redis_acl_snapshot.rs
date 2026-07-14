@@ -21,6 +21,8 @@ pub(crate) fn store_redis_acl_snapshot(
         .map_err(|error| io_error("create ACL mount directory", &mount_directory, error))?;
     fs::set_permissions(&mount_directory, fs::Permissions::from_mode(0o755))
         .map_err(|error| io_error("prepare ACL mount directory", &mount_directory, error))?;
+    let _directory_lock = crate::control_plane::lock_directory(&mount_directory)
+        .map_err(|error| io_error("lock ACL mount directory", &mount_directory, error))?;
 
     let acl_file = mount_directory.join("users.acl");
     let temporary = mount_directory.join(".users.tmp");

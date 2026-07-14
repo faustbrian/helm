@@ -5,6 +5,31 @@ use super::{
 };
 use std::path::{Path, PathBuf};
 
+#[cfg(unix)]
+#[test]
+fn managed_publication_directory_lock_excludes_a_second_writer() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-managed-publication-lock-{}",
+        std::process::id()
+    ));
+    drop(std::fs::remove_dir_all(&root));
+    std::fs::create_dir_all(&root).expect("create publication directory");
+
+    let first = super::lock_directory(&root).expect("lock publication directory");
+    let second = std::fs::File::open(&root).expect("open publication directory again");
+    let error = second
+        .try_lock()
+        .expect_err("second publication writer must be excluded");
+
+    assert!(matches!(error, std::fs::TryLockError::WouldBlock));
+    drop(first);
+    second
+        .try_lock()
+        .expect("lock released publication directory");
+
+    std::fs::remove_dir_all(root).expect("remove publication directory");
+}
+
 #[test]
 fn explicit_project_name_is_preserved_exactly() {
     let project = ProjectIdentity::resolve(Some("bill-1"), Path::new("/work/bill"))

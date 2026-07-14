@@ -24,6 +24,11 @@ All notable changes to this project are documented in this file.
   refused symbolic-link or non-file bootstrap targets before verification or
   permission changes. A matching external file can no longer be accepted and
   mounted through a managed gateway path.
+- Added one shared real-directory locking primitive for daemon-owned file
+  publication. Gateway certificate activation and Redis/Valkey, RabbitMQ,
+  Mailpit, object-store, gateway-bootstrap, and credential writers now exclude
+  concurrent processes before recovering or replacing their stable staging
+  files.
 - Serialized project artifact-lock publication on the existing project
   directory and replaced PID-suffixed YAML staging files with one stable pending
   path. A later `stackctl lock images` run now recovers an interrupted publish

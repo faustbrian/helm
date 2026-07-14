@@ -18,6 +18,8 @@ pub(crate) fn store_active_gateway_certificate_generation(
     fs::create_dir_all(&directory).map_err(|error| failure("create", &directory, error))?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| failure("restrict", &directory, error))?;
+    let _directory_lock = crate::control_plane::lock_directory(&directory)
+        .map_err(|error| failure("lock", &directory, error))?;
     let active = directory.join(ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE);
     let pending = directory.join(format!(".{ACTIVE_GATEWAY_CERTIFICATE_GENERATION_FILE}.tmp"));
     match fs::remove_file(&pending) {

@@ -26,11 +26,8 @@ pub(crate) fn store_credential_secret(
         .map_err(|error| io_error("create secret directory", directory, error))?;
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict secret directory", directory, error))?;
-    let directory_lock = File::open(directory)
+    let _directory_lock = crate::control_plane::lock_directory(directory)
         .map_err(|error| io_error("open secret directory", directory, error))?;
-    directory_lock
-        .lock()
-        .map_err(|error| io_error("lock secret directory", directory, error))?;
 
     let name = path
         .file_name()

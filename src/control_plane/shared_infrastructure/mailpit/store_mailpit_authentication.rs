@@ -19,6 +19,8 @@ pub(crate) fn store_mailpit_authentication(
         .map_err(|error| io_error("create authentication mount", &mount_directory, error))?;
     fs::set_permissions(&mount_directory, fs::Permissions::from_mode(0o755))
         .map_err(|error| io_error("prepare authentication mount", &mount_directory, error))?;
+    let _directory_lock = crate::control_plane::lock_directory(&mount_directory)
+        .map_err(|error| io_error("lock authentication mount", &mount_directory, error))?;
     let password_file = mount_directory.join("smtp-passwords");
     replace_file(&password_file, snapshot.contents())?;
 

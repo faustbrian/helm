@@ -23,6 +23,8 @@ pub(crate) fn store_rabbitmq_definitions(
         .map_err(|error| io_error("create definitions mount", &mount_directory, error))?;
     fs::set_permissions(&mount_directory, fs::Permissions::from_mode(0o755))
         .map_err(|error| io_error("prepare definitions mount", &mount_directory, error))?;
+    let _directory_lock = crate::control_plane::lock_directory(&mount_directory)
+        .map_err(|error| io_error("lock definitions mount", &mount_directory, error))?;
 
     let config_file = mount_directory.join("rabbitmq.conf");
     store_immutable_file(&config_file, RABBITMQ_CONFIG)?;

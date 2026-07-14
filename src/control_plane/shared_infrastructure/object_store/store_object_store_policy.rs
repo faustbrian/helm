@@ -15,6 +15,8 @@ pub(crate) fn store_object_store_policy(
         .map_err(|error| io_error("create policy directory", directory, error))?;
     fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict policy directory", directory, error))?;
+    let _directory_lock = crate::control_plane::lock_directory(directory)
+        .map_err(|error| io_error("lock policy directory", directory, error))?;
     let path = directory.join(format!("{}.json", definition.policy_name()));
     let temporary = directory.join(format!(".{}.json.tmp", definition.policy_name()));
     match fs::remove_file(&temporary) {

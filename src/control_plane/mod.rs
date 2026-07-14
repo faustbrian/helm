@@ -8,6 +8,7 @@ mod environment_variable_key;
 mod execution_plan;
 mod gateway;
 mod identity_error;
+mod lock_directory;
 mod migration;
 mod network;
 mod project_identity;
@@ -49,6 +50,7 @@ pub(crate) use gateway::{
     wait_for_gateway_certificate_generation,
 };
 pub(crate) use identity_error::IdentityError;
+pub(crate) use lock_directory::lock_directory;
 pub(crate) use project_identity::ProjectIdentity;
 pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};
 pub(crate) use route_claim::RouteClaim;

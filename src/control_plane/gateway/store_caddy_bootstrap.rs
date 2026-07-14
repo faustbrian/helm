@@ -24,11 +24,8 @@ pub(crate) fn store_caddy_bootstrap(
         .map_err(|error| io_error("create gateway directory", config_directory, error))?;
     fs::set_permissions(config_directory, fs::Permissions::from_mode(0o700))
         .map_err(|error| io_error("restrict gateway directory", config_directory, error))?;
-    let directory_lock = File::open(config_directory)
+    let _directory_lock = crate::control_plane::lock_directory(config_directory)
         .map_err(|error| io_error("open gateway directory", config_directory, error))?;
-    directory_lock
-        .lock()
-        .map_err(|error| io_error("lock gateway directory", config_directory, error))?;
 
     let temporary_path = config_directory.join(".config.tmp");
     match fs::remove_file(&temporary_path) {
