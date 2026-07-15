@@ -37,6 +37,12 @@ All notable changes to this project are documented in this file.
 - Added stable Dragonfly authentication, generated Redis-compatible endpoint
   values, disabled primary-port HTTP, and scheduled snapshots into its retained
   project volume without claiming unproven shared isolation.
+- Extended project-service adapters with generated commands and private,
+  revision-keyed read-only configuration mounts, then upgraded Garage to v2.3
+  for zero-touch single-node, credential, and default-bucket bootstrap.
+- Made dedicated-volume restore rebuild the target from the same prepared
+  service adapter so generated credentials, commands, environment, and config
+  mounts survive recovery instead of producing a partial container request.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

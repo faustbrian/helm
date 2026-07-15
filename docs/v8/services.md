@@ -29,7 +29,7 @@ is running but does not yet claim protocol-level readiness.
 | Memcached | Dedicated by default | Prefix is convention, not security isolation | No authoritative persistent backup | Unless weak sharing is explicitly accepted |
 | MinIO | Shared by compatible profile | Bucket, key/secret, bucket policy | Current-object export for unversioned buckets; version history fails closed | Global config or policy differs |
 | RustFS | Dedicated until the external admin-client lifecycle is proven | Whole project instance | Bucket export; new instance for storage-format boundary | Default; share after bucket, identity, policy, and recovery acceptance tests pass |
-| Garage | Shared only after policy behavior is proven | Bucket and scoped key where supported | Bucket export plus metadata backup | Isolation cannot be proven |
+| Garage | Dedicated until policy behavior is proven | Whole single-node instance with generated access key and default project bucket | Retained data and metadata volume backup/restore | Default; share only after scoped-key, policy, and recovery acceptance tests pass |
 | LocalStack | Dedicated by default | Whole emulated account/container | Explicit export where supported | Default; share only after complete namespacing |
 | OpenSearch | Shared only with tested security | Project indexes and restricted role/user | Snapshot/restore; major/plugin boundary | Security, plugins, or settings differ |
 | Elasticsearch | Shared only with tested security | Project indexes and restricted role/user | Snapshot/restore; major/plugin boundary | License, security, plugins, or settings differ |
@@ -63,7 +63,7 @@ is running but does not yet claim protocol-level readiness.
 | Gotenberg | No project secret | Shared internal HTTP endpoint | HTTP health endpoint from the exact shared container | Remove the logical reference; stop the unreferenced stateless container |
 | Dragonfly | Stable generated `default` password; primary-port HTTP disabled | Generated project-private Redis-compatible host, port, username, and password; no host port or gateway route | Engine state only; minute-level snapshots target the retained volume, but protocol readiness is not yet claimed | Stop/remove the disposable container, disable its credential, and retain its project volume |
 | Memcached | No credential; any namespace remains an application convention | Generated project-private host and port; no host port or gateway route | Engine state only | Stop/remove the disposable container; no persistent data is retained |
-| Garage | User-declared service configuration; no generated tenant credential | Project-private network endpoint; no host port or gateway route | Engine state only; policy isolation remains unproven | Stop/remove the disposable container; retain its project volume |
+| Garage | Stable generated S3 access key/secret plus derived RPC and admin secrets in a private generated config | Generated project-private S3 endpoint and default project bucket; no host port or gateway route | Engine state only; v2.3 single-node and default-bucket bootstrap is automatic, but protocol readiness is not yet claimed | Stop/remove the disposable container, disable its credential, and retain its project volume |
 | RustFS | User-declared service configuration; no generated tenant credential | Project-private network endpoint; no host port or gateway route | Engine state only until the external admin lifecycle is proven | Stop/remove the disposable container; retain its project volume |
 | LocalStack | Fixed public `test` SDK identity; no generated or durable Stackctl secret | Generated project-private gateway endpoint and SDK defaults; no host port or implicit route | Engine state only; persistence is enabled but protocol readiness is not yet claimed | Stop/remove the disposable container; retain its project volume |
 | OpenSearch | Stable generated demo administrator password satisfying the image policy | Generated project-private HTTPS endpoint and administrator identity; no host port or implicit route | Engine state only; demo TLS and safe shared security are not claimed | Stop/remove the disposable container, disable its credential, and retain its project volume |
@@ -88,10 +88,12 @@ in-place reinterpretation.
 Dedicated project services use a common Engine substrate: exact project and
 service ownership, deterministic container naming, immutable image and numeric
 major version, Linux platform selection, the private Stackctl network, declared
-command and environment, restart supervision, and no host ports. The dedicated
-routable strategy adds one deterministic gateway route and generated service
-credentials through the same planning boundary. This substrate does not by
-itself make a stateful preset
+command and environment, generated command and environment adapters, private
+revision-keyed configuration files mounted read-only, restart supervision, and
+no host ports. Generated commands and settings fail on conflicting project
+declarations instead of being silently replaced. The dedicated routable strategy
+adds one deterministic gateway route and generated service credentials through
+the same planning boundary. This substrate does not by itself make a stateful preset
 complete; each such preset still requires its documented retained-volume,
 authenticated-readiness, backup, restore, and upgrade contracts.
 

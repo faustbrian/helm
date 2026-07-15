@@ -55,7 +55,7 @@ pub(crate) fn resolve_preset_artifact(
             default,
             "minio/minio:RELEASE.2025-09-07T16-13-09Z",
         )?,
-        "garage" => fixed(preset, version, default, "dxflrs/garage:v2.1.0")?,
+        "garage" => fixed(preset, version, default, "dxflrs/garage:v2.3.0")?,
         "rustfs" => fixed(preset, version, default, "rustfs/rustfs:1.0.0-beta.2")?,
         "opensearch" => fixed(
             preset,

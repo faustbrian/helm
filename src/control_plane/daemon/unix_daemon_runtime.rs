@@ -25,7 +25,9 @@ use crate::control_plane::network::{
     GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
     global_network_request, reconcile_global_network,
 };
-use crate::control_plane::project_infrastructure::PreparedProjectService;
+use crate::control_plane::project_infrastructure::{
+    PreparedProjectService, materialize_project_service_configurations,
+};
 use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
     OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
@@ -432,7 +434,7 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let prepared_project_services = match self
+        let mut prepared_project_services = match self
             .control_plane
             .prepare_project_services(execution, &OsCredentialEntropy)
         {
@@ -444,6 +446,15 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
+        if let Err(error) = materialize_project_service_configurations(
+            &mut prepared_project_services,
+            &self.runtime_directory,
+        ) {
+            self.engine_reconciliation.complete();
+            tracing::error!(error = %error, "project service configuration blocked");
+
+            return;
+        }
         let managed_environments = match merge_prepared_environments(
             execution,
             &prepared_shared,

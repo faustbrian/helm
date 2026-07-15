@@ -1,4 +1,4 @@
-use super::prepare_project_services;
+use super::{materialize_project_service_configurations, prepare_project_services};
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{CredentialEntropy, CredentialGenerationError};
@@ -653,6 +653,141 @@ fn dragonfly_preparation_rejects_reserved_environment_before_storing_a_secret() 
             .to_string(),
         "Dragonfly service 'bill-cache' cannot replace generated environment key \
          'DFLY_requirepass'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[cfg(unix)]
+#[test]
+fn garage_preparation_materializes_private_config_and_zero_touch_bucket() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  storage:\n    preset: garage\n    version: '2'\n    image: dxflrs/garage@sha256:{}\n",
+            "3".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-garage-preparation-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).expect("Garage fixture root");
+    let database = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let mut first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x12))
+        .expect("first preparation");
+    materialize_project_service_configurations(&mut first, &root)
+        .expect("materialized Garage configuration");
+    let mut replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0x34))
+        .expect("replayed preparation");
+    materialize_project_service_configurations(&mut replayed, &root)
+        .expect("replayed Garage configuration");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(replayed.len(), 1);
+    let first = &first[0];
+    let credential = first.credential().expect("Garage credential");
+    assert!(credential.username().starts_with("GK"));
+    assert_eq!(credential.username().len(), 34);
+    assert_eq!(
+        credential.secret(),
+        replayed[0]
+            .credential()
+            .expect("replayed Garage credential")
+            .secret()
+    );
+    assert_eq!(
+        first.container_command(),
+        Some(
+            ["/garage", "server", "--single-node", "--default-bucket"]
+                .map(str::to_owned)
+                .as_slice()
+        )
+    );
+    assert_eq!(
+        first
+            .container_environment()
+            .get("GARAGE_DEFAULT_ACCESS_KEY"),
+        Some(&credential.username().to_owned())
+    );
+    assert_eq!(
+        first
+            .container_environment()
+            .get("GARAGE_DEFAULT_SECRET_KEY"),
+        Some(&credential.secret().to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("GARAGE_DEFAULT_BUCKET"),
+        Some(&"stackctl-bill-storage".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("AWS_ENDPOINT"),
+        Some(&"http://stackctl-bill-storage:3900".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("AWS_BUCKET"),
+        Some(&"stackctl-bill-storage".to_owned())
+    );
+    let mount = first
+        .container_configuration_mount()
+        .expect("Garage config mount");
+    assert_eq!(mount.target(), "/etc/garage.toml");
+    assert!(mount.is_read_only());
+    let configuration = std::fs::read_to_string(mount.source()).expect("Garage config");
+    assert!(configuration.contains("metadata_dir = \"/var/lib/garage/meta\""));
+    assert!(configuration.contains("data_dir = \"/var/lib/garage/data\""));
+    assert!(configuration.contains("replication_factor = 1"));
+    assert!(configuration.contains("rpc_public_addr = \"stackctl-bill-storage:3901\""));
+    assert!(!format!("{first:?}").contains(credential.secret()));
+    assert_eq!(
+        std::fs::metadata(mount.source())
+            .expect("Garage config metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove Garage fixture");
+}
+
+#[test]
+fn garage_preparation_rejects_generated_command_override_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  storage:\n",
+                "    preset: garage\n    version: '2'\n",
+                "    image: dxflrs/garage@sha256:{}\n",
+                "    command: [/garage, server]\n"
+            ),
+            "3".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-garage-command-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0x12))
+            .expect_err("generated command conflict")
+            .to_string(),
+        "Garage service 'bill-storage' cannot replace its generated command"
     );
     assert!(store.credentials().expect("credentials").is_empty());
 

@@ -85,6 +85,9 @@ pub(crate) fn plan_engine_reconciliation(
                 plan_dedicated_project_service(DedicatedProjectServiceOptions {
                     service,
                     generated_environment,
+                    generated_command: prepared.and_then(|prepared| prepared.container_command()),
+                    generated_configuration_mount: prepared
+                        .and_then(|prepared| prepared.container_configuration_mount()),
                     installation_id: options.installation_id,
                     schema_version: options.schema_version,
                     platform: options.platform,

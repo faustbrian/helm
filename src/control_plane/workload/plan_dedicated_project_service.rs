@@ -98,7 +98,22 @@ pub(crate) fn plan_dedicated_project_service(
         (None, None) => request,
         _ => unreachable!("retained volume and preset mount contract move together"),
     };
-    let request = match service.desired().command() {
+    let request = match options.generated_configuration_mount {
+        Some(mount) => request.with_bind_mount(mount.clone()),
+        None => request,
+    };
+    let declared_command = service.desired().command();
+    if let (Some(declared), Some(generated)) = (declared_command, options.generated_command)
+        && declared != generated
+    {
+        return Err(invalid(format!(
+            "dedicated service '{}-{}' cannot replace its generated command",
+            service.project().as_str(),
+            service.service().as_str()
+        )));
+    }
+    let command = options.generated_command.or(declared_command);
+    let request = match command {
         Some(command) => request.with_command(command.to_vec()).map_err(invalid)?,
         None => request,
     };

@@ -5278,7 +5278,8 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
 fn complete_engine_plans_bind_prepared_project_service_state() {
     use super::unix_daemon_runtime::merge_prepared_environments;
     use crate::control_plane::project_infrastructure::{
-        plan_dragonfly_project_resources, plan_meilisearch_project_resources,
+        materialize_project_service_configurations, plan_dragonfly_project_resources,
+        plan_garage_project_resources, plan_meilisearch_project_resources,
         plan_soketi_project_resources, plan_typesense_project_resources,
     };
     use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -5294,6 +5295,8 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
                 "    image: docker.dragonflydb.io/dragonflydb/dragonfly@sha256:{}\n",
                 "  catalog:\n    preset: typesense\n    version: '0'\n",
                 "    image: typesense/typesense@sha256:{}\n",
+                "  objectstore:\n    preset: garage\n    version: '2'\n",
+                "    image: dxflrs/garage@sha256:{}\n",
                 "  search:\n    preset: meilisearch\n    version: '1'\n",
                 "    image: getmeili/meilisearch@sha256:{}\n",
                 "  websocket:\n    preset: soketi\n    version: '1'\n",
@@ -5302,6 +5305,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
             "a".repeat(64),
             "e".repeat(64),
             "c".repeat(64),
+            "f".repeat(64),
             "d".repeat(64),
             "b".repeat(64)
         ),
@@ -5323,17 +5327,24 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         .iter()
         .find(|service| service.service().as_str() == "catalog")
         .expect("Typesense execution service");
+    let garage = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "objectstore")
+        .expect("Garage execution service");
     let meilisearch = execution
         .services()
         .iter()
         .find(|service| service.service().as_str() == "search")
         .expect("Meilisearch execution service");
-    let prepared = vec![
+    let mut prepared = vec![
         plan_dragonfly_project_resources(
             dragonfly,
             CredentialSecret::new("dragonfly-secret".to_owned()),
         )
         .expect("prepared Dragonfly service"),
+        plan_garage_project_resources(garage, CredentialSecret::new("garage-secret".to_owned()))
+            .expect("prepared Garage service"),
         plan_meilisearch_project_resources(
             meilisearch,
             CredentialSecret::new("meilisearch-secret".to_owned()),
@@ -5347,6 +5358,9 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         plan_soketi_project_resources(soketi, CredentialSecret::new("stable-secret".to_owned()))
             .expect("prepared Soketi service"),
     ];
+    let configuration_root = temporary_directory("prepared-project-service-configurations");
+    materialize_project_service_configurations(&mut prepared, &configuration_root)
+        .expect("materialized project service configurations");
     let environments =
         merge_prepared_environments(&execution, &[], &prepared).expect("managed environments");
 
@@ -5413,6 +5427,28 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
             .get("DRAGONFLY_HOST"),
         Some(&"stackctl-bill-cache".to_owned())
     );
+    let objectstore = plan
+        .dedicated_services()
+        .iter()
+        .find(|service| service.request().metadata().resource_id() == Some("objectstore"))
+        .expect("Garage service plan");
+    assert_eq!(
+        objectstore.request().command(),
+        ["/garage", "server", "--single-node", "--default-bucket"]
+    );
+    assert_eq!(objectstore.request().bind_mounts().len(), 1);
+    assert_eq!(
+        objectstore.request().bind_mounts()[0].target(),
+        "/etc/garage.toml"
+    );
+    assert!(objectstore.request().bind_mounts()[0].is_read_only());
+    assert_eq!(
+        plan.applications()[0]
+            .request()
+            .environment()
+            .get("AWS_ENDPOINT"),
+        Some(&"http://stackctl-bill-objectstore:3900".to_owned())
+    );
     let catalog = plan
         .dedicated_services()
         .iter()
@@ -5452,6 +5488,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         plan.gateway().routes()[1].domain(),
         "bill-websocket.stackctl.localhost"
     );
+    std::fs::remove_dir_all(configuration_root).expect("remove configuration fixture");
 }
 
 #[test]

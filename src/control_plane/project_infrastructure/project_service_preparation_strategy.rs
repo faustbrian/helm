@@ -1,9 +1,10 @@
 use super::{
     PreparedProjectService, ProjectServicePreparationError, opensearch_initial_admin_password,
     plan_dragonfly_project_resources, plan_elasticsearch_project_resources,
-    plan_localstack_project_resources, plan_meilisearch_project_resources,
-    plan_memcached_project_resources, plan_opensearch_project_resources,
-    plan_soketi_project_resources, plan_typesense_project_resources,
+    plan_garage_project_resources, plan_localstack_project_resources,
+    plan_meilisearch_project_resources, plan_memcached_project_resources,
+    plan_opensearch_project_resources, plan_soketi_project_resources,
+    plan_typesense_project_resources,
 };
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
@@ -13,6 +14,7 @@ use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
 pub(crate) enum ProjectServicePreparationStrategy {
     Dragonfly,
     Elasticsearch,
+    Garage,
     LocalStack,
     Memcached,
     Meilisearch,
@@ -28,6 +30,7 @@ impl ProjectServicePreparationStrategy {
         let strategy = match service.desired().preset() {
             Some("dragonfly") => Some(Self::Dragonfly),
             Some("elasticsearch") => Some(Self::Elasticsearch),
+            Some("garage") => Some(Self::Garage),
             Some("localstack") => Some(Self::LocalStack),
             Some("memcached") => Some(Self::Memcached),
             Some("meilisearch") => Some(Self::Meilisearch),
@@ -54,6 +57,7 @@ impl ProjectServicePreparationStrategy {
             Some(
                 "dragonfly"
                     | "elasticsearch"
+                    | "garage"
                     | "localstack"
                     | "meilisearch"
                     | "memcached"
@@ -73,6 +77,7 @@ impl ProjectServicePreparationStrategy {
             Self::OpenSearch => opensearch_initial_admin_password(secret),
             Self::Dragonfly
             | Self::Elasticsearch
+            | Self::Garage
             | Self::LocalStack
             | Self::Meilisearch
             | Self::Memcached
@@ -93,6 +98,7 @@ impl ProjectServicePreparationStrategy {
             Self::Elasticsearch => {
                 plan_elasticsearch_project_resources(service, required(secret, "Elasticsearch")?)
             }
+            Self::Garage => plan_garage_project_resources(service, required(secret, "Garage")?),
             Self::LocalStack => plan_without_credential(secret, "LocalStack", || {
                 plan_localstack_project_resources(service)
             }),

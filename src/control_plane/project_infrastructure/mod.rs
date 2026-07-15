@@ -1,5 +1,6 @@
 mod plan_dragonfly_project_resources;
 mod plan_elasticsearch_project_resources;
+mod plan_garage_project_resources;
 mod plan_localstack_project_resources;
 mod plan_meilisearch_project_resources;
 mod plan_memcached_project_resources;
@@ -8,11 +9,13 @@ mod plan_soketi_project_resources;
 mod plan_typesense_project_resources;
 mod prepare_project_services;
 mod prepared_project_service;
+mod project_service_container_configuration;
 mod project_service_preparation_error;
 mod project_service_preparation_strategy;
 
 pub(crate) use plan_dragonfly_project_resources::plan_dragonfly_project_resources;
 pub(crate) use plan_elasticsearch_project_resources::plan_elasticsearch_project_resources;
+pub(crate) use plan_garage_project_resources::plan_garage_project_resources;
 pub(crate) use plan_localstack_project_resources::plan_localstack_project_resources;
 pub(crate) use plan_meilisearch_project_resources::plan_meilisearch_project_resources;
 pub(crate) use plan_memcached_project_resources::plan_memcached_project_resources;
@@ -23,8 +26,11 @@ pub(crate) use plan_soketi_project_resources::plan_soketi_project_resources;
 pub(crate) use plan_typesense_project_resources::plan_typesense_project_resources;
 pub(crate) use prepare_project_services::prepare_project_services;
 pub(crate) use prepared_project_service::PreparedProjectService;
+pub(crate) use project_service_container_configuration::ProjectServiceContainerConfiguration;
 pub(crate) use project_service_preparation_error::ProjectServicePreparationError;
 pub(crate) use project_service_preparation_strategy::ProjectServicePreparationStrategy;
 
+mod materialize_project_service_configurations;
 #[cfg(test)]
 mod tests;
+pub(crate) use materialize_project_service_configurations::materialize_project_service_configurations;

@@ -3,6 +3,7 @@ use super::{
     ProjectRestoreTargetPlan, UnixDaemonRuntime, execute_queued_project_restore,
     publish_project_restore_result,
 };
+use crate::control_plane::project_infrastructure::materialize_project_service_configurations;
 use crate::control_plane::shared_infrastructure::{
     OsCredentialEntropy, resolve_execution_shared_instances,
 };
@@ -56,10 +57,10 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine().cloned() else {
             return;
         };
-        let Some(operation) = self.project_restores.front() else {
+        let Some(operation) = self.project_restores.front().cloned() else {
             return;
         };
-        let Some(target) = self.project_restore_target_plan(operation) else {
+        let Some(target) = self.project_restore_target_plan(&operation) else {
             return;
         };
         let operation_id = operation.operation_id().to_owned();
@@ -118,7 +119,7 @@ impl UnixDaemonRuntime {
     }
 
     fn project_restore_target_plan(
-        &self,
+        &mut self,
         operation: &super::QueuedProjectRestore,
     ) -> Option<Result<ProjectRestoreTargetPlan, String>> {
         let execution = self.engine_reconciliation.execution_plan()?;
@@ -127,6 +128,18 @@ impl UnixDaemonRuntime {
             Err(error) => return Some(Err(error)),
         };
         if operation.kind() == "volume" {
+            let mut prepared = match self
+                .control_plane
+                .prepare_project_services(execution, &OsCredentialEntropy)
+            {
+                Ok(prepared) => prepared,
+                Err(error) => return Some(Err(error.to_string())),
+            };
+            if let Err(error) =
+                materialize_project_service_configurations(&mut prepared, &self.runtime_directory)
+            {
+                return Some(Err(error.to_string()));
+            }
             let matches = execution
                 .services()
                 .iter()
@@ -135,9 +148,18 @@ impl UnixDaemonRuntime {
                         && service.service().as_str() == operation.service_id()
                 })
                 .filter_map(|service| {
+                    let prepared = prepared.iter().find(|prepared| {
+                        prepared.project_id() == service.project().as_str()
+                            && prepared.service_id() == service.service().as_str()
+                    });
                     plan_dedicated_project_service(DedicatedProjectServiceOptions {
                         service,
-                        generated_environment: None,
+                        generated_environment: prepared
+                            .map(|prepared| prepared.container_environment()),
+                        generated_command: prepared
+                            .and_then(|prepared| prepared.container_command()),
+                        generated_configuration_mount: prepared
+                            .and_then(|prepared| prepared.container_configuration_mount()),
                         installation_id: self.global_network_request.metadata().installation_id(),
                         schema_version: self.global_network_request.metadata().schema_version(),
                         platform,
