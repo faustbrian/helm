@@ -120,10 +120,16 @@ impl ObjectStoreSharedInstancePlan {
         .and_then(|request| request.with_network(&options.network_name))
         .and_then(|request| request.with_platform(platform))
         .and_then(|request| request.with_environment(environment))
-        .map_err(|error| ObjectStorePlanError::new(error.to_string()))?
-        .with_bind_mount(policy_mount)
-        .with_health_check(health_check)
-        .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
+        .map_err(|error| ObjectStorePlanError::new(error.to_string()))?;
+        if flavor == ObjectStoreFlavor::Minio {
+            container = container
+                .with_command(vec!["server".to_owned(), DATA_MOUNT_TARGET.to_owned()])
+                .map_err(|error| ObjectStorePlanError::new(error.to_string()))?;
+        }
+        container = container
+            .with_bind_mount(policy_mount)
+            .with_health_check(health_check)
+            .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
         let volume = if profile.persistence() == PersistenceMode::Persistent {
             let volume_metadata = metadata(&options, ResourceKind::Volume, retention, fingerprint)?;
             let volume = VolumeCreateOptions::new(&volume_name, volume_metadata)

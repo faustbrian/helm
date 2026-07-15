@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Started shared MinIO with its required `server /data` command instead of the
+  image's non-serving default. Native Linux Engine acceptance now proves stable
+  root and tenant credentials, isolated buckets and policies, cross-project
+  object denial, persistent instance reuse, and exact cleanup with the
+  immutable MinIO image.
 - Added RabbitMQ application-readiness gating before definitions reload and
   project-scoped management access for isolated tenant users. Native Linux
   Engine acceptance now proves stable credentials, isolated vhosts, real queue

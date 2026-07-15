@@ -1494,6 +1494,11 @@ fn compatible_object_stores_get_one_private_persistent_instance() {
         assert_eq!(instance.flavor(), flavor);
         assert_eq!(instance.container().network(), Some("stackctl"));
         assert!(instance.container().port_bindings().is_empty());
+        if flavor == ObjectStoreFlavor::Minio {
+            assert_eq!(instance.container().command(), ["server", "/data"]);
+        } else {
+            assert!(instance.container().command().is_empty());
+        }
         assert_eq!(instance.container().volume_mounts().len(), 1);
         assert_eq!(instance.data_mount_target(), "/data");
         assert_eq!(instance.container().bind_mounts().len(), 1);

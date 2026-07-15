@@ -33,3 +33,6 @@ mod revoke_minio_project_access;
 mod store_object_store_policy;
 pub(crate) use minio_access_revocation_options::MinioAccessRevocationOptions;
 mod minio_access_revocation_options;
+
+#[cfg(test)]
+mod live_engine_tests;
