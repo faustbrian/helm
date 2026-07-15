@@ -8,8 +8,11 @@ loopback resolution self-test before creating or changing daemon state. Empty
 or non-loopback answers fail with the exact probe hostname and address.
 Resolver failures are typed preflight errors that state Stackctl will not edit
 `/etc/hosts` and direct the user to restore standard `.localhost` loopback
-resolution before retrying. An explicit custom-domain fallback remains
-unimplemented and is never selected automatically.
+resolution before retrying. V8 deliberately provides no alternate domain
+suffix: every fallback would require a host DNS daemon, per-domain hosts
+entries, or an external DNS dependency and would break the single wildcard
+certificate and deterministic naming contract. A host without standard
+`.localhost` behavior remains unsupported until its resolver is repaired.
 
 One gateway publishes loopback 80/443 and receives a complete route set from
 the daemon. Caddy is acceptable initially only as a pinned, invisible container

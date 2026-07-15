@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed the ambiguous implication that v8 might silently gain a custom-domain
+  fallback. V8 requires standard `.localhost` loopback behavior and will not
+  add DNS daemons, hosts entries, external DNS, or alternate naming rules.
 - Added an explicit 30-second restart throttle for fatal daemon startup
   failures on launchd and systemd, preventing persistent resolver, filesystem,
   or state errors from becoming a rapid process and journal loop.
