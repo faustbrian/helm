@@ -43,5 +43,9 @@ Every live record must include:
 - backup, reversible restore, confirmation, and rollback results;
 - benchmark result linked from `docs/v8/benchmarks/`.
 
+The gateway acceptance harness records these source, host, Engine, toolchain,
+port, and resource-limit fields alongside every protocol result so uploaded CI
+artifacts remain attributable without relying on surrounding job logs.
+
 Failed and skipped checks remain visible. A passing run may add a support claim;
 documentation or compilation alone may not.

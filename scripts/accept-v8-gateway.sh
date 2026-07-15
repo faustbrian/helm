@@ -12,7 +12,8 @@ readonly ID="$$"
 readonly NETWORK="stackctl-gateway-acceptance-${ID}"
 readonly UPSTREAM="stackctl-gateway-upstream-${ID}"
 readonly GATEWAY="stackctl-gateway-acceptance-${ID}"
-readonly ROOT="$(mktemp -d)"
+ROOT="$(mktemp -d)"
+readonly ROOT
 readonly CERTIFICATES="${ROOT}/tls"
 readonly HOST_FIXTURE="${ROOT}/gateway-fixture-host"
 readonly LINUX_FIXTURE="${ROOT}/gateway-fixture-linux"
@@ -173,9 +174,29 @@ restart_probe="$("${HOST_FIXTURE}" probe "${HTTP_PORT}" "${HTTPS_PORT}" "${CERTI
 
 {
     printf 'recorded_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'source_revision=%s\n' "$(git rev-parse HEAD)"
+    printf 'acceptance_command=%q %q\n' \
+        "./scripts/accept-v8-gateway.sh" "${RECORD}"
+    printf 'host_os=%s\n' "$(uname -s)"
+    printf 'host_release=%s\n' "$(uname -r)"
+    printf 'host_architecture=%s\n' "$(uname -m)"
+    printf 'go_version=%s\n' "$(go version)"
     printf 'gateway_image=%s\n' "${GATEWAY_IMAGE}"
+    printf 'engine_product=%s\n' \
+        "$(docker version --format '{{.Server.Platform.Name}}')"
     printf 'engine_version=%s\n' "$(docker version --format '{{.Server.Version}}')"
+    printf 'engine_operating_system=%s\n' \
+        "$(docker info --format '{{.OperatingSystem}}')"
+    printf 'engine_kernel_version=%s\n' \
+        "$(docker info --format '{{.KernelVersion}}')"
     printf 'engine_architecture=%s\n' "${engine_architecture}"
+    printf 'engine_storage_driver=%s\n' \
+        "$(docker info --format '{{.Driver}}')"
+    printf 'engine_cpu_count=%s\n' "$(docker info --format '{{.NCPU}}')"
+    printf 'engine_memory_bytes=%s\n' \
+        "$(docker info --format '{{.MemTotal}}')"
+    printf 'published_http_port=%s\n' "${HTTP_PORT}"
+    printf 'published_https_port=%s\n' "${HTTPS_PORT}"
     printf 'first_probe=%s\n' "${first_probe}"
     printf 'reload_probe=%s\n' "${reload_probe}"
     printf 'continuity_probe=%s\n' "${continuity_probe}"

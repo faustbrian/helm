@@ -17,7 +17,8 @@ All notable changes to this project are documented in this file.
   treating an IPC-responsive control plane as fully ready.
 - Expanded the pinned gateway protocol acceptance workflow to native Linux
   amd64 and arm64 runners, publishing separate raw records for each workload
-  architecture.
+  architecture. Records now include the exact source, invocation, host, Engine,
+  toolchain, port, and resource-limit context required for independent review.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration
