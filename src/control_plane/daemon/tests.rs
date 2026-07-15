@@ -5270,6 +5270,19 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     );
     assert!(service.port_bindings().is_empty());
     assert_eq!(dedicated.volume(), None);
+    let readiness = dedicated
+        .provisioning_job()
+        .expect("Memcached protocol readiness job");
+    assert_eq!(readiness.network(), Some("stackctl"));
+    assert_eq!(readiness.platform(), Some("linux/arm64"));
+    assert_eq!(
+        readiness.command(),
+        [
+            "sh",
+            "-ec",
+            "printf 'version\\r\\n' | nc -w 5 stackctl-bill-cache 11211 | grep -q '^VERSION '"
+        ]
+    );
     assert!(plan.gateway().routes().is_empty());
 }
 

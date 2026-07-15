@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a pinned multi-architecture Memcached protocol probe that requires an
+  exact `VERSION` response over the private Stackctl network. The daemon no
+  longer treats a merely running dedicated Memcached container as ready.
 - Replaced Engine-state-only readiness for OpenSearch, Elasticsearch,
   Meilisearch, and Typesense with pinned private-network HTTP clients that
   verify the generated administrator credential against a read-only service

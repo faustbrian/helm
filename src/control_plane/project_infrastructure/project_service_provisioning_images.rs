@@ -8,6 +8,11 @@ pub(super) const CURL_CLIENT_IMAGE: &str = concat!(
     "d94d07ba9e7d6de898b6d96c1a072f6f8266c687af78a74f380087a0addf5d17"
 );
 
+pub(super) const BUSYBOX_CLIENT_IMAGE: &str = concat!(
+    "busybox@sha256:",
+    "9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
+);
+
 pub(super) const REDIS_CLIENT_IMAGE: &str = concat!(
     "redis@sha256:",
     "6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"

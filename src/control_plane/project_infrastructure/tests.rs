@@ -588,6 +588,25 @@ fn memcached_preparation_injects_an_endpoint_without_creating_credentials() {
         Some(&"11211".to_owned())
     );
     assert_eq!(first[0].route(), None);
+    let readiness = first[0]
+        .provisioning_job()
+        .expect("Memcached protocol readiness job");
+    assert_eq!(
+        readiness.image(),
+        concat!(
+            "busybox@sha256:",
+            "9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
+        )
+    );
+    assert_eq!(
+        readiness.command(),
+        [
+            "sh",
+            "-ec",
+            "printf 'version\\r\\n' | nc -w 5 stackctl-bill-cache 11211 | grep -q '^VERSION '"
+        ]
+    );
+    assert!(readiness.environment().is_empty());
 
     std::fs::remove_file(database).expect("remove state store");
 }

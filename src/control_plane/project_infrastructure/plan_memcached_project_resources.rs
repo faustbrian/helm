@@ -1,3 +1,4 @@
+use super::project_service_memcached_readiness_job::project_service_memcached_readiness_job;
 use super::{PreparedProjectService, ProjectServicePreparationError};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::state::{
@@ -19,11 +20,9 @@ pub(crate) fn plan_memcached_project_resources(
 
     let project_id = service.project().as_str();
     let service_id = service.service().as_str();
+    let container_name = format!("stackctl-{project_id}-{service_id}");
     let values = BTreeMap::from([
-        (
-            "MEMCACHED_HOST".to_owned(),
-            format!("stackctl-{project_id}-{service_id}"),
-        ),
+        ("MEMCACHED_HOST".to_owned(), container_name.clone()),
         ("MEMCACHED_PORT".to_owned(), "11211".to_owned()),
     ]);
     let canonical = serde_json::to_vec(&values).map_err(invalid)?;
@@ -33,6 +32,7 @@ pub(crate) fn plan_memcached_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let readiness = project_service_memcached_readiness_job(&container_name)?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -41,7 +41,8 @@ pub(crate) fn plan_memcached_project_resources(
         environment,
         BTreeMap::new(),
         None,
-    ))
+    )
+    .with_provisioning_job(readiness))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {
