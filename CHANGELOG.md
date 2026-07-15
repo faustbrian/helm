@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Allowed Engine container environment keys such as `discovery.type` while
+  retaining rejection of empty, NUL-containing, and ambiguous `=` keys. Added
+  native Linux Elasticsearch and OpenSearch acceptance that starts their
+  immutable multi-architecture images sequentially, verifies authenticated
+  readiness and incorrect-credential rejection, recreates each owned
+  container over its retained volume, and proves the stable credential still
+  works before exact cleanup.
 - Extended native Linux object-store acceptance to RustFS, including
   generated-credential rejection and real bucket drift repair. Added Soketi
   acceptance that starts its immutable multi-architecture image, waits for

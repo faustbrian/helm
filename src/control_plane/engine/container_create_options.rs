@@ -1,8 +1,8 @@
 use super::{
     BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ManagedResourceMetadata,
     PortBinding, TmpfsMount, VolumeMount, is_immutable_image_identity,
+    is_valid_container_environment_key,
 };
-use crate::control_plane::is_valid_environment_variable_key;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 
@@ -195,7 +195,7 @@ impl ContainerCreateOptions {
         environment: BTreeMap<String, String>,
     ) -> Result<Self, EngineError> {
         for (key, value) in &environment {
-            if !is_valid_environment_variable_key(key) {
+            if !is_valid_container_environment_key(key) {
                 return Err(EngineError::InvalidRequest {
                     detail: format!("managed container environment key '{key}' is invalid"),
                 });

@@ -1,4 +1,4 @@
-use super::EngineError;
+use super::{EngineError, is_valid_container_environment_key};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 
@@ -29,7 +29,7 @@ impl CommandRequest {
         }
 
         for (key, value) in &environment {
-            if key.is_empty() || key.contains(['=', '\0']) {
+            if !is_valid_container_environment_key(key) {
                 return Err(EngineError::InvalidRequest {
                     detail: format!("container command environment key '{key}' is invalid"),
                 });

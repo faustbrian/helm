@@ -39,6 +39,8 @@ pub(crate) use project_service_preparation_strategy::ProjectServicePreparationSt
 pub(crate) use project_service_provisioning_job::ProjectServiceProvisioningJob;
 
 #[cfg(test)]
+mod enterprise_search_live_engine_tests;
+#[cfg(test)]
 mod live_engine_tests;
 mod materialize_project_service_configurations;
 #[cfg(test)]

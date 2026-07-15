@@ -857,6 +857,7 @@ fn managed_container_environment_maps_to_engine_without_debug_leaks() {
     .with_environment(BTreeMap::from([
         ("POSTGRES_DB".to_owned(), "postgres".to_owned()),
         ("POSTGRES_PASSWORD".to_owned(), "root-secret".to_owned()),
+        ("discovery.type".to_owned(), "single-node".to_owned()),
     ]))
     .expect("container environment");
 
@@ -867,6 +868,7 @@ fn managed_container_environment_maps_to_engine_without_debug_leaks() {
         Some(vec![
             "POSTGRES_DB=postgres".to_owned(),
             "POSTGRES_PASSWORD=root-secret".to_owned(),
+            "discovery.type=single-node".to_owned(),
         ])
     );
     assert!(!format!("{options:?}").contains("root-secret"));
