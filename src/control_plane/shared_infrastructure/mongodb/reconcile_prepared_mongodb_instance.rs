@@ -1,3 +1,4 @@
+use super::wait_for_mongodb_readiness::wait_for_mongodb_readiness;
 use super::{PreparedMongoDbSharedInstance, provision_mongodb_logical_resource};
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -46,6 +47,16 @@ where
         },
     )
     .await?;
+    wait_for_mongodb_readiness(
+        engine,
+        shared.container(),
+        prepared.instance().bootstrap_credential(),
+    )
+    .await
+    .map_err(|error| SharedInfrastructureReconcileError::Engine {
+        action: "MongoDB readiness".to_owned(),
+        detail: error.to_string(),
+    })?;
     let mut logical = Vec::with_capacity(prepared.projects().len());
     let mut logical_resource_drifts = Vec::new();
 

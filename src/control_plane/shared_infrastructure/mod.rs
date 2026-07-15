@@ -26,6 +26,8 @@ pub(crate) use mailpit::{
     reconcile_prepared_mailpit_instance, store_mailpit_authentication,
 };
 pub(crate) use managed_secret_store_error::ManagedSecretStoreError;
+#[cfg(test)]
+pub(crate) use mongodb::wait_for_mongodb_readiness;
 pub(crate) use mongodb::{
     MongoDbAccessRevocationOptions, MongoDbLogicalResourcePlan,
     MongoDbMigrationInstancePlanOptions, MongoDbMigrationPreparationOptions,

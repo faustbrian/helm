@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added bounded root-authenticated MongoDB readiness before tenant
+  provisioning. Native Linux Engine acceptance now proves stable credentials,
+  isolated databases and users, cross-project read denial, persistent instance
+  reuse, and exact cleanup with the immutable MongoDB image.
 - Fixed Valkey authentication commands to use the environment contract
   supported by `valkey-cli`. Native Linux Engine acceptance now proves stable
   credentials, isolated ACL prefixes, cross-project access denial, persistent

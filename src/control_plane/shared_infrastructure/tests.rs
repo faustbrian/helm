@@ -43,6 +43,7 @@ use super::{
     run_provisioning_jobs_from_observed, stop_unreferenced_shared_services,
     stop_unreferenced_shared_services_from_observed, store_credential_secret,
     store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    wait_for_mongodb_readiness,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -387,6 +388,7 @@ fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
             8,
         ))
         .expect("shared reconciliation");
+    runtime.block_on(tokio::task::yield_now());
 
     assert_eq!(shared[0].profile().implementation(), "mongodb");
     assert_eq!(prepared[0].service_identities().len(), 2);
@@ -403,7 +405,23 @@ fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
     assert_eq!(result.physical_resources().len(), 2);
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
-    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+    let commands = engine.command_arguments.lock().expect("commands");
+    assert_eq!(commands.len(), 3);
+    assert!(commands.iter().all(|arguments| {
+        arguments.iter().map(String::as_str).collect::<Vec<_>>() == ["mongosh", "--quiet", "--nodb"]
+    }));
+    drop(commands);
+    let command_inputs = engine.command_inputs.lock().expect("command inputs");
+    assert_eq!(command_inputs.len(), 3);
+    let readiness = std::str::from_utf8(&command_inputs[0]).expect("readiness script UTF-8");
+    assert!(readiness.contains("runCommand({ ping: 1 })"));
+    assert!(!readiness.contains("createUser"));
+    assert!(command_inputs[1..].iter().all(|input| {
+        std::str::from_utf8(input)
+            .expect("tenant script UTF-8")
+            .contains("createUser")
+    }));
+    drop(command_inputs);
     let identity = shared[0]
         .fingerprint()
         .as_str()
@@ -2790,6 +2808,47 @@ fn mongodb_provisioning_streams_both_secrets_and_checks_exit_status() {
     assert!(stdin.contains("mongo-root"));
     assert!(request_debug.contains("argument_count: 3"));
     assert!(!request_debug.contains("project-secret"));
+    assert!(!request_debug.contains("mongo-root"));
+}
+
+#[test]
+fn mongodb_readiness_uses_stdin_auth_without_exposing_the_bootstrap_secret() {
+    let (_, container) = mongodb_instance();
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/mongodb/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "mongodb".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "mongo-root".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let executor = RecordingPostgresExecutor::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(wait_for_mongodb_readiness(
+            &executor,
+            &container,
+            &administrator,
+        ))
+        .expect("wait for MongoDB readiness");
+    runtime.block_on(tokio::task::yield_now());
+
+    let stdin = String::from_utf8(executor.stdin.lock().expect("recorded stdin").clone())
+        .expect("MongoDB readiness script UTF-8");
+    let request_debug = executor
+        .request_debug
+        .lock()
+        .expect("recorded request")
+        .clone();
+    assert!(stdin.contains("admin.auth"));
+    assert!(stdin.contains("ping"));
+    assert!(stdin.contains("mongo-root"));
+    assert!(request_debug.contains("argument_count: 3"));
     assert!(!request_debug.contains("mongo-root"));
 }
 
@@ -6776,6 +6835,7 @@ struct RecordingSharedVolumeEngine {
     operations: Vec<&'static str>,
     reconnected_networks: Arc<Mutex<Vec<(String, String, String)>>>,
     command_input: Arc<Mutex<Vec<u8>>>,
+    command_inputs: Arc<Mutex<Vec<Vec<u8>>>>,
     command_arguments: Arc<Mutex<Vec<Vec<String>>>>,
     command_exit: i64,
     command_exits: Arc<Mutex<VecDeque<i64>>>,
@@ -6802,6 +6862,7 @@ impl Default for RecordingSharedVolumeEngine {
             operations: Vec::new(),
             reconnected_networks: Arc::new(Mutex::new(Vec::new())),
             command_input: Arc::new(Mutex::new(Vec::new())),
+            command_inputs: Arc::new(Mutex::new(Vec::new())),
             command_arguments: Arc::new(Mutex::new(Vec::new())),
             command_exit: 0,
             command_exits: Arc::new(Mutex::new(VecDeque::new())),
@@ -7019,6 +7080,14 @@ impl CommandExecutor for RecordingSharedVolumeEngine {
         request: &'operation CommandRequest,
     ) -> EngineFuture<'operation, CommandSession> {
         let input = Arc::clone(&self.command_input);
+        let inputs = Arc::clone(&self.command_inputs);
+        let command_index = {
+            let mut inputs = inputs.lock().expect("command inputs");
+            let command_index = inputs.len();
+            inputs.push(Vec::new());
+
+            command_index
+        };
         self.command_arguments
             .lock()
             .expect("command arguments")
@@ -7032,7 +7101,8 @@ impl CommandExecutor for RecordingSharedVolumeEngine {
                     .read_to_end(&mut bytes)
                     .await
                     .expect("read shared service command input");
-                *input.lock().expect("command input") = bytes;
+                *input.lock().expect("command input") = bytes.clone();
+                inputs.lock().expect("command inputs")[command_index] = bytes;
             });
             let output: ContainerLogStream<'static> = Box::pin(stream::empty());
 
