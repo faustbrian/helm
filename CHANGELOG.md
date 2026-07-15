@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux mixed-version acceptance that drives PostgreSQL 17 and 18
+  projects from real YAML through compatibility planning, proves the profiles
+  receive distinct fingerprints and containers, and verifies the owned Engine
+  labels retain the exact implementation and major version explaining the
+  split.
 - Allowed Engine container environment keys such as `discovery.type` while
   retaining rejection of empty, NUL-containing, and ambiguous `=` keys. Added
   native Linux Elasticsearch and OpenSearch acceptance that starts their

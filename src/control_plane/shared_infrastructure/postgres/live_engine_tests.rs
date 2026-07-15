@@ -2,6 +2,7 @@ use super::{
     PostgresPreparationOptions, prepare_postgres_shared_instances,
     reconcile_prepared_postgres_instance,
 };
+use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery, EngineError,
     ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions,
@@ -12,7 +13,8 @@ use crate::control_plane::engine::{
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
     CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
+    SharedServiceRequest, plan_shared_instances, resolve_execution_shared_instances,
+    revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
@@ -22,10 +24,186 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const POSTGRES_17_IMAGE: &str = concat!(
+    "postgres@sha256:",
+    "ebba4f4de37f08f138f97c1443c987a435e783177afedcc4aaf2da1930fbc37a"
+);
 const POSTGRES_IMAGE: &str = concat!(
     "postgres@sha256:",
     "9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
 );
+
+#[test]
+#[ignore = "CI owns live incompatible PostgreSQL profile acceptance"]
+fn live_docker_engine_incompatible_postgres_majors_use_separate_instances() {
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must follow the Unix epoch")
+        .as_nanos();
+    let installation_id = format!("ci-{}-{nonce}-mixed-postgres", std::process::id());
+    let network_name = format!("stackctl-{installation_id}");
+    let state_directory = std::env::temp_dir().join(format!("stackctl-{installation_id}"));
+    let platform = match std::env::consts::ARCH {
+        "aarch64" => "linux/arm64",
+        "x86_64" => "linux/amd64",
+        architecture => panic!("unsupported PostgreSQL acceptance architecture '{architecture}'"),
+    };
+    let sources = [
+        postgres_source("bill17", "17", POSTGRES_17_IMAGE),
+        postgres_source("shop18", "18", POSTGRES_IMAGE),
+    ];
+    let registry = plan_project_registry(&sources).expect("plan mixed PostgreSQL registry");
+    let execution = crate::control_plane::resolve_execution_plan(&registry)
+        .expect("resolve mixed PostgreSQL execution");
+    let shared = resolve_execution_shared_instances(&execution, platform)
+        .expect("resolve mixed PostgreSQL shared demand");
+    let mut planned_profiles = shared
+        .iter()
+        .map(|plan| {
+            (
+                plan.profile().implementation().to_owned(),
+                plan.profile().major_version().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    planned_profiles.sort();
+    assert_eq!(
+        planned_profiles,
+        vec![
+            ("postgresql".to_owned(), "17".to_owned()),
+            ("postgresql".to_owned(), "18".to_owned()),
+        ],
+        "the human-readable compatibility profiles must explain the split"
+    );
+    assert_eq!(shared.len(), 2);
+    assert_ne!(shared[0].fingerprint(), shared[1].fingerprint());
+
+    std::fs::create_dir(&state_directory).expect("create mixed PostgreSQL acceptance state");
+    let mut store = SqliteStateStore::open(&state_directory.join("state.sqlite3"))
+        .expect("open mixed PostgreSQL acceptance state store");
+    let prepared = prepare_postgres_shared_instances(
+        &mut store,
+        &shared,
+        &SequentialCredentialEntropy::new(0x31),
+        PostgresPreparationOptions {
+            installation_id: &installation_id,
+            network_name: &network_name,
+            schema_version: 8,
+        },
+    )
+    .expect("prepare mixed PostgreSQL instances");
+    let authorized_volumes = prepared
+        .iter()
+        .map(|instance| {
+            instance
+                .instance()
+                .volume()
+                .expect("persistent mixed PostgreSQL volume")
+                .name()
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    let network_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.clone(),
+        kind: ResourceKind::Network,
+        project_id: None,
+        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        schema_version: 8,
+        desired_revision: format!("sha256:{}", "b".repeat(64)),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("build mixed PostgreSQL network metadata");
+    let network_request = NetworkCreateOptions::new(&network_name, network_metadata)
+        .expect("build mixed PostgreSQL network request");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build mixed PostgreSQL acceptance runtime");
+    let mut engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    let acceptance = runtime.block_on(async {
+        for image in [POSTGRES_17_IMAGE, POSTGRES_IMAGE] {
+            engine
+                .ensure_image(
+                    &ImmutableImageReference::new(image)
+                        .expect("build mixed PostgreSQL image reference"),
+                )
+                .await?;
+        }
+        engine.create_network(&network_request).await?;
+        for instance in &prepared {
+            let result =
+                reconcile_prepared_postgres_instance(&mut engine, instance, &installation_id, 8)
+                    .await
+                    .map_err(|error| EngineError::Backend {
+                        detail: error.to_string(),
+                    })?;
+            if !result.logical_resource_drifts().is_empty() {
+                return Err(EngineError::Backend {
+                    detail: format!(
+                        "mixed PostgreSQL convergence reported drift: {:?}",
+                        result.logical_resource_drifts()
+                    ),
+                });
+            }
+        }
+        let containers = owned_shared_containers(&engine, &installation_id).await;
+        let mut observed_profiles = containers
+            .iter()
+            .map(|container| {
+                (
+                    container
+                        .metadata()
+                        .compatibility_implementation()
+                        .expect("shared PostgreSQL implementation label")
+                        .to_owned(),
+                    container
+                        .metadata()
+                        .compatibility_major_version()
+                        .expect("shared PostgreSQL major-version label")
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        observed_profiles.sort();
+        if observed_profiles != planned_profiles {
+            return Err(EngineError::Backend {
+                detail: format!(
+                    "mixed PostgreSQL Engine profiles {observed_profiles:?} did not match plans \
+                     {planned_profiles:?}"
+                ),
+            });
+        }
+        if containers.len() != 2 || containers[0].id() == containers[1].id() {
+            return Err(EngineError::Backend {
+                detail: "incompatible PostgreSQL profiles did not produce two containers"
+                    .to_owned(),
+            });
+        }
+
+        Ok::<_, EngineError>(())
+    });
+    runtime
+        .block_on(delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &authorized_volumes,
+            },
+        ))
+        .expect("delete mixed PostgreSQL acceptance resources");
+    acceptance.expect("verify incompatible PostgreSQL Engine instances");
+
+    drop(store);
+    std::fs::remove_dir_all(&state_directory).expect("remove mixed PostgreSQL acceptance state");
+    println!("mixed PostgreSQL profile acceptance passed for {installation_id}");
+}
 
 #[test]
 #[ignore = "CI owns live shared PostgreSQL isolation acceptance"]
@@ -353,6 +531,37 @@ async fn owned_shared_container(
         .filter_map(|observed| reconstruct_owned_container(&observed, installation_id, 8).ok())
         .find(|owned| owned.metadata().kind() == ResourceKind::SharedService)
         .expect("discover one owned shared PostgreSQL container")
+}
+
+async fn owned_shared_containers(
+    engine: &BollardEngineAdapter,
+    installation_id: &str,
+) -> Vec<OwnedContainer> {
+    engine
+        .discover_managed()
+        .await
+        .expect("discover mixed PostgreSQL acceptance resources")
+        .into_iter()
+        .filter_map(|observed| reconstruct_owned_container(&observed, installation_id, 8).ok())
+        .filter(|owned| owned.metadata().kind() == ResourceKind::SharedService)
+        .collect()
+}
+
+fn postgres_source(project: &str, version: &str, image: &str) -> ProjectSource {
+    ProjectSource::new(
+        std::path::PathBuf::from(format!("/work/{project}")),
+        std::path::PathBuf::from(format!("/work/{project}/.stackctl.yaml")),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: {project}\nservices:\n",
+                "  database:\n    preset: postgres\n    version: '{version}'\n",
+                "    image: {image}\n"
+            ),
+            project = project,
+            version = version,
+            image = image,
+        ),
+    )
 }
 
 async fn postgres_command(
