@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the v8 acceptance audit to treat RabbitMQ non-durable queues,
+  non-persistent messages, quorum queues, and streams as explicit fail-closed
+  unsupported recovery boundaries, not silently incomplete support. Supported
+  recovery remains scoped to empty queues and durable classic queues containing
+  only persistent messages.
 - Classified prohibited service privilege declarations such as `privileged`,
   host networking, device access, Engine sockets, capabilities, and bind mounts
   as `security_approval_blocked`. V8 offers no override for these declarations;
