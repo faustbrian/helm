@@ -18,6 +18,8 @@ usage() {
     "" \
     "environment:" \
     "  STACKCTL_BIN                         stackctl executable" \
+    "  STACKCTL_BENCHMARK_RUN_ID            shared identity for all scenarios" \
+    "  STACKCTL_BENCHMARK_COLLECTOR         host/VM collector and version" \
     "  STACKCTL_BENCHMARK_ENGINE            Engine product" \
     "  STACKCTL_BENCHMARK_ENGINE_VERSION    exact Engine version" \
     "  STACKCTL_BENCHMARK_ENGINE_BACKEND    VM/backend identity" \
@@ -88,14 +90,16 @@ if [[ "$SCENARIO_MODE" == "baseline" ]]; then
       >&2
     exit 64
   fi
-  if [[ ! -f "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" ]]; then
-    printf 'external inventory file does not exist: %s\n' \
+  if [[ ! -s "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" ]]; then
+    printf 'external inventory file does not exist or is empty: %s\n' \
       "$STACKCTL_BENCHMARK_EXTERNAL_INVENTORY_FILE" >&2
     exit 66
   fi
 fi
 
 required_environment=(
+  STACKCTL_BENCHMARK_RUN_ID
+  STACKCTL_BENCHMARK_COLLECTOR
   STACKCTL_BENCHMARK_ENGINE
   STACKCTL_BENCHMARK_ENGINE_VERSION
   STACKCTL_BENCHMARK_ENGINE_BACKEND
@@ -109,8 +113,12 @@ for name in "${required_environment[@]}"; do
     exit 64
   fi
 done
-if [[ ! -f "$STACKCTL_BENCHMARK_HOST_METRICS_FILE" ]]; then
-  printf 'host metrics file does not exist: %s\n' \
+if [[ ! "$STACKCTL_BENCHMARK_RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  printf 'benchmark run ID must contain only letters, digits, dot, underscore, or hyphen\n' >&2
+  exit 64
+fi
+if [[ ! -s "$STACKCTL_BENCHMARK_HOST_METRICS_FILE" ]]; then
+  printf 'host metrics file does not exist or is empty: %s\n' \
     "$STACKCTL_BENCHMARK_HOST_METRICS_FILE" >&2
   exit 66
 fi
@@ -120,6 +128,7 @@ mkdir -p "$OUTPUT_DIRECTORY/samples"
 metadata="$OUTPUT_DIRECTORY/metadata.txt"
 {
   printf 'scenario=%s\n' "$SCENARIO"
+  printf 'benchmark_run_id=%s\n' "$STACKCTL_BENCHMARK_RUN_ID"
   printf 'started_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf 'stackctl_revision=%s\n' "$(git rev-parse HEAD)"
   if [[ "$SCENARIO_MODE" == "v8" ]]; then
@@ -128,6 +137,7 @@ metadata="$OUTPUT_DIRECTORY/metadata.txt"
     printf 'stackctl_version=not-applicable\n'
   fi
   printf 'host=%s\n' "$(uname -a)"
+  printf 'host_metrics_collector=%s\n' "$STACKCTL_BENCHMARK_COLLECTOR"
   printf 'engine=%s\n' "$STACKCTL_BENCHMARK_ENGINE"
   printf 'engine_version=%s\n' "$STACKCTL_BENCHMARK_ENGINE_VERSION"
   printf 'engine_backend=%s\n' "$STACKCTL_BENCHMARK_ENGINE_BACKEND"

@@ -28,7 +28,8 @@ storage, mail capture, one worker, and the gateway.
 - image-layer reuse and build duration.
 
 Record OS, architecture, Engine/version, limits, filesystem sharing mode,
-Stackctl revision, image digests, sample interval, and raw output.
+Stackctl revision, image digests, sample interval, host/VM collector identity,
+one shared benchmark run ID, and raw output.
 
 ## Success thresholds
 
@@ -57,6 +58,8 @@ Build the release candidate, prepare and fully reconcile one scenario, then run:
 
 ```sh
 STACKCTL_BENCHMARK_ENGINE='Docker Desktop' \
+STACKCTL_BENCHMARK_RUN_ID='<host>-<date>-<revision>' \
+STACKCTL_BENCHMARK_COLLECTOR='exact collector and version' \
 STACKCTL_BENCHMARK_ENGINE_VERSION='exact-version' \
 STACKCTL_BENCHMARK_ENGINE_BACKEND='Linux VM identity' \
 STACKCTL_BENCHMARK_ENGINE_LIMITS='cpu=...,memory=...' \
@@ -71,6 +74,8 @@ and include its exact runtime inventory:
 
 ```sh
 STACKCTL_BENCHMARK_ENGINE='Docker Desktop' \
+STACKCTL_BENCHMARK_RUN_ID='<host>-<date>-<revision>' \
+STACKCTL_BENCHMARK_COLLECTOR='exact collector and version' \
 STACKCTL_BENCHMARK_ENGINE_VERSION='exact-version' \
 STACKCTL_BENCHMARK_ENGINE_BACKEND='Linux VM identity' \
 STACKCTL_BENCHMARK_ENGINE_LIMITS='cpu=...,memory=...' \
@@ -86,6 +91,9 @@ Baseline modes are `baseline-engine-idle`, `baseline-one`, and
 owned-resource view. They copy the independently collected metrics and exact
 runtime inventory into a new immutable evidence directory with the same Engine,
 VM-limit, filesystem, revision, and host metadata used by v8 scenarios.
+All six scenarios must use the same `STACKCTL_BENCHMARK_RUN_ID` and exact
+`STACKCTL_BENCHMARK_COLLECTOR` value. Empty metrics and baseline inventory files
+are rejected before the output directory is created.
 
 `stackctl daemon benchmark` requests each sample from the authoritative daemon.
 The harness passes a typed evidence scenario into every request. Before

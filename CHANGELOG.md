@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
   amd64 and arm64 runners, publishing separate raw records for each workload
   architecture. Records now include the exact source, invocation, host, Engine,
   toolchain, port, and resource-limit context required for independent review.
+- Hardened benchmark capture with a required shared run identity and explicit
+  host/VM collector identity, and reject empty metrics or baseline inventories
+  before creating an evidence directory.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration
