@@ -73,8 +73,15 @@ fn streaming_command_drains_stderr_without_exposing_its_contents() {
         .expect_err("failed command");
 
     assert_eq!(
+        error,
+        super::EngineError::ContainerExit {
+            container_id: "postgres-source".to_owned(),
+            status_code: 9,
+        }
+    );
+    assert_eq!(
         error.to_string(),
-        "dump PostgreSQL database exited with status 9"
+        "container 'postgres-source' exited with status 9"
     );
     assert!(!error.to_string().contains("do-not-log"));
     assert!(output.is_empty());

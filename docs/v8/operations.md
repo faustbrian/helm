@@ -403,6 +403,10 @@ Successful full-snapshot acknowledgement marks the route healthy; an active
 revision mismatch publishes `gateway_route_drift`, retains the last good
 configuration, and retries the complete snapshot. Browser opening requires a
 healthy route in addition to a ready application process.
+Gateway admin reload transport failures and timeouts invalidate the selected
+Engine adapter and leave the complete gateway plan due for convergence after
+reconnection. A nonzero Caddy reload exit is a provider failure instead, so a
+bad document or rejected reload cannot be mistaken for Engine unavailability.
 Certificate renewal parses the persisted wildcard leaf's X.509 `notAfter`
 value before generating its replacement. If gateway activation fails while the
 previously served generation is already expired, affected route rows publish

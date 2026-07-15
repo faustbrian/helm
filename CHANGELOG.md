@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved Caddy admin reload transport and timeout failures as typed gateway
+  Engine errors so the daemon invalidates the adapter and reconnects. Nonzero
+  Caddy command exits remain provider failures and no longer masquerade as
+  Engine transport loss.
 - Exposed the daemon's current automatic discovery failures through typed
   status IPC instead of reporting only that the process responds. Changed
   diagnostic snapshots are also persisted as structured daemon events and

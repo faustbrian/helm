@@ -116,7 +116,7 @@ fn failed_postgres_dump_never_publishes_partial_recovery_point() {
 
     assert_eq!(
         error.to_string(),
-        "PostgreSQL backup failed: dump PostgreSQL database exited with status 7"
+        "PostgreSQL backup failed: container 'postgres-source' exited with status 7"
     );
     assert!(!contains_manifest(&root));
 

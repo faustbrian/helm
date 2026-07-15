@@ -1,6 +1,7 @@
 use super::{GatewayDocumentLoader, GatewayError, GatewayFuture};
 use crate::control_plane::engine::{
-    CommandExecutor, CommandRequest, OwnedContainer, StreamingCommandOptions, run_streaming_command,
+    CommandExecutor, CommandRequest, EngineError, OwnedContainer, StreamingCommandOptions,
+    run_streaming_command,
 };
 use std::collections::BTreeMap;
 use std::io::Cursor;
@@ -63,8 +64,20 @@ where
                 &mut output,
             )
             .await
-            .map_err(provider_error)
+            .map_err(reload_error)
         })
+    }
+}
+
+fn reload_error(error: EngineError) -> GatewayError {
+    match error {
+        EngineError::Backend { .. } | EngineError::Timeout { .. } => GatewayError::Engine {
+            action: "admin reload".to_owned(),
+            detail: error.to_string(),
+        },
+        EngineError::InvalidRequest { .. }
+        | EngineError::ContainerExit { .. }
+        | EngineError::OwnershipMismatch { .. } => provider_error(error),
     }
 }
 
@@ -79,8 +92,9 @@ mod tests {
     use super::*;
     use crate::control_plane::engine::{
         CommandExecutionId, CommandSession, CommandStatus, ContainerId, ContainerLogStream,
-        EngineFuture, LogChunk, ManagedResourceMetadata, ManagedResourceMetadataOptions,
-        ObservedContainer, ResourceKind, RetentionClass, reconstruct_owned_container,
+        EngineError, EngineFuture, LogChunk, ManagedResourceMetadata,
+        ManagedResourceMetadataOptions, ObservedContainer, ResourceKind, RetentionClass,
+        reconstruct_owned_container,
     };
     use futures_util::stream;
     use std::sync::{Arc, Mutex};
@@ -118,10 +132,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn preserves_engine_transport_failures_for_runtime_reconnect() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("test runtime");
+        let mut client =
+            CaddyEngineAdminClient::new(FailingExecutor, owned_gateway(), Duration::from_secs(5));
+
+        let error = runtime
+            .block_on(client.load_document(br#"{"apps":{}}"#))
+            .expect_err("Engine transport failure");
+
+        assert_eq!(
+            error,
+            GatewayError::Engine {
+                action: "admin reload".to_owned(),
+                detail: "Engine socket unavailable".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_caddy_command_exit_as_provider_failure() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("test runtime");
+        let executor = RecordingExecutor {
+            exit_status: 9,
+            ..RecordingExecutor::default()
+        };
+        let mut client =
+            CaddyEngineAdminClient::new(executor, owned_gateway(), Duration::from_secs(5));
+
+        let error = runtime
+            .block_on(client.load_document(br#"{"apps":{}}"#))
+            .expect_err("Caddy command failure");
+
+        assert_eq!(
+            error,
+            GatewayError::Provider {
+                detail: "Caddy Engine admin reload failed: container 'stackctl-gateway' exited with status 9"
+                    .to_owned(),
+            }
+        );
+    }
+
     #[derive(Clone, Default)]
     struct RecordingExecutor {
         arguments: Arc<Mutex<Vec<String>>>,
         input: Arc<Mutex<Vec<u8>>>,
+        exit_status: i64,
     }
 
     impl CommandExecutor for RecordingExecutor {
@@ -158,7 +221,31 @@ mod tests {
             _execution_id: &'operation CommandExecutionId,
             _container_id: &'operation ContainerId,
         ) -> EngineFuture<'operation, CommandStatus> {
-            Box::pin(async { Ok(CommandStatus::Exited(0)) })
+            Box::pin(async move { Ok(CommandStatus::Exited(self.exit_status)) })
+        }
+    }
+
+    struct FailingExecutor;
+
+    impl CommandExecutor for FailingExecutor {
+        fn start_command<'operation>(
+            &'operation self,
+            _container: &'operation OwnedContainer,
+            _request: &'operation CommandRequest,
+        ) -> EngineFuture<'operation, CommandSession> {
+            Box::pin(async {
+                Err(EngineError::Backend {
+                    detail: "Engine socket unavailable".to_owned(),
+                })
+            })
+        }
+
+        fn command_status<'operation>(
+            &'operation self,
+            _execution_id: &'operation CommandExecutionId,
+            _container_id: &'operation ContainerId,
+        ) -> EngineFuture<'operation, CommandStatus> {
+            Box::pin(async { unreachable!("command never starts") })
         }
     }
 
