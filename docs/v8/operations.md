@@ -443,6 +443,9 @@ daemon restarts.
 Daemon status also returns live selected-Engine availability. It exits nonzero
 from startup until the first successful Engine connection and after any
 connection loss, while the daemon continues its bounded automatic reconnects.
+Gateway port discovery, lifecycle, and readiness failures classified as Engine
+errors invalidate that exact adapter and retain the due desired plan for the
+same bounded reconnect path; they are not converted into durable route drift.
 An explicit `stackctl daemon reconcile` returns every typed discovery
 diagnostic and exits nonzero when that complete scan is blocked. Its operation
 history records `Accepted` followed by `Failed`, never `Completed`. This does

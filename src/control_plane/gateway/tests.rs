@@ -215,7 +215,9 @@ fn live_gateway_acceptance_contract_covers_protocols_and_restart() {
         );
     }
     assert!(workflow.contains("Gateway Protocol Acceptance"));
-    assert!(workflow.contains("gateway-acceptance-record"));
+    assert!(workflow.contains("platform: linux-x86_64"));
+    assert!(workflow.contains("platform: linux-arm64"));
+    assert!(workflow.contains("gateway-acceptance-${{ matrix.platform }}"));
     assert!(fixture.contains("continuity"));
     assert!(script.contains("continuity_probe"));
 }

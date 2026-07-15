@@ -1531,6 +1531,19 @@ impl UnixDaemonRuntime {
                     "global gateway reconciliation completed"
                 );
             }
+            Err(error @ GatewayError::Engine { .. }) => {
+                let retry = invalidate_engine_connection(
+                    &mut self.engine_connection,
+                    &mut self.resource_health,
+                    now,
+                );
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = %error,
+                    "gateway reconciliation lost the selected Engine; retry scheduled"
+                );
+            }
             Err(GatewayError::Reconciliation { detail }) => {
                 for route in engine_plan.gateway().routes() {
                     let health = if assets.certificate_was_expired() {

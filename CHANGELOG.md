@@ -15,6 +15,9 @@ All notable changes to this project are documented in this file.
 - Made daemon status report the selected container Engine as unavailable until
   a real connection succeeds, and after any connection loss, instead of
   treating an IPC-responsive control plane as fully ready.
+- Routed gateway Engine discovery and readiness failures through the selected
+  Engine invalidation and bounded reconnect path, preserving the due desired
+  plan instead of caching a failed adapter as a durable gateway conflict.
 - Expanded the pinned gateway protocol acceptance workflow to native Linux
   amd64 and arm64 runners, publishing separate raw records for each workload
   architecture. Records now include the exact source, invocation, host, Engine,
