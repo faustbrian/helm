@@ -87,6 +87,8 @@ fn provisioning_sql(database: &str, username: &str, secret: &str) -> String {
          IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = N'{username}')\n\
              CREATE LOGIN [{username}] WITH PASSWORD = N'{secret}', CHECK_POLICY = OFF;\n\
          ELSE ALTER LOGIN [{username}] WITH PASSWORD = N'{secret}';\n\
+         ALTER LOGIN [{username}] ENABLE;\n\
+         GO\n\
          USE [{database}];\n\
          IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'{username}')\n\
              CREATE USER [{username}] FOR LOGIN [{username}];\n\

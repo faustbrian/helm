@@ -91,6 +91,15 @@ jobs:
           cargo test live_docker_engine_ -- --ignored --test-threads=1 --nocapture |
             tee target/engine-acceptance-${{ matrix.platform }}.txt
 
+      - name: Exercise amd64-only SQL Server isolation and lifecycle
+        if: matrix.platform == 'linux-x86_64'
+        env:
+          STACKCTL_ENGINE_SOCKET: /var/run/docker.sock
+        run: |
+          set -o pipefail
+          cargo test live_amd64_docker_engine_ -- --ignored --test-threads=1 --nocapture |
+            tee -a target/engine-acceptance-${{ matrix.platform }}.txt
+
       - name: Publish raw Engine acceptance record
         if: startsWith(matrix.platform, 'linux-') && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

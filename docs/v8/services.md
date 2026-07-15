@@ -172,7 +172,10 @@ environment.
 SQL Server disables only the exact ownership-proven project login. It retains
 the database, mapped user, permissions, and data for explicit adoption,
 restore, or prune, while the administrator secret is supplied only through the
-Engine command environment.
+Engine command environment. Reconciliation uses a batch boundary after
+database creation and explicitly re-enables the stable login. Native acceptance
+runs on amd64 because that is the architecture published by the selected SQL
+Server image.
 
 MinIO disables only the exact ownership-proven enabled project identity after
 parsing its machine-readable user state. The identity, policy attachment,

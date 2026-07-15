@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux amd64 Engine acceptance for shared SQL Server and fixed
+  two defects it exposed. Tenant provisioning now crosses a batch boundary
+  before entering a newly created database, and reconciliation explicitly
+  re-enables an orphan-disabled login while retaining its database, data,
+  stable credential, sibling access, and shared container.
 - Extended native Linux MinIO acceptance through project removal and
   restoration. CI now proves identity disablement retains the removed tenant's
   objects, preserves sibling access, restores the stable identity and data,

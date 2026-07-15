@@ -6107,6 +6107,18 @@ fn sql_server_projects_get_database_login_and_managed_environment() {
     assert_eq!(project.logical().username(), "st_bill_database");
     assert!(project.logical().stdin_sql().contains("CREATE DATABASE"));
     assert!(project.logical().stdin_sql().contains("ALTER LOGIN"));
+    assert!(
+        project
+            .logical()
+            .stdin_sql()
+            .contains("ALTER LOGIN [st_bill_database] ENABLE")
+    );
+    assert!(
+        project
+            .logical()
+            .stdin_sql()
+            .contains("\nGO\nUSE [stackctl_bill_database]")
+    );
     assert!(project.logical().stdin_sql().contains("StrongProject1"));
     assert_eq!(
         project.environment().values().get("DB_CONNECTION"),
