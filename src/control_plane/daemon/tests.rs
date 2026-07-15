@@ -1493,11 +1493,13 @@ fn queued_rabbitmq_backup_exports_and_archives_exact_empty_vhost() {
             "durable",
             "type",
             "--no-table-headers",
+            "--silent",
         ]
     );
     assert_eq!(calls[3][0], "sh");
     assert!(calls[3][2].contains("export_definitions"));
-    assert!(calls[3][2].contains("STACKCTL_VHOST"));
+    assert!(calls[3][2].contains("umask 077"));
+    assert!(!calls[3][2].contains("STACKCTL_VHOST"));
     assert!(calls[4][2].contains("msg_stores/vhosts"));
     assert!(!format!("{calls:?}").contains("rabbit-secret"));
     assert!(
@@ -4871,20 +4873,36 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         &Ok(MigrationExecutionResult::Confirmed)
     );
     let first_calls = engine.command_arguments();
-    assert_eq!(first_calls.len(), 11);
+    assert_eq!(first_calls.len(), 13);
     assert_eq!(first_calls[0][1], "suspend_listeners");
     assert_eq!(first_calls[1][1], "close_all_connections");
     assert_eq!(first_calls[2][1], "list_queues");
+    assert!(
+        first_calls[2].iter().any(|argument| argument == "--silent"),
+        "RabbitMQ inventory must suppress CLI status lines: {:?}",
+        first_calls[2]
+    );
     assert!(first_calls[3][2].contains("export_definitions"));
     assert!(first_calls[4][2].contains("msg_stores/vhosts"));
-    assert_eq!(first_calls[5][1], "list_vhosts");
-    assert!(first_calls[6][2].contains("delete_vhost"));
-    assert!(first_calls[6][2].contains("import_definitions"));
-    assert!(first_calls[6][2].contains("set_permissions"));
-    assert!(first_calls[7][2].contains("msg_stores/vhosts"));
-    assert!(first_calls[8][2].contains("import_definitions"));
-    assert_eq!(first_calls[9][1], "list_vhosts");
-    assert_eq!(first_calls[10][1], "list_queues");
+    assert_eq!(first_calls[5][0], "rabbitmq-diagnostics");
+    assert_eq!(first_calls[5][2], "check_running");
+    assert_eq!(first_calls[6][1], "list_vhosts");
+    assert!(first_calls[7][2].contains("delete_vhost"));
+    assert!(first_calls[7][2].contains("import_definitions"));
+    assert!(first_calls[7][2].contains("set_permissions"));
+    assert!(first_calls[8][2].contains("msg_stores/vhosts"));
+    assert_eq!(first_calls[9][0], "rabbitmq-diagnostics");
+    assert_eq!(first_calls[9][2], "check_running");
+    assert!(first_calls[10][2].contains("import_definitions"));
+    assert_eq!(first_calls[11][1], "list_vhosts");
+    assert_eq!(first_calls[12][1], "list_queues");
+    assert!(
+        first_calls[12]
+            .iter()
+            .any(|argument| argument == "--silent"),
+        "RabbitMQ verification must suppress CLI status lines: {:?}",
+        first_calls[12]
+    );
     assert!(!format!("{first_calls:?}").contains("rabbit-secret"));
     assert!(
         engine
@@ -4918,7 +4936,7 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
         execute().outcome(),
         &Ok(MigrationExecutionResult::Confirmed)
     );
-    assert_eq!(engine.command_arguments().len(), 17);
+    assert_eq!(engine.command_arguments().len(), 20);
     assert_eq!(
         engine
             .command_arguments()

@@ -7,15 +7,16 @@ use crate::control_plane::migration::{MigrationBackup, MigrationOperationError};
 use crate::control_plane::retention::{
     BackupResourceIdentity, store_backup_artifact_from_async_reader, verify_stored_backup_artifact,
 };
+use crate::control_plane::shared_infrastructure::wait_for_rabbitmq_readiness;
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
 use tokio::io::{AsyncWriteExt, duplex};
 
 const STREAM_BUFFER_BYTES: usize = 64 * 1_024;
 const EXPORT_SCRIPT: &str = "set -eu\n\
+    umask 077\n\
     trap 'rm -f \"$STACKCTL_DEFINITIONS_FILE\"' EXIT HUP INT TERM\n\
-    rabbitmqctl export_definitions --vhost=\"$STACKCTL_VHOST\" \
-    \"$STACKCTL_DEFINITIONS_FILE\" >/dev/null\n\
+    rabbitmqctl export_definitions \"$STACKCTL_DEFINITIONS_FILE\" >/dev/null\n\
     cat \"$STACKCTL_DEFINITIONS_FILE\"";
 const LOCATE_MESSAGE_STORE_SCRIPT: &str = "set -eu\n\
     root=/var/lib/rabbitmq/mnesia/rabbit@localhost/msg_stores/vhosts\n\
@@ -52,6 +53,16 @@ where
                 .start(container)
                 .await
                 .map_err(|error| operation_error("RabbitMQ backup broker start failed", error))?;
+            if let Err(error) = wait_for_rabbitmq_readiness(engine, container).await {
+                let readiness = operation_error("RabbitMQ backup broker readiness failed", error);
+                let stop = engine.stop(container).await.map_err(|error| {
+                    operation_error("RabbitMQ backup broker re-quiesce failed", error)
+                });
+                return match stop {
+                    Ok(()) => Err(readiness),
+                    Err(stop) => Err(MigrationOperationError::new(format!("{readiness}; {stop}"))),
+                };
+            }
             false
         }
         ContainerState::Missing => {
@@ -97,10 +108,16 @@ where
     }
     let backup = stream_backup(engine, container, volume, &artifact, options).await;
     let restart = if was_running {
-        engine
+        let started = engine
             .start(container)
             .await
-            .map_err(|error| operation_error("RabbitMQ backup broker restart failed", error))
+            .map_err(|error| operation_error("RabbitMQ backup broker restart failed", error));
+        match started {
+            Ok(()) => wait_for_rabbitmq_readiness(engine, container)
+                .await
+                .map_err(|error| operation_error("RabbitMQ backup broker readiness failed", error)),
+            Err(error) => Err(error),
+        }
     } else {
         Ok(())
     };
@@ -203,6 +220,7 @@ pub(super) async fn inventory_messages(
             "durable".to_owned(),
             "type".to_owned(),
             "--no-table-headers".to_owned(),
+            "--silent".to_owned(),
         ],
         BTreeMap::new(),
         "inventory RabbitMQ vhost messages",
@@ -291,10 +309,7 @@ async fn export_definitions(
         executor,
         container,
         vec!["sh".to_owned(), "-c".to_owned(), EXPORT_SCRIPT.to_owned()],
-        BTreeMap::from([
-            ("STACKCTL_DEFINITIONS_FILE".to_owned(), definitions_file),
-            ("STACKCTL_VHOST".to_owned(), vhost.to_owned()),
-        ]),
+        BTreeMap::from([("STACKCTL_DEFINITIONS_FILE".to_owned(), definitions_file)]),
         "export RabbitMQ vhost definitions",
         options.timeout,
     )

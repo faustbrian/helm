@@ -87,6 +87,7 @@ pub(crate) use rabbitmq::{
     StoredRabbitMqPaths, plan_rabbitmq_project_resources, prepare_rabbitmq_shared_instances,
     reconcile_prepared_rabbitmq_instance, reconcile_rabbitmq_definitions,
     reload_rabbitmq_definitions, revoke_rabbitmq_project_access, store_rabbitmq_definitions,
+    wait_for_rabbitmq_readiness,
 };
 pub(crate) use reconcile_prepared_shared_instance::reconcile_prepared_shared_instance;
 pub(crate) use reconcile_shared_service::reconcile_shared_service;

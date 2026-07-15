@@ -202,7 +202,27 @@ fn sanitize_definitions(definitions: Value, vhost: &str) -> Result<Value, Migrat
     let mut sanitized = serde_json::Map::new();
     for (section, value) in definitions {
         if SCOPED_DEFINITION_SECTIONS.contains(&section.as_str()) {
-            sanitized.insert(section.clone(), value.clone());
+            let entries = value.as_array().ok_or_else(|| {
+                MigrationOperationError::new(format!(
+                    "RabbitMQ definitions export section '{section}' is not an array"
+                ))
+            })?;
+            let scope_field = if section == "vhosts" { "name" } else { "vhost" };
+            let mut scoped = Vec::new();
+            for entry in entries {
+                let scope = entry
+                    .get(scope_field)
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        MigrationOperationError::new(format!(
+                            "RabbitMQ definitions export section '{section}' contains an unscoped entry"
+                        ))
+                    })?;
+                if scope == vhost {
+                    scoped.push(entry.clone());
+                }
+            }
+            sanitized.insert(section.clone(), Value::Array(scoped));
         } else if !EXCLUDED_CREDENTIAL_SECTIONS.contains(&section.as_str())
             && !IGNORED_METADATA_FIELDS.contains(&section.as_str())
         {
@@ -255,6 +275,59 @@ mod tests {
         assert!(artifact.definitions().get("users").is_none());
         assert!(artifact.definitions().get("permissions").is_none());
         assert!(artifact.definitions().get("queues").is_some());
+    }
+
+    #[test]
+    fn recovery_artifact_filters_cluster_definitions_to_one_vhost() {
+        let artifact = RabbitMqRecoveryArtifact::new(
+            "stackctl_bill_database".to_owned(),
+            "mnesia/rabbit@localhost/msg_stores/vhosts/628Q7P".to_owned(),
+            serde_json::json!({
+                "users": [
+                    {"name": "st_bill_database", "password_hash": "bill-hash"},
+                    {"name": "st_shop_database", "password_hash": "shop-hash"}
+                ],
+                "permissions": [
+                    {"user": "st_bill_database", "vhost": "stackctl_bill_database"},
+                    {"user": "st_shop_database", "vhost": "stackctl_shop_database"}
+                ],
+                "vhosts": [
+                    {"name": "stackctl_bill_database"},
+                    {"name": "stackctl_shop_database"}
+                ],
+                "queues": [
+                    {"name": "jobs", "vhost": "stackctl_bill_database"},
+                    {"name": "orders", "vhost": "stackctl_shop_database"}
+                ],
+                "exchanges": [
+                    {"name": "events", "vhost": "stackctl_bill_database"},
+                    {"name": "events", "vhost": "stackctl_shop_database"}
+                ],
+                "bindings": [],
+                "policies": [],
+                "operator_policies": [],
+                "parameters": []
+            }),
+            BTreeMap::from([("jobs".to_owned(), 2)]),
+        )
+        .expect("cluster export must be scoped to the selected vhost");
+
+        let definitions = artifact
+            .definitions()
+            .as_object()
+            .expect("scoped definitions object");
+        assert_eq!(definitions["vhosts"].as_array().expect("vhosts").len(), 1);
+        assert_eq!(definitions["queues"].as_array().expect("queues").len(), 1);
+        assert_eq!(
+            definitions["exchanges"]
+                .as_array()
+                .expect("exchanges")
+                .len(),
+            1
+        );
+        assert!(definitions.get("users").is_none());
+        assert!(definitions.get("permissions").is_none());
+        assert_eq!(definitions["queues"][0]["name"], "jobs");
     }
 
     #[test]

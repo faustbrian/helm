@@ -5,8 +5,12 @@ use super::{
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery, EngineError,
     ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions, NetworkManager,
-    OwnedContainer, ResourceKind, delete_owned_installation_resources, reconstruct_owned_container,
+    OwnedContainer, OwnedVolume, ResourceKind, VolumeDiscovery,
+    delete_owned_installation_resources, reconstruct_owned_container, reconstruct_owned_volume,
     run_attached_command_capture,
+};
+use crate::control_plane::migration::{
+    RabbitMqBackupOptions, RabbitMqRestoreOptions, backup_rabbitmq_vhost, restore_rabbitmq_vhost,
 };
 use crate::control_plane::network::global_network_request;
 use crate::control_plane::shared_infrastructure::{
@@ -16,7 +20,8 @@ use crate::control_plane::shared_infrastructure::{
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -190,6 +195,107 @@ fn live_docker_engine_two_projects_share_one_rabbitmq_with_isolated_vhosts() {
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
 
+        publish_persistent(
+            &engine,
+            &container,
+            bill.definition().vhost(),
+            bill.credential().username(),
+            bill.credential().secret(),
+            "bill-point-in-time",
+        )
+        .await
+        .expect("publish persistent bill recovery message");
+        publish_persistent(
+            &engine,
+            &container,
+            shop.definition().vhost(),
+            shop.credential().username(),
+            shop.credential().secret(),
+            "shop-sibling",
+        )
+        .await
+        .expect("publish persistent shop sibling message");
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill RabbitMQ resource");
+        let volume = owned_shared_volume(&engine, &installation_id).await;
+        let backup = backup_rabbitmq_vhost(
+            &mut engine,
+            &container,
+            &volume,
+            &RabbitMqBackupOptions {
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 10_000,
+                backup_root: &state_directory.join("backups"),
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("back up bill RabbitMQ vhost");
+        let consumed_after_backup = consume_message(
+            &engine,
+            &container,
+            bill.definition().vhost(),
+            bill.credential().username(),
+            bill.credential().secret(),
+        )
+        .await
+        .expect("mutate bill vhost after backup");
+        assert!(String::from_utf8_lossy(&consumed_after_backup).contains("bill-point-in-time"));
+        let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+            recovery_point_id: "bill-rabbitmq-live-recovery".to_owned(),
+            project_id: bill_logical.project_id().to_owned(),
+            service_id: bill_logical.service_id().to_owned(),
+            logical_resource_id: bill_logical.logical_resource_id().to_owned(),
+            resource_kind: bill_logical.kind().to_owned(),
+            compatibility_fingerprint: bill_logical.compatibility_fingerprint().to_owned(),
+            reference: backup.reference().to_owned(),
+            artifact_sha256: backup.artifact_sha256().to_owned(),
+            artifact_size_bytes: backup.artifact_size_bytes(),
+            created_at_unix_seconds: 10_000,
+            verified_at_unix_seconds: 10_000,
+        })
+        .expect("record bill RabbitMQ recovery point");
+        restore_rabbitmq_vhost(
+            &mut engine,
+            &container,
+            &volume,
+            &RabbitMqRestoreOptions {
+                recovery_point: &recovery,
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                installation_id: &installation_id,
+                verified_at_unix_seconds: 10_001,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("restore bill RabbitMQ vhost");
+        let restored_bill = consume_message(
+            &engine,
+            &container,
+            bill.definition().vhost(),
+            bill.credential().username(),
+            bill.credential().secret(),
+        )
+        .await
+        .expect("consume restored bill recovery message");
+        assert!(String::from_utf8_lossy(&restored_bill).contains("bill-point-in-time"));
+        let preserved_shop = consume_message(
+            &engine,
+            &container,
+            shop.definition().vhost(),
+            shop.credential().username(),
+            shop.credential().secret(),
+        )
+        .await
+        .expect("consume preserved shop sibling message");
+        assert!(String::from_utf8_lossy(&preserved_shop).contains("shop-sibling"));
+
         let bill_logical = first
             .logical_resources()
             .iter()
@@ -333,6 +439,17 @@ async fn owned_shared_container(
         .expect("discover one owned shared RabbitMQ container")
 }
 
+async fn owned_shared_volume(engine: &BollardEngineAdapter, installation_id: &str) -> OwnedVolume {
+    engine
+        .discover_managed_volumes()
+        .await
+        .expect("discover shared RabbitMQ acceptance volumes")
+        .into_iter()
+        .filter_map(|observed| reconstruct_owned_volume(&observed, installation_id, 8).ok())
+        .find(|owned| owned.metadata().kind() == ResourceKind::Volume)
+        .expect("discover one owned shared RabbitMQ volume")
+}
+
 async fn publish_and_consume(
     engine: &BollardEngineAdapter,
     container: &OwnedContainer,
@@ -373,6 +490,61 @@ async fn publish_and_consume(
         ],
     )
     .await?;
+    rabbitmqadmin(
+        engine,
+        container,
+        vhost,
+        username,
+        password,
+        &[
+            "get",
+            "messages",
+            "--queue",
+            "stackctl_acceptance",
+            "--count",
+            "1",
+            "--ack-mode",
+            "ack_requeue_false",
+        ],
+    )
+    .await
+}
+
+async fn publish_persistent(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    vhost: &str,
+    username: &str,
+    password: &str,
+    value: &str,
+) -> Result<Vec<u8>, EngineError> {
+    rabbitmqadmin(
+        engine,
+        container,
+        vhost,
+        username,
+        password,
+        &[
+            "publish",
+            "message",
+            "--routing-key",
+            "stackctl_acceptance",
+            "--payload",
+            value,
+            "--properties",
+            r#"{"delivery_mode":2}"#,
+        ],
+    )
+    .await
+}
+
+async fn consume_message(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    vhost: &str,
+    username: &str,
+    password: &str,
+) -> Result<Vec<u8>, EngineError> {
     rabbitmqadmin(
         engine,
         container,

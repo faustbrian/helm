@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux RabbitMQ recovery acceptance that streams a verified
+  topology and persistent classic-queue message-store backup through an
+  in-place vhost restore, proves the selected point-in-time message returns,
+  preserves the sibling vhost, and performs exact cleanup. Fixed RabbitMQ 4
+  inventory to suppress CLI status output, scoped cluster-wide definitions
+  exports to the selected vhost without storing credentials or sibling
+  topology, protected temporary exports, and gated every recovery restart on
+  application readiness.
 - Added native Linux MongoDB recovery acceptance that streams a verified
   archive into an isolated retained target, proves the restored point-in-time
   document while preserving the later-mutated source and sibling database,

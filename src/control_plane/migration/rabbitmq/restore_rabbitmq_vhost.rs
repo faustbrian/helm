@@ -8,6 +8,7 @@ use crate::control_plane::migration::MigrationOperationError;
 use crate::control_plane::retention::{
     BackupResourceIdentity, open_stored_backup_artifact, verify_stored_backup_artifact,
 };
+use crate::control_plane::shared_infrastructure::wait_for_rabbitmq_readiness;
 use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
 use std::io::Cursor;
@@ -92,6 +93,16 @@ where
                 .start(container)
                 .await
                 .map_err(|error| operation_error("RabbitMQ restore broker start failed", error))?;
+            if let Err(error) = wait_for_rabbitmq_readiness(engine, container).await {
+                let readiness = operation_error("RabbitMQ restore broker readiness failed", error);
+                let stop = engine.stop(container).await.map_err(|error| {
+                    operation_error("RabbitMQ restored broker re-quiesce failed", error)
+                });
+                return match stop {
+                    Ok(()) => Err(readiness),
+                    Err(stop) => Err(MigrationOperationError::new(format!("{readiness}; {stop}"))),
+                };
+            }
             false
         }
         ContainerState::Missing => {
@@ -169,6 +180,12 @@ where
         .start(container)
         .await
         .map_err(|error| operation_error("RabbitMQ restored broker restart failed", error));
+    let restart = match restart {
+        Ok(()) => wait_for_rabbitmq_readiness(engine, container)
+            .await
+            .map_err(|error| operation_error("RabbitMQ restored broker readiness failed", error)),
+        Err(error) => Err(error),
+    };
     match (upload, restart) {
         (Ok(()), Ok(())) => {}
         (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
