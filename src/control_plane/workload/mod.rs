@@ -104,8 +104,12 @@ pub(crate) use project_volume_reconcile_action::ProjectVolumeReconcileAction;
 pub(crate) use project_volume_reconcile_options::ProjectVolumeReconcileOptions;
 pub(crate) use project_volume_reconcile_result::ProjectVolumeReconcileResult;
 pub(crate) use project_volume_resource_record::project_volume_resource_record;
+#[cfg(test)]
 pub(crate) use reconcile_project_application::reconcile_project_application;
+pub(crate) use reconcile_project_application::reconcile_project_application_from_observed;
+#[cfg(test)]
 pub(crate) use reconcile_project_process::reconcile_project_process;
+pub(crate) use reconcile_project_process::reconcile_project_process_from_observed;
 pub(crate) use reconcile_project_service::reconcile_project_service;
 pub(crate) use reconcile_project_volume::reconcile_project_volume;
 pub(crate) use reconcile_retained_project_service::reconcile_retained_project_service;

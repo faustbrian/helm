@@ -4,11 +4,12 @@ use super::{
 };
 use crate::control_plane::engine::{
     ContainerDiscovery, ContainerHealth, ContainerLifecycle, ContainerState, EngineError,
-    HealthObserver, ObservedResourceOwnership, OwnedContainer, ResourceKind, RetentionClass,
-    reconstruct_owned_container,
+    HealthObserver, ObservedContainer, ObservedResourceOwnership, OwnedContainer, ResourceKind,
+    RetentionClass, reconstruct_owned_container,
 };
 
 /// Restores one disposable project application without touching other workloads.
+#[cfg(test)]
 pub(crate) async fn reconcile_project_application<E>(
     engine: &mut E,
     options: WorkloadReconcileOptions<'_>,
@@ -25,6 +26,25 @@ where
     .await
 }
 
+/// Reconciles one application against a pass-wide Engine observation.
+pub(crate) async fn reconcile_project_application_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: WorkloadReconcileOptions<'_>,
+) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
+where
+    E: ContainerLifecycle + HealthObserver,
+{
+    reconcile_project_workload_from_observed(
+        engine,
+        observed,
+        options,
+        ResourceKind::ProjectApplication,
+        RetentionClass::Disposable,
+    )
+    .await
+}
+
 pub(super) async fn reconcile_project_workload<E>(
     engine: &mut E,
     options: WorkloadReconcileOptions<'_>,
@@ -34,14 +54,36 @@ pub(super) async fn reconcile_project_workload<E>(
 where
     E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
 {
-    let (project_id, resource_id) = validate_request(&options, expected_kind, expected_retention)?;
+    validate_request(&options, expected_kind, expected_retention)?;
     let observed = engine
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover managed containers", error))?;
+
+    reconcile_project_workload_from_observed(
+        engine,
+        &observed,
+        options,
+        expected_kind,
+        expected_retention,
+    )
+    .await
+}
+
+pub(super) async fn reconcile_project_workload_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: WorkloadReconcileOptions<'_>,
+    expected_kind: ResourceKind,
+    expected_retention: RetentionClass,
+) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
+where
+    E: ContainerLifecycle + HealthObserver,
+{
+    let (project_id, resource_id) = validate_request(&options, expected_kind, expected_retention)?;
     let mut workloads = Vec::new();
 
-    for container in &observed {
+    for container in observed {
         match reconstruct_owned_container(
             container,
             options.installation_id,

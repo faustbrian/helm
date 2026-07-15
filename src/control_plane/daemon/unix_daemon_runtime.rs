@@ -17,7 +17,9 @@ use super::{
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
-use crate::control_plane::engine::{AttachedCommandOutput, EngineError, NetworkCreateOptions};
+use crate::control_plane::engine::{
+    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions,
+};
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
     SystemGatewayPortProbe, prepare_gateway_runtime_assets, reconcile_gateway_plane,
@@ -50,9 +52,9 @@ use crate::control_plane::workload::{
     OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan,
     WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
     garbage_collect_disposable_containers, materialize_application_requests,
-    project_volume_resource_record, reconcile_project_application, reconcile_project_process,
-    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
-    stop_orphaned_project_workloads, workload_resource_record,
+    project_volume_resource_record, reconcile_project_application_from_observed,
+    reconcile_project_process_from_observed, reconcile_project_service, reconcile_project_volume,
+    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -995,7 +997,27 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
+        let observed_project_workloads =
+            match self.engine_runtime.block_on(engine.discover_managed()) {
+                Ok(observed) => observed,
+                Err(error) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "project workload discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            };
         let application_engine = (*engine).clone();
+        let application_observation = observed_project_workloads.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
         let application_results =
@@ -1007,8 +1029,9 @@ impl UnixDaemonRuntime {
                         let mut engine = application_engine.clone();
 
                         async move {
-                            let result = reconcile_project_application(
+                            let result = reconcile_project_application_from_observed(
                                 &mut engine,
+                                application_observation,
                                 WorkloadReconcileOptions {
                                     request: &request,
                                     installation_id,
@@ -1350,6 +1373,7 @@ impl UnixDaemonRuntime {
             process_requests.push(request);
         }
         let process_engine = (*engine).clone();
+        let process_observation = observed_project_workloads.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
         let process_results = self
@@ -1361,8 +1385,9 @@ impl UnixDaemonRuntime {
                     let mut engine = process_engine.clone();
 
                     async move {
-                        let result = reconcile_project_process(
+                        let result = reconcile_project_process_from_observed(
                             &mut engine,
+                            process_observation,
                             WorkloadReconcileOptions {
                                 request: &request,
                                 installation_id,

@@ -9,7 +9,8 @@ use super::{
     application_container_request, garbage_collect_build_images,
     garbage_collect_disposable_containers, materialize_application_request,
     materialize_application_requests, plan_ephemeral_browser, plan_immutable_project_application,
-    project_process_request, reconcile_project_application, reconcile_project_process,
+    project_process_request, reconcile_project_application,
+    reconcile_project_application_from_observed, reconcile_project_process,
     reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
     run_project_command, stop_orphaned_project_workloads, workload_resource_record,
 };
@@ -827,6 +828,38 @@ fn project_application_reconciliation_keeps_healthy_desired_runtime() {
     assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
     assert!(engine.created.is_empty());
     assert!(engine.started.is_empty());
+}
+
+#[test]
+fn project_application_reconciliation_reuses_a_pass_wide_observation() {
+    let request = application_request("sha256:desired-v1");
+    let observed = [ObservedContainer::new(
+        ContainerId::new("bill-app"),
+        request.metadata().labels(),
+    )];
+    let mut engine = RecordingWorkloadEngine {
+        state: ContainerState::Running,
+        health: ContainerHealth::Healthy,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_application_from_observed(
+            &mut engine,
+            &observed,
+            WorkloadReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile from shared observation");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
+    assert!(engine.created.is_empty());
 }
 
 #[test]
