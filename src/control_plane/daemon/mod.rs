@@ -167,6 +167,8 @@ pub(crate) use singleton_lease_error::SingletonLeaseError;
 #[cfg(test)]
 mod configuration_lifecycle_tests;
 #[cfg(test)]
+mod installation_deletion_live_tests;
+#[cfg(test)]
 mod tests;
 pub(crate) use benchmark_snapshot_provider::BenchmarkSnapshotProvider;
 #[cfg(unix)]

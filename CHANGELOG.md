@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for confirmed installation deletion.
+  CI now drives a durable recovery record through the exact deletion plan and
+  confirmation token, proves an unconfirmed request retains the persistent
+  volume, then deletes only the recovery-authorized volume and commits the
+  terminal installation state.
 - Added daemon-boundary acceptance for watched YAML removal, restoration, and
   atomic project-directory rename. Retained resources, logical data,
   credentials, and managed environment now have one integration proof that
