@@ -437,7 +437,9 @@ one recovery notice when it clears.
 Each changed automatic-discovery diagnostic set is also persisted as one typed
 `project-discovery` event. `stackctl daemon status` returns the live set and
 exits nonzero while any issue remains, instead of treating a responsive process
-as healthy when project activation is blocked.
+as healthy when project activation is blocked. The daemon restores the latest
+snapshot before its initial rescan, preserving change deduplication across
+daemon restarts.
 An explicit `stackctl daemon reconcile` returns every typed discovery
 diagnostic and exits nonzero when that complete scan is blocked. Its operation
 history records `Accepted` followed by `Failed`, never `Completed`. This does

@@ -9303,7 +9303,7 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
 
 #[cfg(unix)]
 #[test]
-fn singleton_unix_runtime_publishes_automatic_discovery_diagnostics() {
+fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
     use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
     use crate::control_plane::daemon::ipc::{decode_response_frame, encode_frame};
     use std::io::{BufRead, BufReader, Write};
@@ -9349,7 +9349,7 @@ fn singleton_unix_runtime_publishes_automatic_discovery_diagnostics() {
         idle_poll_interval: Duration::from_millis(10),
     };
     let now = Instant::now();
-    let mut runtime = UnixDaemonRuntime::new(options, now).expect("singleton runtime");
+    let mut runtime = UnixDaemonRuntime::new(options.clone(), now).expect("singleton runtime");
     let request = IpcRequest::new("status-runtime", IpcPayload::DaemonStatus);
     let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
     client
@@ -9400,6 +9400,22 @@ fn singleton_unix_runtime_publishes_automatic_discovery_diagnostics() {
             if diagnostics.len() == 1
                 && diagnostics[0].code() == "configuration_invalid"
     ));
+
+    drop(store);
+    let restart_now = Instant::now();
+    let mut restarted =
+        UnixDaemonRuntime::new(options, restart_now).expect("restart singleton runtime");
+    restarted
+        .run_iteration(restart_now, 10_001)
+        .expect("restart daemon iteration");
+    drop(restarted);
+
+    let store = SqliteStateStore::open(&database_path).expect("reopen restarted state store");
+    assert_eq!(
+        store.daemon_events().expect("load restarted events").len(),
+        1,
+        "an unchanged diagnostic snapshot must not be republished after restart"
+    );
 
     drop(store);
     std::fs::remove_dir_all(&root).expect("remove runtime fixture");

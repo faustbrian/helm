@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
   status IPC instead of reporting only that the process responds. Changed
   diagnostic snapshots are also persisted as structured daemon events and
   status exits nonzero with every actionable issue until discovery recovers.
+  The latest snapshot is restored after daemon restarts so unchanged failures
+  and recoveries do not produce duplicate history or notification noise.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration

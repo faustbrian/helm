@@ -12,7 +12,8 @@ use super::{
     UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
     invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
     record_discovery_diagnostics, requires_engine_reconciliation, requires_followup_reconciliation,
-    restore_daemon_operation_queues, validate_project_workload_adoption,
+    restore_daemon_operation_queues, restore_discovery_diagnostics,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
@@ -129,6 +130,7 @@ impl UnixDaemonRuntime {
             migration_decisions,
         ) = restore_daemon_operation_queues(&mut store, unix_time_seconds())?;
         let event_journal = IpcEventJournal::restore(store.daemon_events()?)?;
+        let discovery_diagnostics = restore_discovery_diagnostics(&event_journal)?;
         let installation = initialize_default_installation(&mut store)?;
         let watched_roots = options
             .watched_roots
@@ -184,7 +186,7 @@ impl UnixDaemonRuntime {
             active_scheduled_commands: BTreeMap::new(),
             control_plane: ControlPlane::new(store),
             scheduler,
-            discovery_diagnostics: Vec::new(),
+            discovery_diagnostics,
             scheduled_command_clock: ScheduledCommandClock::default(),
             options,
         })
