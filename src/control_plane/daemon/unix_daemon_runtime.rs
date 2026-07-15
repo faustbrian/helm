@@ -1169,35 +1169,7 @@ impl UnixDaemonRuntime {
             }
         }
 
-        let observed_project_volumes = if engine_plan
-            .dedicated_services()
-            .iter()
-            .any(|service| service.volume().is_some())
-        {
-            match self
-                .engine_runtime
-                .block_on(engine.discover_managed_volumes())
-            {
-                Ok(observed) => observed,
-                Err(error) => {
-                    let retry = invalidate_engine_connection(
-                        &mut self.engine_connection,
-                        &mut self.resource_health,
-                        now,
-                    );
-                    tracing::debug!(
-                        attempt = retry.attempt(),
-                        retry_milliseconds = retry.duration().as_millis(),
-                        error = %error,
-                        "project volume discovery lost the selected Engine; retry scheduled"
-                    );
-
-                    return;
-                }
-            }
-        } else {
-            Vec::new()
-        };
+        let observed_project_volumes = observed_shared_volumes.as_slice();
 
         'dedicated_services: for service in engine_plan.dedicated_services() {
             if let Some(volume) = service.volume() {
@@ -1205,7 +1177,7 @@ impl UnixDaemonRuntime {
                     .engine_runtime
                     .block_on(reconcile_project_volume_from_observed(
                         engine,
-                        &observed_project_volumes,
+                        observed_project_volumes,
                         ProjectVolumeReconcileOptions {
                             request: volume,
                             installation_id: self

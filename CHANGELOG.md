@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused the pass-wide managed-volume observation for retained dedicated
+  project volumes as well as compatibility-keyed shared volumes. The daemon no
+  longer repeats a complete Engine volume inventory between those independent
+  reconciliation phases.
 - Reused the daemon's post-shared container observation for dedicated-service
   provisioning and authenticated-readiness jobs. Reconciliation no longer
   performs a full managed-container scan for every LocalStack, search, or
