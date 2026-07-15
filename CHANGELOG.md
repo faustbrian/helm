@@ -25,6 +25,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Install the macOS local CA into the explicit per-user login keychain and
+  require its exact SHA-256 fingerprint to be present before reporting it as
+  trusted. This prevents certificate self-verification from producing a false
+  successful trust status while browsers and curl still reject HTTPS.
 - Preserve standard tracing `message` and `error` fields in CLI output so
   daemon reconciliation failures no longer appear as empty log lines.
 - Shortened deterministic shared-service Engine names to a 160-bit hash

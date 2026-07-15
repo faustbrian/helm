@@ -511,8 +511,12 @@ fn failed_os_untrust_command_restores_an_exact_partially_removed_ca() {
 #[test]
 fn macos_trust_store_verifies_the_exact_persisted_ca_with_user_trust() {
     let (identity, certificate_path) = trust_fixture();
-    let runner = RecordingCommandExecutor::with_outputs([HostCommandOutput::success("")]);
-    let store = MacOsCertificateTrustStore::new(runner.clone());
+    let keychain = PathBuf::from("/Users/test/Library/Keychains/login.keychain-db");
+    let runner = RecordingCommandExecutor::with_outputs([
+        HostCommandOutput::success(format!("SHA-256 hash: {}", identity.sha256_hex())),
+        HostCommandOutput::success(""),
+    ]);
+    let store = MacOsCertificateTrustStore::with_user_keychain(runner.clone(), &keychain);
 
     assert!(
         store
@@ -521,28 +525,37 @@ fn macos_trust_store_verifies_the_exact_persisted_ca_with_user_trust() {
     );
     assert_eq!(
         runner.commands(),
-        vec![HostCommand::new(
-            "security",
-            [
-                "verify-cert",
-                "-c",
-                certificate_path.to_str().expect("UTF-8 certificate path"),
-                "-p",
-                "basic",
-                "-l",
-                "-L",
-                "-q",
-            ]
-        )]
+        vec![
+            HostCommand::new(
+                "security",
+                ["find-certificate", "-a", "-Z", keychain.to_str().unwrap()]
+            ),
+            HostCommand::new(
+                "security",
+                [
+                    "verify-cert",
+                    "-c",
+                    certificate_path.to_str().expect("UTF-8 certificate path"),
+                    "-p",
+                    "basic",
+                    "-l",
+                    "-L",
+                    "-q",
+                ]
+            ),
+        ]
     );
 }
 
 #[test]
 fn macos_trust_store_reports_failed_local_verification_as_untrusted() {
     let (identity, certificate_path) = trust_fixture();
-    let store = MacOsCertificateTrustStore::new(RecordingCommandExecutor::with_outputs([
-        HostCommandOutput::failure("certificate verification failed"),
-    ]));
+    let store = MacOsCertificateTrustStore::with_user_keychain(
+        RecordingCommandExecutor::with_outputs([HostCommandOutput::failure(
+            "certificate not found",
+        )]),
+        "/Users/test/Library/Keychains/login.keychain-db",
+    );
 
     assert!(
         !store
@@ -554,11 +567,12 @@ fn macos_trust_store_reports_failed_local_verification_as_untrusted() {
 #[test]
 fn macos_trust_store_installs_and_removes_only_the_exact_user_ca() {
     let (identity, certificate_path) = trust_fixture();
+    let keychain = PathBuf::from("/Users/test/Library/Keychains/login.keychain-db");
     let runner = RecordingCommandExecutor::with_outputs([
         HostCommandOutput::success(""),
         HostCommandOutput::success(""),
     ]);
-    let store = MacOsCertificateTrustStore::new(runner.clone());
+    let store = MacOsCertificateTrustStore::with_user_keychain(runner.clone(), &keychain);
 
     store
         .install(&identity, &certificate_path)
@@ -576,6 +590,8 @@ fn macos_trust_store_installs_and_removes_only_the_exact_user_ca() {
                     "add-trusted-cert",
                     "-r",
                     "trustRoot",
+                    "-k",
+                    keychain.to_str().unwrap(),
                     certificate_path.to_str().expect("UTF-8 certificate path"),
                 ]
             ),
