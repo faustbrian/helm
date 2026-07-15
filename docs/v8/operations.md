@@ -419,3 +419,8 @@ Invalid registry plans are classified as `configuration_invalid` or
 all claimant paths; Stackctl never changes a project name or domain to repair
 them. The daemon emits the actionable diagnostic once when the set changes and
 one recovery notice when it clears.
+Privilege-expanding service fields are classified separately as
+`security_approval_blocked`. This includes privileged mode, host networking,
+host bind mounts, device access, added capabilities, and Engine socket access.
+V8 has no approval bypass: the declaration remains blocked before mutation and
+the last validated plan continues operating.

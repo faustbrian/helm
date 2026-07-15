@@ -4,6 +4,17 @@ use serde_yaml_ng::{Deserializer, Value};
 use std::path::Path;
 
 const SUPPORTED_SCHEMA_VERSION: u32 = 8;
+const PROHIBITED_ENGINE_FIELDS: [&str; 9] = [
+    "bind_mounts",
+    "cap_add",
+    "devices",
+    "docker_socket",
+    "engine_socket",
+    "host_network",
+    "pid_mode",
+    "privileged",
+    "security_opt",
+];
 
 /// Parses exactly one restricted YAML document into the v8 raw model.
 pub(crate) fn parse_project_config(
@@ -29,6 +40,7 @@ pub(crate) fn parse_project_config(
     }
 
     reject_yaml_tags(&value, config_path)?;
+    validate_security_policy(&value, config_path)?;
     validate_service_version_types(&value, config_path)?;
 
     let config = serde_yaml_ng::from_value::<RawProjectConfig>(value).map_err(|error| {
@@ -46,6 +58,33 @@ pub(crate) fn parse_project_config(
     }
 
     Ok(config)
+}
+
+fn validate_security_policy(value: &Value, config_path: &Path) -> Result<(), ConfigParseError> {
+    let Some(services) = mapping_value(value, "services").and_then(Value::as_mapping) else {
+        return Ok(());
+    };
+
+    for (service_name, service) in services {
+        let Some(service_name) = service_name.as_str() else {
+            continue;
+        };
+        let Some(service) = service.as_mapping() else {
+            continue;
+        };
+        for field in PROHIBITED_ENGINE_FIELDS {
+            if service.contains_key(Value::String(field.to_owned())) {
+                return Err(ConfigParseError::security_policy_blocked(
+                    config_path.to_path_buf(),
+                    format!(
+                        "services.{service_name}.{field} is blocked by the v8 security policy and cannot be approved"
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn reject_yaml_tags(value: &Value, config_path: &Path) -> Result<(), ConfigParseError> {

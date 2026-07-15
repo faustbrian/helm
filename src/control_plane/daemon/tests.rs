@@ -6637,10 +6637,10 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("restore project config");
-    let collision = root.join("archive-bill");
-    std::fs::create_dir(&collision).expect("collision directory");
+    let collision_path = root.join("archive-bill");
+    std::fs::create_dir(&collision_path).expect("collision directory");
     std::fs::write(
-        collision.join(".stackctl.yaml"),
+        collision_path.join(".stackctl.yaml"),
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("collision config");
@@ -6665,6 +6665,29 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     engine_schedule
         .observe(&collision)
         .expect("retain plan across collision");
+    assert!(engine_schedule.may_reconcile());
+
+    std::fs::remove_dir_all(&collision_path).expect("remove collision project");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n    privileged: true\n",
+    )
+    .expect("security policy config");
+    let security = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        12_347,
+    )
+    .expect("security policy becomes a blocked diagnostic");
+    assert!(!security.was_applied());
+    assert_eq!(security.report().issues().len(), 1);
+    assert_eq!(
+        security.report().issues()[0].code(),
+        "security_approval_blocked"
+    );
+    engine_schedule
+        .observe(&security)
+        .expect("retain plan across security block");
     assert!(engine_schedule.may_reconcile());
 
     drop(control_plane);

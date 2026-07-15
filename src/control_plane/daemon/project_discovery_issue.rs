@@ -39,6 +39,9 @@ pub(crate) enum ProjectDiscoveryIssue {
     ConfigurationCollision {
         detail: String,
     },
+    SecurityApprovalBlocked {
+        detail: String,
+    },
 }
 
 impl ProjectDiscoveryIssue {
@@ -53,6 +56,7 @@ impl ProjectDiscoveryIssue {
             Self::DepthLimit { .. } => "discovery_depth_limit",
             Self::InvalidConfiguration { .. } => "configuration_invalid",
             Self::ConfigurationCollision { .. } => "configuration_collision",
+            Self::SecurityApprovalBlocked { .. } => "security_approval_blocked",
         }
     }
 }
@@ -103,9 +107,9 @@ impl Display for ProjectDiscoveryIssue {
                 "project discovery did not descend into '{}' because maximum depth is {maximum}",
                 path.display()
             ),
-            Self::InvalidConfiguration { detail } | Self::ConfigurationCollision { detail } => {
-                formatter.write_str(detail)
-            }
+            Self::InvalidConfiguration { detail }
+            | Self::ConfigurationCollision { detail }
+            | Self::SecurityApprovalBlocked { detail } => formatter.write_str(detail),
         }
     }
 }

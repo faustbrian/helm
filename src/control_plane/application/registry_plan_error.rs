@@ -35,6 +35,15 @@ impl Error for RegistryPlanError {
     }
 }
 
+impl RegistryPlanError {
+    pub(crate) const fn is_security_policy_blocked(&self) -> bool {
+        matches!(
+            self,
+            Self::Configuration(error) if error.is_security_policy_blocked()
+        )
+    }
+}
+
 impl From<ArtifactLockError> for RegistryPlanError {
     fn from(error: ArtifactLockError) -> Self {
         Self::ArtifactLock(error)

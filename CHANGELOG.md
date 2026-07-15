@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Classified prohibited service privilege declarations such as `privileged`,
+  host networking, device access, Engine sockets, capabilities, and bind mounts
+  as `security_approval_blocked`. V8 offers no override for these declarations;
+  the last validated plan remains active and no privileged mutation occurs.
 - Converted invalid complete-registry plans into typed blocked-scan diagnostics
   instead of fatal daemon-iteration errors. Route ownership conflicts report
   `configuration_collision` with every exact claimant, diagnostics log only

@@ -529,7 +529,9 @@ services:
 
     let error = parse_project_config(source, Path::new(CONFIG_PATH)).expect_err("unknown field");
 
-    assert!(error.to_string().contains("privileged"));
+    assert!(error.is_security_policy_blocked());
+    assert!(error.to_string().contains("services.app.privileged"));
+    assert!(error.to_string().contains("cannot be approved"));
 }
 
 #[test]

@@ -31,6 +31,13 @@ where
                 },
             )));
         }
+        Err(ControlPlaneError::Plan(error)) if error.is_security_policy_blocked() => {
+            return Ok(DiscoveryReconciliationResult::blocked(report.with_issue(
+                ProjectDiscoveryIssue::SecurityApprovalBlocked {
+                    detail: error.to_string(),
+                },
+            )));
+        }
         Err(ControlPlaneError::Plan(error)) => {
             return Ok(DiscoveryReconciliationResult::blocked(report.with_issue(
                 ProjectDiscoveryIssue::InvalidConfiguration {

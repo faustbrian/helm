@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub(crate) struct ConfigParseError {
     path: PathBuf,
     detail: String,
+    security_policy_blocked: bool,
 }
 
 impl ConfigParseError {
@@ -14,7 +15,20 @@ impl ConfigParseError {
         Self {
             path,
             detail: detail.into(),
+            security_policy_blocked: false,
         }
+    }
+
+    pub(super) fn security_policy_blocked(path: PathBuf, detail: impl Into<String>) -> Self {
+        Self {
+            path,
+            detail: detail.into(),
+            security_policy_blocked: true,
+        }
+    }
+
+    pub(crate) const fn is_security_policy_blocked(&self) -> bool {
+        self.security_policy_blocked
     }
 }
 
