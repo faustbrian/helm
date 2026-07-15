@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added an explicit 30-second restart throttle for fatal daemon startup
+  failures on launchd and systemd, preventing persistent resolver, filesystem,
+  or state errors from becoming a rapid process and journal loop.
 - Classified `.localhost` resolver, empty-answer, and non-loopback failures as
   typed setup preflight errors with an exact recovery instruction. Stackctl now
   states that it will not repair resolution by editing `/etc/hosts`.

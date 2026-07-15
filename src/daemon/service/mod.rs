@@ -681,6 +681,7 @@ mod tests {
         assert!(plist.contains("/tmp/stackctl"));
         assert!(plist.contains("<string>--dir</string>"));
         assert!(plist.contains("<string>/dev/null</string>"));
+        assert!(plist.contains("<key>ThrottleInterval</key>\n  <integer>30</integer>"));
         assert!(!plist.contains("watch-service.stdout.log"));
         assert!(!plist.contains("watch-service.stderr.log"));
         let watched_root = fs::canonicalize(std::env::temp_dir()).expect("watched root");
@@ -717,6 +718,9 @@ mod tests {
         assert!(!unit.contains("--max-projects"));
         assert!(unit.contains("StandardOutput=journal"));
         assert!(unit.contains("StandardError=journal"));
+        assert!(unit.contains("Restart=on-failure"));
+        assert!(unit.contains("RestartSec=30"));
+        assert!(!unit.contains("Restart=always"));
         assert!(!unit.contains("StandardOutput=append:"));
         assert!(!unit.contains("StandardError=append:"));
 

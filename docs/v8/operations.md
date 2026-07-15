@@ -187,6 +187,14 @@ Every installation path canonicalizes its watched roots first. Missing paths,
 non-directories, and duplicate canonical roots fail before the definition or
 service manager is changed.
 
+Fatal daemon startup failures use an explicit 30-second manager restart delay:
+launchd keeps the job alive with `ThrottleInterval`, while systemd uses
+`Restart=on-failure` and `RestartSec`. Engine absence does not exercise this
+path because the live daemon owns bounded Engine reconnection internally. The
+manager delay prevents persistent resolver, filesystem, or state failures from
+creating a rapid process and log loop while still recovering without a command
+after the external condition is repaired.
+
 Login services do not create unbounded duplicate stream files. Linux routes
 stdout and stderr through journald; launchd routes those duplicate streams to
 `/dev/null` while Stackctl retains explicit persistent events in its own log
