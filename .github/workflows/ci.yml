@@ -77,8 +77,16 @@ jobs:
         run: cargo test --all-targets --all-features
 
   gateway-acceptance:
-    name: Gateway Protocol Acceptance
-    runs-on: ubuntu-latest
+    name: Gateway Protocol Acceptance (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -90,12 +98,14 @@ jobs:
           cache: false
 
       - name: Exercise pinned gateway protocols and restart
-        run: ./scripts/accept-v8-gateway.sh target/gateway-acceptance-record.txt
+        run: >-
+          ./scripts/accept-v8-gateway.sh
+          target/gateway-acceptance-${{ matrix.platform }}.txt
 
       - name: Publish raw gateway acceptance record
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-acceptance-record
-          path: target/gateway-acceptance-record.txt
+          name: gateway-acceptance-${{ matrix.platform }}
+          path: target/gateway-acceptance-${{ matrix.platform }}.txt
           if-no-files-found: error

@@ -15,6 +15,9 @@ All notable changes to this project are documented in this file.
 - Made daemon status report the selected container Engine as unavailable until
   a real connection succeeds, and after any connection loss, instead of
   treating an IPC-responsive control plane as fully ready.
+- Expanded the pinned gateway protocol acceptance workflow to native Linux
+  amd64 and arm64 runners, publishing separate raw records for each workload
+  architecture.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration
