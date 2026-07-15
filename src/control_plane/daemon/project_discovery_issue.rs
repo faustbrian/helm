@@ -33,6 +33,28 @@ pub(crate) enum ProjectDiscoveryIssue {
         path: PathBuf,
         maximum: usize,
     },
+    InvalidConfiguration {
+        detail: String,
+    },
+    ConfigurationCollision {
+        detail: String,
+    },
+}
+
+impl ProjectDiscoveryIssue {
+    pub(crate) const fn code(&self) -> &'static str {
+        match self {
+            Self::ConfigTooLarge { .. } => "configuration_too_large",
+            Self::UnreadableConfig { .. } => "configuration_unreadable",
+            Self::SymlinkConfig { .. } => "configuration_symlink",
+            Self::ArtifactLockTooLarge { .. } => "artifact_lock_too_large",
+            Self::UnreadableArtifactLock { .. } => "artifact_lock_unreadable",
+            Self::SymlinkArtifactLock { .. } => "artifact_lock_symlink",
+            Self::DepthLimit { .. } => "discovery_depth_limit",
+            Self::InvalidConfiguration { .. } => "configuration_invalid",
+            Self::ConfigurationCollision { .. } => "configuration_collision",
+        }
+    }
 }
 
 impl Display for ProjectDiscoveryIssue {
@@ -81,6 +103,9 @@ impl Display for ProjectDiscoveryIssue {
                 "project discovery did not descend into '{}' because maximum depth is {maximum}",
                 path.display()
             ),
+            Self::InvalidConfiguration { detail } | Self::ConfigurationCollision { detail } => {
+                formatter.write_str(detail)
+            }
         }
     }
 }

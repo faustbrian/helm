@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Converted invalid complete-registry plans into typed blocked-scan diagnostics
+  instead of fatal daemon-iteration errors. Route ownership conflicts report
+  `configuration_collision` with every exact claimant, diagnostics log only
+  when their set changes, and no partial or automatically repaired registry is
+  published.
 - Kept the last complete validated Engine plan permitted when a later watched
   root scan is blocked by an invalid or unreadable project. The blocked scan
   cannot replace desired state, but Engine events and recovery passes can still

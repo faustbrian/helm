@@ -20,4 +20,12 @@ impl ProjectDiscoveryReport {
     pub(crate) fn issues(&self) -> &[ProjectDiscoveryIssue] {
         &self.issues
     }
+
+    pub(crate) fn with_issue(mut self, issue: ProjectDiscoveryIssue) -> Self {
+        self.issues.push(issue);
+        self.issues
+            .sort_by(|left, right| left.to_string().cmp(&right.to_string()));
+
+        self
+    }
 }

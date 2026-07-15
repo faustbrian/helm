@@ -94,6 +94,7 @@ pub(crate) struct UnixDaemonRuntime {
     >,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
+    discovery_diagnostics: Vec<(String, String)>,
     pub(super) scheduled_command_clock: ScheduledCommandClock,
     pub(super) options: UnixDaemonRuntimeOptions,
 }
@@ -183,6 +184,7 @@ impl UnixDaemonRuntime {
             active_scheduled_commands: BTreeMap::new(),
             control_plane: ControlPlane::new(store),
             scheduler,
+            discovery_diagnostics: Vec::new(),
             scheduled_command_clock: ScheduledCommandClock::default(),
             options,
         })
@@ -217,6 +219,24 @@ impl UnixDaemonRuntime {
                 )
             })
             .transpose()?;
+        if let Some(reconciliation) = &reconciliation {
+            let diagnostics = reconciliation
+                .report()
+                .issues()
+                .iter()
+                .map(|issue| (issue.code().to_owned(), issue.to_string()))
+                .collect::<Vec<_>>();
+            if diagnostics != self.discovery_diagnostics {
+                if diagnostics.is_empty() && !self.discovery_diagnostics.is_empty() {
+                    tracing::info!("project discovery diagnostics cleared");
+                } else {
+                    for (code, message) in &diagnostics {
+                        tracing::warn!(code, error = message, "project discovery blocked");
+                    }
+                }
+                self.discovery_diagnostics = diagnostics;
+            }
+        }
         let mut image_reference_resolution = self
             .engine_connection
             .engine()

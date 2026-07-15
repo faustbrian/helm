@@ -414,3 +414,8 @@ A blocked filesystem scan cannot publish partial desired state, but it also
 does not revoke reconciliation permission from the last complete validated
 plan. Existing projects therefore continue responding to Engine events and
 periodic recovery while the invalid configuration is corrected.
+Invalid registry plans are classified as `configuration_invalid` or
+`configuration_collision`. Collision diagnostics retain the exact domain and
+all claimant paths; Stackctl never changes a project name or domain to repair
+them. The daemon emits the actionable diagnostic once when the set changes and
+one recovery notice when it clears.

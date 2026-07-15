@@ -6627,8 +6627,45 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
     assert_eq!(blocked.report().issues().len(), 1);
+    assert_eq!(blocked.report().issues()[0].code(), "configuration_symlink");
     engine_schedule.request();
     assert!(engine_schedule.is_due());
+
+    std::fs::remove_dir_all(&invalid).expect("remove invalid project");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("restore project config");
+    let collision = root.join("archive-bill");
+    std::fs::create_dir(&collision).expect("collision directory");
+    std::fs::write(
+        collision.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("collision config");
+
+    let collision = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        12_346,
+    )
+    .expect("configuration collision becomes a blocked diagnostic");
+    assert!(!collision.was_applied());
+    assert_eq!(collision.report().issues().len(), 1);
+    assert_eq!(
+        collision.report().issues()[0].code(),
+        "configuration_collision"
+    );
+    assert!(
+        collision.report().issues()[0]
+            .to_string()
+            .contains("bill-app.stackctl.localhost")
+    );
+    engine_schedule
+        .observe(&collision)
+        .expect("retain plan across collision");
+    assert!(engine_schedule.may_reconcile());
 
     drop(control_plane);
     let store = SqliteStateStore::open(&database_path).expect("reopen state store");
