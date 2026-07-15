@@ -7220,7 +7220,8 @@ fn daemon_retained_status_reports_orphaned_projects_without_registry_rows() {
                             IpcResourceHealth::Unknown,
                             None,
                             false,
-                        ),
+                        )
+                        .with_orphaned_at_unix_seconds(9_900),
                         IpcResourceStatus::with_data_lifecycle(
                             "db".to_owned(),
                             "postgres_database_and_role".to_owned(),
@@ -7229,7 +7230,8 @@ fn daemon_retained_status_reports_orphaned_projects_without_registry_rows() {
                             None,
                             true,
                             IpcDataLifecycle::LogicalResource,
-                        ),
+                        )
+                        .with_orphaned_at_unix_seconds(9_900),
                     ],
                 )],
             },

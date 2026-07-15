@@ -23,10 +23,8 @@ where
         let Some(project_id) = resource.project_id() else {
             continue;
         };
-        projects
-            .entry(project_id.to_owned())
-            .or_default()
-            .push(IpcResourceStatus::new(
+        projects.entry(project_id.to_owned()).or_default().push(
+            IpcResourceStatus::new(
                 resource
                     .scope_id()
                     .unwrap_or_else(|| resource.resource_id())
@@ -36,7 +34,13 @@ where
                 IpcResourceHealth::Unknown,
                 None,
                 false,
-            ));
+            )
+            .with_orphaned_at_unix_seconds(
+                resource.orphaned_at_unix_seconds().ok_or_else(|| {
+                    "retained physical resource has no orphan timestamp".to_owned()
+                })?,
+            ),
+        );
     }
 
     for resource in control_plane
@@ -58,15 +62,22 @@ where
         projects
             .entry(resource.project_id().to_owned())
             .or_default()
-            .push(IpcResourceStatus::with_data_lifecycle(
-                resource.service_id().to_owned(),
-                resource.kind().to_owned(),
-                ipc_resource_lifecycle(resource.lifecycle()),
-                IpcResourceHealth::Unknown,
-                None,
-                true,
-                data_lifecycle,
-            ));
+            .push(
+                IpcResourceStatus::with_data_lifecycle(
+                    resource.service_id().to_owned(),
+                    resource.kind().to_owned(),
+                    ipc_resource_lifecycle(resource.lifecycle()),
+                    IpcResourceHealth::Unknown,
+                    None,
+                    true,
+                    data_lifecycle,
+                )
+                .with_orphaned_at_unix_seconds(
+                    resource.orphaned_at_unix_seconds().ok_or_else(|| {
+                        "retained logical resource has no orphan timestamp".to_owned()
+                    })?,
+                ),
+            );
     }
 
     Ok(projects

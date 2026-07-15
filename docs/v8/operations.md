@@ -370,7 +370,8 @@ After a project config is removed, `stackctl daemon retained` lists its
 orphaned or retained physical and logical resources by the exact former
 project ID. The command is read-only, does not require the deleted path to
 still exist, and supports `--format json` for IDE and automation clients. It
-never adopts, repairs, prunes, or re-registers retained state.
+includes the durable orphan timestamp and never adopts, repairs, prunes, or
+re-registers retained state.
 Health snapshots remain in daemon memory, are timestamped, and publish only
 after a complete Engine reconciliation; they are never written to SQLite.
 Missing or stale resource observations are `unknown`, not implicitly healthy.

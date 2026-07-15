@@ -27,13 +27,13 @@ pub(super) fn handle_daemon_retained(args: &DaemonRetainedArgs) -> Result<()> {
 fn render_table(writer: &mut impl Write, projects: &[IpcProjectStatus]) -> Result<()> {
     writeln!(
         writer,
-        "PROJECT\tSERVICE\tKIND\tSCOPE\tDATA_SCOPE\tLIFECYCLE"
+        "PROJECT\tSERVICE\tKIND\tSCOPE\tDATA_SCOPE\tLIFECYCLE\tORPHANED_AT"
     )?;
     for project in projects {
         for resource in project.resources() {
             writeln!(
                 writer,
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 project.project(),
                 resource.service(),
                 resource.kind(),
@@ -44,6 +44,9 @@ fn render_table(writer: &mut impl Write, projects: &[IpcProjectStatus]) -> Resul
                 },
                 resource.data_lifecycle().as_str(),
                 resource.lifecycle().as_str(),
+                resource
+                    .orphaned_at_unix_seconds()
+                    .map_or_else(|| "-".to_owned(), |value| value.to_string()),
             )?;
         }
     }

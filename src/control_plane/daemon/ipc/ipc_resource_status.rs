@@ -11,6 +11,7 @@ pub(crate) struct IpcResourceStatus {
     lifecycle: IpcResourceLifecycle,
     health: IpcResourceHealth,
     observed_at_unix_seconds: Option<i64>,
+    orphaned_at_unix_seconds: Option<i64>,
     shared: bool,
     data_lifecycle: IpcDataLifecycle,
 }
@@ -30,6 +31,7 @@ impl IpcResourceStatus {
             lifecycle,
             health,
             observed_at_unix_seconds,
+            orphaned_at_unix_seconds: None,
             shared,
             data_lifecycle: IpcDataLifecycle::None,
         }
@@ -50,6 +52,7 @@ impl IpcResourceStatus {
             lifecycle,
             health,
             observed_at_unix_seconds,
+            orphaned_at_unix_seconds: None,
             shared,
             data_lifecycle,
         }
@@ -73,6 +76,18 @@ impl IpcResourceStatus {
 
     pub(crate) const fn observed_at_unix_seconds(&self) -> Option<i64> {
         self.observed_at_unix_seconds
+    }
+
+    pub(crate) const fn with_orphaned_at_unix_seconds(
+        mut self,
+        orphaned_at_unix_seconds: i64,
+    ) -> Self {
+        self.orphaned_at_unix_seconds = Some(orphaned_at_unix_seconds);
+        self
+    }
+
+    pub(crate) const fn orphaned_at_unix_seconds(&self) -> Option<i64> {
+        self.orphaned_at_unix_seconds
     }
 
     pub(crate) const fn shared(&self) -> bool {
