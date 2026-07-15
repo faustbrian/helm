@@ -13,6 +13,7 @@ mod prepared_project_service;
 mod project_service_container_configuration;
 mod project_service_preparation_error;
 mod project_service_preparation_strategy;
+mod project_service_provisioning_images;
 mod project_service_provisioning_job;
 
 pub(crate) use plan_dragonfly_project_resources::plan_dragonfly_project_resources;

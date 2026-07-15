@@ -5614,6 +5614,15 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
         dedicated.request().volume_mounts()[0].target(),
         "/var/lib/localstack"
     );
+    let provisioning = dedicated
+        .provisioning_job()
+        .expect("LocalStack bucket provisioning job");
+    assert_eq!(
+        provisioning.command(),
+        ["mb", "--ignore-existing", "localstack/stackctl-bill-aws"]
+    );
+    assert_eq!(provisioning.network(), Some("stackctl"));
+    assert_eq!(provisioning.platform(), Some("linux/arm64"));
 }
 
 #[test]

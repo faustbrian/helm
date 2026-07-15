@@ -1,5 +1,6 @@
 use super::{
     PreparedProjectService, ProjectServicePreparationError, ProjectServiceProvisioningJob,
+    project_service_provisioning_images::MINIO_CLIENT_IMAGE,
 };
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -9,11 +10,6 @@ use crate::control_plane::state::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-
-const MINIO_CLIENT_IMAGE: &str = concat!(
-    "minio/mc@sha256:",
-    "a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
-);
 
 /// Composes one authenticated single-node RustFS endpoint and data volume.
 pub(crate) fn plan_rustfs_project_resources(

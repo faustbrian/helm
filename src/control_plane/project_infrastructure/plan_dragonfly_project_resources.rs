@@ -1,5 +1,6 @@
 use super::{
     PreparedProjectService, ProjectServicePreparationError, ProjectServiceProvisioningJob,
+    project_service_provisioning_images::REDIS_CLIENT_IMAGE,
 };
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -9,11 +10,6 @@ use crate::control_plane::state::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-
-const REDIS_CLIENT_IMAGE: &str = concat!(
-    "redis@sha256:",
-    "6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
-);
 
 /// Composes one authenticated Dragonfly endpoint with scheduled snapshots.
 pub(crate) fn plan_dragonfly_project_resources(

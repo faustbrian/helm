@@ -54,6 +54,8 @@ All notable changes to this project are documented in this file.
 - Added pinned-client authenticated Dragonfly readiness without exposing its
   password in command arguments or creating repeated disposable jobs after an
   unchanged revision succeeds.
+- Added a deterministic LocalStack S3 bucket and idempotent pinned-client
+  provisioning so its generated SDK defaults are usable without manual setup.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

@@ -1,4 +1,7 @@
-use super::{PreparedProjectService, ProjectServicePreparationError};
+use super::{
+    PreparedProjectService, ProjectServicePreparationError, ProjectServiceProvisioningJob,
+    project_service_provisioning_images::MINIO_CLIENT_IMAGE,
+};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -20,6 +23,12 @@ pub(crate) fn plan_localstack_project_resources(
     let project_id = service.project().as_str();
     let service_id = service.service().as_str();
     let container_name = format!("stackctl-{project_id}-{service_id}");
+    let bucket = container_name.clone();
+    if bucket.len() > 63 {
+        return Err(invalid(format!(
+            "LocalStack bucket '{bucket}' exceeds the 63-byte S3 limit"
+        )));
+    }
     let container_environment = BTreeMap::from([
         ("GATEWAY_LISTEN".to_owned(), "0.0.0.0:4566".to_owned()),
         (
@@ -44,6 +53,7 @@ pub(crate) fn plan_localstack_project_resources(
 
     let values = BTreeMap::from([
         ("AWS_ACCESS_KEY_ID".to_owned(), "test".to_owned()),
+        ("AWS_BUCKET".to_owned(), bucket.clone()),
         ("AWS_DEFAULT_REGION".to_owned(), "us-east-1".to_owned()),
         (
             "AWS_ENDPOINT_URL".to_owned(),
@@ -58,6 +68,18 @@ pub(crate) fn plan_localstack_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let provisioning_job = ProjectServiceProvisioningJob::new(
+        MINIO_CLIENT_IMAGE,
+        vec![
+            "mb".to_owned(),
+            "--ignore-existing".to_owned(),
+            format!("localstack/{bucket}"),
+        ],
+        BTreeMap::from([(
+            "MC_HOST_localstack".to_owned(),
+            format!("http://test:test@{container_name}:4566"),
+        )]),
+    )?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -66,7 +88,8 @@ pub(crate) fn plan_localstack_project_resources(
         environment,
         container_environment,
         None,
-    ))
+    )
+    .with_provisioning_job(provisioning_job))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {

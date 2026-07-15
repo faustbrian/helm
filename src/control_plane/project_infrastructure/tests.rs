@@ -539,6 +539,21 @@ fn localstack_preparation_enables_persistence_and_injects_sdk_defaults() {
         prepared[0].environment().values().get("AWS_DEFAULT_REGION"),
         Some(&"us-east-1".to_owned())
     );
+    assert_eq!(
+        prepared[0].environment().values().get("AWS_BUCKET"),
+        Some(&"stackctl-bill-aws".to_owned())
+    );
+    let provisioning = prepared[0]
+        .provisioning_job()
+        .expect("LocalStack bucket provisioning job");
+    assert_eq!(
+        provisioning.command(),
+        ["mb", "--ignore-existing", "localstack/stackctl-bill-aws"]
+    );
+    assert_eq!(
+        provisioning.environment().get("MC_HOST_localstack"),
+        Some(&"http://test:test@stackctl-bill-aws:4566".to_owned())
+    );
     assert_eq!(prepared[0].route(), None);
 
     std::fs::remove_file(database).expect("remove state store");
