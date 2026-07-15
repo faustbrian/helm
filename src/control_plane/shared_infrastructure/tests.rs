@@ -3985,7 +3985,7 @@ fn orphaned_sql_server_logins_are_disabled_without_deleting_the_database() {
         orphaned_at_unix_seconds: None,
     });
     let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
-        logical_resource_id: "bill/database/sqlserver".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
         shared_resource_id: "sqlserver-data".to_owned(),
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),

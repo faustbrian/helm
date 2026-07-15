@@ -1,10 +1,11 @@
+use super::wait_for_sql_server_readiness::wait_for_sql_server_readiness;
 use super::{
     SqlServerMigrationPreparationOptions, SqlServerMigrationTargetReconcileResult,
     prepare_sql_server_migration_target,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver,
+    VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, SharedInfrastructureReconcileError, SharedInstancePlan,
@@ -25,8 +26,12 @@ pub(crate) async fn reconcile_sql_server_migration_target<Store, Engine, Entropy
 ) -> Result<SqlServerMigrationTargetReconcileResult, SharedInfrastructureReconcileError>
 where
     Store: StateStore,
-    Engine:
-        ContainerDiscovery + ContainerLifecycle + HealthObserver + VolumeDiscovery + VolumeManager,
+    Engine: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + VolumeDiscovery
+        + VolumeManager,
     Entropy: CredentialEntropy,
 {
     let plan = prepare_sql_server_migration_target(store, shared, entropy, options)
@@ -56,14 +61,9 @@ where
     )
     .await
     .map_err(|error| invalid("reconcile SQL Server migration target service", error))?;
-    if service.health() != ContainerHealth::Healthy {
-        return Err(SharedInfrastructureReconcileError::InvalidRequest {
-            detail: format!(
-                "SQL Server migration target is not ready: {:?}",
-                service.health()
-            ),
-        });
-    }
+    wait_for_sql_server_readiness(engine, service.container(), &plan)
+        .await
+        .map_err(|error| invalid("wait for SQL Server migration target readiness", error))?;
 
     Ok(SqlServerMigrationTargetReconcileResult::new(
         plan, service, volume,

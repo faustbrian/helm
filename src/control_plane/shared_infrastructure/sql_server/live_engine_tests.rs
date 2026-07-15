@@ -1,6 +1,7 @@
 use super::{
-    SqlServerPreparationOptions, prepare_sql_server_shared_instances,
-    reconcile_prepared_sql_server_instance,
+    SqlServerMigrationPreparationOptions, SqlServerPreparationOptions,
+    plan_sql_server_project_resources, prepare_sql_server_shared_instances,
+    reconcile_prepared_sql_server_instance, reconcile_sql_server_migration_target,
 };
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery, EngineError,
@@ -9,14 +10,20 @@ use crate::control_plane::engine::{
     OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
     reconstruct_owned_container, run_attached_command_capture,
 };
+use crate::control_plane::migration::{
+    MigrationCutoverPlan, MigrationOperations, MigrationRollbackPlan, SqlServerBackupOptions,
+    SqlServerMigrationOperations, SqlServerMigrationOperationsOptions, backup_sql_server_database,
+};
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
+    CredentialGenerationError, CredentialSecret, IsolationCapability, OrphanedSharedAccessOptions,
+    PersistenceMode, SharedServiceRequest, plan_shared_instances,
+    revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -199,6 +206,210 @@ fn live_amd64_docker_engine_two_projects_share_one_sql_server_with_isolated_data
             Err(EngineError::ContainerExit { .. })
         ));
 
+        let source_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill SQL Server logical resource");
+        let backup_root = state_directory.join("backups");
+        let backup = backup_sql_server_database(
+            &engine,
+            &container,
+            &SqlServerBackupOptions {
+                logical_resource: source_logical,
+                credential: bill.credential(),
+                database_name: bill.logical().database_name(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 15_500,
+                backup_root: &backup_root,
+                timeout: Duration::from_secs(60),
+            },
+        )
+        .await
+        .expect("back up live bill SQL Server database");
+        sql_server_command(
+            &engine,
+            &container,
+            bill.credential().username(),
+            bill.credential().secret(),
+            bill.logical().database_name(),
+            "UPDATE stackctl_acceptance SET value = N'mutated-after-backup';",
+        )
+        .await
+        .expect("mutate bill SQL Server source after backup");
+        let backup_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: "bill-database-recovery".to_owned(),
+            project_id: "bill".to_owned(),
+            source_revision: source_logical.desired_revision().to_owned(),
+            target_revision: source_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            phase: MigrationPhase::BackupVerified,
+            backup_reference: Some(backup.reference().to_owned()),
+            backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+            backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+            target_resource_id: None,
+            rollback_reference: Some(source_logical.shared_resource_id().to_owned()),
+            updated_at_unix_seconds: 15_500,
+        })
+        .expect("record live SQL Server backup checkpoint");
+        let target = reconcile_sql_server_migration_target(
+            &mut store,
+            &mut engine,
+            &shared[0],
+            &SequentialCredentialEntropy::new(0x77),
+            SqlServerMigrationPreparationOptions {
+                migration_id: backup_checkpoint.migration_id(),
+                project_id: "bill",
+                installation_id: &installation_id,
+                network_name: &network_name,
+                schema_version: 8,
+                desired_revision: source_logical.desired_revision(),
+            },
+        )
+        .await
+        .expect("reconcile isolated SQL Server recovery target");
+        let target_resources = plan_sql_server_project_resources(
+            "bill",
+            "database",
+            target.plan(),
+            CredentialSecret::new(bill.credential().secret().to_owned()),
+        )
+        .expect("plan SQL Server recovery target resources");
+        let target_logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: format!(
+                "{}/{}",
+                source_logical.project_id(),
+                source_logical.service_id()
+            ),
+            shared_resource_id: target.volume().name().to_owned(),
+            project_id: source_logical.project_id().to_owned(),
+            service_id: source_logical.service_id().to_owned(),
+            kind: source_logical.kind().to_owned(),
+            compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_resources.environment().revision().to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        });
+        let project = ProjectRecord::new(
+            state_directory.join("projects/bill"),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        );
+        let retained_target = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: target_logical.logical_resource_id().to_owned(),
+            shared_resource_id: target_logical.shared_resource_id().to_owned(),
+            project_id: target_logical.project_id().to_owned(),
+            service_id: target_logical.service_id().to_owned(),
+            kind: target_logical.kind().to_owned(),
+            compatibility_fingerprint: target_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_logical.desired_revision().to_owned(),
+            lifecycle: ResourceLifecycle::Retained,
+            orphaned_at_unix_seconds: None,
+        });
+        let cutover =
+            MigrationCutoverPlan::new(project.clone(), target_resources.environment().clone())
+                .expect("plan SQL Server recovery cutover");
+        let rollback =
+            MigrationRollbackPlan::new(project, bill.environment().clone(), vec![retained_target])
+                .expect("plan SQL Server recovery rollback");
+        let mut operations = SqlServerMigrationOperations::new(
+            &engine,
+            SqlServerMigrationOperationsOptions {
+                source_container: &container,
+                target_container: target.container(),
+                source_logical_resource: source_logical,
+                target_logical_resource: &target_logical,
+                source_credential: bill.credential(),
+                target_credential: target_resources.credential(),
+                source_administrator: prepared.instance().bootstrap_credential(),
+                target_instance: target.plan(),
+                source_environment: bill.environment(),
+                target_plan: target_resources.logical(),
+                installation_id: &installation_id,
+                backup_root: &backup_root,
+                operation_unix_seconds: 15_700,
+                timeout: Duration::from_secs(60),
+                cutover,
+                rollback,
+            },
+        )
+        .expect("prepare live SQL Server migration operations");
+        let target_plan = operations
+            .provision_target(&backup_checkpoint)
+            .await
+            .expect("provision isolated SQL Server recovery database");
+        let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: backup_checkpoint.migration_id().to_owned(),
+            project_id: backup_checkpoint.project_id().to_owned(),
+            source_revision: backup_checkpoint.source_revision().to_owned(),
+            target_revision: target_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: backup_checkpoint
+                .source_compatibility_fingerprint()
+                .to_owned(),
+            target_compatibility_fingerprint: backup_checkpoint
+                .target_compatibility_fingerprint()
+                .to_owned(),
+            phase: MigrationPhase::TargetProvisioned,
+            backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
+            backup_artifact_sha256: backup_checkpoint
+                .backup_artifact_sha256()
+                .map(str::to_owned),
+            backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
+            target_resource_id: Some(target_plan.target_resource_id().to_owned()),
+            rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
+            updated_at_unix_seconds: 15_600,
+        })
+        .expect("record live SQL Server target checkpoint");
+        operations
+            .restore(
+                &restore_checkpoint,
+                backup.reference(),
+                target_plan.target_resource_id(),
+            )
+            .await
+            .expect("restore verified SQL Server backup into isolated target");
+        assert_sql_value(
+            &sql_server_command(
+                &engine,
+                target.container(),
+                target_resources.credential().username(),
+                target_resources.credential().secret(),
+                target_plan.target_resource_id(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read restored SQL Server target"),
+            "bill-value",
+        );
+        assert_sql_value(
+            &sql_server_command(
+                &engine,
+                &container,
+                bill.credential().username(),
+                bill.credential().secret(),
+                bill.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read retained SQL Server rollback source"),
+            "mutated-after-backup",
+        );
+        assert_sql_value(
+            &sql_server_command(
+                &engine,
+                &container,
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read sibling database after SQL Server restore"),
+            "shop-value",
+        );
+        drop(operations);
+
         let second =
             reconcile_prepared_sql_server_instance(&mut engine, prepared, &installation_id, 8)
                 .await
@@ -272,7 +483,7 @@ fn live_amd64_docker_engine_two_projects_share_one_sql_server_with_isolated_data
             )
             .await
             .expect("verify retained bill SQL Server data as administrator"),
-            "bill-value",
+            "mutated-after-backup",
         );
 
         let restored =
@@ -291,7 +502,7 @@ fn live_amd64_docker_engine_two_projects_share_one_sql_server_with_isolated_data
             )
             .await
             .expect("read restored bill SQL Server data"),
-            "bill-value",
+            "mutated-after-backup",
         );
         let restored_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(restored_container.id(), container.id());
@@ -301,12 +512,15 @@ fn live_amd64_docker_engine_two_projects_share_one_sql_server_with_isolated_data
             InstallationResourceDeletionOptions {
                 installation_id: &installation_id,
                 schema_version: 8,
-                authorized_persistent_volumes: &[prepared
-                    .instance()
-                    .volume()
-                    .expect("persistent SQL Server volume")
-                    .name()
-                    .to_owned()],
+                authorized_persistent_volumes: &[
+                    prepared
+                        .instance()
+                        .volume()
+                        .expect("persistent SQL Server volume")
+                        .name()
+                        .to_owned(),
+                    target.volume().name().to_owned(),
+                ],
             },
         )
         .await

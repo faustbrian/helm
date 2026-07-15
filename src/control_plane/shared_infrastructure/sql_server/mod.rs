@@ -39,6 +39,7 @@ mod sql_server_preparation_options;
 mod sql_server_project_resources;
 mod sql_server_shared_instance_plan;
 mod sql_server_shared_instance_plan_options;
+mod wait_for_sql_server_readiness;
 
 #[cfg(test)]
 mod live_engine_tests;

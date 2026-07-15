@@ -296,10 +296,14 @@ fn exact_project_credential<'credential>(
         AccessStrategy::MongoDb => {
             format!("{}/{}/mongodb", logical.project_id(), logical.service_id())
         }
-        AccessStrategy::Minio
-        | AccessStrategy::RabbitMq
-        | AccessStrategy::Redis(_)
-        | AccessStrategy::SqlServer => logical.logical_resource_id().to_owned(),
+        AccessStrategy::SqlServer => format!(
+            "{}/{}/sqlserver",
+            logical.project_id(),
+            logical.service_id()
+        ),
+        AccessStrategy::Minio | AccessStrategy::RabbitMq | AccessStrategy::Redis(_) => {
+            logical.logical_resource_id().to_owned()
+        }
     };
     let credential = credentials
         .iter()

@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux amd64 SQL Server recovery acceptance that streams a
+  verified native backup into an isolated retained target, proves the restored
+  point-in-time row while preserving the later-mutated rollback source and
+  sibling database, and performs exact cleanup. SQL Server now persists the
+  physical database as its logical identity, resolves credentials separately
+  during orphan access revocation, and uses a bounded authenticated readiness
+  probe for retained migration targets.
 - Added native Linux MinIO recovery acceptance that streams an immutable
   current-object archive for one unversioned project bucket, restores its
   point-in-time contents in place, removes post-backup objects, preserves the
