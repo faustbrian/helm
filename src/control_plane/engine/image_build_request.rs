@@ -1,4 +1,4 @@
-use super::{EngineError, ManagedResourceMetadata, ResourceKind};
+use super::{EngineError, ImageBuildNetwork, ManagedResourceMetadata, ResourceKind};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
@@ -13,17 +13,53 @@ pub(crate) struct ImageBuildRequest {
     dockerfile_contents: String,
     platform: String,
     metadata: ManagedResourceMetadata,
+    network: ImageBuildNetwork,
     input_digest: String,
     output_tag: String,
 }
 
 impl ImageBuildRequest {
     pub(crate) fn new(
+        context_files: BTreeMap<String, Vec<u8>>,
+        dockerfile_path: String,
+        dockerfile_contents: String,
+        platform: String,
+        metadata: ManagedResourceMetadata,
+    ) -> Result<Self, EngineError> {
+        Self::new_with_network(
+            context_files,
+            dockerfile_path,
+            dockerfile_contents,
+            platform,
+            metadata,
+            ImageBuildNetwork::Disabled,
+        )
+    }
+
+    pub(crate) fn new_networked(
+        context_files: BTreeMap<String, Vec<u8>>,
+        dockerfile_path: String,
+        dockerfile_contents: String,
+        platform: String,
+        metadata: ManagedResourceMetadata,
+    ) -> Result<Self, EngineError> {
+        Self::new_with_network(
+            context_files,
+            dockerfile_path,
+            dockerfile_contents,
+            platform,
+            metadata,
+            ImageBuildNetwork::Enabled,
+        )
+    }
+
+    fn new_with_network(
         mut context_files: BTreeMap<String, Vec<u8>>,
         dockerfile_path: String,
         dockerfile_contents: String,
         platform: String,
         metadata: ManagedResourceMetadata,
+        network: ImageBuildNetwork,
     ) -> Result<Self, EngineError> {
         validate_dockerfile_path(&dockerfile_path)?;
         validate_dockerfile(&dockerfile_contents)?;
@@ -59,6 +95,7 @@ impl ImageBuildRequest {
             &dockerfile_contents,
             &platform,
             &metadata.labels(),
+            network,
         );
         let mut labels = metadata.labels();
         labels.insert(BUILD_INPUT_LABEL.to_owned(), input_digest.clone());
@@ -79,6 +116,7 @@ impl ImageBuildRequest {
             dockerfile_contents,
             platform,
             metadata,
+            network,
             input_digest,
             output_tag,
         })
@@ -110,6 +148,10 @@ impl ImageBuildRequest {
 
     pub(crate) const fn metadata(&self) -> &ManagedResourceMetadata {
         &self.metadata
+    }
+
+    pub(super) const fn network(&self) -> ImageBuildNetwork {
+        self.network
     }
 
     pub(super) fn labels(&self) -> BTreeMap<String, String> {
@@ -275,6 +317,7 @@ fn build_input_digest(
     dockerfile_contents: &str,
     platform: &str,
     labels: &BTreeMap<String, String>,
+    network: ImageBuildNetwork,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(context_tar);
@@ -290,6 +333,9 @@ fn build_input_digest(
         hasher.update([0]);
         hasher.update(value.as_bytes());
     }
+
+    hasher.update([0]);
+    hasher.update(network.fingerprint().as_bytes());
 
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }

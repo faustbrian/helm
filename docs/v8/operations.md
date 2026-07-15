@@ -85,20 +85,17 @@ daemon resolves them using the persisted Engine selection and returns the exact
 same key set. The CLI rejects missing, additional, or mutable results before an
 atomic YAML lock publication.
 
-Stackctl publishes its PHP base from a manifest-pinned FrankenPHP base for
-amd64 and arm64. Its Dockerfile frontend, Debian package snapshot, and PECL
-extension versions are explicit inputs rather than floating build-time sources.
-Publication prepares the supported extension catalog, emits an SBOM and
-maximum-mode provenance, and keyless-signs the resulting OCI manifest. The
-built-in preset source is resolved to an immutable digest through the normal
-lock workflow before project reconciliation.
+Stackctl does not publish or maintain a PHP distribution. Laravel, FrankenPHP,
+and Reverb presets use the public versioned FrankenPHP image, which the project
+artifact lock resolves to an immutable digest before reconciliation.
 
-Network-disabled project builds only enable locally available extension modules
-and verify them through PHP. Composer, Node, and Bun are copied from separately
-digest-pinned image stages. Project builds do not download or inject installer
-scripts and never execute mutable remote installer pipelines such as `curl | sh`
-or `curl | php`. Other downloaded tools require a pinned source and checksum or
-signature.
+When a project declares PHP extensions, the daemon builds one local derived
+runtime through the installer already supplied by the public base. Networking
+is enabled only for that extension build; tool-only derived builds remain
+network-disabled. The cache identity includes the base digest, platform,
+sorted extension set, and digest-pinned Composer, Node, and Bun inputs, so
+compatible projects reuse one runtime. Generated builds do not inject remote
+installer scripts or execute pipelines such as `curl | sh` or `curl | php`.
 
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.

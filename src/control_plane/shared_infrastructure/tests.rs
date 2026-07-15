@@ -3173,6 +3173,11 @@ fn rabbitmq_materializes_one_private_persistent_definition_backed_instance() {
     .expect("RabbitMQ instance");
 
     assert!(plan.container().name().starts_with("stackctl-shared-"));
+    assert!(plan.container().name().len() <= 63);
+    assert_eq!(
+        plan.container().metadata().resource_id(),
+        Some(plan.container().name())
+    );
     assert_eq!(plan.container().image(), shared.profile().image_digest());
     assert_eq!(plan.config_mount_target(), "/etc/stackctl/rabbitmq");
     assert_eq!(plan.data_mount_target(), "/var/lib/rabbitmq");

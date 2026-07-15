@@ -21,6 +21,7 @@ impl RuntimeImageBuildPlan {
     ) -> Result<Self, EngineError> {
         let mut php_extensions = options.php_extensions;
         normalize_unique(&mut php_extensions)?;
+        let requires_network = !php_extensions.is_empty();
         if php_extensions.is_empty()
             && options.composer_image.is_none()
             && options.node_image.is_none()
@@ -83,14 +84,14 @@ impl RuntimeImageBuildPlan {
             dockerfile.push_str("COPY --from=stackctl_bun /usr/local/bin/bun /usr/local/bin/bun\n");
         }
         if !php_extensions.is_empty() {
-            let mut enable_command = vec!["docker-php-ext-enable".to_owned()];
-            enable_command.extend(php_extensions.clone());
-            let enable_command = serde_json::to_string(&enable_command).map_err(|error| {
+            let mut install_command = vec!["install-php-extensions".to_owned()];
+            install_command.extend(php_extensions.clone());
+            let install_command = serde_json::to_string(&install_command).map_err(|error| {
                 invalid_request(format!(
-                    "failed to encode extension enablement command: {error}"
+                    "failed to encode extension installer command: {error}"
                 ))
             })?;
-            dockerfile.push_str(&format!("RUN {enable_command}\n"));
+            dockerfile.push_str(&format!("RUN {install_command}\n"));
             let mut verify_command = vec![
                 "php".to_owned(),
                 "-r".to_owned(),
@@ -104,13 +105,23 @@ impl RuntimeImageBuildPlan {
             })?;
             dockerfile.push_str(&format!("RUN {verify_command}\n"));
         }
-        let request = ImageBuildRequest::new(
-            BTreeMap::new(),
-            "Dockerfile".to_owned(),
-            dockerfile,
-            options.platform.to_owned(),
-            metadata,
-        )?;
+        let request = if requires_network {
+            ImageBuildRequest::new_networked(
+                BTreeMap::new(),
+                "Dockerfile".to_owned(),
+                dockerfile,
+                options.platform.to_owned(),
+                metadata,
+            )
+        } else {
+            ImageBuildRequest::new(
+                BTreeMap::new(),
+                "Dockerfile".to_owned(),
+                dockerfile,
+                options.platform.to_owned(),
+                metadata,
+            )
+        }?;
 
         Ok(Self {
             request,

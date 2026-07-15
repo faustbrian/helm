@@ -40,6 +40,7 @@ use crate::control_plane::migration::{
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialGenerationError, resolve_execution_shared_instances,
+    shared_container_name,
 };
 use crate::control_plane::state::{
     DaemonOperationRecord, DaemonOperationRecordOptions, DaemonOperationStatus,
@@ -3345,10 +3346,8 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
         .pop()
         .expect("PostgreSQL instance");
     let fingerprint = shared.fingerprint().as_str().to_owned();
-    let source_container_name = format!(
-        "stackctl-shared-{}",
-        fingerprint.strip_prefix("sha256:").expect("fingerprint")
-    );
+    let source_container_name =
+        shared_container_name(fingerprint.strip_prefix("sha256:").expect("fingerprint"));
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &source_container_name,
         "install-1",
@@ -3651,10 +3650,8 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
         .pop()
         .expect("MySQL instance");
     let fingerprint = shared.fingerprint().as_str().to_owned();
-    let source_container_name = format!(
-        "stackctl-shared-{}",
-        fingerprint.strip_prefix("sha256:").expect("fingerprint")
-    );
+    let source_container_name =
+        shared_container_name(fingerprint.strip_prefix("sha256:").expect("fingerprint"));
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &source_container_name,
         "install-1",
@@ -3958,7 +3955,7 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
         .expect("MongoDB instance");
     let fingerprint = shared.fingerprint().as_str().to_owned();
     let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
-    let source_container_name = format!("stackctl-shared-{fingerprint_id}");
+    let source_container_name = shared_container_name(fingerprint_id);
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &source_container_name,
         "install-1",
@@ -4254,7 +4251,7 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
         .expect("SQL Server instance");
     let fingerprint = shared.fingerprint().as_str().to_owned();
     let fingerprint_id = fingerprint.strip_prefix("sha256:").expect("fingerprint");
-    let source_container_name = format!("stackctl-shared-{fingerprint_id}");
+    let source_container_name = shared_container_name(fingerprint_id);
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &source_container_name,
         "install-1",

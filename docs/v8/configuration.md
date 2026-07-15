@@ -69,7 +69,7 @@ the source declaration and an immutable sha256 digest:
 
 ```yaml
 schema_version: 1
-catalog_revision: 2026-07-15.2
+catalog_revision: 2026-07-15.3
 images:
   app:
     source: preset:laravel:8.5
@@ -109,17 +109,24 @@ workers, queues, and schedulers inherit their application artifact and never
 receive redundant lock entries.
 
 `php_extensions` is available only on the `laravel`, `frankenphp`, and `reverb`
-application presets, whose digest-pinned Stackctl PHP image contains the
-supported extension modules for amd64 and arm64. The supported catalog is
-`bcmath`, `exif`, `gd`, `imagick`, `intl`, `pcntl`, `pcov`,
-`pdo_mysql`, `pdo_pgsql`, `redis`, `sockets`, `sodium`, `xdebug`, and `zip`.
-Unknown names fail during desired-state validation. The daemon derives a
-content-addressed image from the locked base and sorted extension set, enables
-the declared modules without network access, and verifies each module through
-PHP before starting the app. Workers use that exact built image, while
-schedulers execute inside the exact application container.
+application presets. Their built-in artifact is the public FrankenPHP image,
+resolved to an immutable digest through the project lock. Extension names must
+use the installer's lowercase package syntax. The daemon derives one locally
+cached content-addressed image from the locked base and sorted extension set,
+allows registry and package access only for that build, installs the declared
+modules with the public image's `install-php-extensions` executable, and
+verifies each module through PHP before starting the app. Projects with the
+same base digest, platform, extensions, and tool images reuse that derived
+runtime. Workers use the same built image, while schedulers execute inside the
+exact application container.
 Images without one of these presets cannot declare extensions implicitly; they
 must contain their requirements already.
+
+Application and worker source is mounted at and executed from `/workspace`.
+Without an explicit `command`, Laravel and FrankenPHP presets serve
+`/workspace/public` as plain HTTP on the daemon-owned internal port; Reverb
+starts its Artisan server on that same private port. The shared gateway alone
+owns host TLS and routing.
 
 Application services may declare `composer_image`, `node_image`, and
 `bun_image`. Each value must already be an exact registry reference of the form

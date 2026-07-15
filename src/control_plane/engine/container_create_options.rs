@@ -20,6 +20,7 @@ pub(crate) struct ContainerCreateOptions {
     volume_mounts: Vec<VolumeMount>,
     tmpfs_mounts: Vec<TmpfsMount>,
     shared_memory_bytes: Option<i64>,
+    working_directory: Option<String>,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
     health_check: Option<ContainerHealthCheck>,
@@ -60,6 +61,7 @@ impl ContainerCreateOptions {
             volume_mounts: Vec::new(),
             tmpfs_mounts: Vec::new(),
             shared_memory_bytes: None,
+            working_directory: None,
             command: Vec::new(),
             environment: BTreeMap::new(),
             health_check: None,
@@ -190,6 +192,23 @@ impl ContainerCreateOptions {
         Ok(self)
     }
 
+    pub(crate) fn with_working_directory(
+        mut self,
+        directory: impl Into<String>,
+    ) -> Result<Self, EngineError> {
+        let directory = directory.into();
+        if !directory.starts_with('/') || directory.contains(['\0', '\n', '\r']) {
+            return Err(EngineError::InvalidRequest {
+                detail: format!(
+                    "managed container working directory '{directory}' must be an absolute path without control characters"
+                ),
+            });
+        }
+        self.working_directory = Some(directory);
+
+        Ok(self)
+    }
+
     pub(crate) fn with_environment(
         mut self,
         environment: BTreeMap<String, String>,
@@ -275,6 +294,10 @@ impl ContainerCreateOptions {
         &self.command
     }
 
+    pub(crate) fn working_directory(&self) -> Option<&str> {
+        self.working_directory.as_deref()
+    }
+
     pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
     }
@@ -303,6 +326,7 @@ impl Debug for ContainerCreateOptions {
             .field("volume_mounts", &self.volume_mounts)
             .field("tmpfs_mounts", &self.tmpfs_mounts)
             .field("shared_memory_bytes", &self.shared_memory_bytes)
+            .field("working_directory", &self.working_directory)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
             .field("health_check", &self.health_check)

@@ -14,12 +14,28 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Replaced the Stackctl-published PHP image with the public versioned
+  FrankenPHP image. Declared extensions are now installed into one locally
+  cached derived runtime with build-only network access, valid installer
+  extension names are no longer restricted to a Stackctl-owned catalog, and
+  the custom image publication workflow and artifacts have been removed.
 - Updated every direct Rust dependency to its latest crates.io release,
   including `futures-util` 0.3.32, `getrandom` 0.4.3, and `zip` 8.6.0, and
   refreshed all compatible transitive dependencies in the lockfile.
 
 ### Fixed
 
+- Preserve standard tracing `message` and `error` fields in CLI output so
+  daemon reconciliation failures no longer appear as empty log lines.
+- Shortened deterministic shared-service Engine names to a 160-bit hash
+  prefix so container and persistent-volume names remain valid DNS labels.
+  Full compatibility fingerprints remain in ownership metadata, while the
+  shortened name is recorded as the resource identity so reconciliation
+  replaces stale containers instead of reusing an invalid DNS name.
+- Run application and worker containers from their mounted `/workspace`
+  source directory. Laravel and FrankenPHP presets now receive a deterministic
+  plain-HTTP server command on the gateway's internal port instead of
+  inheriting the public image's unrelated `/app` and TLS defaults.
 - Limited watched-root discovery to two directory levels, counted only
   traversable directories toward its safety bound, and stopped at discovered
   project boundaries. Hidden tooling directories, large caches, and generated
@@ -205,11 +221,9 @@ All notable changes to this project are documented in this file.
   application. CI now proves exact label-based ownership reconstruction,
   private-network attachment, the absence of routine host TCP ports, running
   lifecycle state, and typed cleanup on both supported architectures.
-- Added published PHP runtime acceptance for both Linux architectures. The
-  release workflow now derives an offline image from the exact published
-  digest, enables every selectable PHP extension, executes the runtime through
-  amd64 and arm64 containers, and retains the raw results with the image supply
-  chain evidence.
+- Added native Linux acceptance for locally derived PHP runtimes. CI resolves
+  the public base by digest, installs representative extensions, and executes
+  the runtime through amd64 and arm64 containers.
 - Added native Linux Engine acceptance proving a persistent project volume is
   retained without exact recovery authorization and deleted only when its
   precise name is authorized. CI now runs both live Engine acceptances on
@@ -820,20 +834,16 @@ All notable changes to this project are documented in this file.
   singleton IPC. Removed project configs no longer make their orphaned or
   retained physical and logical resources invisible after the active registry
   row is deleted, and each row carries its durable orphan timestamp.
-- Added a commit-pinned multi-architecture PHP 8.5 image publication workflow
-  with SBOM, maximum-mode provenance, and keyless manifest signing. The image
-  pins its Dockerfile frontend, FrankenPHP manifest, Debian snapshot, and PECL
-  extension versions and carries the exact catalog consumed by desired-state
-  validation.
+- Added public digest-locked FrankenPHP preset resolution and locally cached
+  derived application runtimes for declared PHP extensions.
 - Connected the typed managed-container Engine event stream to the singleton
   daemon. Events schedule prompt full reconciliation through a bounded channel,
   while cursor-based reconnects use bounded exponential backoff and periodic
   discovery remains the correctness fallback.
 - Added digest-pinned Composer, Node, and Bun application-runtime inputs. The
   daemon resolves every base and tool image through the selected Engine, builds
-  one network-disabled content-addressed Linux runtime, and propagates it to
-  dependent workers and schedulers. Additional system libraries remain an
-  explicit responsibility of the immutable custom application base.
+  one content-addressed Linux runtime, and propagates it to dependent workers
+  and schedulers. Tool-only builds remain network-disabled.
 - Bound project-owned persistent volumes into installation delete-data plans
   with user-visible resource and recovery identities, confirmation tokens that
   include exact artifact evidence, reverification at freeze and immediately

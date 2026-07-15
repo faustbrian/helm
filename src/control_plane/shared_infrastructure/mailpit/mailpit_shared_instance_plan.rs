@@ -5,7 +5,7 @@ use crate::control_plane::engine::{
     VolumeCreateOptions, VolumeMount,
 };
 use crate::control_plane::shared_infrastructure::{
-    IsolationCapability, PersistenceMode, SharedInstancePlan,
+    IsolationCapability, PersistenceMode, SharedInstancePlan, shared_container_name,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -61,7 +61,7 @@ impl MailpitSharedInstancePlan {
         let identity = fingerprint
             .strip_prefix("sha256:")
             .ok_or_else(|| MailpitPlanError::new("Mailpit fingerprint is malformed"))?;
-        let container_name = format!("stackctl-shared-{identity}");
+        let container_name = shared_container_name(identity);
         let volume_name = format!("{container_name}-data");
         let retention = match profile.persistence() {
             PersistenceMode::Persistent => RetentionClass::Persistent,
@@ -76,7 +76,10 @@ impl MailpitSharedInstancePlan {
             fingerprint,
             &effective_revision,
         )?
-        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .with_resource_id(&container_name)
+        .and_then(|metadata| {
+            metadata.with_compatibility_profile(profile.implementation(), profile.major_version())
+        })
         .map_err(|error| MailpitPlanError::new(error.to_string()))?;
         let authentication_mount =
             BindMount::read_only(authentication_directory, AUTHENTICATION_MOUNT_TARGET)
@@ -115,7 +118,9 @@ impl MailpitSharedInstancePlan {
                 retention,
                 fingerprint,
                 &effective_revision,
-            )?;
+            )?
+            .with_resource_id(&container_name)
+            .map_err(|error| MailpitPlanError::new(error.to_string()))?;
             let volume = VolumeCreateOptions::new(&volume_name, volume_metadata)
                 .map_err(|error| MailpitPlanError::new(error.to_string()))?;
             let mount = VolumeMount::read_write(&volume_name, DATA_MOUNT_TARGET)

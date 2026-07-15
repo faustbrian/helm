@@ -362,6 +362,7 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
     assert_eq!(request.bind_mounts().len(), 1);
     assert_eq!(request.bind_mounts()[0].source(), "/work/bill");
     assert_eq!(request.bind_mounts()[0].target(), "/workspace");
+    assert_eq!(request.working_directory(), Some("/workspace"));
     assert!(!request.bind_mounts()[0].is_read_only());
     assert_eq!(request.command()[0], "stackctl-runtime");
     assert_eq!(
@@ -455,24 +456,22 @@ fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
     let runtime = plan
         .runtime_image()
         .expect("declared extensions require a derived runtime image");
+    assert_eq!(
+        plan.request().command(),
+        [
+            "frankenphp",
+            "php-server",
+            "--listen",
+            ":8080",
+            "--root",
+            "/workspace/public"
+        ]
+    );
     assert!(
         runtime
             .request()
             .dockerfile_contents()
-            .contains("RUN [\"docker-php-ext-enable\",\"intl\",\"redis\"]")
-    );
-    assert!(runtime.request().dockerfile_contents().contains(concat!(
-        "RUN [\"php\",\"-r\",",
-        "\"foreach (array_slice($argv, 1) as $extension) { ",
-        "if (!extension_loaded($extension)) { ",
-        "fwrite(STDERR, 'missing PHP extension: ' . $extension . PHP_EOL); ",
-        "exit(1); } }\",\"intl\",\"redis\"]"
-    )));
-    assert!(
-        !runtime
-            .request()
-            .dockerfile_contents()
-            .contains("install-php-extensions")
+            .contains("RUN [\"install-php-extensions\",\"intl\",\"redis\"]")
     );
     assert_eq!(runtime.request().metadata().installation_id(), "install-1");
     assert_eq!(
@@ -1681,6 +1680,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
     assert!(request.port_bindings().is_empty());
     assert_eq!(request.bind_mounts()[0].source(), "/work/bill");
     assert_eq!(request.bind_mounts()[0].target(), "/workspace");
+    assert_eq!(request.working_directory(), Some("/workspace"));
     assert_eq!(request.command(), ["php", "artisan", "queue:work"]);
     assert_eq!(
         request.restart_policy(),

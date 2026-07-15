@@ -7,7 +7,7 @@ use crate::control_plane::engine::{
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
 };
 use crate::control_plane::shared_infrastructure::{
-    IsolationCapability, PersistenceMode, SharedInstancePlan,
+    IsolationCapability, PersistenceMode, SharedInstancePlan, shared_container_name,
 };
 use crate::control_plane::state::{CredentialLifecycle, CredentialRecord, CredentialRecordOptions};
 use std::collections::BTreeMap;
@@ -28,7 +28,7 @@ impl MySqlSharedInstancePlan {
         options: MySqlSharedInstancePlanOptions,
     ) -> Result<Self, MySqlPlanError> {
         let (flavor, identity) = validate_profile(shared)?;
-        let container_name = format!("stackctl-shared-{identity}");
+        let container_name = shared_container_name(identity);
         let bootstrap_credential = CredentialRecord::new(CredentialRecordOptions {
             credential_id: format!("shared/{identity}/{}-bootstrap", flavor.implementation()),
             project_id: None,
@@ -45,7 +45,7 @@ impl MySqlSharedInstancePlan {
                 volume_name: format!("{container_name}-data"),
                 installation_id: options.installation_id,
                 project_id: None,
-                resource_id: None,
+                resource_id: Some(container_name),
                 kind: ResourceKind::SharedService,
                 network_name: options.network_name,
                 schema_version: options.schema_version,

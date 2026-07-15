@@ -1340,15 +1340,17 @@ impl ImageBuilder for BollardEngineAdapter {
 }
 
 pub(super) fn build_image_options(request: &ImageBuildRequest) -> BuildImageOptions {
-    BuildImageOptionsBuilder::default()
+    let mut options = BuildImageOptionsBuilder::default()
         .dockerfile(request.dockerfile_path())
         .t(request.output_tag())
         .pull("false")
         .rm(true)
         .forcerm(true)
-        .networkmode("none")
         .platform(request.platform())
-        .build()
+        .build();
+    options.networkmode = request.network().engine_mode().map(str::to_owned);
+
+    options
 }
 
 fn verified_built_image(
@@ -1860,6 +1862,7 @@ pub(super) fn create_request(
     let body = ContainerCreateBody {
         image: Some(options.image().to_owned()),
         user: options.user().map(str::to_owned),
+        working_dir: options.working_directory().map(str::to_owned),
         cmd: (!options.command().is_empty()).then(|| options.command().to_vec()),
         env: (!options.environment().is_empty()).then(|| {
             options

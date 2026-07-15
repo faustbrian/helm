@@ -4,7 +4,7 @@ use crate::control_plane::engine::{
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
 };
 use crate::control_plane::shared_infrastructure::{
-    IsolationCapability, PersistenceMode, SharedInstancePlan,
+    IsolationCapability, PersistenceMode, SharedInstancePlan, shared_container_name,
 };
 use std::collections::BTreeMap;
 
@@ -55,7 +55,7 @@ impl RabbitMqSharedInstancePlan {
         let identity = fingerprint
             .strip_prefix("sha256:")
             .ok_or_else(|| RabbitMqPlanError::new("RabbitMQ fingerprint is malformed"))?;
-        let container_name = format!("stackctl-shared-{identity}");
+        let container_name = shared_container_name(identity);
         let volume_name = format!("{container_name}-data");
         let retention = match profile.persistence() {
             PersistenceMode::Persistent => RetentionClass::Persistent,
@@ -67,7 +67,10 @@ impl RabbitMqSharedInstancePlan {
             retention,
             fingerprint,
         )?
-        .with_compatibility_profile(profile.implementation(), profile.major_version())
+        .with_resource_id(&container_name)
+        .and_then(|metadata| {
+            metadata.with_compatibility_profile(profile.implementation(), profile.major_version())
+        })
         .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
         let config_mount = BindMount::read_only(definitions_directory, CONFIG_MOUNT_TARGET)
             .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
@@ -88,7 +91,9 @@ impl RabbitMqSharedInstancePlan {
         .with_bind_mount(config_mount)
         .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
         let volume = if profile.persistence() == PersistenceMode::Persistent {
-            let volume_metadata = metadata(&options, ResourceKind::Volume, retention, fingerprint)?;
+            let volume_metadata = metadata(&options, ResourceKind::Volume, retention, fingerprint)?
+                .with_resource_id(&container_name)
+                .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
             let volume = VolumeCreateOptions::new(&volume_name, volume_metadata)
                 .map_err(|error| RabbitMqPlanError::new(error.to_string()))?;
             let mount = VolumeMount::read_write(&volume_name, DATA_MOUNT_TARGET)

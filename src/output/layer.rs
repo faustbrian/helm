@@ -28,7 +28,7 @@ where
             .unwrap_or(LogLevel::from_tracing(*event.metadata().level()));
 
         let timestamp = now_local_timestamp();
-        let message = fields.body.unwrap_or_default();
+        let message = fields.render_message();
         let context = fields.context.and_then(parse_context_json);
         let persistence = fields
             .persistence

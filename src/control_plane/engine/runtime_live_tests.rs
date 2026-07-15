@@ -47,7 +47,7 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
         schema_version: 8,
         base_image_digest: PHP_IMAGE,
         platform,
-        php_extensions: Vec::new(),
+        php_extensions: vec!["calendar".to_owned(), "soap".to_owned(), "xsl".to_owned()],
         composer_image: Some(COMPOSER_IMAGE),
         node_image: Some(NODE_IMAGE),
         bun_image: Some(BUN_IMAGE),
@@ -73,7 +73,12 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
                 arguments: vec![
                     "php".to_owned(),
                     "-r".to_owned(),
-                    "echo PHP_OS_FAMILY . ':' . getcwd();".to_owned(),
+                    concat!(
+                        "foreach (['calendar', 'soap', 'xsl'] as $extension) { ",
+                        "if (!extension_loaded($extension)) { exit(1); } } ",
+                        "echo PHP_OS_FAMILY . ':' . getcwd();"
+                    )
+                    .to_owned(),
                 ],
             },
             BTreeMap::new(),

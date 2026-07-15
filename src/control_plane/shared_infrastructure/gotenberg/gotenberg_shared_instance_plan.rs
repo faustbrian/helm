@@ -4,7 +4,7 @@ use crate::control_plane::engine::{
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
 };
 use crate::control_plane::shared_infrastructure::{
-    IsolationCapability, PersistenceMode, SharedInstancePlan,
+    IsolationCapability, PersistenceMode, SharedInstancePlan, shared_container_name,
 };
 use std::time::Duration;
 
@@ -44,6 +44,7 @@ impl GotenbergSharedInstancePlan {
         let identity = fingerprint.strip_prefix("sha256:").ok_or_else(|| {
             GotenbergPlanError::new("Gotenberg compatibility fingerprint is malformed")
         })?;
+        let container_name = shared_container_name(identity);
         let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
             installation_id: options.installation_id,
             kind: ResourceKind::SharedService,
@@ -53,6 +54,7 @@ impl GotenbergSharedInstancePlan {
             desired_revision: options.desired_revision,
             retention: RetentionClass::Disposable,
         })
+        .and_then(|metadata| metadata.with_resource_id(&container_name))
         .and_then(|metadata| {
             metadata.with_compatibility_profile(profile.implementation(), profile.major_version())
         })
@@ -70,16 +72,13 @@ impl GotenbergSharedInstancePlan {
             12,
         )
         .map_err(|error| GotenbergPlanError::new(error.to_string()))?;
-        let container = ContainerCreateOptions::new(
-            format!("stackctl-shared-{identity}"),
-            profile.image_digest(),
-            metadata,
-        )
-        .and_then(|request| request.with_network(options.network_name))
-        .and_then(|request| request.with_platform(platform))
-        .map_err(|error| GotenbergPlanError::new(error.to_string()))?
-        .with_health_check(health_check)
-        .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
+        let container =
+            ContainerCreateOptions::new(container_name, profile.image_digest(), metadata)
+                .and_then(|request| request.with_network(options.network_name))
+                .and_then(|request| request.with_platform(platform))
+                .map_err(|error| GotenbergPlanError::new(error.to_string()))?
+                .with_health_check(health_check)
+                .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
 
         Ok(Self { container })
     }

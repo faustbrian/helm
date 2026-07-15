@@ -1206,6 +1206,28 @@ fn image_build_requests_are_content_addressed_labeled_and_offline() {
 }
 
 #[test]
+fn networked_image_build_requests_use_the_engine_build_network() {
+    let metadata = global_metadata(ResourceKind::Build);
+    let dockerfile = concat!(
+        "FROM dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        "RUN [\"install-php-extensions\",\"soap\"]\n"
+    );
+    let request = ImageBuildRequest::new_networked(
+        BTreeMap::new(),
+        "Dockerfile".to_owned(),
+        dockerfile.to_owned(),
+        "linux/arm64".to_owned(),
+        metadata,
+    )
+    .expect("valid networked build");
+
+    let options = build_image_options(&request);
+
+    assert_eq!(options.networkmode, None);
+}
+
+#[test]
 fn image_build_requests_reject_mutable_bases_and_remote_additions() {
     let mutable_base = ImageBuildRequest::new(
         BTreeMap::new(),

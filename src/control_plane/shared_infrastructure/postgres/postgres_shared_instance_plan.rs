@@ -9,6 +9,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityProfile, IsolationCapability, PersistenceMode, SharedInstancePlan,
+    shared_container_name,
 };
 use crate::control_plane::state::{CredentialLifecycle, CredentialRecord, CredentialRecordOptions};
 use std::collections::BTreeMap;
@@ -34,7 +35,7 @@ impl PostgresSharedInstancePlan {
         let identity = fingerprint.strip_prefix("sha256:").ok_or_else(|| {
             PostgresPlanError::new("PostgreSQL compatibility fingerprint is malformed")
         })?;
-        let container_name = format!("stackctl-shared-{identity}");
+        let container_name = shared_container_name(identity);
         let bootstrap_credential = CredentialRecord::new(CredentialRecordOptions {
             credential_id: format!("shared/{identity}/postgresql-bootstrap"),
             project_id: None,
@@ -50,7 +51,7 @@ impl PostgresSharedInstancePlan {
                 volume_name: format!("{container_name}-data"),
                 installation_id: options.installation_id,
                 project_id: None,
-                resource_id: None,
+                resource_id: Some(container_name),
                 kind: ResourceKind::SharedService,
                 network_name: options.network_name,
                 schema_version: options.schema_version,

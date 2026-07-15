@@ -2,7 +2,7 @@ use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan, RuntimeEnvironment,
     RuntimeEnvironmentOptions, RuntimeImageBuildOptions, RuntimeImageBuildPlan, WorkloadPlanError,
-    application_container_request,
+    application_container_request, resolve_application_command,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
@@ -62,18 +62,23 @@ pub(crate) fn plan_immutable_project_application(
         || compatibility_fingerprint(image, options.platform),
         |runtime| runtime.compatibility_fingerprint().to_owned(),
     );
-    let desired_revision = desired_revision(
-        service,
+    let command = resolve_application_command(service, options.internal_http_port);
+    let desired_revision = desired_revision(ProjectApplicationRevision {
+        schema_version: 1,
+        project: service.project().as_str(),
+        service: service.service().as_str(),
         image,
-        options.platform,
-        options.network_name,
-        options.internal_http_port,
-        &environment,
-        service.desired().php_extensions(),
-        service.desired().composer_image(),
-        service.desired().node_image(),
-        service.desired().bun_image(),
-    )?;
+        platform: options.platform,
+        network_name: options.network_name,
+        internal_http_port: options.internal_http_port,
+        command: &command,
+        managed_environment_revision: environment.managed_revision(),
+        environment: environment.values(),
+        php_extensions: service.desired().php_extensions(),
+        composer_image: service.desired().composer_image(),
+        node_image: service.desired().node_image(),
+        bun_image: service.desired().bun_image(),
+    })?;
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: options.installation_id.to_owned(),
         kind: ResourceKind::ProjectApplication,
@@ -99,7 +104,7 @@ pub(crate) fn plan_immutable_project_application(
         plan: container,
         metadata,
         platform: options.platform.to_owned(),
-        command: service.desired().command().unwrap_or_default().to_vec(),
+        command,
         environment,
     })
     .map_err(invalid)?;
@@ -115,35 +120,8 @@ fn compatibility_fingerprint(image: &str, platform: &str) -> String {
     fingerprint(["project-application-runtime-v1", image, platform])
 }
 
-fn desired_revision(
-    service: &crate::control_plane::ServiceExecutionPlan,
-    image: &str,
-    platform: &str,
-    network_name: &str,
-    internal_http_port: u16,
-    environment: &RuntimeEnvironment,
-    php_extensions: &[String],
-    composer_image: Option<&str>,
-    node_image: Option<&str>,
-    bun_image: Option<&str>,
-) -> Result<String, WorkloadPlanError> {
-    let manifest = serde_json::to_vec(&ProjectApplicationRevision {
-        schema_version: 1,
-        project: service.project().as_str(),
-        service: service.service().as_str(),
-        image,
-        platform,
-        network_name,
-        internal_http_port,
-        command: service.desired().command().unwrap_or_default(),
-        managed_environment_revision: environment.managed_revision(),
-        environment: environment.values(),
-        php_extensions,
-        composer_image,
-        node_image,
-        bun_image,
-    })
-    .map_err(invalid)?;
+fn desired_revision(manifest: ProjectApplicationRevision<'_>) -> Result<String, WorkloadPlanError> {
+    let manifest = serde_json::to_vec(&manifest).map_err(invalid)?;
 
     Ok(format!("sha256:{}", hex::encode(Sha256::digest(manifest))))
 }

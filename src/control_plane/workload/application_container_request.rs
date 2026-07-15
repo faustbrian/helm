@@ -50,6 +50,7 @@ pub(crate) fn application_container_request(
     .with_platform(options.platform)?
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
+    .with_working_directory(PROJECT_SOURCE_TARGET)?
     .with_environment(options.environment.values().clone())?;
     let request = if options.command.is_empty() {
         request
