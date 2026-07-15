@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Allowed an atomic project-directory rename to retire the stale route owner
+  and register the new canonical path in one transaction. Existing resources
+  become orphaned and still require explicit adoption; deterministic domains
+  are never rewritten to escape the ownership transition.
 - Rejected duplicate project identities across distinct canonical paths even
   when their service sets produce no route collision. The complete registry
   now reports every path and requires a unique directory or explicit `project`

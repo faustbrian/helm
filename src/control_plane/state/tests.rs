@@ -947,6 +947,37 @@ fn conflicting_route_ownership_rolls_back_the_entire_project_write() {
 }
 
 #[test]
+fn complete_registry_reconciliation_accepts_an_atomic_directory_rename() {
+    let database_path = temporary_database_path("project-directory-rename");
+    let original = project_record("/work/bill", "bill", &["bill-app.stackctl.localhost"]);
+    let renamed = project_record(
+        "/work/archive/bill",
+        "bill",
+        &["bill-app.stackctl.localhost"],
+    );
+    let resource = resource_record("container-bill", "bill", ResourceRetention::Persistent);
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_project(&original)
+        .expect("persist original project");
+    store
+        .upsert_resources(std::slice::from_ref(&resource))
+        .expect("persist original resource");
+
+    store
+        .reconcile_project_registry(std::slice::from_ref(&renamed), 12_345)
+        .expect("atomically register renamed path and orphan retained state");
+
+    assert_eq!(store.projects().expect("renamed registry"), vec![renamed]);
+    let retained = store.resources().expect("retained resource");
+    assert_eq!(retained[0].lifecycle(), ResourceLifecycle::Orphaned);
+    assert_eq!(retained[0].orphaned_at_unix_seconds(), Some(12_345));
+
+    drop(store);
+    remove_database(&database_path);
+}
+
+#[test]
 fn dropping_an_uncommitted_transaction_leaves_no_partial_project() {
     let database_path = temporary_database_path("interruption");
 

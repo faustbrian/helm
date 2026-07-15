@@ -204,6 +204,12 @@ active -> orphaned -> stopped/credential-disabled -> retained
        -> adopted | restored | explicitly pruned
 ```
 
+An atomic directory rename retires the now-missing canonical path before the
+new path claims the same deterministic routes, all in one SQLite transaction.
+The old project resources become orphaned; registering the renamed path does
+not reactivate them. Explicit adoption is still required, so a rename cannot
+silently transfer retained data or credentials.
+
 For RabbitMQ, daemon reconciliation removes the exact disabled project user
 before an otherwise unreferenced broker is stopped. The vhost and queued
 messages remain retained for explicit restore, adoption, or prune.

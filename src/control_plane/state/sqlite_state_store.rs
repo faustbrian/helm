@@ -495,7 +495,6 @@ impl StateStore for SqliteStateStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         ensure_reconciliation_active(&transaction)?;
 
-        replace_project_batch(&transaction, &exact_projects)?;
         let existing_projects = {
             let mut statement = transaction.prepare(
                 "SELECT canonical_path, project_name FROM projects ORDER BY canonical_path",
@@ -516,6 +515,7 @@ impl StateStore for SqliteStateStore {
                 [canonical_path],
             )?;
         }
+        replace_project_batch(&transaction, &exact_projects)?;
         transaction.commit()?;
 
         Ok(())
