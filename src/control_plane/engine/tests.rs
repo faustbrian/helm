@@ -1,9 +1,9 @@
 use super::{
-    CommandExecutor, CommandRequest, ContainerCompletion, ContainerCreateOptions,
-    ContainerDiscovery, ContainerEvent, ContainerEventAction, ContainerEventCursor,
-    ContainerEventSource, ContainerEventStream, ContainerHealth, ContainerHealthCheck, ContainerId,
-    ContainerLifecycle, ContainerLogOptions, ContainerLogStream, ContainerLogTail,
-    ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
+    BollardEngineAdapter, CommandExecutor, CommandRequest, ContainerCompletion,
+    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
+    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth,
+    ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
+    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
     GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder,
     ImageDiscovery, ImageId, ImageManager, ImageReferenceResolver, ImageResolver,
     ImmutableImageReference, InstallationResourceDeletionOptions, LogChunk, LogSource,
@@ -42,6 +42,44 @@ use super::bollard_engine_adapter::{
     volume_archive_subpath_upload_target, volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
+
+#[test]
+#[ignore = "CI owns live Docker Engine API acceptance"]
+fn live_docker_engine_adapter_negotiates_and_reads_owned_inventory() {
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build Engine acceptance runtime");
+    let engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    runtime.block_on(async {
+        engine
+            .discover_managed()
+            .await
+            .expect("read managed container inventory");
+        engine
+            .discover_managed_networks()
+            .await
+            .expect("read managed network inventory");
+        engine
+            .discover_managed_images()
+            .await
+            .expect("read managed image inventory");
+        engine
+            .discover_managed_volumes()
+            .await
+            .expect("read managed volume inventory");
+        engine
+            .discover_published_tcp_ports()
+            .await
+            .expect("read published port inventory");
+    });
+}
 
 #[test]
 fn managed_metadata_generates_complete_reserved_ownership_labels() {

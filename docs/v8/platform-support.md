@@ -10,10 +10,10 @@ The ownership boundary for local, CI, and physical-host checks is defined in
 
 | Host | Architecture | Status | Current automated evidence | Release-blocking evidence |
 | --- | --- | --- | --- | --- |
-| Ubuntu Linux | x86_64 | Preview | Full format, lint, build, test, and pinned-gateway protocol suite in CI | Fresh Docker Engine install; login/reboot; systemd user service; trust install/rotation/removal; engine restart; service crash; sleep/wake where available; bind mounts; inotify; gateway traffic; backup/restore; benchmark |
-| Ubuntu Linux | arm64 | Preview | Full test suite and pinned-gateway protocol suite on `ubuntu-24.04-arm` in CI | Same live acceptance as Linux x86_64 plus multi-architecture image verification |
-| macOS | x86_64 | Preview | Full test suite on `macos-15-intel` in CI | Fresh Docker Desktop install; login/reboot; launchd; Keychain trust install/rotation/removal; Docker Desktop restart; laptop sleep/wake; bind mounts; FSEvents; gateway traffic; backup/restore; benchmark |
-| macOS | arm64 | Preview | Full test suite on `macos-15` in CI plus local pinned-gateway protocol, reload, and restart evidence | Same live acceptance as macOS x86_64 plus arm64 image verification |
+| Ubuntu Linux | x86_64 | Preview | Full format, lint, release build, test, production Engine adapter API acceptance, and pinned-gateway protocol suite in CI | Fresh Docker Engine install; login/reboot; systemd user service; trust install/rotation/removal; engine restart; service crash; sleep/wake where available; bind mounts; inotify; gateway traffic; backup/restore; benchmark |
+| Ubuntu Linux | arm64 | Preview | Release build, full test suite, production Engine adapter API acceptance, and pinned-gateway protocol suite on `ubuntu-24.04-arm` in CI | Same live acceptance as Linux x86_64 plus multi-architecture image verification |
+| macOS | x86_64 | Preview | Release build and full test suite on `macos-15-intel` in CI | Fresh Docker Desktop install; login/reboot; launchd; Keychain trust install/rotation/removal; Docker Desktop restart; laptop sleep/wake; bind mounts; FSEvents; gateway traffic; backup/restore; benchmark |
+| macOS | arm64 | Preview | Release build and full test suite on `macos-15` in CI plus local pinned-gateway protocol, reload, and restart evidence | Same live acceptance as macOS x86_64 plus arm64 image verification |
 
 `Preview` means the implementation is intended to work but must not be marketed
 as release-supported. V8 targets macOS and Linux hosts only; other operating

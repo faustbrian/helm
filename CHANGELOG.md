@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made CI prove the supported Unix release binary on native x86_64 and arm64
+  runners instead of relying on test compilation as an implicit build. Ubuntu
+  jobs now also exercise the production Docker Engine adapter's API
+  negotiation and structured inventory capabilities against the runner Engine;
+  this live check remains explicitly excluded from local verification.
 - Extended typed IPC cancellation from live log sessions to every queued
   durable daemon operation. Cancellation now performs a guarded SQLite
   transition, records a resumable event, and removes only the matching
