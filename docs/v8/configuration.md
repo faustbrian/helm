@@ -69,7 +69,7 @@ the source declaration and an immutable sha256 digest:
 
 ```yaml
 schema_version: 1
-catalog_revision: 2026-07-15.1
+catalog_revision: 2026-07-15.2
 images:
   app:
     source: preset:laravel:8.5

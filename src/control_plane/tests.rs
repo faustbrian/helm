@@ -236,7 +236,7 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
 
 #[test]
 fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
-    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-15.1");
+    assert_eq!(PRESET_ARTIFACT_CATALOG_REVISION, "2026-07-15.2");
 
     for preset in KNOWN_SERVICE_PRESETS {
         let strategy = resolve_service_deployment_strategy(preset).expect("known strategy");
@@ -275,6 +275,13 @@ fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
             .expect("Soketi artifact")
             .reference(),
         "quay.io/soketi/soketi:5d188786beaf683aca2115a6247dcdc15c29ac77-16-debian"
+    );
+    assert_eq!(
+        resolve_preset_artifact("typesense", None)
+            .expect("Typesense policy")
+            .expect("Typesense artifact")
+            .reference(),
+        "typesense/typesense:26.0"
     );
     for removed in ["mailhog"] {
         assert!(

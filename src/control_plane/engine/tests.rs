@@ -19,6 +19,7 @@ use super::{
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
+use bollard::errors::Error as BollardError;
 use bollard::models::{
     ContainerCpuStats, ContainerCpuUsage, ContainerMemoryStats, ContainerNetworkStats,
     ContainerPidsStats, ContainerState as EngineContainerState, ContainerStatsResponse,
@@ -33,13 +34,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::bollard_engine_adapter::{
     build_image_options, command_create_request, container_event, container_health,
-    container_resource_metrics, create_request, exact_volume_mount_target, image_pull_request,
-    log_chunk, log_request, managed_container_events_request, managed_container_list_request,
-    managed_image_list_request, managed_network_list_request, managed_volume_list_request,
-    network_create_request, observed_container, observed_image, observed_network, observed_volume,
-    published_port_bindings, published_port_list_request, validate_engine_api_version,
-    validate_volume_archive_identity, verify_owned_container_labels, verify_owned_network_labels,
-    verify_owned_volume_labels, volume_archive_subpath_target,
+    container_resource_metrics, container_wait_error, create_request, exact_volume_mount_target,
+    image_pull_request, log_chunk, log_request, managed_container_events_request,
+    managed_container_list_request, managed_image_list_request, managed_network_list_request,
+    managed_volume_list_request, network_create_request, observed_container, observed_image,
+    observed_network, observed_volume, published_port_bindings, published_port_list_request,
+    validate_engine_api_version, validate_volume_archive_identity, verify_owned_container_labels,
+    verify_owned_network_labels, verify_owned_volume_labels, volume_archive_subpath_target,
     volume_archive_subpath_upload_target, volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
@@ -475,6 +476,25 @@ fn container_completion_rejects_nonzero_exit_status() {
 #[test]
 fn container_completion_accepts_zero_exit_status() {
     validate_container_completion("provisioning-job-1", 0).expect("zero completion status");
+}
+
+#[test]
+fn docker_wait_exit_errors_preserve_the_container_status() {
+    let error = container_wait_error(
+        "provisioning-job-1",
+        BollardError::DockerContainerWaitError {
+            error: String::new(),
+            code: 42,
+        },
+    );
+
+    assert_eq!(
+        error,
+        EngineError::ContainerExit {
+            container_id: "provisioning-job-1".to_owned(),
+            status_code: 42,
+        }
+    );
 }
 
 #[test]

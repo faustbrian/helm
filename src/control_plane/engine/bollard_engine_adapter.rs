@@ -659,7 +659,7 @@ impl ContainerCompletion for BollardEngineAdapter {
                     Some(Ok(response)) => {
                         validate_container_completion(container.id().as_str(), response.status_code)
                     }
-                    Some(Err(error)) => Err(backend_error("wait for container completion", error)),
+                    Some(Err(error)) => Err(container_wait_error(container.id().as_str(), error)),
                     None => Err(EngineError::Backend {
                         detail: format!(
                             "Engine returned no completion status for container '{}'",
@@ -2139,5 +2139,15 @@ pub(super) fn validate_engine_api_version(version: ClientVersion) -> Result<(), 
 fn backend_error(action: &str, error: BollardError) -> EngineError {
     EngineError::Backend {
         detail: format!("failed to {action}: {error}"),
+    }
+}
+
+pub(super) fn container_wait_error(container_id: &str, error: BollardError) -> EngineError {
+    match error {
+        BollardError::DockerContainerWaitError { code, .. } => EngineError::ContainerExit {
+            container_id: container_id.to_owned(),
+            status_code: code,
+        },
+        backend => backend_error("wait for container completion", backend),
     }
 }

@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Corrected the built-in Typesense artifact to its published `26.0` tag and
+  advanced the preset catalog revision so stale locks fail explicitly. Added
+  native Linux Engine acceptance that starts Meilisearch and Typesense from
+  real YAML, verifies their generated credentials, rejects incorrect
+  credentials, and cleans up both retained volumes. Docker wait errors now
+  preserve nonzero container exit statuses so authentication failures remain
+  typed instead of becoming generic Engine errors.
 - Added native Linux Engine acceptance for dedicated Dragonfly and Memcached.
   CI now drives real YAML through service planning, starts both services on one
   private network, verifies Dragonfly with its generated password and

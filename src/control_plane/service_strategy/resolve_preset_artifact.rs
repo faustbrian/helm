@@ -1,7 +1,7 @@
 use super::{PresetArtifact, PresetArtifactError};
 
 /// Revision binding preset-only lock entries to this exact catalog.
-pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-15.1";
+pub(crate) const PRESET_ARTIFACT_CATALOG_REVISION: &str = "2026-07-15.2";
 
 /// Resolves one preset into a deliberate versioned registry source.
 pub(crate) fn resolve_preset_artifact(
@@ -70,7 +70,7 @@ pub(crate) fn resolve_preset_artifact(
             "docker.elastic.co/elasticsearch/elasticsearch:9.4.2",
         )?,
         "meilisearch" => fixed(preset, version, default, "getmeili/meilisearch:v1.45.1")?,
-        "typesense" => fixed(preset, version, default, "typesense/typesense:0.26.0")?,
+        "typesense" => fixed(preset, version, default, "typesense/typesense:26.0")?,
         "dusk" | "selenium" => fixed(
             preset,
             version,
