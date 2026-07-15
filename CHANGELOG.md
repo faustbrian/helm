@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Ran MongoDB orphan-user revocation in non-interactive mongosh file mode so
+  its boolean result is not polluted by a shell prompt. Native Linux acceptance
+  now proves user deletion retains collections and sibling access, then restores
+  the stable user and data without replacing the shared server.
 - Extended native Linux MySQL and MariaDB acceptance through project removal
   and restoration. CI now proves tenant-user deletion retains its schema,
   sibling access remains available, and reconciliation restores the stable user

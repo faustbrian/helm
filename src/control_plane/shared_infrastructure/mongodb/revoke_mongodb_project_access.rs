@@ -22,6 +22,8 @@ pub(crate) async fn revoke_mongodb_project_access(
             "mongosh".to_owned(),
             "--quiet".to_owned(),
             "--nodb".to_owned(),
+            "--file".to_owned(),
+            "/dev/stdin".to_owned(),
         ],
         BTreeMap::from([(
             ADMINISTRATOR_PASSWORD_KEY.to_owned(),

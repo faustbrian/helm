@@ -3875,6 +3875,8 @@ fn orphaned_mongodb_users_are_dropped_without_deleting_the_database() {
             "mongosh".to_owned(),
             "--quiet".to_owned(),
             "--nodb".to_owned(),
+            "--file".to_owned(),
+            "/dev/stdin".to_owned(),
         ]]
     );
     let stdin = engine.commands.stdin.lock().expect("recorded stdin");
