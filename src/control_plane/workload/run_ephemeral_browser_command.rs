@@ -136,6 +136,7 @@ where
                     });
                 }
                 ContainerHealth::RunningUnverified
+                | ContainerHealth::Restarting
                 | ContainerHealth::Starting
                 | ContainerHealth::Unhealthy { .. } => {
                     tokio::time::sleep(READINESS_POLL_INTERVAL).await;

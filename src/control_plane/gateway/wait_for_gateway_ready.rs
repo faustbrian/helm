@@ -27,7 +27,9 @@ pub(crate) async fn wait_for_gateway_ready(
                     detail: format!("gateway cannot become ready from observed health {health:?}"),
                 });
             }
-            ContainerHealth::RunningUnverified | ContainerHealth::Starting => {}
+            ContainerHealth::Restarting
+            | ContainerHealth::RunningUnverified
+            | ContainerHealth::Starting => {}
         }
 
         let now = Instant::now();

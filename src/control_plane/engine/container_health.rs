@@ -4,6 +4,7 @@
 pub(crate) enum ContainerHealth {
     Missing,
     Stopped,
+    Restarting,
     RunningUnverified,
     Starting,
     Healthy,

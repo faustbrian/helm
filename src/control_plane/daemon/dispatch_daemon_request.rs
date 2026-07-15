@@ -1433,6 +1433,7 @@ const fn ipc_resource_health(
     let health = match health {
         ResourceHealth::Container(ContainerHealth::Missing) => IpcResourceHealth::Missing,
         ResourceHealth::Container(ContainerHealth::Stopped) => IpcResourceHealth::Stopped,
+        ResourceHealth::Container(ContainerHealth::Restarting) => IpcResourceHealth::Restarting,
         ResourceHealth::Container(ContainerHealth::RunningUnverified) => {
             IpcResourceHealth::RunningUnverified
         }

@@ -661,6 +661,11 @@ fn health_observations_distinguish_process_and_readiness_states() {
         running: Some(false),
         ..EngineContainerState::default()
     };
+    let restarting = EngineContainerState {
+        running: Some(true),
+        restarting: Some(true),
+        ..EngineContainerState::default()
+    };
     let unverified = EngineContainerState {
         running: Some(true),
         ..EngineContainerState::default()
@@ -692,6 +697,10 @@ fn health_observations_distinguish_process_and_readiness_states() {
     assert_eq!(
         container_health(Some(&stopped)).unwrap(),
         ContainerHealth::Stopped
+    );
+    assert_eq!(
+        container_health(Some(&restarting)).unwrap(),
+        ContainerHealth::Restarting
     );
     assert_eq!(
         container_health(Some(&unverified)).unwrap(),

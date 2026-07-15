@@ -1075,6 +1075,9 @@ pub(super) fn container_health(
         detail: "Engine returned container health without process state".to_owned(),
     })?;
 
+    if state.restarting == Some(true) {
+        return Ok(ContainerHealth::Restarting);
+    }
     match state.running {
         Some(false) => return Ok(ContainerHealth::Stopped),
         Some(true) => {}

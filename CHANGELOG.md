@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved the Engine's explicit container-restart-loop flag as `restarting`
+  through health observation, daemon state, IPC, and project status. Readiness
+  waits now tolerate a bounded in-progress restart without collapsing it into
+  `starting`, `stopped`, or generic process health.
 - Published `engine_unavailable` as a distinct project-resource health state
   while the selected Docker or Podman adapter is disconnected. Status no
   longer collapses an Engine outage into the same `unknown` state used for a

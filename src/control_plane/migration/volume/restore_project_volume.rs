@@ -103,7 +103,9 @@ where
                 {
                     break;
                 }
-                ContainerHealth::Starting | ContainerHealth::RunningUnverified => {
+                ContainerHealth::Restarting
+                | ContainerHealth::Starting
+                | ContainerHealth::RunningUnverified => {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
                 ContainerHealth::Missing
