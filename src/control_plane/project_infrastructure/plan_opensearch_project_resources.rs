@@ -1,3 +1,7 @@
+use super::project_service_http_readiness_job::project_service_http_readiness_job;
+use super::project_service_http_readiness_options::{
+    ProjectServiceHttpAuthentication, ProjectServiceHttpReadinessOptions,
+};
 use super::{PreparedProjectService, ProjectServicePreparationError};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -74,6 +78,15 @@ pub(crate) fn plan_opensearch_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let readiness = project_service_http_readiness_job(ProjectServiceHttpReadinessOptions {
+        url: format!("https://{container_name}:9200/_cluster/health"),
+        authentication: ProjectServiceHttpAuthentication::Basic {
+            username: "admin",
+            environment_key: "OPENSEARCH_PASSWORD",
+            secret: password.expose(),
+        },
+        allow_invalid_certificate: true,
+    })?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -82,7 +95,8 @@ pub(crate) fn plan_opensearch_project_resources(
         environment,
         container_environment,
         None,
-    ))
+    )
+    .with_provisioning_job(readiness))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {

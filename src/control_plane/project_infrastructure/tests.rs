@@ -145,6 +145,38 @@ fn typesense_preparation_replays_stable_bootstrap_credentials_and_endpoints() {
         Some(&"8108".to_owned())
     );
     assert_eq!(first[0].route(), None);
+    let readiness = first[0]
+        .provisioning_job()
+        .expect("Typesense authenticated readiness job");
+    assert_eq!(
+        readiness.image(),
+        concat!(
+            "curlimages/curl@sha256:",
+            "d94d07ba9e7d6de898b6d96c1a072f6f8266c687af78a74f380087a0addf5d17"
+        )
+    );
+    assert_eq!(
+        readiness.command(),
+        [
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            "--output",
+            "/dev/null",
+            "--variable",
+            "%TYPESENSE_API_KEY",
+            "--expand-header",
+            "X-TYPESENSE-API-KEY: {{TYPESENSE_API_KEY}}",
+            "http://stackctl-bill-search:8108/debug"
+        ]
+    );
+    assert_eq!(
+        readiness.environment().get("TYPESENSE_API_KEY"),
+        Some(&first_credential.secret().to_owned())
+    );
+    assert!(!format!("{readiness:?}").contains(first_credential.secret()));
 
     std::fs::remove_file(database).expect("remove state store");
 }
@@ -193,6 +225,31 @@ fn meilisearch_preparation_replays_stable_master_key_and_private_endpoint() {
         Some(&first_credential.secret().to_owned())
     );
     assert_eq!(first[0].route(), None);
+    let readiness = first[0]
+        .provisioning_job()
+        .expect("Meilisearch authenticated readiness job");
+    assert_eq!(
+        readiness.command(),
+        [
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            "--output",
+            "/dev/null",
+            "--variable",
+            "%MEILI_MASTER_KEY",
+            "--expand-header",
+            "Authorization: Bearer {{MEILI_MASTER_KEY}}",
+            "http://stackctl-bill-search:7700/keys"
+        ]
+    );
+    assert_eq!(
+        readiness.environment().get("MEILI_MASTER_KEY"),
+        Some(&first_credential.secret().to_owned())
+    );
+    assert!(!format!("{readiness:?}").contains(first_credential.secret()));
 
     std::fs::remove_file(database).expect("remove state store");
 }
@@ -291,6 +348,32 @@ fn opensearch_preparation_replays_a_policy_compatible_admin_identity() {
         first[0].environment().values().get("OPENSEARCH_PASSWORD"),
         Some(&password.to_owned())
     );
+    let readiness = first[0]
+        .provisioning_job()
+        .expect("OpenSearch authenticated readiness job");
+    assert_eq!(
+        readiness.command(),
+        [
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            "--output",
+            "/dev/null",
+            "--insecure",
+            "--variable",
+            "%OPENSEARCH_PASSWORD",
+            "--expand-user",
+            "admin:{{OPENSEARCH_PASSWORD}}",
+            "https://stackctl-bill-search:9200/_cluster/health"
+        ]
+    );
+    assert_eq!(
+        readiness.environment().get("OPENSEARCH_PASSWORD"),
+        Some(&password.to_owned())
+    );
+    assert!(!format!("{readiness:?}").contains(password));
 
     std::fs::remove_file(database).expect("remove state store");
 }
@@ -404,6 +487,31 @@ fn elasticsearch_preparation_replays_stable_credentials_and_private_http_endpoin
         Some(&password.to_owned())
     );
     assert_eq!(first[0].route(), None);
+    let readiness = first[0]
+        .provisioning_job()
+        .expect("Elasticsearch authenticated readiness job");
+    assert_eq!(
+        readiness.command(),
+        [
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "5",
+            "--output",
+            "/dev/null",
+            "--variable",
+            "%ELASTIC_PASSWORD",
+            "--expand-user",
+            "elastic:{{ELASTIC_PASSWORD}}",
+            "http://stackctl-bill-search:9200/_cluster/health"
+        ]
+    );
+    assert_eq!(
+        readiness.environment().get("ELASTIC_PASSWORD"),
+        Some(&password.to_owned())
+    );
+    assert!(!format!("{readiness:?}").contains(password));
 
     std::fs::remove_file(database).expect("remove state store");
 }

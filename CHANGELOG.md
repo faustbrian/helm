@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Replaced Engine-state-only readiness for OpenSearch, Elasticsearch,
+  Meilisearch, and Typesense with pinned private-network HTTP clients that
+  verify the generated administrator credential against a read-only service
+  endpoint. Curl imports secrets from the job environment, expands them only
+  into request authentication, and discards response bodies instead of placing
+  credentials in stored commands, arguments, or logs.
 - Rejected nonzero disposable-container exit statuses instead of recording
   failed service readiness and provisioning jobs as successful. Application
   failures now retry with bounded exponential backoff without disconnecting a

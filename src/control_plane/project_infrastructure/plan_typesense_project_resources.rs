@@ -1,3 +1,7 @@
+use super::project_service_http_readiness_job::project_service_http_readiness_job;
+use super::project_service_http_readiness_options::{
+    ProjectServiceHttpAuthentication, ProjectServiceHttpReadinessOptions,
+};
 use super::{PreparedProjectService, ProjectServicePreparationError};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -50,7 +54,7 @@ pub(crate) fn plan_typesense_project_resources(
     }
     let values = BTreeMap::from([
         ("TYPESENSE_API_KEY".to_owned(), secret.expose().to_owned()),
-        ("TYPESENSE_HOST".to_owned(), container_name),
+        ("TYPESENSE_HOST".to_owned(), container_name.clone()),
         ("TYPESENSE_PORT".to_owned(), "8108".to_owned()),
         ("TYPESENSE_PROTOCOL".to_owned(), "http".to_owned()),
     ]);
@@ -61,6 +65,15 @@ pub(crate) fn plan_typesense_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let readiness = project_service_http_readiness_job(ProjectServiceHttpReadinessOptions {
+        url: format!("http://{container_name}:8108/debug"),
+        authentication: ProjectServiceHttpAuthentication::Header {
+            header_name: "X-TYPESENSE-API-KEY",
+            environment_key: "TYPESENSE_API_KEY",
+            secret: secret.expose(),
+        },
+        allow_invalid_certificate: false,
+    })?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -69,7 +82,8 @@ pub(crate) fn plan_typesense_project_resources(
         environment,
         container_environment,
         None,
-    ))
+    )
+    .with_provisioning_job(readiness))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {

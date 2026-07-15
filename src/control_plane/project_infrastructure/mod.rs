@@ -11,6 +11,8 @@ mod plan_typesense_project_resources;
 mod prepare_project_services;
 mod prepared_project_service;
 mod project_service_container_configuration;
+mod project_service_http_readiness_job;
+mod project_service_http_readiness_options;
 mod project_service_preparation_error;
 mod project_service_preparation_strategy;
 mod project_service_provisioning_images;
