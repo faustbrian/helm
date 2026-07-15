@@ -7,6 +7,7 @@
 #![allow(clippy::clone_on_ref_ptr)] // Arc clones are explicit at call sites for clarity
 #![allow(clippy::fn_params_excessive_bools)] // CLI options are represented directly as flags
 #![allow(clippy::items_after_statements)] // Local helper functions keep related logic together
+#![allow(dead_code, unused_imports)] // Internal control-plane contracts are selectively composed
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![allow(
     clippy::mod_module_files,

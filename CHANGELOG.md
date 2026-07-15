@@ -14,6 +14,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Suppressed intentional dead-code and unused-import diagnostics so source
+  installation and lint output report actionable compiler warnings only.
 - Added native Linux amd64 SQL Server recovery acceptance that streams a
   verified native backup into an isolated retained target, proves the restored
   point-in-time row while preserving the later-mutated rollback source and
