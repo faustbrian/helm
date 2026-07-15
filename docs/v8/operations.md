@@ -201,7 +201,10 @@ after the external condition is repaired.
 Login services do not create unbounded duplicate stream files. Linux routes
 stdout and stderr through journald; launchd routes those duplicate streams to
 `/dev/null` while Stackctl retains explicit persistent events in its own log
-sink. That sink keeps at most seven distinct clock days and, for each day, one
+sink. A fatal daemon-watch startup error is emitted through that persistent
+sink before the process returns, so launchd's duplicate-stream suppression
+cannot hide the actionable resolver, filesystem, or state failure. The sink
+keeps at most seven distinct clock days and, for each day, one
 10 MiB active segment plus one 10 MiB previous segment. An individual entry
 larger than the segment bound is not persisted.
 

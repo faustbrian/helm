@@ -202,12 +202,24 @@ fn handle_daemon_watch_with_runtime_directory(
     runtime_directory: &Path,
 ) -> Result<()> {
     use crate::control_plane::{UnixDaemonWatchOptions, run_unix_daemon_watch};
-    let reconciliation = run_unix_daemon_watch(&UnixDaemonWatchOptions {
+    let reconciliation = match run_unix_daemon_watch(&UnixDaemonWatchOptions {
         runtime_directory: runtime_directory.to_path_buf(),
         watched_roots: args.dir.clone(),
         once: args.once,
         periodic_rescan: Duration::from_secs(args.interval.max(1)),
-    })?;
+    }) {
+        Ok(reconciliation) => reconciliation,
+        Err(error) => {
+            output::event(
+                "daemon",
+                LogLevel::Error,
+                &daemon_watch_failure_message(&error),
+                Persistence::Persistent,
+            );
+
+            return Err(error.into());
+        }
+    };
     if args.once {
         if let Some(reconciliation) = reconciliation {
             for issue in reconciliation.report().issues() {
@@ -243,6 +255,10 @@ fn handle_daemon_watch_with_runtime_directory(
     }
 
     Ok(())
+}
+
+fn daemon_watch_failure_message(error: impl std::fmt::Display) -> String {
+    format!("V8 singleton daemon stopped before it became ready: {error}")
 }
 
 #[cfg(unix)]
@@ -382,6 +398,14 @@ mod tests {
         drop(fs::remove_dir_all(&home));
         fs::create_dir_all(&home).expect("create temporary home");
         home
+    }
+
+    #[test]
+    fn daemon_watch_failure_message_preserves_actionable_startup_detail() {
+        assert_eq!(
+            super::daemon_watch_failure_message("resolver unavailable"),
+            "V8 singleton daemon stopped before it became ready: resolver unavailable"
+        );
     }
 
     #[test]

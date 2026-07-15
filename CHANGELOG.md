@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Persisted fatal daemon-watch startup failures before returning them, so
+  launchd's deliberate stderr suppression cannot hide the resolver, filesystem,
+  or state diagnostic that explains a throttled restart.
 - Removed the ambiguous implication that v8 might silently gain a custom-domain
   fallback. V8 requires standard `.localhost` loopback behavior and will not
   add DNS daemons, hosts entries, external DNS, or alternate naming rules.
