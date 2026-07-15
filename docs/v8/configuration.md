@@ -165,9 +165,12 @@ bill-1-app.stackctl.localhost
 ## Registry collision validation
 
 The complete registry is validated before mutation. Canonical duplicate paths
-are deduplicated. Distinct paths producing the same project/service domain are
-a conflict. Diagnostics report the domain, names, and all canonical paths;
-Stackctl never creates a fallback.
+are deduplicated. One project identity cannot belong to multiple distinct
+canonical paths, including when the projects contain only non-routable
+services. That conflict reports every path and requires a unique directory or
+explicit `project` value. Distinct paths producing the same project/service
+domain are also a conflict. Route diagnostics report the domain, names, and all
+canonical paths; Stackctl never creates a fallback.
 
 If persisted state proves an existing owner, its persistent resources remain
 untouched and the newcomer does not activate. If ownership cannot be proven,

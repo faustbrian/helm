@@ -1,3 +1,4 @@
+use super::validate_project_identities::validate_project_identities;
 use super::{DesiredRegistry, ProjectSource, RegistryPlanError};
 use crate::control_plane::configuration::{
     apply_artifact_lock, parse_artifact_lock, parse_project_config,
@@ -36,6 +37,7 @@ pub(crate) fn plan_project_registry(
         .flat_map(|project| project.route_claims().iter().cloned())
         .collect();
     validate_route_claims(claims)?;
+    validate_project_identities(&projects)?;
 
     Ok(DesiredRegistry::new(projects))
 }

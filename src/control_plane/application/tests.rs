@@ -391,6 +391,30 @@ fn complete_discovered_registry_collision_fails_before_persistence() {
 }
 
 #[test]
+fn duplicate_project_identity_without_routes_fails_before_persistence() {
+    let first = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        "schema_version: 8\nproject: billing\nservices:\n  db:\n    preset: postgres\n    version: \"17\"\n"
+            .to_owned(),
+    );
+    let second = ProjectSource::new(
+        PathBuf::from("/work/archive/bill"),
+        PathBuf::from("/work/archive/bill/.stackctl.yaml"),
+        "schema_version: 8\nproject: billing\nservices:\n  cache:\n    preset: valkey\n    version: \"8\"\n"
+            .to_owned(),
+    );
+
+    let error = plan_project_registry(&[first, second]).expect_err("project identity collision");
+    let message = error.to_string();
+
+    assert!(message.contains("project identity 'billing'"));
+    assert!(message.contains("/work/bill"));
+    assert!(message.contains("/work/archive/bill"));
+    assert!(message.contains("unique explicit 'project' value"));
+}
+
+#[test]
 fn persisted_owner_collision_rolls_back_every_project_in_the_new_batch() {
     let database_path = temporary_database_path();
     let store = SqliteStateStore::open(&database_path).expect("open state store");

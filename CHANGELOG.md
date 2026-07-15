@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Rejected duplicate project identities across distinct canonical paths even
+  when their service sets produce no route collision. The complete registry
+  now reports every path and requires a unique directory or explicit `project`
+  value before credentials or logical resources can alias.
 - Removed current-v8 Podman support implications from Engine comments and
   health/retry changelog entries. V8 selects the typed Docker Engine contract;
   Podman remains unsupported until it has equivalent acceptance evidence.

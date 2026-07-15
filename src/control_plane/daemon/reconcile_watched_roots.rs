@@ -2,7 +2,7 @@ use super::{
     DiscoveryReconciliationError, DiscoveryReconciliationResult, ProjectDiscoveryIssue,
     ProjectDiscoveryOptions, discover_project_sources,
 };
-use crate::control_plane::application::{ControlPlane, ControlPlaneError, RegistryPlanError};
+use crate::control_plane::application::{ControlPlane, ControlPlaneError};
 use crate::control_plane::state::StateStore;
 
 /// Scans every authoritative root and publishes only a complete valid registry.
@@ -24,7 +24,7 @@ where
         .reconcile_discovered_projects(report.sources(), orphaned_at_unix_seconds)
     {
         Ok(registry) => registry,
-        Err(ControlPlaneError::Plan(error @ RegistryPlanError::RouteOwnership(_))) => {
+        Err(ControlPlaneError::Plan(error)) if error.is_ownership_collision() => {
             return Ok(DiscoveryReconciliationResult::blocked(report.with_issue(
                 ProjectDiscoveryIssue::ConfigurationCollision {
                     detail: error.to_string(),

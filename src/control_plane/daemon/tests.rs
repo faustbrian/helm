@@ -6668,6 +6668,33 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     assert!(engine_schedule.may_reconcile());
 
     std::fs::remove_dir_all(&collision_path).expect("remove collision project");
+    std::fs::create_dir(&collision_path).expect("identity collision directory");
+    std::fs::write(
+        collision_path.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  db:\n    preset: postgres\n    version: \"17\"\n",
+    )
+    .expect("identity collision config");
+    let identity_collision = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        12_347,
+    )
+    .expect("project identity collision becomes a blocked diagnostic");
+    assert!(!identity_collision.was_applied());
+    assert_eq!(identity_collision.report().issues().len(), 1);
+    assert_eq!(
+        identity_collision.report().issues()[0].code(),
+        "configuration_collision"
+    );
+    let identity_detail = identity_collision.report().issues()[0].to_string();
+    assert!(identity_detail.contains("project identity 'bill'"));
+    assert!(identity_detail.contains("unique explicit 'project' value"));
+    engine_schedule
+        .observe(&identity_collision)
+        .expect("retain plan across project identity collision");
+    assert!(engine_schedule.may_reconcile());
+
+    std::fs::remove_dir_all(&collision_path).expect("remove identity collision project");
     std::fs::write(
         project.join(".stackctl.yaml"),
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n    privileged: true\n",
@@ -6676,7 +6703,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     let security = reconcile_watched_roots(
         &mut control_plane,
         ProjectDiscoveryOptions::bounded_defaults(),
-        12_347,
+        12_348,
     )
     .expect("security policy becomes a blocked diagnostic");
     assert!(!security.was_applied());
