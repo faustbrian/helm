@@ -1016,6 +1016,31 @@ impl UnixDaemonRuntime {
 
                         return;
                     }
+                    Err(error @ WorkloadReconcileError::DestructiveReplacementRequired { .. }) => {
+                        if let Err(health_error) = health_snapshot
+                            .record_destructive_replacement_required(
+                                volume.name(),
+                                observed_at_unix_seconds,
+                            )
+                        {
+                            self.engine_reconciliation.complete();
+                            tracing::error!(
+                                error = %error,
+                                health_error = %health_error,
+                                "project volume replacement diagnostic publication blocked"
+                            );
+
+                            return;
+                        }
+                        tracing::warn!(
+                            project = volume.metadata().project_id().unwrap_or_default(),
+                            service = volume.metadata().resource_id().unwrap_or_default(),
+                            error = %error,
+                            "project volume requires explicit data migration; unrelated reconciliation continues"
+                        );
+
+                        continue 'dedicated_services;
+                    }
                     Err(error) => {
                         self.engine_reconciliation.complete();
                         tracing::error!(error = %error, "project volume reconciliation blocked");

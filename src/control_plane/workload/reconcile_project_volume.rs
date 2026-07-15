@@ -58,7 +58,7 @@ where
                 ),
             })?;
             if volume.metadata() != options.request.metadata() {
-                return Err(WorkloadReconcileError::Conflict {
+                return Err(WorkloadReconcileError::DestructiveReplacementRequired {
                     detail: format!(
                         "project volume '{}' ownership differs from its requested data identity; explicit migration is required",
                         options.request.name()

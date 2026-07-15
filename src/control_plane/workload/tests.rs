@@ -5,12 +5,13 @@ use super::{
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
     ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectVolumeReconcileAction,
     ProjectVolumeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
-    WorkloadReconcileAction, WorkloadReconcileOptions, application_container_request,
-    garbage_collect_build_images, garbage_collect_disposable_containers,
-    materialize_application_request, plan_ephemeral_browser, plan_immutable_project_application,
-    project_process_request, reconcile_project_application, reconcile_project_process,
-    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
-    run_project_command, stop_orphaned_project_workloads, workload_resource_record,
+    WorkloadReconcileAction, WorkloadReconcileError, WorkloadReconcileOptions,
+    application_container_request, garbage_collect_build_images,
+    garbage_collect_disposable_containers, materialize_application_request, plan_ephemeral_browser,
+    plan_immutable_project_application, project_process_request, reconcile_project_application,
+    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
+    remove_stale_ephemeral_services, run_project_command, stop_orphaned_project_workloads,
+    workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -944,6 +945,10 @@ fn retained_project_volume_requires_migration_for_identity_drift() {
         .expect_err("volume identity drift");
 
     assert!(error.to_string().contains("explicit migration is required"));
+    assert!(matches!(
+        error,
+        WorkloadReconcileError::DestructiveReplacementRequired { .. }
+    ));
 }
 
 #[test]

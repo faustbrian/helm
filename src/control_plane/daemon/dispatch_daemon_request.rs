@@ -1448,6 +1448,9 @@ const fn ipc_resource_health(
         ResourceHealth::AuthenticationFailed { attempt } => {
             IpcResourceHealth::AuthenticationFailed { attempt }
         }
+        ResourceHealth::DestructiveReplacementRequired => {
+            IpcResourceHealth::DestructiveReplacementRequired
+        }
     };
 
     (health, Some(observed_at))

@@ -446,6 +446,37 @@ fn project_status_responses_preserve_authentication_failures() {
 }
 
 #[test]
+fn project_status_responses_preserve_destructive_replacement_requirements() {
+    let health = IpcResourceHealth::DestructiveReplacementRequired;
+
+    assert_eq!(health.as_str(), "destructive_replacement_required");
+    let response = IpcResponse::success(
+        "status-47",
+        IpcResult::ProjectStatus {
+            project: super::IpcProjectStatus::new(
+                "bill".to_owned(),
+                Vec::new(),
+                vec![IpcResourceStatus::new(
+                    "database".to_owned(),
+                    "volume".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    health,
+                    Some(10_000),
+                    false,
+                )],
+            ),
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode project status");
+
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode project status"),
+        response
+    );
+}
+
+#[test]
 fn project_environment_requests_round_trip_with_the_exact_target_path() {
     let request = IpcRequest::new(
         "environment-42",

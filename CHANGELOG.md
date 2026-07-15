@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Published retained project-volume identity drift as
+  `destructive_replacement_required` without mutating the volume or creating
+  its service container. The affected service waits for an explicit migration
+  while unrelated project reconciliation continues; foreign ownership and
+  ambiguous volume conflicts remain hard failures.
 - Classified authenticated HTTP readiness failures without parsing logs or
   guessing from a generic probe exit. Pinned curl jobs map only HTTP 401/403 to
   a revisioned authentication-failure protocol; the daemon publishes

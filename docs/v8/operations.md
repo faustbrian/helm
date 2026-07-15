@@ -377,6 +377,11 @@ Authenticated HTTP probes reserve a revisioned exit status only for HTTP
 401/403. That evidence publishes `authentication_failed`; transport, timeout,
 and other response failures publish `service_not_ready`. Neither path exposes
 the credential or disconnects a healthy Engine adapter.
+When an owned retained project volume has a different requested data identity,
+the daemon publishes `destructive_replacement_required`, leaves the volume
+untouched, skips creation of only the affected service container, and continues
+unrelated reconciliation. Foreign ownership and ambiguous volume conflicts
+remain fail-closed and are not reported as migration requirements.
 Browser opening accepts `healthy` and `running_unverified` routes and otherwise
 fails with the exact service state and observation time instead of issuing an
 ad-hoc application HTTP probe.
