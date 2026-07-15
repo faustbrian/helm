@@ -1,10 +1,11 @@
+use super::wait_for_postgres_readiness::wait_for_postgres_readiness;
 use super::{
     PostgresMigrationPreparationOptions, PostgresMigrationTargetReconcileError,
     PostgresMigrationTargetReconcileResult, prepare_postgres_migration_target,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver,
+    VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{CredentialEntropy, SharedInstancePlan};
 use crate::control_plane::state::StateStore;
@@ -23,8 +24,12 @@ pub(crate) async fn reconcile_postgres_migration_target<Store, Engine, Entropy>(
 ) -> Result<PostgresMigrationTargetReconcileResult, PostgresMigrationTargetReconcileError>
 where
     Store: StateStore,
-    Engine:
-        ContainerDiscovery + ContainerLifecycle + HealthObserver + VolumeDiscovery + VolumeManager,
+    Engine: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + VolumeDiscovery
+        + VolumeManager,
     Entropy: CredentialEntropy,
 {
     let plan = prepare_postgres_migration_target(store, shared, entropy, options)
@@ -54,15 +59,15 @@ where
     )
     .await
     .map_err(|error| invalid("reconcile PostgreSQL migration target service", error))?;
-    if service.health() != ContainerHealth::Healthy {
-        return Err(PostgresMigrationTargetReconcileError::new(format!(
-            "PostgreSQL migration target is not ready: {:?}",
-            service.health()
-        )));
-    }
+    wait_for_postgres_readiness(engine, service.container(), plan.bootstrap_credential())
+        .await
+        .map_err(|error| invalid("verify PostgreSQL migration target readiness", error))?;
 
     Ok(PostgresMigrationTargetReconcileResult::new(
-        plan, service, volume,
+        plan,
+        service,
+        volume,
+        ContainerHealth::Healthy,
     ))
 }
 

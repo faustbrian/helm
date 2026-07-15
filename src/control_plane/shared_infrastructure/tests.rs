@@ -5185,7 +5185,8 @@ fn postgres_migration_target_reconciliation_is_owned_ready_and_idempotent() {
     .pop()
     .expect("shared PostgreSQL plan");
     let mut engine = RecordingSharedVolumeEngine {
-        health: crate::control_plane::engine::ContainerHealth::Healthy,
+        health: crate::control_plane::engine::ContainerHealth::RunningUnverified,
+        command_exits: Arc::new(Mutex::new(VecDeque::from([1, 0, 0]))),
         ..RecordingSharedVolumeEngine::default()
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -5229,6 +5230,15 @@ fn postgres_migration_target_reconciliation_is_owned_ready_and_idempotent() {
         engine.operations,
         vec!["create-volume", "create-container", "start-container"]
     );
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("PostgreSQL readiness commands")
+            .len(),
+        2,
+        "migration target readiness must retry an authenticated protocol probe"
+    );
     let first_secret = result.bootstrap_credential().secret().to_owned();
     let created_volume = engine.created[0].clone();
     let created_container = engine.created_containers[0].clone();
@@ -5264,6 +5274,15 @@ fn postgres_migration_target_reconciliation_is_owned_ready_and_idempotent() {
     assert_eq!(replay.volume(), result.volume());
     assert_eq!(replay.bootstrap_credential().secret(), first_secret);
     assert!(engine.operations.is_empty());
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("replayed PostgreSQL readiness commands")
+            .len(),
+        3,
+        "replayed reconciliation must reverify service readiness"
+    );
     assert_eq!(store.credentials().expect("replayed credentials").len(), 1);
 
     drop(store);
@@ -5276,7 +5295,7 @@ fn postgres_migration_target_reconciliation_is_owned_ready_and_idempotent() {
 }
 
 #[test]
-fn postgres_migration_target_reconciliation_rejects_an_unready_container() {
+fn postgres_migration_target_reconciliation_uses_protocol_readiness_over_engine_state() {
     let database_path = std::env::temp_dir().join(format!(
         "stackctl-postgres-migration-unready-{}-{}.sqlite3",
         std::process::id(),
@@ -5300,7 +5319,7 @@ fn postgres_migration_target_reconciliation_rejects_an_unready_container() {
         .build()
         .expect("test runtime");
 
-    let error = runtime
+    let result = runtime
         .block_on(reconcile_postgres_migration_target(
             &mut store,
             &mut engine,
@@ -5315,14 +5334,28 @@ fn postgres_migration_target_reconciliation_rejects_an_unready_container() {
                 desired_revision: "sha256:restore-v1",
             },
         ))
-        .err()
-        .expect("starting target must not be returned as ready");
+        .expect("authenticated PostgreSQL probe proves the starting target ready");
 
     assert_eq!(
-        error.to_string(),
-        "PostgreSQL migration target is not ready: Starting"
+        result.health(),
+        crate::control_plane::engine::ContainerHealth::Healthy
     );
     assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("PostgreSQL readiness command")
+            .as_slice(),
+        &[vec![
+            "psql".to_owned(),
+            "--no-psqlrc".to_owned(),
+            "--set=ON_ERROR_STOP=1".to_owned(),
+            "--username=stackctl_admin".to_owned(),
+            "--dbname=postgres".to_owned(),
+            "--command=SELECT 1".to_owned(),
+        ]]
+    );
 
     drop(store);
     for suffix in ["", "-shm", "-wal"] {

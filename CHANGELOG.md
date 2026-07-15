@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux PostgreSQL recovery acceptance that streams a verified
+  custom-format backup into an isolated retained target, proves the restored
+  point-in-time row while preserving the later-mutated source and sibling
+  database, and authorizes exact cleanup of both volumes. Fixed migration
+  targets to use the same authenticated PostgreSQL readiness probe as shared
+  instances instead of rejecting healthy containers as `RunningUnverified`.
 - Added native Linux mixed-version acceptance that drives PostgreSQL 17 and 18
   projects from real YAML through compatibility planning, proves the profiles
   receive distinct fingerprints and containers, and verifies the owned Engine

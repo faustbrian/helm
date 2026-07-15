@@ -8,6 +8,7 @@ pub(crate) struct PostgresMigrationTargetReconcileResult {
     plan: PostgresSharedInstancePlan,
     service: WorkloadReconcileResult,
     volume: ProjectVolumeReconcileResult,
+    health: ContainerHealth,
 }
 
 impl PostgresMigrationTargetReconcileResult {
@@ -15,11 +16,13 @@ impl PostgresMigrationTargetReconcileResult {
         plan: PostgresSharedInstancePlan,
         service: WorkloadReconcileResult,
         volume: ProjectVolumeReconcileResult,
+        health: ContainerHealth,
     ) -> Self {
         Self {
             plan,
             service,
             volume,
+            health,
         }
     }
 
@@ -32,7 +35,7 @@ impl PostgresMigrationTargetReconcileResult {
     }
 
     pub(crate) const fn health(&self) -> ContainerHealth {
-        self.service.health()
+        self.health
     }
 
     pub(crate) const fn bootstrap_credential(&self) -> &CredentialRecord {

@@ -1,6 +1,7 @@
 use super::{
-    PostgresPreparationOptions, prepare_postgres_shared_instances,
-    reconcile_prepared_postgres_instance,
+    PostgresMigrationPreparationOptions, PostgresPreparationOptions,
+    plan_postgres_project_resources, prepare_postgres_shared_instances,
+    reconcile_postgres_migration_target, reconcile_prepared_postgres_instance,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -10,15 +11,21 @@ use crate::control_plane::engine::{
     OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
     reconstruct_owned_container, run_attached_command_capture,
 };
+use crate::control_plane::migration::{
+    EnginePostgresSourceRetirement, MigrationCutoverPlan, MigrationOperations,
+    MigrationRollbackPlan, PostgresBackupOptions, PostgresMigrationOperations,
+    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions, backup_postgres_database,
+};
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, resolve_execution_shared_instances,
-    revoke_orphaned_shared_access_from_observed,
+    CredentialGenerationError, CredentialSecret, IsolationCapability, OrphanedSharedAccessOptions,
+    PersistenceMode, SharedServiceRequest, plan_shared_instances,
+    resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -375,6 +382,211 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
             Err(EngineError::ContainerExit { .. })
         ));
 
+        let source_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill PostgreSQL logical resource");
+        let backup_root = state_directory.join("backups");
+        let backup = backup_postgres_database(
+            &engine,
+            &container,
+            &PostgresBackupOptions {
+                logical_resource: source_logical,
+                credential: bill.credential(),
+                database_name: bill.logical().database_name(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 11_500,
+                backup_root: &backup_root,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("back up live bill PostgreSQL database");
+        postgres_command(
+            &engine,
+            &container,
+            bill.credential().username(),
+            bill.credential().secret(),
+            bill.logical().database_name(),
+            "UPDATE stackctl_acceptance SET value = 'mutated-after-backup';",
+        )
+        .await
+        .expect("mutate bill PostgreSQL source after backup");
+        let backup_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: "bill-database-recovery".to_owned(),
+            project_id: "bill".to_owned(),
+            source_revision: source_logical.desired_revision().to_owned(),
+            target_revision: source_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            phase: MigrationPhase::BackupVerified,
+            backup_reference: Some(backup.reference().to_owned()),
+            backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+            backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+            target_resource_id: None,
+            rollback_reference: Some(source_logical.shared_resource_id().to_owned()),
+            updated_at_unix_seconds: 11_500,
+        })
+        .expect("record live PostgreSQL backup checkpoint");
+        let target = reconcile_postgres_migration_target(
+            &mut store,
+            &mut engine,
+            &shared[0],
+            &SequentialCredentialEntropy::new(0x71),
+            PostgresMigrationPreparationOptions {
+                migration_id: backup_checkpoint.migration_id(),
+                project_id: "bill",
+                installation_id: &installation_id,
+                network_name: &network_name,
+                schema_version: 8,
+                desired_revision: source_logical.desired_revision(),
+            },
+        )
+        .await
+        .expect("reconcile isolated PostgreSQL recovery target");
+        let target_resources = plan_postgres_project_resources(
+            "bill",
+            "database",
+            target.plan(),
+            CredentialSecret::new(bill.credential().secret().to_owned()),
+        )
+        .expect("plan PostgreSQL recovery target resources");
+        let target_logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: format!(
+                "{}/{}",
+                source_logical.project_id(),
+                source_logical.service_id()
+            ),
+            shared_resource_id: target.volume().name().to_owned(),
+            project_id: source_logical.project_id().to_owned(),
+            service_id: source_logical.service_id().to_owned(),
+            kind: source_logical.kind().to_owned(),
+            compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_resources.environment().revision().to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        });
+        let project = ProjectRecord::new(
+            state_directory.join("projects/bill"),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        );
+        let retained_target = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: target_logical.logical_resource_id().to_owned(),
+            shared_resource_id: target_logical.shared_resource_id().to_owned(),
+            project_id: target_logical.project_id().to_owned(),
+            service_id: target_logical.service_id().to_owned(),
+            kind: target_logical.kind().to_owned(),
+            compatibility_fingerprint: target_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_logical.desired_revision().to_owned(),
+            lifecycle: ResourceLifecycle::Retained,
+            orphaned_at_unix_seconds: None,
+        });
+        let cutover =
+            MigrationCutoverPlan::new(project.clone(), target_resources.environment().clone())
+                .expect("plan PostgreSQL recovery cutover");
+        let rollback =
+            MigrationRollbackPlan::new(project, bill.environment().clone(), vec![retained_target])
+                .expect("plan PostgreSQL recovery rollback");
+        let mut retirement = EnginePostgresSourceRetirement::new(
+            &engine,
+            PostgresSourceRetirementOptions {
+                source_container: &container,
+                administrator: prepared.instance().bootstrap_credential(),
+                source_credential: bill.credential(),
+                source_environment: bill.environment(),
+                installation_id: &installation_id,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .expect("prepare PostgreSQL source retirement boundary");
+        let mut operations = PostgresMigrationOperations::new(
+            &engine,
+            &mut retirement,
+            PostgresMigrationOperationsOptions {
+                source_container: &container,
+                target_container: target.container(),
+                source_logical_resource: source_logical,
+                target_logical_resource: &target_logical,
+                source_credential: bill.credential(),
+                target_credential: target_resources.credential(),
+                target_plan: target_resources.logical(),
+                administrator: target.bootstrap_credential(),
+                installation_id: &installation_id,
+                source_database_name: bill.logical().database_name(),
+                backup_root: &backup_root,
+                operation_unix_seconds: 11_700,
+                timeout: Duration::from_secs(30),
+                cutover,
+                rollback,
+            },
+        )
+        .expect("prepare live PostgreSQL migration operations");
+        let target_plan = operations
+            .provision_target(&backup_checkpoint)
+            .await
+            .expect("provision isolated PostgreSQL recovery database");
+        let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: backup_checkpoint.migration_id().to_owned(),
+            project_id: backup_checkpoint.project_id().to_owned(),
+            source_revision: backup_checkpoint.source_revision().to_owned(),
+            target_revision: target_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: backup_checkpoint
+                .source_compatibility_fingerprint()
+                .to_owned(),
+            target_compatibility_fingerprint: backup_checkpoint
+                .target_compatibility_fingerprint()
+                .to_owned(),
+            phase: MigrationPhase::TargetProvisioned,
+            backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
+            backup_artifact_sha256: backup_checkpoint
+                .backup_artifact_sha256()
+                .map(str::to_owned),
+            backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
+            target_resource_id: Some(target_plan.target_resource_id().to_owned()),
+            rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
+            updated_at_unix_seconds: 11_600,
+        })
+        .expect("record live PostgreSQL target checkpoint");
+        operations
+            .restore(
+                &restore_checkpoint,
+                backup.reference(),
+                target_plan.target_resource_id(),
+            )
+            .await
+            .expect("restore verified PostgreSQL backup into isolated target");
+        assert_eq!(
+            postgres_command(
+                &engine,
+                target.container(),
+                target_resources.credential().username(),
+                target_resources.credential().secret(),
+                target_plan.target_resource_id(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read restored PostgreSQL target"),
+            b"bill-value\n",
+            "target restore must reproduce the verified point-in-time backup"
+        );
+        assert_eq!(
+            postgres_command(
+                &engine,
+                &container,
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read sibling database after PostgreSQL restore"),
+            b"shop-value\n"
+        );
+        drop(operations);
+        drop(retirement);
+
         let second =
             reconcile_prepared_postgres_instance(&mut engine, prepared, &installation_id, 8)
                 .await
@@ -448,7 +660,8 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
             )
             .await
             .expect("verify retained bill PostgreSQL data as administrator"),
-            b"bill-value\n"
+            b"mutated-after-backup\n",
+            "isolated recovery must not mutate the retained source database"
         );
 
         let restored =
@@ -467,7 +680,7 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
             )
             .await
             .expect("read restored bill PostgreSQL data"),
-            b"bill-value\n"
+            b"mutated-after-backup\n"
         );
         let restored_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(restored_container.id(), container.id());
@@ -477,12 +690,15 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
             InstallationResourceDeletionOptions {
                 installation_id: &installation_id,
                 schema_version: 8,
-                authorized_persistent_volumes: &[prepared
-                    .instance()
-                    .volume()
-                    .expect("persistent PostgreSQL volume")
-                    .name()
-                    .to_owned()],
+                authorized_persistent_volumes: &[
+                    prepared
+                        .instance()
+                        .volume()
+                        .expect("persistent PostgreSQL volume")
+                        .name()
+                        .to_owned(),
+                    target.volume().name().to_owned(),
+                ],
             },
         )
         .await
