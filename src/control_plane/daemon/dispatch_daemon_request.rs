@@ -71,6 +71,39 @@ where
             }
             match reconcile_watched_roots(control_plane, discovery_options, now_unix_seconds) {
                 Ok(result) => {
+                    if !result.was_applied() {
+                        let diagnostics = result
+                            .report()
+                            .issues()
+                            .iter()
+                            .map(|issue| IpcDiagnostic::new(issue.code(), issue.to_string(), false))
+                            .collect::<Vec<_>>();
+                        let message = diagnostics
+                            .iter()
+                            .map(IpcDiagnostic::message)
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        if let Err(error) = record_ipc_event(
+                            control_plane,
+                            event_journal,
+                            request.request_id(),
+                            IpcEventKind::Failed {
+                                code: "reconciliation_blocked".to_owned(),
+                                message,
+                            },
+                        ) {
+                            return IpcResponse::failure(
+                                request.request_id(),
+                                vec![IpcDiagnostic::new(
+                                    "event_journal_failed",
+                                    error.to_string(),
+                                    false,
+                                )],
+                            );
+                        }
+
+                        return IpcResponse::failure(request.request_id(), diagnostics);
+                    }
                     if let Err(error) = record_ipc_event(
                         control_plane,
                         event_journal,
@@ -91,7 +124,7 @@ where
                         IpcResult::Reconciled {
                             project_count: result.report().sources().len(),
                             issue_count: result.report().issues().len(),
-                            applied: result.was_applied(),
+                            applied: true,
                         },
                     )
                 }

@@ -431,6 +431,10 @@ Invalid registry plans are classified as `configuration_invalid` or
 all claimant paths; Stackctl never changes a project name or domain to repair
 them. The daemon emits the actionable diagnostic once when the set changes and
 one recovery notice when it clears.
+An explicit `stackctl daemon reconcile` returns every typed discovery
+diagnostic and exits nonzero when that complete scan is blocked. Its operation
+history records `Accepted` followed by `Failed`, never `Completed`. This does
+not stop background recovery of the last complete validated plan.
 Privilege-expanding service fields are classified separately as
 `security_approval_blocked`. This includes privileged mode, host networking,
 host bind mounts, device access, added capabilities, and Engine socket access.

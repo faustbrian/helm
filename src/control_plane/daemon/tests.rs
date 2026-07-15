@@ -6832,6 +6832,73 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 }
 
 #[test]
+fn daemon_reconcile_request_fails_with_discovery_diagnostics() {
+    let root = temporary_directory("ipc-reconciliation-blocked");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nenvironment: production\nservices: {}\n",
+    )
+    .expect("invalid project config");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new("reconcile-invalid", IpcPayload::Reconcile);
+    let mut event_journal = IpcEventJournal::default();
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+
+    let IpcOutcome::Failure { diagnostics } = response.outcome() else {
+        panic!("blocked reconciliation should fail");
+    };
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code(), "configuration_invalid");
+    assert!(!diagnostics[0].retryable());
+    assert!(diagnostics[0].message().contains(".stackctl.yaml"));
+    assert!(
+        diagnostics[0]
+            .message()
+            .contains("unknown field `environment`")
+    );
+    let expected_message = diagnostics[0].message().to_owned();
+
+    let events = event_journal
+        .events_after(Some(0))
+        .expect("reconciliation events");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].kind(), &IpcEventKind::Accepted);
+    assert_eq!(
+        events[1].kind(),
+        &IpcEventKind::Failed {
+            code: "reconciliation_blocked".to_owned(),
+            message: expected_message,
+        }
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
 fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
     let root = temporary_directory("ipc-benchmark-snapshot");
     let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");

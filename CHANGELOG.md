@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Made explicit singleton reconciliation fail with every typed discovery
+  diagnostic when the complete scan is blocked. The request now records a
+  failed lifecycle event and exits nonzero while background reconciliation
+  keeps the last complete validated plan active.
 - Allowed an atomic project-directory rename to retire the stale route owner
   and register the new canonical path in one transaction. Existing resources
   become orphaned and still require explicit adoption; deterministic domains
