@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused one post-shared-reconciliation container observation across shared
+  service idling, orphan stopping, disposable garbage collection, application
+  convergence, dedicated services, and workers. Each mutation still inspects
+  current Engine state, but a large registry no longer performs separate full
+  inventory scans for each cleanup and convergence phase.
 - Reused one pass-wide managed-container observation for dedicated project
   services and one lazily acquired managed-volume observation for all retained
   project volumes. Large registries no longer repeat whole-Engine inventory

@@ -1,13 +1,16 @@
 use super::{
     OrphanedProjectWorkloadOptions, WorkloadReconcileError, matches_durable_resource_metadata,
 };
+#[cfg(test)]
+use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ObservedResourceOwnership,
+    ContainerLifecycle, ContainerState, EngineError, ObservedContainer, ObservedResourceOwnership,
     ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::state::ResourceLifecycle;
 
 /// Stops state-proven removed project workloads while retaining their containers.
+#[cfg(test)]
 pub(crate) async fn stop_orphaned_project_workloads<E>(
     engine: &mut E,
     options: OrphanedProjectWorkloadOptions<'_>,
@@ -19,9 +22,22 @@ where
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover orphaned project workloads", error))?;
+
+    stop_orphaned_project_workloads_from_observed(engine, &observed, options).await
+}
+
+/// Stops orphaned workloads against a pass-wide Engine observation.
+pub(crate) async fn stop_orphaned_project_workloads_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: OrphanedProjectWorkloadOptions<'_>,
+) -> Result<usize, WorkloadReconcileError>
+where
+    E: ContainerLifecycle,
+{
     let mut stopped = 0;
 
-    for container in &observed {
+    for container in observed {
         let owned = match reconstruct_owned_container(
             container,
             options.installation_id,

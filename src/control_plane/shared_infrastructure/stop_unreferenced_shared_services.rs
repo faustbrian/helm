@@ -1,11 +1,14 @@
 use super::{SharedInfrastructureReconcileError, UnreferencedSharedServiceOptions};
+#[cfg(test)]
+use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ManagedResourceMetadata,
+    ContainerLifecycle, ContainerState, EngineError, ManagedResourceMetadata, ObservedContainer,
     ObservedResourceOwnership, ResourceKind, RetentionClass, reconstruct_owned_container,
 };
 use crate::control_plane::state::{ResourceLifecycle, ResourceRecord, ResourceRetention};
 
 /// Stops unused shared processes while preserving their containers and volumes.
+#[cfg(test)]
 pub(crate) async fn stop_unreferenced_shared_services<Engine>(
     engine: &mut Engine,
     options: UnreferencedSharedServiceOptions<'_>,
@@ -17,9 +20,22 @@ where
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover shared services", error))?;
+
+    stop_unreferenced_shared_services_from_observed(engine, &observed, options).await
+}
+
+/// Stops unused shared services against a pass-wide Engine observation.
+pub(crate) async fn stop_unreferenced_shared_services_from_observed<Engine>(
+    engine: &mut Engine,
+    observed: &[ObservedContainer],
+    options: UnreferencedSharedServiceOptions<'_>,
+) -> Result<usize, SharedInfrastructureReconcileError>
+where
+    Engine: ContainerLifecycle,
+{
     let mut stopped = 0;
 
-    for container in &observed {
+    for container in observed {
         let owned = match reconstruct_owned_container(
             container,
             options.installation_id,

@@ -38,7 +38,7 @@ use crate::control_plane::shared_infrastructure::{
     ProvisioningJobOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
     UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
     resolve_execution_shared_instances, revoke_orphaned_shared_access, run_provisioning_job,
-    stop_unreferenced_shared_services,
+    stop_unreferenced_shared_services_from_observed,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -51,11 +51,11 @@ use crate::control_plane::workload::{
     BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
     OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan,
     WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
-    garbage_collect_disposable_containers, materialize_application_requests,
+    garbage_collect_disposable_containers_from_observed, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application_from_observed,
     reconcile_project_process_from_observed, reconcile_project_service_from_observed,
     reconcile_project_volume_from_observed, remove_stale_ephemeral_services,
-    stop_orphaned_project_workloads, workload_resource_record,
+    stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -854,17 +854,38 @@ impl UnixDaemonRuntime {
                 return;
             }
         }
-        let stopped_shared = self
-            .engine_runtime
-            .block_on(stop_unreferenced_shared_services(
-                engine,
-                UnreferencedSharedServiceOptions {
-                    resources: &current_resources,
-                    logical_resources: &current_logical_resources,
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
-                },
-            ));
+
+        let observed_managed_containers =
+            match self.engine_runtime.block_on(engine.discover_managed()) {
+                Ok(observed) => observed,
+                Err(error) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "managed container discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            };
+        let stopped_shared =
+            self.engine_runtime
+                .block_on(stop_unreferenced_shared_services_from_observed(
+                    engine,
+                    &observed_managed_containers,
+                    UnreferencedSharedServiceOptions {
+                        resources: &current_resources,
+                        logical_resources: &current_logical_resources,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                    },
+                ));
         match stopped_shared {
             Ok(stopped) if stopped > 0 => {
                 tracing::info!(stopped, "stopped unreferenced shared services");
@@ -895,8 +916,9 @@ impl UnixDaemonRuntime {
 
         let stopped = self
             .engine_runtime
-            .block_on(stop_orphaned_project_workloads(
+            .block_on(stop_orphaned_project_workloads_from_observed(
                 engine,
+                &observed_managed_containers,
                 OrphanedProjectWorkloadOptions {
                     resources: &durable_resources,
                     installation_id: self.global_network_request.metadata().installation_id(),
@@ -931,18 +953,19 @@ impl UnixDaemonRuntime {
             }
         }
 
-        let retired = self
-            .engine_runtime
-            .block_on(garbage_collect_disposable_containers(
-                engine,
-                DisposableContainerGarbageCollectionOptions {
-                    resources: &durable_resources,
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
-                    now_unix_seconds: observed_at_unix_seconds,
-                    orphan_retention_seconds: DEFAULT_ORPHAN_RETENTION_SECONDS,
-                },
-            ));
+        let retired =
+            self.engine_runtime
+                .block_on(garbage_collect_disposable_containers_from_observed(
+                    engine,
+                    &observed_managed_containers,
+                    DisposableContainerGarbageCollectionOptions {
+                        resources: &durable_resources,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                        now_unix_seconds: observed_at_unix_seconds,
+                        orphan_retention_seconds: DEFAULT_ORPHAN_RETENTION_SECONDS,
+                    },
+                ));
         let retired = match retired {
             Ok(retired) => retired,
             Err(error @ WorkloadReconcileError::Engine { .. }) => {
@@ -1012,27 +1035,8 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
-        let observed_project_workloads =
-            match self.engine_runtime.block_on(engine.discover_managed()) {
-                Ok(observed) => observed,
-                Err(error) => {
-                    let retry = invalidate_engine_connection(
-                        &mut self.engine_connection,
-                        &mut self.resource_health,
-                        now,
-                    );
-                    tracing::debug!(
-                        attempt = retry.attempt(),
-                        retry_milliseconds = retry.duration().as_millis(),
-                        error = %error,
-                        "project workload discovery lost the selected Engine; retry scheduled"
-                    );
-
-                    return;
-                }
-            };
         let application_engine = (*engine).clone();
-        let application_observation = observed_project_workloads.as_slice();
+        let application_observation = observed_managed_containers.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
         let application_results =
@@ -1234,7 +1238,7 @@ impl UnixDaemonRuntime {
                 .engine_runtime
                 .block_on(reconcile_project_service_from_observed(
                     engine,
-                    &observed_project_workloads,
+                    &observed_managed_containers,
                     WorkloadReconcileOptions {
                         request: service.request(),
                         installation_id: self.global_network_request.metadata().installation_id(),
@@ -1427,7 +1431,7 @@ impl UnixDaemonRuntime {
             process_requests.push(request);
         }
         let process_engine = (*engine).clone();
-        let process_observation = observed_project_workloads.as_slice();
+        let process_observation = observed_managed_containers.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
         let process_results = self

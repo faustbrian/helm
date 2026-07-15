@@ -7,13 +7,14 @@ use super::{
     ProjectVolumeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
     WorkloadReconcileAction, WorkloadReconcileError, WorkloadReconcileOptions,
     application_container_request, garbage_collect_build_images,
-    garbage_collect_disposable_containers, materialize_application_request,
-    materialize_application_requests, plan_ephemeral_browser, plan_immutable_project_application,
-    project_process_request, reconcile_project_application,
+    garbage_collect_disposable_containers, garbage_collect_disposable_containers_from_observed,
+    materialize_application_request, materialize_application_requests, plan_ephemeral_browser,
+    plan_immutable_project_application, project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
     reconcile_project_service, reconcile_project_service_from_observed, reconcile_project_volume,
     reconcile_project_volume_from_observed, remove_stale_ephemeral_services, run_project_command,
-    stop_orphaned_project_workloads, workload_resource_record,
+    stop_orphaned_project_workloads, stop_orphaned_project_workloads_from_observed,
+    workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -1148,6 +1149,51 @@ fn orphaned_project_workloads_are_stopped_without_deleting_their_containers() {
 }
 
 #[test]
+fn orphaned_project_workload_cleanup_reuses_a_pass_wide_observation() {
+    let request = application_request("sha256:desired-v1");
+    let observed = [ObservedContainer::new(
+        ContainerId::new("bill-app-container"),
+        request.metadata().labels(),
+    )];
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "bill-app-container".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::ProjectApplication.label().to_owned(),
+        compatibility_fingerprint: request.metadata().compatibility_fingerprint().to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: request.metadata().desired_revision().to_owned(),
+        retention: ResourceRetention::Disposable,
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+    .with_scope_id("app");
+    let mut engine = RecordingWorkloadEngine {
+        state: ContainerState::Running,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let stopped = runtime
+        .block_on(stop_orphaned_project_workloads_from_observed(
+            &mut engine,
+            &observed,
+            OrphanedProjectWorkloadOptions {
+                resources: &[resource],
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("stop orphaned workloads from shared observation");
+
+    assert_eq!(stopped, 1);
+    assert_eq!(engine.stopped.len(), 1);
+    assert!(engine.removed.is_empty());
+}
+
+#[test]
 fn interrupted_ephemeral_services_are_stopped_and_removed_on_reconciliation() {
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
@@ -1238,6 +1284,41 @@ fn garbage_collection_removes_only_expired_exact_owned_disposable_orphans() {
     assert_eq!(engine.stopped[0].id().as_str(), "expired-app");
     assert_eq!(engine.removed.len(), 1);
     assert_eq!(engine.removed[0].id().as_str(), "expired-app");
+}
+
+#[test]
+fn disposable_garbage_collection_reuses_a_pass_wide_observation() {
+    let metadata = project_application_metadata("bill", "sha256:runtime-v1");
+    let expired = orphaned_container_resource("expired-app", &metadata, 100);
+    let observed = [ObservedContainer::new(
+        ContainerId::new("expired-app"),
+        metadata.labels(),
+    )];
+    let mut engine = RecordingWorkloadEngine {
+        state: ContainerState::Running,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let retired = runtime
+        .block_on(garbage_collect_disposable_containers_from_observed(
+            &mut engine,
+            &observed,
+            DisposableContainerGarbageCollectionOptions {
+                resources: std::slice::from_ref(&expired),
+                installation_id: "install-1",
+                schema_version: 8,
+                now_unix_seconds: 1_000,
+                orphan_retention_seconds: 500,
+            },
+        ))
+        .expect("collect from shared observation");
+
+    assert_eq!(retired, vec![expired]);
+    assert_eq!(engine.stopped.len(), 1);
+    assert_eq!(engine.removed.len(), 1);
 }
 
 #[test]

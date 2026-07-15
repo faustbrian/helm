@@ -76,7 +76,9 @@ pub(crate) use disposable_container_garbage_collection_options::DisposableContai
 pub(crate) use ephemeral_browser_options::EphemeralBrowserOptions;
 pub(crate) use ephemeral_browser_plan::EphemeralBrowserPlan;
 pub(crate) use garbage_collect_build_images::garbage_collect_build_images;
+#[cfg(test)]
 pub(crate) use garbage_collect_disposable_containers::garbage_collect_disposable_containers;
+pub(crate) use garbage_collect_disposable_containers::garbage_collect_disposable_containers_from_observed;
 pub(crate) use immutable_project_application_options::ImmutableProjectApplicationOptions;
 pub(crate) use immutable_project_application_plan::ImmutableProjectApplicationPlan;
 pub(super) use matches_durable_resource_metadata::matches_durable_resource_metadata;
@@ -126,7 +128,9 @@ pub(crate) use runtime_image_build_options::RuntimeImageBuildOptions;
 pub(crate) use runtime_image_build_plan::RuntimeImageBuildPlan;
 pub(crate) use scheduled_project_command_plan::ScheduledProjectCommandPlan;
 pub(crate) use scheduled_project_command_plan_options::ScheduledProjectCommandPlanOptions;
+#[cfg(test)]
 pub(crate) use stop_orphaned_project_workloads::stop_orphaned_project_workloads;
+pub(crate) use stop_orphaned_project_workloads::stop_orphaned_project_workloads_from_observed;
 pub(crate) use workload_plan_error::WorkloadPlanError;
 pub(crate) use workload_reconcile_action::WorkloadReconcileAction;
 pub(crate) use workload_reconcile_error::WorkloadReconcileError;

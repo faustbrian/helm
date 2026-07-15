@@ -2,14 +2,17 @@ use super::{
     DisposableContainerGarbageCollectionOptions, WorkloadReconcileError,
     matches_durable_resource_metadata,
 };
+#[cfg(test)]
+use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ObservedResourceOwnership,
+    ContainerLifecycle, ContainerState, EngineError, ObservedContainer, ObservedResourceOwnership,
     ResourceKind, reconstruct_owned_container,
 };
 use crate::control_plane::retention::{DeletionDecision, PruneAuthorization, evaluate_deletion};
 use crate::control_plane::state::ResourceRecord;
 
 /// Removes only expired disposable containers with exact state and label proof.
+#[cfg(test)]
 pub(crate) async fn garbage_collect_disposable_containers<E>(
     engine: &mut E,
     options: DisposableContainerGarbageCollectionOptions<'_>,
@@ -21,6 +24,19 @@ where
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover disposable containers", error))?;
+
+    garbage_collect_disposable_containers_from_observed(engine, &observed, options).await
+}
+
+/// Collects disposable containers against a pass-wide Engine observation.
+pub(crate) async fn garbage_collect_disposable_containers_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: DisposableContainerGarbageCollectionOptions<'_>,
+) -> Result<Vec<ResourceRecord>, WorkloadReconcileError>
+where
+    E: ContainerLifecycle,
+{
     let mut retired = Vec::new();
 
     for resource in options.resources {

@@ -123,7 +123,9 @@ pub(crate) use sql_server::{
     reconcile_prepared_sql_server_instance, reconcile_sql_server_migration_target,
     reconcile_sql_server_project_resources, revoke_sql_server_project_access,
 };
+#[cfg(test)]
 pub(crate) use stop_unreferenced_shared_services::stop_unreferenced_shared_services;
+pub(crate) use stop_unreferenced_shared_services::stop_unreferenced_shared_services_from_observed;
 pub(crate) use store_credential_secret::store_credential_secret;
 pub(crate) use unreferenced_shared_service_options::UnreferencedSharedServiceOptions;
 

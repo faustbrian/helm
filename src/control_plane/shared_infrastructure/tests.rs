@@ -39,8 +39,9 @@ use super::{
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
     revoke_orphaned_shared_access, revoke_rabbitmq_project_access, run_provisioning_job,
-    stop_unreferenced_shared_services, store_credential_secret, store_mailpit_authentication,
-    store_rabbitmq_definitions, store_redis_acl_snapshot,
+    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -1959,6 +1960,51 @@ fn shared_services_stop_only_after_their_last_active_logical_reference_is_releas
     assert_eq!(engine.stopped_containers.len(), 1);
     assert!(engine.removed_containers.is_empty());
     assert!(engine.removed.is_empty());
+}
+
+#[test]
+fn shared_service_idling_reuses_a_pass_wide_observation() {
+    let metadata = shared_container_metadata("install-1", "sha256:desired-v1");
+    let observed = [ObservedContainer::new(
+        ContainerId::new("postgres-container"),
+        metadata.labels(),
+    )];
+    let resource = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "postgres-container".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "shared_service".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        project_id: None,
+        schema_version: 8,
+        desired_revision: "sha256:desired-v1".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    });
+    let mut engine = RecordingSharedVolumeEngine {
+        state: crate::control_plane::engine::ContainerState::Running,
+        ..Default::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let stopped = runtime
+        .block_on(stop_unreferenced_shared_services_from_observed(
+            &mut engine,
+            &observed,
+            UnreferencedSharedServiceOptions {
+                resources: &[resource],
+                logical_resources: &[],
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("stop shared service from shared observation");
+
+    assert_eq!(stopped, 1);
+    assert_eq!(engine.stopped_containers.len(), 1);
+    assert!(engine.removed_containers.is_empty());
 }
 
 #[test]
