@@ -3,9 +3,10 @@ use super::{
 };
 use crate::control_plane::engine::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
-    ContainerId, ContainerLogStream, EngineFuture, LogChunk, ManagedResourceMetadata,
-    ManagedResourceMetadataOptions, ObservedContainer, ResourceKind, RetentionClass,
-    reconstruct_owned_container,
+    ContainerId, ContainerLogStream, ContainerVolumeArchive, EngineFuture, LogChunk,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, ObservedContainer, ObservedVolume,
+    OwnedContainer, OwnedVolume, ResourceKind, RetentionClass, reconstruct_owned_container,
+    reconstruct_owned_volume,
 };
 use crate::control_plane::retention::{
     BackupResourceIdentity, store_backup_artifact_for_identity, verify_stored_backup_artifact,
@@ -62,12 +63,14 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
     );
     let credential = credential();
     let container = owned_container();
+    let volume = owned_volume();
     let executor = RecordingExecutor::new();
 
     runtime
         .block_on(restore_minio_bucket(
             &executor,
             &container,
+            &volume,
             &MinioRestoreOptions {
                 recovery_point: &recovery,
                 logical_resource: &logical,
@@ -80,7 +83,7 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
         ))
         .expect("restore MinIO bucket");
 
-    assert_eq!(*executor.input.lock().expect("restore input"), archive);
+    assert_eq!(*executor.archive.lock().expect("restore archive"), archive);
     let request = executor
         .request
         .lock()
@@ -90,6 +93,7 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
     assert_eq!(request.arguments()[..2], ["sh", "-c"]);
     assert!(request.arguments()[2].contains("mc --config-dir"));
     assert!(request.arguments()[2].contains("mirror --overwrite --remove"));
+    assert!(!request.arguments()[2].contains("tar"));
     assert_eq!(
         request.environment()["STACKCTL_BUCKET"],
         "stackctl-bill-files"
@@ -99,6 +103,16 @@ fn minio_restore_verifies_evidence_and_replaces_only_the_exact_bucket() {
         "st_bill_files"
     );
     assert!(!format!("{:?}", request.arguments()).contains("project-secret"));
+    assert_eq!(
+        executor
+            .archive_path
+            .lock()
+            .expect("restore archive path")
+            .as_deref(),
+        Some(std::path::Path::new(
+            ".stackctl-minio-export/stackctl-bill-files-47000"
+        ))
+    );
 
     std::fs::remove_dir_all(root).expect("remove MinIO restore fixture");
 }
@@ -125,12 +139,14 @@ fn minio_restore_rejects_checkpoint_mismatch_before_target_command() {
     );
     let credential = credential();
     let container = owned_container();
+    let volume = owned_volume();
     let executor = RecordingExecutor::new();
 
     let error = runtime
         .block_on(restore_minio_bucket(
             &executor,
             &container,
+            &volume,
             &MinioRestoreOptions {
                 recovery_point: &recovery,
                 logical_resource: &logical,
@@ -156,6 +172,8 @@ struct RecordingExecutor {
     request: Mutex<Option<CommandRequest>>,
     input: Arc<Mutex<Vec<u8>>>,
     input_complete: Arc<AtomicBool>,
+    archive: Arc<Mutex<Vec<u8>>>,
+    archive_path: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl RecordingExecutor {
@@ -164,6 +182,8 @@ impl RecordingExecutor {
             request: Mutex::new(None),
             input: Arc::new(Mutex::new(Vec::new())),
             input_complete: Arc::new(AtomicBool::new(false)),
+            archive: Arc::new(Mutex::new(Vec::new())),
+            archive_path: Mutex::new(None),
         }
     }
 }
@@ -171,10 +191,12 @@ impl RecordingExecutor {
 impl CommandExecutor for RecordingExecutor {
     fn start_command<'operation>(
         &'operation self,
-        container: &'operation crate::control_plane::engine::OwnedContainer,
+        container: &'operation OwnedContainer,
         request: &'operation CommandRequest,
     ) -> EngineFuture<'operation, CommandSession> {
-        *self.request.lock().expect("request lock") = Some(request.clone());
+        if request.environment().contains_key("STACKCTL_BUCKET") {
+            *self.request.lock().expect("request lock") = Some(request.clone());
+        }
         let captured_input = Arc::clone(&self.input);
         let input_complete = Arc::clone(&self.input_complete);
         let container_id = container.id().clone();
@@ -211,6 +233,57 @@ impl CommandExecutor for RecordingExecutor {
                 tokio::task::yield_now().await;
             }
             Ok(CommandStatus::Exited(0))
+        })
+    }
+}
+
+impl ContainerVolumeArchive for RecordingExecutor {
+    fn download_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { unreachable!("whole-volume download is not used by MinIO restore") })
+    }
+
+    fn upload_volume_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _archive: &'operation std::path::Path,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { unreachable!("whole-volume upload is not used by MinIO restore") })
+    }
+
+    fn download_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        _relative_path: &'operation std::path::Path,
+        _output: &'operation mut (dyn tokio::io::AsyncWrite + Send + Unpin),
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { unreachable!("subpath download is not used by MinIO restore") })
+    }
+
+    fn upload_volume_subpath_archive<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _volume: &'operation OwnedVolume,
+        relative_path: &'operation std::path::Path,
+        mut archive: Box<dyn tokio::io::AsyncRead + Send + Unpin>,
+    ) -> EngineFuture<'operation, ()> {
+        *self.archive_path.lock().expect("restore archive path") =
+            Some(relative_path.to_path_buf());
+        let captured = Arc::clone(&self.archive);
+        Box::pin(async move {
+            let mut bytes = Vec::new();
+            archive
+                .read_to_end(&mut bytes)
+                .await
+                .expect("read MinIO restore archive");
+            *captured.lock().expect("capture MinIO restore archive") = bytes;
+            Ok(())
         })
     }
 }
@@ -262,7 +335,7 @@ fn recovery_point(
     .expect("MinIO recovery point")
 }
 
-fn owned_container() -> crate::control_plane::engine::OwnedContainer {
+fn owned_container() -> OwnedContainer {
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
         kind: ResourceKind::SharedService,
@@ -276,4 +349,20 @@ fn owned_container() -> crate::control_plane::engine::OwnedContainer {
     let observed = ObservedContainer::new(ContainerId::new("minio-target"), metadata.labels());
 
     reconstruct_owned_container(&observed, "install-1", 8).expect("owned MinIO container")
+}
+
+fn owned_volume() -> OwnedVolume {
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: "install-1".to_owned(),
+        kind: ResourceKind::Volume,
+        project_id: None,
+        compatibility_fingerprint: "sha256:minio-2025".to_owned(),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("MinIO volume metadata");
+    let observed = ObservedVolume::new("minio-shared", metadata.labels());
+
+    reconstruct_owned_volume(&observed, "install-1", 8).expect("owned MinIO volume")
 }

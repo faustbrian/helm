@@ -6,8 +6,12 @@ use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery, EngineError,
     ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions,
     ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkManager,
-    OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
-    reconstruct_owned_container, run_attached_command_capture,
+    OwnedContainer, OwnedVolume, ResourceKind, RetentionClass, VolumeDiscovery,
+    delete_owned_installation_resources, reconstruct_owned_container, reconstruct_owned_volume,
+    run_attached_command_capture,
+};
+use crate::control_plane::migration::{
+    MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket, restore_minio_bucket,
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
@@ -16,7 +20,8 @@ use crate::control_plane::shared_infrastructure::{
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, RecoveryPointRecord, RecoveryPointRecordOptions,
+    ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -161,6 +166,7 @@ fn live_docker_engine_two_projects_share_one_minio_with_isolated_buckets() {
         );
         assert_eq!(first.logical_resources().len(), 2);
         let container = owned_shared_container(&engine, &installation_id).await;
+        let volume = owned_shared_volume(&engine, &installation_id).await;
 
         let bill_output = write_and_read(
             &engine,
@@ -208,6 +214,113 @@ fn live_docker_engine_two_projects_share_one_minio_with_isolated_buckets() {
         assert!(second.logical_resource_drifts().is_empty());
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
+
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill MinIO resource");
+        let backup = backup_minio_bucket(
+            &engine,
+            &container,
+            &volume,
+            &MinioBackupOptions {
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 10_000,
+                backup_root: &state_directory.join("backups"),
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("back up bill MinIO bucket");
+        write_object(
+            &engine,
+            &container,
+            bill.definition().bucket(),
+            bill.credential().username(),
+            bill.credential().secret(),
+            "acceptance.txt",
+            "bill-mutated-after-backup",
+        )
+        .await
+        .expect("mutate bill object after backup");
+        write_object(
+            &engine,
+            &container,
+            bill.definition().bucket(),
+            bill.credential().username(),
+            bill.credential().secret(),
+            "post-backup.txt",
+            "must-be-removed",
+        )
+        .await
+        .expect("create bill object after backup");
+        let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+            recovery_point_id: "bill-minio-live-recovery".to_owned(),
+            project_id: bill_logical.project_id().to_owned(),
+            service_id: bill_logical.service_id().to_owned(),
+            logical_resource_id: bill_logical.logical_resource_id().to_owned(),
+            resource_kind: bill_logical.kind().to_owned(),
+            compatibility_fingerprint: bill_logical.compatibility_fingerprint().to_owned(),
+            reference: backup.reference().to_owned(),
+            artifact_sha256: backup.artifact_sha256().to_owned(),
+            artifact_size_bytes: backup.artifact_size_bytes(),
+            created_at_unix_seconds: 10_000,
+            verified_at_unix_seconds: 10_000,
+        })
+        .expect("record bill MinIO recovery point");
+        restore_minio_bucket(
+            &engine,
+            &container,
+            &volume,
+            &MinioRestoreOptions {
+                recovery_point: &recovery,
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                installation_id: &installation_id,
+                target_bucket_name: bill.definition().bucket(),
+                verified_at_unix_seconds: 10_001,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("restore bill MinIO bucket");
+        let restored_bill = read_object(
+            &engine,
+            &container,
+            bill.definition().bucket(),
+            bill.credential().username(),
+            bill.credential().secret(),
+            "acceptance.txt",
+        )
+        .await
+        .expect("read restored bill object");
+        assert_eq!(restored_bill, b"bill-value");
+        assert!(matches!(
+            read_object(
+                &engine,
+                &container,
+                bill.definition().bucket(),
+                bill.credential().username(),
+                bill.credential().secret(),
+                "post-backup.txt",
+            )
+            .await,
+            Err(EngineError::ContainerExit { .. })
+        ));
+        let preserved_shop = read_object(
+            &engine,
+            &container,
+            shop.definition().bucket(),
+            shop.credential().username(),
+            shop.credential().secret(),
+            "acceptance.txt",
+        )
+        .await
+        .expect("read preserved shop object");
+        assert_eq!(preserved_shop, b"shop-value");
 
         let bill_logical = first
             .logical_resources()
@@ -369,12 +482,53 @@ async fn owned_shared_container(
         .expect("discover one owned shared MinIO container")
 }
 
+async fn owned_shared_volume(engine: &BollardEngineAdapter, installation_id: &str) -> OwnedVolume {
+    engine
+        .discover_managed_volumes()
+        .await
+        .expect("discover shared MinIO acceptance volumes")
+        .into_iter()
+        .filter_map(|observed| reconstruct_owned_volume(&observed, installation_id, 8).ok())
+        .find(|owned| owned.metadata().kind() == ResourceKind::Volume)
+        .expect("discover one owned shared MinIO volume")
+}
+
 async fn write_and_read(
     engine: &BollardEngineAdapter,
     container: &OwnedContainer,
     bucket: &str,
     username: &str,
     password: &str,
+    value: &str,
+) -> Result<Vec<u8>, EngineError> {
+    write_object(
+        engine,
+        container,
+        bucket,
+        username,
+        password,
+        "acceptance.txt",
+        value,
+    )
+    .await?;
+    read_object(
+        engine,
+        container,
+        bucket,
+        username,
+        password,
+        "acceptance.txt",
+    )
+    .await
+}
+
+async fn write_object(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    bucket: &str,
+    username: &str,
+    password: &str,
+    object: &str,
     value: &str,
 ) -> Result<Vec<u8>, EngineError> {
     minio_command(
@@ -385,11 +539,21 @@ async fn write_and_read(
         vec![
             "mc".to_owned(),
             "pipe".to_owned(),
-            format!("tenant/{bucket}/acceptance.txt"),
+            format!("tenant/{bucket}/{object}"),
         ],
         value.as_bytes().to_vec(),
     )
-    .await?;
+    .await
+}
+
+async fn read_object(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    bucket: &str,
+    username: &str,
+    password: &str,
+    object: &str,
+) -> Result<Vec<u8>, EngineError> {
     minio_command(
         engine,
         container,
@@ -398,7 +562,7 @@ async fn write_and_read(
         vec![
             "mc".to_owned(),
             "cat".to_owned(),
-            format!("tenant/{bucket}/acceptance.txt"),
+            format!("tenant/{bucket}/{object}"),
         ],
         Vec::new(),
     )

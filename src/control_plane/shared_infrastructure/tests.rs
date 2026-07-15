@@ -1642,6 +1642,12 @@ fn object_store_projects_get_bucket_scoped_credentials_and_environment() {
             .policy_json()
             .contains("arn:aws:s3:::stackctl-bill-s3/*")
     );
+    assert!(
+        project
+            .definition()
+            .policy_json()
+            .contains("s3:GetBucketVersioning")
+    );
     assert_eq!(project.credential().secret(), "project-secret");
     assert_eq!(
         project.environment().values(),

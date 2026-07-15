@@ -1625,7 +1625,14 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
         "install-1",
         "minio-1",
         &fingerprint,
-    )]);
+    )])
+    .with_observed_volumes(vec![observed_shared_volume(
+        "minio-1",
+        "install-1",
+        "minio-1",
+        &fingerprint,
+    )])
+    .with_volume_archive(b"minio-tar!".to_vec());
     let operation = QueuedProjectBackup::new(
         "backup-minio".to_owned(),
         "bill".to_owned(),
@@ -1677,14 +1684,18 @@ fn queued_minio_backup_streams_an_unversioned_project_bucket() {
 
     let backup = result.outcome().as_ref().expect("verified MinIO backup");
     let calls = engine.command_arguments();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 3);
     assert!(calls[0][2].contains("version info"));
     assert!(calls[1][2].contains(" mirror "));
-    assert!(calls[1][2].contains("tar -C"));
+    assert!(!format!("{calls:?}").contains("tar -C"));
     assert!(!format!("{calls:?}").contains("minio-secret"));
     assert!(
         engine.command_environments()[1]["STACKCTL_EXPORT_DIR"]
             .contains("stackctl-bill-files-40000")
+    );
+    assert_eq!(
+        engine.volume_subpath_downloads(),
+        [".stackctl-minio-export/stackctl-bill-files-40000"]
     );
     assert_eq!(backup.artifact_size_bytes(), 10);
 
@@ -4577,15 +4588,23 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
         "stackctl-shared-{}",
         fingerprint.strip_prefix("sha256:").expect("fingerprint")
     );
+    let volume_name = format!("{container_name}-data");
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &container_name,
         "install-1",
         "minio-source",
         &fingerprint,
-    )]);
+    )])
+    .with_observed_volumes(vec![observed_shared_volume(
+        &volume_name,
+        "install-1",
+        "minio-source-data",
+        &fingerprint,
+    )])
+    .with_volume_archive(b"current-minio-tar".to_vec());
     let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
         logical_resource_id: "bill/files/object-store".to_owned(),
-        shared_resource_id: container_name,
+        shared_resource_id: volume_name,
         project_id: "bill".to_owned(),
         service_id: "files".to_owned(),
         kind: "minio_bucket_policy".to_owned(),
@@ -4674,15 +4693,24 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
         &Ok(MigrationExecutionResult::Confirmed)
     );
     let first_calls = engine.command_arguments();
-    assert_eq!(first_calls.len(), 3);
+    assert_eq!(first_calls.len(), 6);
     assert!(first_calls[0][2].contains("version info"));
-    assert!(first_calls[1][2].contains("tar -C"));
-    assert!(first_calls[2][2].contains("mirror --overwrite --remove"));
+    assert!(first_calls[1][2].contains(" mirror "));
+    assert!(first_calls[4][2].contains("mirror --overwrite --remove"));
+    assert!(!format!("{first_calls:?}").contains("tar -C"));
     assert!(!format!("{first_calls:?}").contains("minio-secret"));
     assert!(
         engine.command_environments()[..3]
             .iter()
             .all(|environment| environment["STACKCTL_SECRET_KEY"] == "minio-secret")
+    );
+    assert_eq!(
+        engine.volume_subpath_downloads(),
+        [".stackctl-minio-export/stackctl-bill-files-50002"]
+    );
+    assert_eq!(
+        engine.volume_subpath_uploads(),
+        [".stackctl-minio-export/stackctl-bill-files-50000"]
     );
     let store = SqliteStateStore::open(&database_path).expect("reopen state");
     let points = store.recovery_points("bill").expect("recovery catalog");
@@ -4698,7 +4726,7 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
         execute().outcome(),
         &Ok(MigrationExecutionResult::Confirmed)
     );
-    assert_eq!(engine.command_arguments().len(), 4);
+    assert_eq!(engine.command_arguments().len(), 9);
     assert_eq!(
         engine
             .command_arguments()

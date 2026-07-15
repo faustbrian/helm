@@ -46,7 +46,11 @@ impl ObjectStoreProjectDefinition {
             "Statement": [
                 {
                     "Effect": "Allow",
-                    "Action": ["s3:GetBucketLocation", "s3:ListBucket"],
+                    "Action": [
+                        "s3:GetBucketLocation",
+                        "s3:GetBucketVersioning",
+                        "s3:ListBucket",
+                    ],
                     "Resource": [bucket_arn],
                 },
                 {

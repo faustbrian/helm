@@ -1,6 +1,7 @@
 use super::ProjectRestoreExecutionOptions;
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ResourceKind, reconstruct_owned_container,
+    CommandExecutor, ContainerDiscovery, ContainerVolumeArchive, OwnedVolume, ResourceKind,
+    VolumeDiscovery, reconstruct_owned_container, reconstruct_owned_volume,
 };
 use crate::control_plane::migration::{
     MigrationExecutionResult, MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket,
@@ -17,7 +18,7 @@ pub(crate) async fn execute_minio_project_restore<E>(
     options: &ProjectRestoreExecutionOptions,
 ) -> Result<MigrationExecutionResult, String>
 where
-    E: CommandExecutor + ContainerDiscovery,
+    E: CommandExecutor + ContainerDiscovery + ContainerVolumeArchive + VolumeDiscovery,
 {
     validate_options(options)?;
     let mut store = SqliteStateStore::open(&options.state_database_path)
@@ -53,6 +54,7 @@ where
         "selected MinIO recovery point",
     )?;
     let container = owned_shared_container(engine, options).await?;
+    let volume = owned_shared_volume(engine, options, logical.shared_resource_id()).await?;
     let bucket = format!("stackctl-{}-{}", logical.project_id(), logical.service_id());
     let safety_recovery_id = format!("{}-pre-restore", options.operation.operation_id());
     if safety_recovery_id == recovery.recovery_point_id() {
@@ -68,6 +70,7 @@ where
         let backup = backup_minio_bucket(
             engine,
             &container,
+            &volume,
             &MinioBackupOptions {
                 logical_resource: &logical,
                 credential: &credential,
@@ -101,6 +104,7 @@ where
     restore_minio_bucket(
         engine,
         &container,
+        &volume,
         &MinioRestoreOptions {
             recovery_point: &recovery,
             logical_resource: &logical,
@@ -115,6 +119,28 @@ where
     .map_err(|error| error.to_string())?;
 
     Ok(MigrationExecutionResult::Confirmed)
+}
+
+async fn owned_shared_volume<E>(
+    engine: &E,
+    options: &ProjectRestoreExecutionOptions,
+    expected_name: &str,
+) -> Result<OwnedVolume, String>
+where
+    E: VolumeDiscovery,
+{
+    let matches = engine
+        .discover_managed_volumes()
+        .await
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter_map(|observed| {
+            reconstruct_owned_volume(&observed, &options.installation_id, options.schema_version)
+                .ok()
+        })
+        .filter(|volume| volume.name() == expected_name)
+        .collect::<Vec<_>>();
+    one(matches, "owned MinIO volume")
 }
 
 async fn owned_shared_container<E>(

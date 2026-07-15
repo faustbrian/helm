@@ -1,6 +1,8 @@
-use super::MinioRestoreOptions;
+use super::{MinioRestoreOptions, backup_minio_bucket::export_relative_path};
 use crate::control_plane::engine::{
-    CommandExecutor, CommandRequest, OwnedContainer, StreamingCommandOptions, run_streaming_command,
+    AttachedCommandOptions, CommandExecutor, CommandRequest, ContainerVolumeArchive,
+    OwnedContainer, OwnedVolume, StreamingCommandOptions, run_attached_command_capture,
+    run_streaming_command,
 };
 use crate::control_plane::migration::MigrationOperationError;
 use crate::control_plane::retention::{
@@ -10,23 +12,27 @@ use crate::control_plane::state::{CredentialLifecycle, ResourceLifecycle};
 use std::collections::BTreeMap;
 
 const RESTORE_SCRIPT: &str = "set -eu\n\
-    trap 'rm -rf \"$STACKCTL_MC_CONFIG\" \"$STACKCTL_RESTORE_DIR\"' \
-    EXIT HUP INT TERM\n\
-    mkdir -m 700 \"$STACKCTL_MC_CONFIG\" \"$STACKCTL_RESTORE_DIR\"\n\
-    tar -C \"$STACKCTL_RESTORE_DIR\" -xf -\n\
+    trap 'rm -rf \"$STACKCTL_MC_CONFIG\"' EXIT HUP INT TERM\n\
+    mkdir -m 700 \"$STACKCTL_MC_CONFIG\"\n\
     mc --config-dir \"$STACKCTL_MC_CONFIG\" alias set stackctl \
     http://127.0.0.1:9000 \"$STACKCTL_ACCESS_KEY\" \
     \"$STACKCTL_SECRET_KEY\" >/dev/null\n\
     mc --config-dir \"$STACKCTL_MC_CONFIG\" mirror --overwrite --remove \
     \"$STACKCTL_RESTORE_DIR\" \"stackctl/$STACKCTL_BUCKET\" >/dev/null";
+const PREPARE_SCRIPT: &str = "set -eu\n\
+    rm -rf \"$STACKCTL_RESTORE_DIR\"\n\
+    mkdir -p \"$STACKCTL_RESTORE_PARENT\"\n\
+    chmod 700 \"$STACKCTL_RESTORE_PARENT\"";
+const CLEANUP_SCRIPT: &str = "set -eu\nrm -rf \"$STACKCTL_RESTORE_DIR\"";
 
 /// Replaces one exact unversioned bucket from an immutable verified archive.
 pub(crate) async fn restore_minio_bucket(
-    executor: &impl CommandExecutor,
+    executor: &(impl CommandExecutor + ContainerVolumeArchive),
     container: &OwnedContainer,
+    volume: &OwnedVolume,
     options: &MinioRestoreOptions<'_>,
 ) -> Result<(), MigrationOperationError> {
-    validate(container, options)?;
+    validate(container, volume, options)?;
     let recovery = options.recovery_point;
     let reference = recovery.reference();
     let expected_checksum = recovery.artifact_sha256();
@@ -46,45 +52,118 @@ pub(crate) async fn restore_minio_bucket(
         ));
     }
 
-    let prefix = format!(
-        "/tmp/.stackctl-minio-{}-restore-{}",
-        options.target_bucket_name, options.verified_at_unix_seconds
+    let restore_relative = export_relative_path(
+        options.target_bucket_name,
+        recovery.created_at_unix_seconds(),
     );
+    let restore_absolute = std::path::Path::new("/data").join(&restore_relative);
+    let restore_parent = restore_absolute
+        .parent()
+        .ok_or_else(|| MigrationOperationError::new("MinIO restore path has no parent"))?;
+    let restore_environment = BTreeMap::from([
+        (
+            "STACKCTL_RESTORE_DIR".to_owned(),
+            restore_absolute.to_string_lossy().into_owned(),
+        ),
+        (
+            "STACKCTL_RESTORE_PARENT".to_owned(),
+            restore_parent.to_string_lossy().into_owned(),
+        ),
+    ]);
+    let restored = async {
+        run_script(
+            executor,
+            container,
+            PREPARE_SCRIPT,
+            restore_environment.clone(),
+            "prepare MinIO restore staging",
+            options.timeout,
+        )
+        .await?;
+        let artifact = tokio::fs::File::open(stored.artifact_file())
+            .await
+            .map_err(|error| operation_error("MinIO restore artifact open failed", error))?;
+        executor
+            .upload_volume_subpath_archive(container, volume, &restore_relative, Box::new(artifact))
+            .await
+            .map_err(|error| operation_error("MinIO restore archive staging failed", error))?;
+        let prefix = format!(
+            "/tmp/.stackctl-minio-{}-restore-{}",
+            options.target_bucket_name, options.verified_at_unix_seconds
+        );
+        let request = CommandRequest::new(
+            vec!["sh".to_owned(), "-c".to_owned(), RESTORE_SCRIPT.to_owned()],
+            BTreeMap::from([
+                (
+                    "STACKCTL_ACCESS_KEY".to_owned(),
+                    options.credential.username().to_owned(),
+                ),
+                (
+                    "STACKCTL_BUCKET".to_owned(),
+                    options.target_bucket_name.to_owned(),
+                ),
+                ("STACKCTL_MC_CONFIG".to_owned(), format!("{prefix}-config")),
+                (
+                    "STACKCTL_RESTORE_DIR".to_owned(),
+                    restore_absolute.to_string_lossy().into_owned(),
+                ),
+                (
+                    "STACKCTL_SECRET_KEY".to_owned(),
+                    options.credential.secret().to_owned(),
+                ),
+            ]),
+            None,
+        )
+        .map_err(|error| operation_error("MinIO restore request is invalid", error))?;
+        let command =
+            StreamingCommandOptions::new(request, "restore MinIO bucket", options.timeout)
+                .map_err(|error| operation_error("MinIO restore request is invalid", error))?;
+        let mut artifact = tokio::io::empty();
+        let mut output = tokio::io::sink();
+
+        run_streaming_command(executor, container, &command, &mut artifact, &mut output)
+            .await
+            .map_err(|error| operation_error("MinIO restore failed", error))
+    }
+    .await;
+    let cleanup = run_script(
+        executor,
+        container,
+        CLEANUP_SCRIPT,
+        restore_environment,
+        "clean up MinIO restore staging",
+        options.timeout,
+    )
+    .await;
+    restored?;
+    cleanup
+}
+
+async fn run_script(
+    executor: &impl CommandExecutor,
+    container: &OwnedContainer,
+    script: &str,
+    environment: BTreeMap<String, String>,
+    description: &str,
+    timeout: std::time::Duration,
+) -> Result<(), MigrationOperationError> {
     let request = CommandRequest::new(
-        vec!["sh".to_owned(), "-c".to_owned(), RESTORE_SCRIPT.to_owned()],
-        BTreeMap::from([
-            (
-                "STACKCTL_ACCESS_KEY".to_owned(),
-                options.credential.username().to_owned(),
-            ),
-            (
-                "STACKCTL_BUCKET".to_owned(),
-                options.target_bucket_name.to_owned(),
-            ),
-            ("STACKCTL_MC_CONFIG".to_owned(), format!("{prefix}-config")),
-            ("STACKCTL_RESTORE_DIR".to_owned(), format!("{prefix}-data")),
-            (
-                "STACKCTL_SECRET_KEY".to_owned(),
-                options.credential.secret().to_owned(),
-            ),
-        ]),
+        vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()],
+        environment,
         None,
     )
-    .map_err(|error| operation_error("MinIO restore request is invalid", error))?;
-    let command = StreamingCommandOptions::new(request, "restore MinIO bucket", options.timeout)
-        .map_err(|error| operation_error("MinIO restore request is invalid", error))?;
-    let mut artifact = tokio::fs::File::open(stored.artifact_file())
+    .map_err(|error| operation_error("MinIO staging request is invalid", error))?;
+    let command = AttachedCommandOptions::new(request, Vec::new(), description, timeout)
+        .map_err(|error| operation_error("MinIO staging request is invalid", error))?;
+    run_attached_command_capture(executor, container, &command)
         .await
-        .map_err(|error| operation_error("MinIO restore artifact open failed", error))?;
-    let mut output = tokio::io::sink();
-
-    run_streaming_command(executor, container, &command, &mut artifact, &mut output)
-        .await
-        .map_err(|error| operation_error("MinIO restore failed", error))
+        .map(|_| ())
+        .map_err(|error| operation_error(description, error))
 }
 
 fn validate(
     container: &OwnedContainer,
+    volume: &OwnedVolume,
     options: &MinioRestoreOptions<'_>,
 ) -> Result<(), MigrationOperationError> {
     let recovery = options.recovery_point;
@@ -113,6 +192,9 @@ fn validate(
         || options.verified_at_unix_seconds < recovery.verified_at_unix_seconds()
         || container.metadata().installation_id() != options.installation_id
         || container.metadata().compatibility_fingerprint() != recovery.compatibility_fingerprint()
+        || volume.name() != logical.shared_resource_id()
+        || volume.metadata().installation_id() != options.installation_id
+        || volume.metadata().compatibility_fingerprint() != recovery.compatibility_fingerprint()
         || !exact_recovery;
     if invalid {
         return Err(MigrationOperationError::new(

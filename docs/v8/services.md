@@ -180,5 +180,10 @@ Server image.
 MinIO disables only the exact ownership-proven enabled project identity after
 parsing its machine-readable user state. The identity, policy attachment,
 buckets, and objects remain available for explicit adoption, restore, or
-prune. RustFS uses a dedicated root identity and deterministic bucket, and stays
-dedicated until a separate scoped IAM and policy lifecycle is proven.
+prune. For recovery, `mc` mirrors only the selected unversioned bucket into a
+private staging directory on the exact owned data volume. The typed Engine
+adapter streams that subpath archive into verified recovery storage and uploads
+it for in-place restore, so recovery does not depend on archive tools being
+installed in the service image. RustFS uses a dedicated root identity and
+deterministic bucket, and stays dedicated until a separate scoped IAM and
+policy lifecycle is proven.

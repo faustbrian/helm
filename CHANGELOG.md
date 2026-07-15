@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux MinIO recovery acceptance that streams an immutable
+  current-object archive for one unversioned project bucket, restores its
+  point-in-time contents in place, removes post-backup objects, preserves the
+  sibling bucket, and performs exact cleanup. MinIO project policies now allow
+  read-only version-state inspection, and backup/restore use the typed Engine
+  archive API over the exact owned data-volume subpath instead of assuming the
+  service image contains `tar`.
 - Added native Linux RabbitMQ recovery acceptance that streams a verified
   topology and persistent classic-queue message-store backup through an
   in-place vhost restore, proves the selected point-in-time message returns,
