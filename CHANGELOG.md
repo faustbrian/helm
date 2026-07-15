@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reconciled distinct compatibility-keyed shared infrastructure instances with
+  bounded concurrency while preserving deterministic result publication.
+  Tenant provisioning within one physical instance remains serialized, but an
+  unrelated PostgreSQL, Redis, mail, or broker instance no longer waits for
+  every earlier shared-service readiness and provisioning operation.
 - Made CI prove the supported Unix release binary on native x86_64 and arm64
   runners instead of relying on test compilation as an implicit build. Ubuntu
   jobs now also exercise the production Docker Engine adapter's API

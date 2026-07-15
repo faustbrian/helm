@@ -64,8 +64,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PROJECT_SERVICE_PROVISIONING_TIMEOUT: Duration = Duration::from_secs(30);
-const PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY: NonZeroUsize =
-    NonZeroUsize::new(8).expect("project workload concurrency must be non-zero");
+const INDEPENDENT_RECONCILIATION_CONCURRENCY: NonZeroUsize =
+    NonZeroUsize::new(8).expect("independent reconciliation concurrency must be non-zero");
 
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
 pub(crate) struct UnixDaemonRuntime {
@@ -639,15 +639,29 @@ impl UnixDaemonRuntime {
             .iter()
             .map(|service| (service.project().as_str().to_owned(), Vec::new()))
             .collect::<BTreeMap<String, Vec<_>>>();
-        for prepared in &prepared_shared {
-            let logical = self
-                .engine_runtime
-                .block_on(reconcile_prepared_shared_instance(
-                    engine,
-                    prepared,
-                    self.global_network_request.metadata().installation_id(),
-                    self.global_network_request.metadata().schema_version(),
-                ));
+        let shared_engine = (*engine).clone();
+        let installation_id = self.global_network_request.metadata().installation_id();
+        let schema_version = self.global_network_request.metadata().schema_version();
+        let shared_results = self
+            .engine_runtime
+            .block_on(run_bounded_independent_reconciliation(
+                prepared_shared.iter(),
+                INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                move |prepared| {
+                    let mut engine = shared_engine.clone();
+
+                    async move {
+                        reconcile_prepared_shared_instance(
+                            &mut engine,
+                            prepared,
+                            installation_id,
+                            schema_version,
+                        )
+                        .await
+                    }
+                },
+            ));
+        for logical in shared_results {
             let logical = match logical {
                 Ok(logical) => logical,
                 Err(SharedInfrastructureReconcileError::LogicalResourceDrift {
@@ -1024,7 +1038,7 @@ impl UnixDaemonRuntime {
             self.engine_runtime
                 .block_on(run_bounded_independent_reconciliation(
                     application_requests,
-                    PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY,
+                    INDEPENDENT_RECONCILIATION_CONCURRENCY,
                     move |request| {
                         let mut engine = application_engine.clone();
 
@@ -1380,7 +1394,7 @@ impl UnixDaemonRuntime {
             .engine_runtime
             .block_on(run_bounded_independent_reconciliation(
                 process_requests,
-                PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY,
+                INDEPENDENT_RECONCILIATION_CONCURRENCY,
                 move |request| {
                     let mut engine = process_engine.clone();
 
