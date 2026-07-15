@@ -11,10 +11,13 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
-    plan_shared_instances,
+    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
+    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
-use crate::control_plane::state::SqliteStateStore;
+use crate::control_plane::state::{
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -206,6 +209,105 @@ fn live_docker_engine_two_projects_share_one_minio_with_isolated_buckets() {
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
 
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .map(orphaned_logical_resource)
+            .expect("find bill logical MinIO resource");
+        let credentials = [
+            disabled_credential(bill.credential()),
+            prepared.instance().root_credential().clone(),
+        ];
+        let observed = engine
+            .discover_managed()
+            .await
+            .expect("discover MinIO lifecycle acceptance resources");
+        let revoked = revoke_orphaned_shared_access_from_observed(
+            &mut engine,
+            &observed,
+            OrphanedSharedAccessOptions {
+                resources: first.physical_resources(),
+                logical_resources: std::slice::from_ref(&bill_logical),
+                credentials: &credentials,
+                installation_id: &installation_id,
+                schema_version: 8,
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("revoke removed bill MinIO access");
+        assert_eq!(revoked, 1);
+        assert!(matches!(
+            minio_command(
+                &engine,
+                &container,
+                bill.credential().username(),
+                bill.credential().secret(),
+                vec![
+                    "mc".to_owned(),
+                    "cat".to_owned(),
+                    format!("tenant/{}/acceptance.txt", bill.definition().bucket()),
+                ],
+                Vec::new(),
+            )
+            .await,
+            Err(EngineError::ContainerExit { .. })
+        ));
+        let retained_shop_object = minio_command(
+            &engine,
+            &container,
+            shop.credential().username(),
+            shop.credential().secret(),
+            vec![
+                "mc".to_owned(),
+                "cat".to_owned(),
+                format!("tenant/{}/acceptance.txt", shop.definition().bucket()),
+            ],
+            Vec::new(),
+        )
+        .await
+        .expect("read shop object after bill removal");
+        assert_eq!(retained_shop_object, b"shop-value");
+        let retained_bill_object = minio_command(
+            &engine,
+            &container,
+            prepared.instance().root_credential().username(),
+            prepared.instance().root_credential().secret(),
+            vec![
+                "mc".to_owned(),
+                "cat".to_owned(),
+                format!("tenant/{}/acceptance.txt", bill.definition().bucket()),
+            ],
+            Vec::new(),
+        )
+        .await
+        .expect("inspect retained bill object after identity revocation");
+        assert_eq!(retained_bill_object, b"bill-value");
+
+        let restored =
+            reconcile_prepared_object_store_instance(&mut engine, prepared, &installation_id, 8)
+                .await
+                .expect("restore bill MinIO access from active configuration");
+        assert!(restored.logical_resource_drifts().is_empty());
+        let restored_bill_object = minio_command(
+            &engine,
+            &container,
+            bill.credential().username(),
+            bill.credential().secret(),
+            vec![
+                "mc".to_owned(),
+                "cat".to_owned(),
+                format!("tenant/{}/acceptance.txt", bill.definition().bucket()),
+            ],
+            Vec::new(),
+        )
+        .await
+        .expect("read bill object after access restoration");
+        assert_eq!(restored_bill_object, b"bill-value");
+        let restored_container = owned_shared_container(&engine, &installation_id).await;
+        assert_eq!(restored_container.id(), container.id());
+
         delete_owned_installation_resources(
             &mut engine,
             InstallationResourceDeletionOptions {
@@ -226,6 +328,31 @@ fn live_docker_engine_two_projects_share_one_minio_with_isolated_buckets() {
     drop(store);
     std::fs::remove_dir_all(&state_directory).expect("remove MinIO acceptance state");
     println!("shared MinIO isolation acceptance passed for {installation_id}");
+}
+
+fn orphaned_logical_resource(logical: &LogicalResourceRecord) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: logical.shared_resource_id().to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: logical.desired_revision().to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+}
+
+fn disabled_credential(credential: &CredentialRecord) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: credential.credential_id().to_owned(),
+        project_id: credential.project_id().map(str::to_owned),
+        service_id: credential.service_id().to_owned(),
+        username: credential.username().to_owned(),
+        secret: credential.secret().to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    })
 }
 
 async fn owned_shared_container(

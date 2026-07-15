@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended native Linux MinIO acceptance through project removal and
+  restoration. CI now proves identity disablement retains the removed tenant's
+  objects, preserves sibling access, restores the stable identity and data,
+  and keeps the same shared object-store container.
 - Updated RabbitMQ orphan-user discovery for the pinned v4 CLI, which rejects a
   requested `name` column and emits tags beside each username. Native Linux
   acceptance now proves user deletion retains the durable queue and sibling
