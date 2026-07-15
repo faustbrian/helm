@@ -1340,15 +1340,12 @@ impl ImageBuilder for BollardEngineAdapter {
 }
 
 pub(super) fn build_image_options(request: &ImageBuildRequest) -> BuildImageOptions {
-    let labels = request.labels().into_iter().collect::<HashMap<_, _>>();
-
     BuildImageOptionsBuilder::default()
         .dockerfile(request.dockerfile_path())
         .t(request.output_tag())
         .pull("false")
         .rm(true)
         .forcerm(true)
-        .labels(&labels)
         .networkmode("none")
         .platform(request.platform())
         .build()

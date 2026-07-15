@@ -166,6 +166,8 @@ pub(crate) use volume_mount::VolumeMount;
 #[cfg(test)]
 mod attached_command_tests;
 #[cfg(test)]
+mod runtime_live_tests;
+#[cfg(test)]
 mod streaming_command_tests;
 #[cfg(test)]
 mod tests;

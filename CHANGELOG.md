@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for immutable application runtimes.
+  CI now builds the declared PHP, Composer, Node, and Bun stages, executes PHP,
+  Composer, npm, Bun, and a repository hook inside the owned Linux application,
+  and cleans up its container and derived image. Derived builds now publish the
+  complete ownership label set in one final Dockerfile instruction, preventing
+  partially labelled BuildKit intermediates from blocking safe cleanup.
 - Added native Linux Engine acceptance for confirmed installation deletion.
   CI now drives a durable recovery record through the exact deletion plan and
   confirmation token, proves an unconfirmed request retains the persistent

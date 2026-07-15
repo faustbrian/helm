@@ -1136,8 +1136,6 @@ fn image_build_requests_are_content_addressed_labeled_and_offline() {
     .expect("valid immutable build");
 
     let options = build_image_options(&request);
-    let labels = options.labels.expect("build labels");
-
     assert_eq!(options.dockerfile, "Dockerfile");
     assert_eq!(options.t.as_deref(), Some(request.output_tag()));
     assert_eq!(options.networkmode.as_deref(), Some("none"));
@@ -1146,13 +1144,22 @@ fn image_build_requests_are_content_addressed_labeled_and_offline() {
     assert!(options.rm);
     assert!(options.forcerm);
     assert_eq!(options.platform, "linux/arm64");
+    assert_eq!(options.labels, None);
     assert!(request.output_tag().starts_with("stackctl-build:"));
-    assert_eq!(
-        labels.get("dev.stackctl.build-input"),
-        Some(&request.input_digest().to_owned())
-    );
+    let dockerfile_with_labels = request.dockerfile_contents();
+    assert_eq!(dockerfile_with_labels.matches("\nLABEL ").count(), 1);
+    assert!(dockerfile_with_labels.contains(&format!(
+        "dev.stackctl.build-input=\"{}\"",
+        request.input_digest()
+    )));
     for (key, value) in metadata.labels() {
-        assert_eq!(labels.get(&key), Some(&value));
+        assert!(
+            dockerfile_with_labels.contains(&format!(
+                "{key}={}",
+                serde_json::to_string(&value).expect("encode expected image label")
+            )),
+            "Dockerfile is missing managed image label '{key}'"
+        );
     }
     let mut files = BTreeMap::new();
     for entry in tar::Archive::new(request.context_tar())
@@ -1171,7 +1178,7 @@ fn image_build_requests_are_content_addressed_labeled_and_offline() {
             .expect("build context contents");
         files.insert(path, contents);
     }
-    assert_eq!(files["Dockerfile"], dockerfile.as_bytes());
+    assert_eq!(files["Dockerfile"], dockerfile_with_labels.as_bytes());
     assert_eq!(files["runtime.json"], br#"{"php":"8.4"}"#);
     assert!(!format!("{request:?}").contains("runtime.json"));
 }

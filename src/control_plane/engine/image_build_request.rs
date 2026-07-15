@@ -39,7 +39,7 @@ impl ImageBuildRequest {
             dockerfile_path.clone(),
             dockerfile_contents.as_bytes().to_vec(),
         );
-        let context_tar = build_context_tar(&context_files)?;
+        let digest_context_tar = build_context_tar(&context_files)?;
 
         if !platform.starts_with("linux/") || platform.trim_matches('/').split('/').count() < 2 {
             return Err(invalid_build(format!(
@@ -54,12 +54,20 @@ impl ImageBuildRequest {
         }
 
         let input_digest = build_input_digest(
-            &context_tar,
+            &digest_context_tar,
             &dockerfile_path,
             &dockerfile_contents,
             &platform,
             &metadata.labels(),
         );
+        let mut labels = metadata.labels();
+        labels.insert(BUILD_INPUT_LABEL.to_owned(), input_digest.clone());
+        let dockerfile_contents = append_managed_labels(dockerfile_contents, &labels)?;
+        context_files.insert(
+            dockerfile_path.clone(),
+            dockerfile_contents.as_bytes().to_vec(),
+        );
+        let context_tar = build_context_tar(&context_files)?;
         let output_tag = format!(
             "stackctl-build:{}",
             input_digest.trim_start_matches("sha256:")
@@ -109,6 +117,30 @@ impl ImageBuildRequest {
         labels.insert(BUILD_INPUT_LABEL.to_owned(), self.input_digest.clone());
         labels
     }
+}
+
+fn append_managed_labels(
+    mut dockerfile: String,
+    labels: &BTreeMap<String, String>,
+) -> Result<String, EngineError> {
+    if !dockerfile.ends_with('\n') {
+        dockerfile.push('\n');
+    }
+    dockerfile.push_str("LABEL");
+    for (key, value) in labels {
+        let value = serde_json::to_string(value).map_err(|error| {
+            invalid_build(format!(
+                "failed to encode managed image label '{key}': {error}"
+            ))
+        })?;
+        dockerfile.push(' ');
+        dockerfile.push_str(key);
+        dockerfile.push('=');
+        dockerfile.push_str(&value);
+    }
+    dockerfile.push('\n');
+
+    Ok(dockerfile)
 }
 
 impl Debug for ImageBuildRequest {
