@@ -49,7 +49,7 @@ use crate::control_plane::workload::{
     BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
     OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan,
     WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
-    garbage_collect_disposable_containers, materialize_application_request,
+    garbage_collect_disposable_containers, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application, reconcile_project_process,
     reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
     stop_orphaned_project_workloads, workload_resource_record,
@@ -62,8 +62,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PROJECT_SERVICE_PROVISIONING_TIMEOUT: Duration = Duration::from_secs(30);
-const PROJECT_PROCESS_RECONCILIATION_CONCURRENCY: NonZeroUsize =
-    NonZeroUsize::new(8).expect("project process concurrency must be non-zero");
+const PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY: NonZeroUsize =
+    NonZeroUsize::new(8).expect("project workload concurrency must be non-zero");
 
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
 pub(crate) struct UnixDaemonRuntime {
@@ -965,12 +965,14 @@ impl UnixDaemonRuntime {
 
         let mut workload_resources = Vec::new();
         let mut project_runtime_images = BTreeMap::new();
-        for application in engine_plan.applications() {
-            let request = match self
+        let application_requests =
+            match self
                 .engine_runtime
-                .block_on(materialize_application_request(engine, application))
-            {
-                Ok(request) => request,
+                .block_on(materialize_application_requests(
+                    engine,
+                    engine_plan.applications(),
+                )) {
+                Ok(requests) => requests,
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
                     let retry = invalidate_engine_connection(
                         &mut self.engine_connection,
@@ -993,14 +995,35 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
-            let result = self.engine_runtime.block_on(reconcile_project_application(
-                engine,
-                WorkloadReconcileOptions {
-                    request: &request,
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
-                },
-            ));
+        let application_engine = (*engine).clone();
+        let installation_id = self.global_network_request.metadata().installation_id();
+        let schema_version = self.global_network_request.metadata().schema_version();
+        let application_results =
+            self.engine_runtime
+                .block_on(run_bounded_independent_reconciliation(
+                    application_requests,
+                    PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY,
+                    move |request| {
+                        let mut engine = application_engine.clone();
+
+                        async move {
+                            let result = reconcile_project_application(
+                                &mut engine,
+                                WorkloadReconcileOptions {
+                                    request: &request,
+                                    installation_id,
+                                    schema_version,
+                                },
+                            )
+                            .await;
+
+                            (request, result)
+                        }
+                    },
+                ));
+        for (application, (request, result)) in
+            engine_plan.applications().iter().zip(application_results)
+        {
             match result {
                 Ok(result) => {
                     if let Err(error) = health_snapshot.record(
@@ -1333,7 +1356,7 @@ impl UnixDaemonRuntime {
             .engine_runtime
             .block_on(run_bounded_independent_reconciliation(
                 process_requests,
-                PROJECT_PROCESS_RECONCILIATION_CONCURRENCY,
+                PROJECT_WORKLOAD_RECONCILIATION_CONCURRENCY,
                 move |request| {
                     let mut engine = process_engine.clone();
 

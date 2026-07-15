@@ -7,11 +7,11 @@ use super::{
     ProjectVolumeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
     WorkloadReconcileAction, WorkloadReconcileError, WorkloadReconcileOptions,
     application_container_request, garbage_collect_build_images,
-    garbage_collect_disposable_containers, materialize_application_request, plan_ephemeral_browser,
-    plan_immutable_project_application, project_process_request, reconcile_project_application,
-    reconcile_project_process, reconcile_project_service, reconcile_project_volume,
-    remove_stale_ephemeral_services, run_project_command, stop_orphaned_project_workloads,
-    workload_resource_record,
+    garbage_collect_disposable_containers, materialize_application_request,
+    materialize_application_requests, plan_ephemeral_browser, plan_immutable_project_application,
+    project_process_request, reconcile_project_application, reconcile_project_process,
+    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
+    run_project_command, stop_orphaned_project_workloads, workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -554,6 +554,60 @@ fn declared_tool_images_produce_one_content_addressed_application_runtime() {
                 "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
             ),
         ]
+    );
+}
+
+#[test]
+fn equal_application_runtimes_are_materialized_once_per_pass() {
+    let plan = |project: &str| {
+        let application = resolved_application(&format!(
+            concat!(
+                "schema_version: 8\nproject: {}\nservices:\n  app:\n",
+                "    preset: laravel\n    version: \"8.5\"\n",
+                "    image: dunglas/frankenphp@sha256:",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+                "    php_extensions: [redis, intl]\n"
+            ),
+            project
+        ));
+
+        plan_immutable_project_application(ImmutableProjectApplicationOptions {
+            service: &application,
+            managed_environment: managed_environment(
+                project,
+                BTreeMap::new(),
+                EnvironmentLifecycle::Active,
+            ),
+            installation_id: "install-1",
+            schema_version: 8,
+            platform: "linux/arm64",
+            network_name: "stackctl",
+            internal_http_port: 8080,
+        })
+        .expect("runtime application plan")
+    };
+    let applications = [plan("bill"), plan("shop")];
+    let mut engine = RecordingWorkloadEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let requests = runtime
+        .block_on(materialize_application_requests(&mut engine, &applications))
+        .expect("materialized application requests");
+
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].name(), "stackctl-bill-app");
+    assert_eq!(requests[1].name(), "stackctl-shop-app");
+    assert_eq!(requests[0].image(), requests[1].image());
+    assert_eq!(engine.built.lock().expect("built requests").len(), 1);
+    assert_eq!(
+        engine
+            .resolved_images
+            .lock()
+            .expect("resolved images")
+            .len(),
+        1
     );
 }
 

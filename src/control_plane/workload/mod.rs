@@ -17,6 +17,7 @@ mod immutable_project_application_options;
 mod immutable_project_application_plan;
 mod matches_durable_resource_metadata;
 mod materialize_application_request;
+mod materialize_application_requests;
 mod merge_project_declared_environment;
 mod node_package_manager;
 mod orphaned_project_workload_options;
@@ -80,6 +81,7 @@ pub(crate) use immutable_project_application_options::ImmutableProjectApplicatio
 pub(crate) use immutable_project_application_plan::ImmutableProjectApplicationPlan;
 pub(super) use matches_durable_resource_metadata::matches_durable_resource_metadata;
 pub(crate) use materialize_application_request::materialize_application_request;
+pub(crate) use materialize_application_requests::materialize_application_requests;
 pub(crate) use merge_project_declared_environment::merge_project_declared_environment;
 pub(crate) use node_package_manager::NodePackageManager;
 pub(crate) use orphaned_project_workload_options::OrphanedProjectWorkloadOptions;

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Deduplicated equal content-addressed application runtime materialization
+  within each reconciliation pass, so projects sharing a runtime fingerprint
+  resolve and inspect its immutable inputs once while retaining dedicated
+  application containers. Once serialized runtime preparation completes,
+  independent application containers converge with bounded concurrency.
 - Reconciled independent project processes with bounded concurrency after their
   application runtimes are ready. Large project sets no longer serialize every
   worker Engine request, while result publication remains in deterministic plan
