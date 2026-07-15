@@ -1,5 +1,6 @@
 use super::{
     PreparedProjectService, ProjectServiceContainerConfiguration, ProjectServicePreparationError,
+    ProjectServiceProvisioningJob, project_service_provisioning_images::MINIO_CLIENT_IMAGE,
 };
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
@@ -80,8 +81,8 @@ pub(crate) fn plan_garage_project_resources(
     }
 
     let values = BTreeMap::from([
-        ("AWS_ACCESS_KEY_ID".to_owned(), access_key),
-        ("AWS_BUCKET".to_owned(), bucket),
+        ("AWS_ACCESS_KEY_ID".to_owned(), access_key.clone()),
+        ("AWS_BUCKET".to_owned(), bucket.clone()),
         ("AWS_DEFAULT_REGION".to_owned(), "garage".to_owned()),
         (
             "AWS_ENDPOINT".to_owned(),
@@ -105,8 +106,23 @@ pub(crate) fn plan_garage_project_resources(
         "/etc/garage.toml",
         CredentialSecret::new(garage_configuration(&container_name, &secret)),
     )?;
+    let provisioning_job = ProjectServiceProvisioningJob::new(
+        MINIO_CLIENT_IMAGE,
+        vec![
+            "mb".to_owned(),
+            "--ignore-existing".to_owned(),
+            format!("garage/{bucket}"),
+        ],
+        BTreeMap::from([(
+            "MC_HOST_garage".to_owned(),
+            format!(
+                "http://{access_key}:{}@{container_name}:3900",
+                secret.expose()
+            ),
+        )]),
+    )?;
 
-    PreparedProjectService::new(
+    let prepared = PreparedProjectService::new(
         project_id.to_owned(),
         service_id.to_owned(),
         Some(credential),
@@ -115,7 +131,9 @@ pub(crate) fn plan_garage_project_resources(
         None,
     )
     .with_container_command(command)
-    .map(|prepared| prepared.with_container_configuration(configuration))
+    .map(|prepared| prepared.with_container_configuration(configuration))?;
+
+    Ok(prepared.with_provisioning_job(provisioning_job))
 }
 
 fn garage_access_key(project_id: &str, service_id: &str) -> String {

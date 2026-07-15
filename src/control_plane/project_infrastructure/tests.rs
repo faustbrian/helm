@@ -770,6 +770,21 @@ fn garage_preparation_materializes_private_config_and_zero_touch_bucket() {
         first.environment().values().get("AWS_BUCKET"),
         Some(&"stackctl-bill-storage".to_owned())
     );
+    let provisioning = first
+        .provisioning_job()
+        .expect("Garage bucket verification job");
+    assert_eq!(
+        provisioning.command(),
+        ["mb", "--ignore-existing", "garage/stackctl-bill-storage"]
+    );
+    assert_eq!(
+        provisioning.environment().get("MC_HOST_garage"),
+        Some(&format!(
+            "http://{}:{}@stackctl-bill-storage:3900",
+            credential.username(),
+            credential.secret()
+        ))
+    );
     let mount = first
         .container_configuration_mount()
         .expect("Garage config mount");

@@ -56,6 +56,8 @@ All notable changes to this project are documented in this file.
   unchanged revision succeeds.
 - Added a deterministic LocalStack S3 bucket and idempotent pinned-client
   provisioning so its generated SDK defaults are usable without manual setup.
+- Added external authenticated Garage bucket verification after its built-in
+  single-node bootstrap, retaining automatic retries without exposing secrets.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

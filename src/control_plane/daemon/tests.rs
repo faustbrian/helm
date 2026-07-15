@@ -5462,6 +5462,20 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         "/etc/garage.toml"
     );
     assert!(objectstore.request().bind_mounts()[0].is_read_only());
+    let readiness = objectstore
+        .provisioning_job()
+        .expect("Garage bucket verification job");
+    assert_eq!(
+        readiness.command(),
+        [
+            "mb",
+            "--ignore-existing",
+            "garage/stackctl-bill-objectstore"
+        ]
+    );
+    assert_eq!(readiness.network(), Some("stackctl"));
+    assert_eq!(readiness.platform(), Some("linux/arm64"));
+    assert!(!format!("{readiness:?}").contains("garage-secret"));
     assert_eq!(
         plan.applications()[0]
             .request()
