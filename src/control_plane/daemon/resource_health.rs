@@ -5,6 +5,7 @@ use crate::control_plane::engine::ContainerHealth;
 pub(crate) enum ResourceHealth {
     Container(ContainerHealth),
     ServiceNotReady { attempt: u32 },
+    AuthenticationFailed { attempt: u32 },
 }
 
 impl From<ContainerHealth> for ResourceHealth {

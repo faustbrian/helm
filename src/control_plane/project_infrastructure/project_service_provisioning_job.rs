@@ -10,6 +10,7 @@ pub(crate) struct ProjectServiceProvisioningJob {
     image: String,
     command: Vec<String>,
     environment: BTreeMap<String, String>,
+    authentication_failure_exit_status: Option<i64>,
 }
 
 impl ProjectServiceProvisioningJob {
@@ -43,7 +44,22 @@ impl ProjectServiceProvisioningJob {
             image,
             command,
             environment,
+            authentication_failure_exit_status: None,
         })
+    }
+
+    pub(crate) fn with_authentication_failure_exit_status(
+        mut self,
+        status: i64,
+    ) -> Result<Self, ProjectServicePreparationError> {
+        if !(1..=255).contains(&status) {
+            return Err(invalid(
+                "authentication failure exit status must be between 1 and 255",
+            ));
+        }
+        self.authentication_failure_exit_status = Some(status);
+
+        Ok(self)
     }
 
     pub(crate) fn image(&self) -> &str {
@@ -57,6 +73,10 @@ impl ProjectServiceProvisioningJob {
     pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
     }
+
+    pub(crate) const fn authentication_failure_exit_status(&self) -> Option<i64> {
+        self.authentication_failure_exit_status
+    }
 }
 
 impl Debug for ProjectServiceProvisioningJob {
@@ -66,6 +86,10 @@ impl Debug for ProjectServiceProvisioningJob {
             .field("image", &self.image())
             .field("command", &self.command())
             .field("environment_keys", &self.environment().keys())
+            .field(
+                "authentication_failure_exit_status",
+                &self.authentication_failure_exit_status(),
+            )
             .finish()
     }
 }

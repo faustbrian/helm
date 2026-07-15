@@ -1445,6 +1445,9 @@ const fn ipc_resource_health(
         ResourceHealth::ServiceNotReady { attempt } => {
             IpcResourceHealth::ServiceNotReady { attempt }
         }
+        ResourceHealth::AuthenticationFailed { attempt } => {
+            IpcResourceHealth::AuthenticationFailed { attempt }
+        }
     };
 
     (health, Some(observed_at))

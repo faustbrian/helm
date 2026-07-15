@@ -6,6 +6,19 @@ use crate::control_plane::state::SqliteStateStore;
 use crate::control_plane::state::StateStore;
 use std::path::PathBuf;
 
+fn assert_authenticated_http_readiness(command: &[String], expected_fragments: &[&str]) {
+    assert_eq!(&command[..2], ["sh", "-ec"]);
+    let script = &command[2];
+    for fragment in expected_fragments {
+        assert!(
+            script.contains(fragment),
+            "missing readiness fragment {fragment}"
+        );
+    }
+    assert!(script.contains("401|403) exit 42"));
+    assert!(script.contains("2??) exit 0"));
+}
+
 #[test]
 fn soketi_preparation_replays_one_stable_secret_and_complete_route_contract() {
     let source = ProjectSource::new(
@@ -155,23 +168,15 @@ fn typesense_preparation_replays_stable_bootstrap_credentials_and_endpoints() {
             "d94d07ba9e7d6de898b6d96c1a072f6f8266c687af78a74f380087a0addf5d17"
         )
     );
-    assert_eq!(
+    assert_authenticated_http_readiness(
         readiness.command(),
-        [
-            "--fail-with-body",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "5",
-            "--output",
-            "/dev/null",
-            "--variable",
+        &[
             "%TYPESENSE_API_KEY",
-            "--expand-header",
             "X-TYPESENSE-API-KEY: {{TYPESENSE_API_KEY}}",
-            "http://stackctl-bill-search:8108/debug"
-        ]
+            "http://stackctl-bill-search:8108/debug",
+        ],
     );
+    assert_eq!(readiness.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         readiness.environment().get("TYPESENSE_API_KEY"),
         Some(&first_credential.secret().to_owned())
@@ -228,23 +233,15 @@ fn meilisearch_preparation_replays_stable_master_key_and_private_endpoint() {
     let readiness = first[0]
         .provisioning_job()
         .expect("Meilisearch authenticated readiness job");
-    assert_eq!(
+    assert_authenticated_http_readiness(
         readiness.command(),
-        [
-            "--fail-with-body",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "5",
-            "--output",
-            "/dev/null",
-            "--variable",
+        &[
             "%MEILI_MASTER_KEY",
-            "--expand-header",
             "Authorization: Bearer {{MEILI_MASTER_KEY}}",
-            "http://stackctl-bill-search:7700/keys"
-        ]
+            "http://stackctl-bill-search:7700/keys",
+        ],
     );
+    assert_eq!(readiness.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         readiness.environment().get("MEILI_MASTER_KEY"),
         Some(&first_credential.secret().to_owned())
@@ -351,24 +348,16 @@ fn opensearch_preparation_replays_a_policy_compatible_admin_identity() {
     let readiness = first[0]
         .provisioning_job()
         .expect("OpenSearch authenticated readiness job");
-    assert_eq!(
+    assert_authenticated_http_readiness(
         readiness.command(),
-        [
-            "--fail-with-body",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "5",
-            "--output",
-            "/dev/null",
+        &[
             "--insecure",
-            "--variable",
             "%OPENSEARCH_PASSWORD",
-            "--expand-user",
             "admin:{{OPENSEARCH_PASSWORD}}",
-            "https://stackctl-bill-search:9200/_cluster/health"
-        ]
+            "https://stackctl-bill-search:9200/_cluster/health",
+        ],
     );
+    assert_eq!(readiness.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         readiness.environment().get("OPENSEARCH_PASSWORD"),
         Some(&password.to_owned())
@@ -490,23 +479,15 @@ fn elasticsearch_preparation_replays_stable_credentials_and_private_http_endpoin
     let readiness = first[0]
         .provisioning_job()
         .expect("Elasticsearch authenticated readiness job");
-    assert_eq!(
+    assert_authenticated_http_readiness(
         readiness.command(),
-        [
-            "--fail-with-body",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "5",
-            "--output",
-            "/dev/null",
-            "--variable",
+        &[
             "%ELASTIC_PASSWORD",
-            "--expand-user",
             "elastic:{{ELASTIC_PASSWORD}}",
-            "http://stackctl-bill-search:9200/_cluster/health"
-        ]
+            "http://stackctl-bill-search:9200/_cluster/health",
+        ],
     );
+    assert_eq!(readiness.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         readiness.environment().get("ELASTIC_PASSWORD"),
         Some(&password.to_owned())

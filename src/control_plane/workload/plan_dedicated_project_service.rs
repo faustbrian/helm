@@ -159,6 +159,9 @@ pub(crate) fn plan_dedicated_project_service(
         request.with_restart_policy(ContainerRestartPolicy::UnlessStopped),
         volume,
         provisioning_job,
+        options
+            .provisioning_job
+            .and_then(|job| job.authentication_failure_exit_status()),
     ))
 }
 

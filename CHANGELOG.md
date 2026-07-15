@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Classified authenticated HTTP readiness failures without parsing logs or
+  guessing from a generic probe exit. Pinned curl jobs map only HTTP 401/403 to
+  a revisioned authentication-failure protocol; the daemon publishes
+  `authentication_failed`, while network, timeout, and other HTTP failures
+  remain `service_not_ready` and keep the same isolated bounded retry.
 - Preserved the Engine's explicit container-restart-loop flag as `restarting`
   through health observation, daemon state, IPC, and project status. Readiness
   waits now tolerate a bounded in-progress restart without collapsing it into

@@ -7,7 +7,7 @@ use std::fmt::{Display, Formatter};
 pub(crate) enum SharedInfrastructureReconcileError {
     InvalidRequest { detail: String },
     Conflict { detail: String },
-    ProvisioningFailed { detail: String },
+    ProvisioningFailed { detail: String, status_code: i64 },
     Engine { action: String, detail: String },
 }
 
@@ -16,7 +16,7 @@ impl Display for SharedInfrastructureReconcileError {
         match self {
             Self::InvalidRequest { detail }
             | Self::Conflict { detail }
-            | Self::ProvisioningFailed { detail } => formatter.write_str(detail),
+            | Self::ProvisioningFailed { detail, .. } => formatter.write_str(detail),
             Self::Engine { action, detail } => {
                 write!(formatter, "shared infrastructure {action} failed: {detail}")
             }

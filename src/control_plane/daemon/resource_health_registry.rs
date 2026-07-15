@@ -34,6 +34,19 @@ impl ResourceHealthRegistry {
         )
     }
 
+    pub(crate) fn record_authentication_failed(
+        &mut self,
+        resource_id: &str,
+        attempt: u32,
+        observed_at_unix_seconds: i64,
+    ) -> Result<(), ResourceHealthRegistryError> {
+        self.record_observation(
+            resource_id,
+            ResourceHealth::AuthenticationFailed { attempt },
+            observed_at_unix_seconds,
+        )
+    }
+
     pub(crate) fn observation(&self, resource_id: &str) -> Option<(ResourceHealth, i64)> {
         self.observations.get(resource_id).copied()
     }

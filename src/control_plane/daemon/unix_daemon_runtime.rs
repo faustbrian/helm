@@ -1061,6 +1061,7 @@ impl UnixDaemonRuntime {
                                 Err(
                                     error
                                     @ SharedInfrastructureReconcileError::ProvisioningFailed {
+                                        status_code,
                                         ..
                                     },
                                 ) => {
@@ -1080,13 +1081,23 @@ impl UnixDaemonRuntime {
                                             return;
                                         }
                                     };
-                                    if let Err(health_error) = health_snapshot
-                                        .record_service_not_ready(
+                                    let health_result = if service
+                                        .authentication_failure_exit_status()
+                                        == Some(status_code)
+                                    {
+                                        health_snapshot.record_authentication_failed(
                                             result.container().id().as_str(),
                                             retry.attempt(),
                                             observed_at_unix_seconds,
                                         )
-                                    {
+                                    } else {
+                                        health_snapshot.record_service_not_ready(
+                                            result.container().id().as_str(),
+                                            retry.attempt(),
+                                            observed_at_unix_seconds,
+                                        )
+                                    };
+                                    if let Err(health_error) = health_result {
                                         self.engine_reconciliation.complete();
                                         tracing::error!(
                                             error = %error,

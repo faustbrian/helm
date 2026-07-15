@@ -14,6 +14,7 @@ pub(crate) enum IpcResourceHealth {
     Healthy,
     Unhealthy { failing_streak: u64 },
     ServiceNotReady { attempt: u32 },
+    AuthenticationFailed { attempt: u32 },
 }
 
 impl IpcResourceHealth {
@@ -29,6 +30,7 @@ impl IpcResourceHealth {
             Self::Healthy => "healthy",
             Self::Unhealthy { .. } => "unhealthy",
             Self::ServiceNotReady { .. } => "service_not_ready",
+            Self::AuthenticationFailed { .. } => "authentication_failed",
         }
     }
 }

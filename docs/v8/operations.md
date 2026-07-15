@@ -373,6 +373,10 @@ Losing the selected Engine adapter immediately clears the complete live-health
 snapshot and publishes `engine_unavailable` before reconnect backoff begins, so
 an Engine outage is neither hidden as `unknown` nor reported from a recently
 successful pass.
+Authenticated HTTP probes reserve a revisioned exit status only for HTTP
+401/403. That evidence publishes `authentication_failed`; transport, timeout,
+and other response failures publish `service_not_ready`. Neither path exposes
+the credential or disconnects a healthy Engine adapter.
 Browser opening accepts `healthy` and `running_unverified` routes and otherwise
 fails with the exact service state and observation time instead of issuing an
 ad-hoc application HTTP probe.

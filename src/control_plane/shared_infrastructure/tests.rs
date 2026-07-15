@@ -1293,7 +1293,7 @@ fn failed_provisioning_jobs_are_removed_and_reported() {
     assert!(error.to_string().contains("exited with status 1"));
     assert!(matches!(
         error,
-        SharedInfrastructureReconcileError::ProvisioningFailed { .. }
+        SharedInfrastructureReconcileError::ProvisioningFailed { status_code: 1, .. }
     ));
     assert_eq!(engine.removed_containers.len(), 1);
 }

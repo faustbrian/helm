@@ -63,6 +63,15 @@ fn resource_health_distinguishes_service_readiness_from_container_health() {
         health.observation("container-search"),
         Some((ResourceHealth::ServiceNotReady { attempt: 3 }, 10_000))
     );
+
+    health
+        .record_authentication_failed("container-search", 4, 10_001)
+        .expect("record authentication failure");
+
+    assert_eq!(
+        health.observation("container-search"),
+        Some((ResourceHealth::AuthenticationFailed { attempt: 4 }, 10_001))
+    );
 }
 
 #[test]
@@ -5483,6 +5492,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         readiness.environment().get("REDISCLI_AUTH"),
         Some(&"dragonfly-secret".to_owned())
     );
+    assert_eq!(cache.authentication_failure_exit_status(), None);
     assert!(!format!("{readiness:?}").contains("dragonfly-secret"));
     assert_eq!(
         plan.applications()[0]
@@ -5537,6 +5547,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         Some(&"typesense-secret".to_owned())
     );
     assert!(catalog.volume().is_some());
+    assert_eq!(catalog.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         plan.applications()[0]
             .request()
@@ -5554,6 +5565,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         Some(&"meilisearch-secret".to_owned())
     );
     assert!(search.volume().is_some());
+    assert_eq!(search.authentication_failure_exit_status(), Some(42));
     assert_eq!(
         plan.applications()[0]
             .request()

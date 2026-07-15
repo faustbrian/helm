@@ -20,6 +20,7 @@ pub(super) fn plan_project_service_provisioning_job(
         provisioning.image(),
         provisioning.command(),
         provisioning.environment(),
+        provisioning.authentication_failure_exit_status(),
         platform,
         network_name,
     ))
