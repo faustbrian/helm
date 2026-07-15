@@ -3352,7 +3352,8 @@ fn rabbitmq_project_removal_revokes_existing_users_without_deleting_vhost_data()
     )
     .expect("RabbitMQ definition");
     let container = owned_shared_container("rabbitmq-container", "sha256:rabbitmq-4");
-    let executor = RecordingOutputExecutor::new(vec![b"st_bill_broker\n".to_vec(), Vec::new()]);
+    let executor =
+        RecordingOutputExecutor::new(vec![b"st_bill_broker\t[management]\n".to_vec(), Vec::new()]);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
@@ -3373,7 +3374,6 @@ fn rabbitmq_project_removal_revokes_existing_users_without_deleting_vhost_data()
             vec![
                 "rabbitmqctl".to_owned(),
                 "list_users".to_owned(),
-                "name".to_owned(),
                 "--no-table-headers".to_owned(),
             ],
             vec![
@@ -3494,7 +3494,10 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
         observed: Vec::new(),
         state: crate::control_plane::engine::ContainerState::Stopped,
         started: Vec::new(),
-        commands: RecordingOutputExecutor::new(vec![b"st_bill_broker\n".to_vec(), Vec::new()]),
+        commands: RecordingOutputExecutor::new(vec![
+            b"st_bill_broker\t[management]\n".to_vec(),
+            Vec::new(),
+        ]),
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
@@ -3525,7 +3528,6 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
             vec![
                 "rabbitmqctl".to_owned(),
                 "list_users".to_owned(),
-                "name".to_owned(),
                 "--no-table-headers".to_owned(),
             ],
             vec![

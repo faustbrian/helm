@@ -11,10 +11,13 @@ use crate::control_plane::engine::{
 use crate::control_plane::network::global_network_request;
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
-    plan_shared_instances,
+    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
+    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
-use crate::control_plane::state::SqliteStateStore;
+use crate::control_plane::state::{
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -187,6 +190,88 @@ fn live_docker_engine_two_projects_share_one_rabbitmq_with_isolated_vhosts() {
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
 
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .map(orphaned_logical_resource)
+            .expect("find bill logical RabbitMQ resource");
+        let credentials = [disabled_credential(bill.credential())];
+        let observed = engine
+            .discover_managed()
+            .await
+            .expect("discover RabbitMQ lifecycle acceptance resources");
+        let revoked = revoke_orphaned_shared_access_from_observed(
+            &mut engine,
+            &observed,
+            OrphanedSharedAccessOptions {
+                resources: first.physical_resources(),
+                logical_resources: std::slice::from_ref(&bill_logical),
+                credentials: &credentials,
+                installation_id: &installation_id,
+                schema_version: 8,
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("revoke removed bill RabbitMQ access");
+        assert_eq!(revoked, 1);
+        assert!(matches!(
+            rabbitmqadmin(
+                &engine,
+                &container,
+                bill.definition().vhost(),
+                bill.credential().username(),
+                bill.credential().secret(),
+                &["list", "queues"],
+            )
+            .await,
+            Err(EngineError::ContainerExit { .. })
+        ));
+        rabbitmqadmin(
+            &engine,
+            &container,
+            shop.definition().vhost(),
+            shop.credential().username(),
+            shop.credential().secret(),
+            &["list", "queues"],
+        )
+        .await
+        .expect("list shop queues after bill removal");
+        let retained_queue = rabbitmqctl(
+            &engine,
+            &container,
+            &[
+                "-p",
+                bill.definition().vhost(),
+                "list_queues",
+                "name",
+                "--no-table-headers",
+            ],
+        )
+        .await
+        .expect("inspect retained bill queue after user revocation");
+        assert!(String::from_utf8_lossy(&retained_queue).contains("stackctl_acceptance"));
+
+        let restored =
+            reconcile_prepared_rabbitmq_instance(&mut engine, prepared, &installation_id, 8)
+                .await
+                .expect("restore bill RabbitMQ access from active configuration");
+        assert!(restored.logical_resource_drifts().is_empty());
+        let restored_queues = rabbitmqadmin(
+            &engine,
+            &container,
+            bill.definition().vhost(),
+            bill.credential().username(),
+            bill.credential().secret(),
+            &["list", "queues"],
+        )
+        .await
+        .expect("list bill queues after access restoration");
+        assert!(String::from_utf8_lossy(&restored_queues).contains("stackctl_acceptance"));
+        let restored_container = owned_shared_container(&engine, &installation_id).await;
+        assert_eq!(restored_container.id(), container.id());
+
         delete_owned_installation_resources(
             &mut engine,
             InstallationResourceDeletionOptions {
@@ -207,6 +292,31 @@ fn live_docker_engine_two_projects_share_one_rabbitmq_with_isolated_vhosts() {
     drop(store);
     std::fs::remove_dir_all(&state_directory).expect("remove RabbitMQ acceptance state");
     println!("shared RabbitMQ isolation acceptance passed for {installation_id}");
+}
+
+fn orphaned_logical_resource(logical: &LogicalResourceRecord) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: logical.shared_resource_id().to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: logical.desired_revision().to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+}
+
+fn disabled_credential(credential: &CredentialRecord) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: credential.credential_id().to_owned(),
+        project_id: credential.project_id().map(str::to_owned),
+        service_id: credential.service_id().to_owned(),
+        username: credential.username().to_owned(),
+        secret: credential.secret().to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    })
 }
 
 async fn owned_shared_container(
@@ -315,6 +425,24 @@ async fn rabbitmqadmin(
         request,
         Vec::new(),
         "exercise RabbitMQ tenant isolation",
+        Duration::from_secs(15),
+    )?;
+
+    run_attached_command_capture(engine, container, &options).await
+}
+
+async fn rabbitmqctl(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    arguments: &[&str],
+) -> Result<Vec<u8>, EngineError> {
+    let mut command = vec!["rabbitmqctl".to_owned()];
+    command.extend(arguments.iter().map(|argument| (*argument).to_owned()));
+    let request = CommandRequest::new(command, BTreeMap::new(), None)?;
+    let options = AttachedCommandOptions::new(
+        request,
+        Vec::new(),
+        "inspect retained RabbitMQ tenant data",
         Duration::from_secs(15),
     )?;
 

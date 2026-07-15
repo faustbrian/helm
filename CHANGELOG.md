@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Updated RabbitMQ orphan-user discovery for the pinned v4 CLI, which rejects a
+  requested `name` column and emits tags beside each username. Native Linux
+  acceptance now proves user deletion retains the durable queue and sibling
+  access, then restores the stable user without replacing the shared broker.
 - Ran MongoDB orphan-user revocation in non-interactive mongosh file mode so
   its boolean result is not polluted by a shell prompt. Native Linux acceptance
   now proves user deletion retains collections and sibling access, then restores

@@ -18,7 +18,6 @@ pub(crate) async fn revoke_rabbitmq_project_access(
         vec![
             "rabbitmqctl".to_owned(),
             "list_users".to_owned(),
-            "name".to_owned(),
             "--no-table-headers".to_owned(),
         ],
         "list RabbitMQ users before access revocation",
@@ -29,7 +28,7 @@ pub(crate) async fn revoke_rabbitmq_project_access(
     })?;
     if !users
         .lines()
-        .map(str::trim)
+        .filter_map(|line| line.split_whitespace().next())
         .any(|username| username == definition.username())
     {
         return Ok(false);
