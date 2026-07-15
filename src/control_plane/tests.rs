@@ -117,7 +117,8 @@ fn distinct_paths_claiming_the_same_domain_fail_loudly() {
             "route registry contains conflicting ownership:\n",
             "- bill-app.stackctl.localhost is claimed by:\n",
             "  - project 'bill', service 'app', path '/work/archive/bill'\n",
-            "  - project 'bill', service 'app', path '/work/bill'",
+            "  - project 'bill', service 'app', path '/work/bill'\n",
+            "set unique project and service names in .stackctl.yaml or rename the conflicting directory",
         )
     );
 }

@@ -58,8 +58,10 @@ impl Display for RegistryConflicts {
                 )?;
             }
         }
-
-        Ok(())
+        write!(
+            formatter,
+            "\nset unique project and service names in .stackctl.yaml or rename the conflicting directory"
+        )
     }
 }
 

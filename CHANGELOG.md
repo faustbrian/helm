@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
   when their service sets produce no route collision. The complete registry
   now reports every path and requires a unique directory or explicit `project`
   value before credentials or logical resources can alias.
+- Added the exact correction to route-collision diagnostics: choose unique
+  project and service names or rename the conflicting directory. Stackctl
+  still never invents, hashes, or otherwise repairs a domain.
 - Removed current-v8 Podman support implications from Engine comments and
   health/retry changelog entries. V8 selects the typed Docker Engine contract;
   Podman remains unsupported until it has equivalent acceptance evidence.
