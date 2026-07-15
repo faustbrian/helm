@@ -5,7 +5,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions,
-    SharedServiceReconcileResult, reconcile_shared_service,
+    SharedServiceReconcileResult, classify_logical_resource_error, reconcile_shared_service,
 };
 
 /// Converges one MySQL-family process and isolated project schema/user.
@@ -36,12 +36,15 @@ where
     .await?;
     provision_mysql_logical_resource(engine, shared.container(), instance, project.logical())
         .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: format!(
-                "{} logical resource provisioning",
-                instance.flavor().implementation()
-            ),
-            detail: error.to_string(),
+        .map_err(|error| {
+            classify_logical_resource_error(
+                project.credential().credential_id(),
+                format!(
+                    "{} logical resource provisioning",
+                    instance.flavor().implementation()
+                ),
+                error,
+            )
         })?;
 
     Ok(shared)

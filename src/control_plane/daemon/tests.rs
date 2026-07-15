@@ -72,6 +72,15 @@ fn resource_health_distinguishes_service_readiness_from_container_health() {
         health.observation("container-search"),
         Some((ResourceHealth::AuthenticationFailed { attempt: 4 }, 10_001))
     );
+
+    health
+        .record_logical_resource_drift("container-search", 10_002)
+        .expect("record logical-resource drift");
+
+    assert_eq!(
+        health.observation("container-search"),
+        Some((ResourceHealth::LogicalResourceDrift, 10_002))
+    );
 }
 
 #[test]
@@ -6962,6 +6971,9 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     resource_health
         .record("postgres-17", ContainerHealth::Starting, 9_800)
         .expect("record shared health");
+    resource_health
+        .record_logical_resource_drift("bill/database", 9_999)
+        .expect("record logical-resource drift");
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -7001,8 +7013,8 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
                             "db".to_owned(),
                             "postgres_database_and_role".to_owned(),
                             IpcResourceLifecycle::Active,
-                            IpcResourceHealth::Unknown,
-                            Some(9_800),
+                            IpcResourceHealth::LogicalResourceDrift,
+                            Some(9_999),
                             true,
                             IpcDataLifecycle::LogicalResource,
                         ),

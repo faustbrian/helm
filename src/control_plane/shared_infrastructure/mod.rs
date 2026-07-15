@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests;
 
+pub(crate) use classify_logical_resource_error::classify_logical_resource_error;
 pub(crate) use compatibility_fingerprint::CompatibilityFingerprint;
 pub(crate) use compatibility_fingerprint_options::CompatibilityFingerprintOptions;
 pub(crate) use compatibility_profile::CompatibilityProfile;
@@ -15,6 +16,7 @@ pub(crate) use gotenberg::{
     prepare_gotenberg_shared_instances, reconcile_prepared_gotenberg_instance,
 };
 pub(crate) use isolation_capability::IsolationCapability;
+pub(crate) use logical_resource_drift::LogicalResourceDrift;
 pub(crate) use mailpit::{
     MailpitAuthenticationSnapshot, MailpitPlanError, MailpitPreparationError,
     MailpitPreparationOptions, MailpitProjectDefinition, MailpitProjectResources,
@@ -125,6 +127,7 @@ pub(crate) use stop_unreferenced_shared_services::stop_unreferenced_shared_servi
 pub(crate) use store_credential_secret::store_credential_secret;
 pub(crate) use unreferenced_shared_service_options::UnreferencedSharedServiceOptions;
 
+mod classify_logical_resource_error;
 mod compatibility_fingerprint;
 mod compatibility_fingerprint_error;
 mod compatibility_fingerprint_options;
@@ -135,6 +138,7 @@ mod credential_secret;
 mod generate_credential_secret;
 mod gotenberg;
 mod isolation_capability;
+mod logical_resource_drift;
 mod logical_service_consumer;
 mod mailpit;
 mod managed_secret_store_error;

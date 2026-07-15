@@ -7,7 +7,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions,
-    SharedServiceReconcileResult, reconcile_shared_service,
+    SharedServiceReconcileResult, classify_logical_resource_error, reconcile_shared_service,
 };
 
 /// Converges one SQL Server process and isolated project database/login.
@@ -38,9 +38,12 @@ where
     .await?;
     provision_sql_server_logical_resource(engine, shared.container(), instance, project.logical())
         .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: "SQL Server logical resource provisioning".to_owned(),
-            detail: error.to_string(),
+        .map_err(|error| {
+            classify_logical_resource_error(
+                project.credential().credential_id(),
+                "SQL Server logical resource provisioning",
+                error,
+            )
         })?;
 
     Ok(shared)

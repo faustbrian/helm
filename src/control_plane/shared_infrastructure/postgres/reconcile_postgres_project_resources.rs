@@ -7,7 +7,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions,
-    SharedServiceReconcileResult, reconcile_shared_service,
+    SharedServiceReconcileResult, classify_logical_resource_error, reconcile_shared_service,
 };
 
 /// Converges a shared PostgreSQL process and one isolated project tenant.
@@ -43,9 +43,12 @@ where
         instance.bootstrap_credential(),
     )
     .await
-    .map_err(|error| SharedInfrastructureReconcileError::Engine {
-        action: "PostgreSQL logical resource provisioning".to_owned(),
-        detail: error.to_string(),
+    .map_err(|error| {
+        classify_logical_resource_error(
+            project.logical().database_name(),
+            "PostgreSQL logical resource provisioning",
+            error,
+        )
     })?;
 
     Ok(shared)

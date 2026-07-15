@@ -97,8 +97,9 @@ async fn execute(
             }
             CommandStatus::Exited(0) => return Ok(captured),
             CommandStatus::Exited(status) => {
-                return Err(EngineError::Backend {
-                    detail: format!("{} exited with status {status}", options.action()),
+                return Err(EngineError::ContainerExit {
+                    container_id: container_id.as_str().to_owned(),
+                    status_code: status,
                 });
             }
         }

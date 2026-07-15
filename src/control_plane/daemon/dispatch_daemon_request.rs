@@ -1381,7 +1381,9 @@ where
                     Err(error) => return Err(error.to_string()),
                 };
                 let (health, observed_at) = ipc_resource_health(
-                    resource_health.observation(resource.shared_resource_id()),
+                    resource_health
+                        .observation(resource.logical_resource_id())
+                        .or_else(|| resource_health.observation(resource.shared_resource_id())),
                     resource_health.engine_is_unavailable(),
                     now_unix_seconds,
                 );
@@ -1448,6 +1450,7 @@ const fn ipc_resource_health(
         ResourceHealth::AuthenticationFailed { attempt } => {
             IpcResourceHealth::AuthenticationFailed { attempt }
         }
+        ResourceHealth::LogicalResourceDrift => IpcResourceHealth::LogicalResourceDrift,
         ResourceHealth::DestructiveReplacementRequired => {
             IpcResourceHealth::DestructiveReplacementRequired
         }

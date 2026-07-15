@@ -5,7 +5,8 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialSecret, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
-    SharedServiceReconcileOptions, reconcile_shared_service, store_credential_secret,
+    SharedServiceReconcileOptions, classify_logical_resource_error, reconcile_shared_service,
+    store_credential_secret,
 };
 
 /// Stores the bootstrap secret, then converges one process and all tenants.
@@ -46,14 +47,24 @@ where
     )
     .await?;
     let mut logical = Vec::with_capacity(prepared.projects().len());
+    let mut logical_resource_drifts = Vec::new();
 
     for project in prepared.projects() {
-        provision_mongodb_logical_resource(engine, shared.container(), project.logical())
-            .await
-            .map_err(|error| SharedInfrastructureReconcileError::Engine {
-                action: "MongoDB logical resource provisioning".to_owned(),
-                detail: error.to_string(),
-            })?;
+        let result =
+            provision_mongodb_logical_resource(engine, shared.container(), project.logical())
+                .await
+                .map_err(|error| {
+                    classify_logical_resource_error(
+                        project.credential().credential_id(),
+                        "MongoDB logical resource provisioning",
+                        error,
+                    )
+                });
+        if let Err(error) = result {
+            logical_resource_drifts.push(error.into_logical_resource_drift()?);
+
+            continue;
+        }
         logical.push(prepared.logical_record(project, &shared));
     }
 
@@ -65,5 +76,6 @@ where
             .map(|volume| (volume.volume().name(), volume.volume().metadata())),
         logical,
         shared.health(),
-    ))
+    )
+    .with_logical_resource_drifts(logical_resource_drifts))
 }

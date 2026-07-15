@@ -162,6 +162,8 @@ pub(crate) use volume_manager::VolumeManager;
 pub(crate) use volume_mount::VolumeMount;
 
 #[cfg(test)]
+mod attached_command_tests;
+#[cfg(test)]
 mod streaming_command_tests;
 #[cfg(test)]
 mod tests;

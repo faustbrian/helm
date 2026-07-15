@@ -5,7 +5,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
-    SharedServiceReconcileOptions, reconcile_shared_service,
+    SharedServiceReconcileOptions, classify_logical_resource_error, reconcile_shared_service,
 };
 
 /// Converges one SQL Server process and every isolated database and login.
@@ -34,19 +34,28 @@ where
     )
     .await?;
     let mut logical = Vec::with_capacity(prepared.projects().len());
+    let mut logical_resource_drifts = Vec::new();
 
     for project in prepared.projects() {
-        provision_sql_server_logical_resource(
+        let result = provision_sql_server_logical_resource(
             engine,
             shared.container(),
             prepared.instance(),
             project.logical(),
         )
         .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: "SQL Server logical resource provisioning".to_owned(),
-            detail: error.to_string(),
-        })?;
+        .map_err(|error| {
+            classify_logical_resource_error(
+                project.credential().credential_id(),
+                "SQL Server logical resource provisioning",
+                error,
+            )
+        });
+        if let Err(error) = result {
+            logical_resource_drifts.push(error.into_logical_resource_drift()?);
+
+            continue;
+        }
         logical.push(prepared.logical_record(project, &shared));
     }
 
@@ -58,5 +67,6 @@ where
             .map(|volume| (volume.volume().name(), volume.volume().metadata())),
         logical,
         shared.health(),
-    ))
+    )
+    .with_logical_resource_drifts(logical_resource_drifts))
 }

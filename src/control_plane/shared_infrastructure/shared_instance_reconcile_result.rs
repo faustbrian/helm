@@ -1,3 +1,4 @@
+use super::LogicalResourceDrift;
 use crate::control_plane::engine::{ContainerHealth, ManagedResourceMetadata, RetentionClass};
 use crate::control_plane::state::{
     LogicalResourceRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
@@ -8,6 +9,7 @@ use crate::control_plane::state::{
 pub(crate) struct SharedInstanceReconcileResult {
     physical_resources: Vec<ResourceRecord>,
     logical_resources: Vec<LogicalResourceRecord>,
+    logical_resource_drifts: Vec<LogicalResourceDrift>,
     health: ContainerHealth,
 }
 
@@ -27,8 +29,18 @@ impl SharedInstanceReconcileResult {
         Self {
             physical_resources,
             logical_resources,
+            logical_resource_drifts: Vec::new(),
             health,
         }
+    }
+
+    pub(crate) fn with_logical_resource_drifts(
+        mut self,
+        logical_resource_drifts: Vec<LogicalResourceDrift>,
+    ) -> Self {
+        self.logical_resource_drifts = logical_resource_drifts;
+
+        self
     }
 
     pub(crate) fn physical_resources(&self) -> &[ResourceRecord] {
@@ -37,6 +49,10 @@ impl SharedInstanceReconcileResult {
 
     pub(crate) fn logical_resources(&self) -> &[LogicalResourceRecord] {
         &self.logical_resources
+    }
+
+    pub(crate) fn logical_resource_drifts(&self) -> &[LogicalResourceDrift] {
+        &self.logical_resource_drifts
     }
 
     pub(crate) const fn health(&self) -> ContainerHealth {

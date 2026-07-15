@@ -1187,6 +1187,7 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
     assert_eq!(logical.physical_resources()[0].kind(), "shared_service");
     assert_eq!(logical.physical_resources()[1].kind(), "volume");
     assert_eq!(logical.logical_resources().len(), 2);
+    assert!(logical.logical_resource_drifts().is_empty());
     assert_eq!(logical.logical_resources()[0].project_id(), "bill");
     assert_eq!(logical.logical_resources()[1].project_id(), "shop");
     assert_eq!(
@@ -1200,6 +1201,37 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
     assert_eq!(engine.created_containers.len(), 1);
     assert_eq!(engine.started_containers.len(), 1);
     assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+
+    let mut partial_engine = RecordingSharedVolumeEngine::default();
+    partial_engine
+        .command_exits
+        .lock()
+        .expect("command exit queue")
+        .extend([1, 0]);
+    let partial = runtime
+        .block_on(reconcile_prepared_postgres_instance(
+            &mut partial_engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("isolated PostgreSQL tenant drift");
+
+    assert_eq!(partial.physical_resources().len(), 2);
+    assert_eq!(partial.logical_resources().len(), 1);
+    assert_eq!(partial.logical_resources()[0].project_id(), "shop");
+    assert_eq!(
+        partial.logical_resource_drifts()[0].resource_id(),
+        "stackctl_bill_db"
+    );
+    assert_eq!(
+        partial_engine
+            .command_arguments
+            .lock()
+            .expect("partial commands")
+            .len(),
+        2
+    );
 
     drop(store);
     std::fs::remove_file(database_path).expect("remove state store");
@@ -5289,8 +5321,11 @@ fn postgres_logical_failures_leave_shared_instance_and_volume_intact() {
         .expect_err("logical provisioning failure");
 
     assert_eq!(
-        error.to_string(),
-        "shared infrastructure PostgreSQL logical resource provisioning failed: provision PostgreSQL logical resource exited with status 1"
+        error,
+        SharedInfrastructureReconcileError::LogicalResourceDrift {
+            resource_id: "stackctl_bill_database".to_owned(),
+            detail: "PostgreSQL logical resource provisioning exited with status 1".to_owned(),
+        }
     );
     assert_eq!(
         engine.operations,
@@ -6411,6 +6446,7 @@ struct RecordingSharedVolumeEngine {
     command_input: Arc<Mutex<Vec<u8>>>,
     command_arguments: Arc<Mutex<Vec<Vec<String>>>>,
     command_exit: i64,
+    command_exits: Arc<Mutex<VecDeque<i64>>>,
     completions: Arc<Mutex<usize>>,
     completion_fails: bool,
     completion_times_out: bool,
@@ -6436,6 +6472,7 @@ impl Default for RecordingSharedVolumeEngine {
             command_input: Arc::new(Mutex::new(Vec::new())),
             command_arguments: Arc::new(Mutex::new(Vec::new())),
             command_exit: 0,
+            command_exits: Arc::new(Mutex::new(VecDeque::new())),
             completions: Arc::new(Mutex::new(0)),
             completion_fails: false,
             completion_times_out: false,
@@ -6681,7 +6718,14 @@ impl CommandExecutor for RecordingSharedVolumeEngine {
         _execution_id: &'operation CommandExecutionId,
         _container_id: &'operation ContainerId,
     ) -> EngineFuture<'operation, CommandStatus> {
-        Box::pin(async { Ok(CommandStatus::Exited(self.command_exit)) })
+        let status = self
+            .command_exits
+            .lock()
+            .expect("command exit queue")
+            .pop_front()
+            .unwrap_or(self.command_exit);
+
+        Box::pin(async move { Ok(CommandStatus::Exited(status)) })
     }
 }
 

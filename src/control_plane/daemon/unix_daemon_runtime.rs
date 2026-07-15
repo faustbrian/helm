@@ -607,6 +607,30 @@ impl UnixDaemonRuntime {
                 ));
             let logical = match logical {
                 Ok(logical) => logical,
+                Err(SharedInfrastructureReconcileError::LogicalResourceDrift {
+                    resource_id,
+                    detail,
+                }) => {
+                    if let Err(health_error) = health_snapshot
+                        .record_logical_resource_drift(&resource_id, observed_at_unix_seconds)
+                    {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(
+                            error = detail,
+                            health_error = %health_error,
+                            "logical-resource drift diagnostic publication blocked"
+                        );
+
+                        return;
+                    }
+                    tracing::warn!(
+                        resource_id,
+                        error = detail,
+                        "shared logical-resource drift detected; unrelated reconciliation continues"
+                    );
+
+                    continue;
+                }
                 Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
                     let retry = invalidate_engine_connection(
                         &mut self.engine_connection,
@@ -644,6 +668,25 @@ impl UnixDaemonRuntime {
                 tracing::error!(error = %error, "shared health snapshot publication blocked");
 
                 return;
+            }
+            for drift in logical.logical_resource_drifts() {
+                if let Err(error) = health_snapshot
+                    .record_logical_resource_drift(drift.resource_id(), observed_at_unix_seconds)
+                {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        error = %error,
+                        resource_id = drift.resource_id(),
+                        "logical-resource drift diagnostic publication blocked"
+                    );
+
+                    return;
+                }
+                tracing::warn!(
+                    resource_id = drift.resource_id(),
+                    error = drift.detail(),
+                    "shared logical-resource drift detected; unrelated tenants continue"
+                );
             }
             physical_resources.extend(logical.physical_resources().iter().cloned());
             for logical in logical.logical_resources() {

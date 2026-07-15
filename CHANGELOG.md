@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserved nonzero attached-command status as a typed container exit instead
+  of misclassifying logical database, broker, cache, or object-store rejection
+  as an Engine transport failure. Shared convergence now publishes
+  project-scoped `logical_resource_drift`, keeps the physical instance owned,
+  and continues later tenants and unrelated instances.
 - Published retained project-volume identity drift as
   `destructive_replacement_required` without mutating the volume or creating
   its service container. The affected service waits for an explicit migration

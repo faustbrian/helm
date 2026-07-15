@@ -8,7 +8,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions,
-    SharedServiceReconcileResult, reconcile_shared_service,
+    SharedServiceReconcileResult, classify_logical_resource_error, reconcile_shared_service,
 };
 use std::path::Path;
 
@@ -69,9 +69,12 @@ where
     .await?;
     reload_rabbitmq_definitions(engine, shared.container(), instance)
         .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: "RabbitMQ definitions reload".to_owned(),
-            detail: error.to_string(),
+        .map_err(|error| {
+            classify_logical_resource_error(
+                shared.container().id().as_str(),
+                "RabbitMQ definitions reload",
+                error,
+            )
         })?;
 
     Ok(shared)

@@ -6,6 +6,7 @@ pub(crate) enum ResourceHealth {
     Container(ContainerHealth),
     ServiceNotReady { attempt: u32 },
     AuthenticationFailed { attempt: u32 },
+    LogicalResourceDrift,
     DestructiveReplacementRequired,
 }
 

@@ -8,7 +8,7 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     SharedInfrastructureReconcileError, SharedServiceReconcileOptions,
-    SharedServiceReconcileResult, reconcile_shared_service,
+    SharedServiceReconcileResult, classify_logical_resource_error, reconcile_shared_service,
 };
 use std::path::Path;
 
@@ -74,9 +74,12 @@ where
     .await?;
     provision_object_store_project_resources(engine, shared.container(), instance, project)
         .await
-        .map_err(|error| SharedInfrastructureReconcileError::Engine {
-            action: "MinIO project-resource provisioning".to_owned(),
-            detail: error.to_string(),
+        .map_err(|error| {
+            classify_logical_resource_error(
+                project.credential().credential_id(),
+                "MinIO project-resource provisioning",
+                error,
+            )
         })?;
 
     Ok(shared)

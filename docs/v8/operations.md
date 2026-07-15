@@ -377,6 +377,12 @@ Authenticated HTTP probes reserve a revisioned exit status only for HTTP
 401/403. That evidence publishes `authentication_failed`; transport, timeout,
 and other response failures publish `service_not_ready`. Neither path exposes
 the credential or disconnects a healthy Engine adapter.
+Nonzero attached commands for shared logical resources publish
+`logical_resource_drift` without disconnecting a healthy Engine. Tenant-scoped
+database and object-store convergence continues with later tenants; atomic
+Redis ACL and RabbitMQ definition failures apply the drift to their complete
+shared instance. Exact Engine transport and ownership failures remain hard
+Engine errors.
 When an owned retained project volume has a different requested data identity,
 the daemon publishes `destructive_replacement_required`, leaves the volume
 untouched, skips creation of only the affected service container, and continues
