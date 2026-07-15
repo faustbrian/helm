@@ -6733,6 +6733,123 @@ fn watched_root_scan_discovers_nested_yaml_in_canonical_order() {
 }
 
 #[test]
+fn watched_root_scan_does_not_count_unrelated_files_toward_the_directory_budget() {
+    let root = temporary_directory("discovery-file-budget");
+    let noisy = root.join("noisy");
+    let project = root.join("project");
+    std::fs::create_dir(&noisy).expect("noisy directory");
+    std::fs::create_dir(&project).expect("project directory");
+    for index in 0..32 {
+        std::fs::write(noisy.join(format!("artifact-{index}")), "irrelevant")
+            .expect("unrelated file");
+    }
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let options = ProjectDiscoveryOptions::new(2, 2, 1024).expect("discovery options");
+
+    let report = discover_project_sources(std::slice::from_ref(&root), options)
+        .expect("files must not consume the directory budget");
+
+    assert_eq!(report.sources().len(), 1);
+    assert!(report.issues().is_empty());
+
+    std::fs::remove_dir_all(&root).expect("remove discovery fixture");
+}
+
+#[test]
+fn watched_root_scan_does_not_enter_hidden_tooling_directories() {
+    let root = temporary_directory("hidden-discovery-directory");
+    let hidden = root.join(".worktrees/project");
+    let visible = root.join("project");
+    std::fs::create_dir_all(&hidden).expect("hidden project directory");
+    std::fs::create_dir(&visible).expect("visible project directory");
+    for directory in [&hidden, &visible] {
+        std::fs::write(
+            directory.join(".stackctl.yaml"),
+            "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+        )
+        .expect("project config");
+    }
+
+    let report = discover_project_sources(
+        std::slice::from_ref(&root),
+        ProjectDiscoveryOptions::bounded_defaults(),
+    )
+    .expect("bounded discovery");
+
+    assert_eq!(report.sources().len(), 1);
+    assert_eq!(
+        report.sources()[0].canonical_path(),
+        visible.canonicalize().expect("canonical visible project")
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove discovery fixture");
+}
+
+#[test]
+fn watched_root_scan_stops_at_a_discovered_project_boundary() {
+    let root = temporary_directory("discovery-project-boundary");
+    let project = root.join("project");
+    let nested = project.join("generated/nested-project");
+    std::fs::create_dir_all(&nested).expect("nested generated directory");
+    for directory in [&project, &nested] {
+        std::fs::write(
+            directory.join(".stackctl.yaml"),
+            "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+        )
+        .expect("project config");
+    }
+
+    let report = discover_project_sources(
+        std::slice::from_ref(&root),
+        ProjectDiscoveryOptions::bounded_defaults(),
+    )
+    .expect("bounded discovery");
+
+    assert_eq!(report.sources().len(), 1);
+    assert_eq!(
+        report.sources()[0].canonical_path(),
+        project.canonicalize().expect("canonical project")
+    );
+
+    std::fs::remove_dir_all(&root).expect("remove discovery fixture");
+}
+
+#[test]
+fn watched_root_scan_searches_at_most_two_levels_below_the_root() {
+    let root = temporary_directory("discovery-depth");
+    let supported = root.join("group/project");
+    let too_deep = root.join("group/nested/project");
+    std::fs::create_dir_all(&supported).expect("supported project directory");
+    std::fs::create_dir_all(&too_deep).expect("deep project directory");
+    for directory in [&supported, &too_deep] {
+        std::fs::write(
+            directory.join(".stackctl.yaml"),
+            "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
+        )
+        .expect("project config");
+    }
+
+    let report = discover_project_sources(
+        std::slice::from_ref(&root),
+        ProjectDiscoveryOptions::bounded_defaults(),
+    )
+    .expect("bounded discovery");
+
+    assert_eq!(report.sources().len(), 1);
+    assert_eq!(
+        report.sources()[0].canonical_path(),
+        supported.canonicalize().expect("canonical project")
+    );
+    assert!(report.issues().is_empty());
+
+    std::fs::remove_dir_all(&root).expect("remove discovery fixture");
+}
+
+#[test]
 fn watched_root_scan_attaches_a_bounded_project_local_artifact_lock() {
     let root = temporary_directory("artifact-lock-discovery");
     std::fs::write(

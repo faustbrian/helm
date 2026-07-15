@@ -36,13 +36,15 @@ pub(crate) fn discover_project_sources(
     let mut sources = BTreeMap::new();
     let mut issues = Vec::new();
     let mut visited_directories = BTreeSet::new();
-    let mut entry_count = 0_usize;
+    let mut directory_count = 0_usize;
 
     while let Some((directory, depth)) = pending.pop_front() {
         if !visited_directories.insert(directory.clone()) {
             continue;
         }
-        inspect_project_directory(&directory, options, &mut sources, &mut issues)?;
+        if inspect_project_directory(&directory, options, &mut sources, &mut issues)? {
+            continue;
+        }
         let mut entries = fs::read_dir(&directory)
             .map_err(|source| ProjectDiscoveryError::Io {
                 action: "read watched directory",
@@ -58,12 +60,6 @@ pub(crate) fn discover_project_sources(
         entries.sort_by_key(fs::DirEntry::file_name);
 
         for entry in entries {
-            entry_count = entry_count.saturating_add(1);
-            if entry_count > options.maximum_entries() {
-                return Err(ProjectDiscoveryError::EntryLimit {
-                    maximum: options.maximum_entries(),
-                });
-            }
             let path = entry.path();
             let metadata =
                 fs::symlink_metadata(&path).map_err(|source| ProjectDiscoveryError::Io {
@@ -74,18 +70,20 @@ pub(crate) fn discover_project_sources(
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 continue;
             }
-            if PRUNED_DIRECTORIES
-                .iter()
-                .any(|name| entry.file_name() == *name)
-            {
+            let file_name = entry.file_name();
+            if file_name.as_encoded_bytes().first() == Some(&b'.') {
                 continue;
             }
-            if depth >= options.maximum_depth() {
-                issues.push(ProjectDiscoveryIssue::DepthLimit {
-                    path,
-                    maximum: options.maximum_depth(),
+            if PRUNED_DIRECTORIES.iter().any(|name| file_name == *name) {
+                continue;
+            }
+            directory_count = directory_count.saturating_add(1);
+            if directory_count > options.maximum_directories() {
+                return Err(ProjectDiscoveryError::DirectoryLimit {
+                    maximum: options.maximum_directories(),
                 });
-            } else {
+            }
+            if depth < options.maximum_depth() {
                 pending.push_back((path, depth + 1));
             }
         }
@@ -104,12 +102,12 @@ fn inspect_project_directory(
     options: ProjectDiscoveryOptions,
     sources: &mut BTreeMap<PathBuf, ProjectSource>,
     issues: &mut Vec<ProjectDiscoveryIssue>,
-) -> Result<(), ProjectDiscoveryError> {
+) -> Result<bool, ProjectDiscoveryError> {
     let config_path = directory.join(CONFIG_FILE);
     match fs::symlink_metadata(&config_path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             issues.push(ProjectDiscoveryIssue::SymlinkConfig { path: config_path });
-            return Ok(());
+            return Ok(true);
         }
         Ok(metadata) if metadata.is_file() => {
             if metadata.len() > options.maximum_config_bytes() as u64 {
@@ -118,7 +116,7 @@ fn inspect_project_directory(
                     actual: metadata.len(),
                     maximum: options.maximum_config_bytes(),
                 });
-                return Ok(());
+                return Ok(true);
             }
             match read_bounded_utf8(&config_path, options.maximum_config_bytes()) {
                 Ok(yaml) => {
@@ -132,9 +130,9 @@ fn inspect_project_directory(
                 }
                 Err(issue) => issues.push(issue),
             }
-            return Ok(());
+            return Ok(true);
         }
-        Ok(_) => return Ok(()),
+        Ok(_) => return Ok(false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(source) => {
             return Err(ProjectDiscoveryError::Io {
@@ -145,7 +143,7 @@ fn inspect_project_directory(
         }
     }
 
-    Ok(())
+    Ok(false)
 }
 
 fn read_optional_artifact_lock(

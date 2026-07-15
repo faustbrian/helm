@@ -20,6 +20,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Limited watched-root discovery to two directory levels, counted only
+  traversable directories toward its safety bound, and stopped at discovered
+  project boundaries. Hidden tooling directories, large caches, and generated
+  file trees no longer exhaust discovery or delay daemon startup.
 - Suppressed intentional dead-code and unused-import diagnostics so source
   installation and lint output report actionable compiler warnings only.
 - Added native Linux amd64 SQL Server recovery acceptance that streams a

@@ -190,6 +190,14 @@ Every installation path canonicalizes its watched roots first. Missing paths,
 non-directories, and duplicate canonical roots fail before the definition or
 service manager is changed.
 
+Each correctness scan checks the watched root and at most two directory levels
+below it for exact `.stackctl.yaml` files. Only traversable directories consume
+the scan bound. Ordinary files are ignored, and discovery does not descend
+below a directory containing a project configuration. Large application
+caches, generated files, and dependency trees therefore do not affect project
+discovery cost. Hidden child directories are excluded from traversal unless
+the hidden directory itself is configured as a watched root.
+
 Fatal daemon startup failures use an explicit 30-second manager restart delay:
 launchd keeps the job alive with `ThrottleInterval`, while systemd uses
 `Restart=on-failure` and `RestartSec`. Engine absence does not exercise this

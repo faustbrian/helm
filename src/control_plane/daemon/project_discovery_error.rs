@@ -15,7 +15,7 @@ pub(crate) enum ProjectDiscoveryError {
     RootNotDirectory {
         path: PathBuf,
     },
-    EntryLimit {
+    DirectoryLimit {
         maximum: usize,
     },
 }
@@ -41,9 +41,9 @@ impl Display for ProjectDiscoveryError {
                 "watched root '{}' must be a directory",
                 path.display()
             ),
-            Self::EntryLimit { maximum } => write!(
+            Self::DirectoryLimit { maximum } => write!(
                 formatter,
-                "project discovery exceeded the configured {maximum} entry limit"
+                "project discovery exceeded the configured {maximum} directory limit"
             ),
         }
     }
@@ -53,7 +53,9 @@ impl Error for ProjectDiscoveryError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
-            Self::InvalidOptions | Self::RootNotDirectory { .. } | Self::EntryLimit { .. } => None,
+            Self::InvalidOptions | Self::RootNotDirectory { .. } | Self::DirectoryLimit { .. } => {
+                None
+            }
         }
     }
 }

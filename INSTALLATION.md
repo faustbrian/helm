@@ -90,6 +90,13 @@ Stackctl's `.localhost` names resolve to loopback before changing host state.
 It then installs CA trust and the login service. If service installation fails,
 newly added trust is removed; pre-existing trust is preserved.
 
+Discovery checks the watched root and directories at most two levels below it
+for exact `.stackctl.yaml` files. Ordinary files do not consume the bounded
+directory budget, and a discovered project is a traversal boundary, so caches
+and generated contents inside projects are never crawled. Hidden child
+directories such as `.worktrees` are excluded; pass one explicitly as a watched
+root when it should participate.
+
 The login service owns project discovery and reconciliation. Routine project
 commands communicate with it over user-only local IPC; they do not invoke a
 Docker or Podman CLI.
