@@ -74,6 +74,7 @@ mod run_attached_command;
 mod run_streaming_command;
 mod streaming_command_options;
 mod tmpfs_mount;
+mod validate_container_completion;
 mod volume_create_options;
 mod volume_discovery;
 mod volume_manager;
@@ -154,6 +155,7 @@ pub(crate) use run_attached_command::{run_attached_command, run_attached_command
 pub(crate) use run_streaming_command::run_streaming_command;
 pub(crate) use streaming_command_options::StreamingCommandOptions;
 pub(crate) use tmpfs_mount::TmpfsMount;
+pub(crate) use validate_container_completion::validate_container_completion;
 pub(crate) use volume_create_options::VolumeCreateOptions;
 pub(crate) use volume_discovery::VolumeDiscovery;
 pub(crate) use volume_manager::VolumeManager;

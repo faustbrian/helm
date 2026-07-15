@@ -131,6 +131,11 @@ where
 
     match (completion, removal) {
         (Ok(()), Ok(())) => Ok(()),
+        (Err(completion @ EngineError::ContainerExit { .. }), Ok(())) => {
+            Err(SharedInfrastructureReconcileError::ProvisioningFailed {
+                detail: completion.to_string(),
+            })
+        }
         (Err(completion), Ok(())) => Err(engine_error("provisioning job completion", completion)),
         (Ok(()), Err(removal)) => Err(engine_error("provisioning job removal", removal)),
         (Err(completion), Err(removal)) => Err(SharedInfrastructureReconcileError::Engine {

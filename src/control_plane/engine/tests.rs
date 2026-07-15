@@ -14,7 +14,7 @@ use super::{
     ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
     VolumeManager, VolumeMount, classify_observed_resource, delete_owned_installation_resources,
     gateway_container_request, reconstruct_owned_container, reconstruct_owned_image,
-    reconstruct_owned_network, reconstruct_owned_volume,
+    reconstruct_owned_network, reconstruct_owned_volume, validate_container_completion,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -143,6 +143,29 @@ fn container_completion_is_an_object_safe_bounded_strategy() {
     runtime
         .block_on(strategy.wait_for_success(&container, Duration::from_secs(30)))
         .expect("successful container completion");
+}
+
+#[test]
+fn container_completion_rejects_nonzero_exit_status() {
+    let error = validate_container_completion("provisioning-job-1", 23)
+        .expect_err("nonzero completion status");
+
+    assert_eq!(
+        error,
+        EngineError::ContainerExit {
+            container_id: "provisioning-job-1".to_owned(),
+            status_code: 23,
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "container 'provisioning-job-1' exited with status 23"
+    );
+}
+
+#[test]
+fn container_completion_accepts_zero_exit_status() {
+    validate_container_completion("provisioning-job-1", 0).expect("zero completion status");
 }
 
 #[test]

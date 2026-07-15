@@ -13,6 +13,7 @@ use super::{
     ObservedVolume, OwnedContainer, OwnedImage, OwnedNetwork, OwnedVolume, PublishedPortBinding,
     PublishedPortDiscovery, RegistryImageReference, ResourceKind, ResourceMetrics,
     VolumeCreateOptions, VolumeDiscovery, VolumeManager, classify_observed_resource,
+    validate_container_completion,
 };
 use bollard::container::LogOutput;
 use bollard::errors::Error as BollardError;
@@ -655,7 +656,9 @@ impl ContainerCompletion for BollardEngineAdapter {
                 .wait_container(container.id().as_str(), Some(options));
             bounded_engine_operation("wait for container completion", timeout, async move {
                 match responses.next().await {
-                    Some(Ok(_)) => Ok(()),
+                    Some(Ok(response)) => {
+                        validate_container_completion(container.id().as_str(), response.status_code)
+                    }
                     Some(Err(error)) => Err(backend_error("wait for container completion", error)),
                     None => Err(EngineError::Backend {
                         detail: format!(

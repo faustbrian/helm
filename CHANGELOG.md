@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Rejected nonzero disposable-container exit statuses instead of recording
+  failed service readiness and provisioning jobs as successful. Application
+  failures now retry with bounded exponential backoff without disconnecting a
+  healthy Docker or Podman Engine, and removed services cannot leave a hot
+  reconciliation loop behind.
 - Added explicit Engine-idle, one-project, and forty-project baseline modes to
   the v8 benchmark harness. Baselines now require and preserve independently
   captured host/VM metrics plus exact external runtime inventory instead of

@@ -5726,7 +5726,7 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
         now,
     ));
-    registry.record(job, now);
+    registry.record_success(job, now);
     assert!(!registry.requires(
         job,
         crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
@@ -5742,6 +5742,33 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         crate::control_plane::workload::WorkloadReconcileAction::Replaced,
         now,
     ));
+    let mut failed = super::ProjectServiceProvisioningRegistry::default();
+    let first = failed.record_failure(job, now);
+
+    assert_eq!(first.attempt(), 1);
+    assert!(!failed.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
+        now + first.duration() - Duration::from_millis(1),
+    ));
+    assert!(!failed.activate_due_retries(now + first.duration() - Duration::from_millis(1)));
+    assert!(failed.activate_due_retries(now + first.duration()));
+    assert!(!failed.activate_due_retries(now + first.duration()));
+    assert!(failed.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
+        now + first.duration(),
+    ));
+
+    let second = failed.record_failure(job, now + first.duration());
+
+    assert_eq!(second.attempt(), 2);
+    assert!(second.duration() > first.duration());
+    assert!(second.duration() <= Duration::from_secs(30));
+
+    failed.record_success(job, now + first.duration() + second.duration());
+
+    assert!(!failed.activate_due_retries(now + Duration::from_secs(60)));
 }
 
 #[cfg(unix)]

@@ -314,9 +314,13 @@ impl UnixDaemonRuntime {
                         && !self.has_active_postgres_prune()
                         && !self.has_active_migration_decision()
                         && !self.has_active_scheduled_commands()
-                        && self.engine_reconciliation.may_reconcile()
                     {
-                        self.reconcile_engine_plane(now, now_unix_seconds);
+                        if self.project_service_provisioning.activate_due_retries(now) {
+                            self.engine_reconciliation.request();
+                        }
+                        if self.engine_reconciliation.may_reconcile() {
+                            self.reconcile_engine_plane(now, now_unix_seconds);
+                        }
                     }
                     self.drive_engine_events(now);
                     self.drive_project_commands(now, now_unix_seconds);
@@ -1048,7 +1052,28 @@ impl UnixDaemonRuntime {
                                 },
                             ));
                             match provisioning {
-                                Ok(()) => self.project_service_provisioning.record(request, now),
+                                Ok(()) => self
+                                    .project_service_provisioning
+                                    .record_success(request, now),
+                                Err(
+                                    error
+                                    @ SharedInfrastructureReconcileError::ProvisioningFailed {
+                                        ..
+                                    },
+                                ) => {
+                                    let retry = self
+                                        .project_service_provisioning
+                                        .record_failure(request, now);
+                                    self.engine_reconciliation.complete();
+                                    tracing::warn!(
+                                        attempt = retry.attempt(),
+                                        retry_milliseconds = retry.duration().as_millis(),
+                                        error = %error,
+                                        "project service provisioning failed; retry scheduled"
+                                    );
+
+                                    return;
+                                }
                                 Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
                                     let retry = invalidate_engine_connection(
                                         &mut self.engine_connection,

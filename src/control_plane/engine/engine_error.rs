@@ -11,6 +11,10 @@ pub(crate) enum EngineError {
     Backend {
         detail: String,
     },
+    ContainerExit {
+        container_id: String,
+        status_code: i64,
+    },
     OwnershipMismatch {
         action: &'static str,
         resource_kind: &'static str,
@@ -28,6 +32,13 @@ impl Display for EngineError {
             Self::InvalidRequest { detail } | Self::Backend { detail } => {
                 formatter.write_str(detail)
             }
+            Self::ContainerExit {
+                container_id,
+                status_code,
+            } => write!(
+                formatter,
+                "container '{container_id}' exited with status {status_code}"
+            ),
             Self::OwnershipMismatch {
                 action,
                 resource_kind,

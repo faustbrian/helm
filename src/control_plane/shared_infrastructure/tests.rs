@@ -15,12 +15,13 @@ use super::{
     RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
     RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
     RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedPreparationOptions, SharedServiceReconcileAction, SharedServiceReconcileOptions,
-    SharedServiceRequest, SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
-    SqlServerMigrationInstancePlanOptions, SqlServerMigrationPreparationOptions,
-    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
-    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
-    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
+    SharedInfrastructureReconcileError, SharedPreparationOptions, SharedServiceReconcileAction,
+    SharedServiceReconcileOptions, SharedServiceRequest, SharedVolumeReconcileAction,
+    SharedVolumeReconcileOptions, SqlServerMigrationInstancePlanOptions,
+    SqlServerMigrationPreparationOptions, SqlServerSharedInstancePlan,
+    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
+    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
+    plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_mongodb_migration_target,
@@ -1289,7 +1290,11 @@ fn failed_provisioning_jobs_are_removed_and_reported() {
         ))
         .expect_err("failed provisioning job");
 
-    assert!(error.to_string().contains("provisioning job failed"));
+    assert!(error.to_string().contains("exited with status 1"));
+    assert!(matches!(
+        error,
+        SharedInfrastructureReconcileError::ProvisioningFailed { .. }
+    ));
     assert_eq!(engine.removed_containers.len(), 1);
 }
 
@@ -6627,8 +6632,9 @@ impl crate::control_plane::engine::ContainerCompletion for RecordingSharedVolume
                     timeout_milliseconds: 30_000,
                 })
             } else if completion_fails {
-                Err(crate::control_plane::engine::EngineError::Backend {
-                    detail: "provisioning job failed".to_owned(),
+                Err(crate::control_plane::engine::EngineError::ContainerExit {
+                    container_id: "provisioning-job".to_owned(),
+                    status_code: 1,
                 })
             } else {
                 Ok(())
