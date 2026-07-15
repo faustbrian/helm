@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed alternate configuration detection from CLI lookup, watched-root
+  discovery, and filesystem event filtering. The clean v8 runtime now
+  recognizes only `.stackctl.yaml`; unrelated files are outside its
+  configuration contract and receive no special behavior.
 - Isolated dedicated-service readiness failures from the Engine connection and
   the rest of the reconciliation pass. A failed authenticated or logical probe
   now publishes `service_not_ready`, retains exact resource ownership, and
@@ -1016,8 +1020,8 @@ All notable changes to this project are documented in this file.
   declarations in deterministic v8 desired state instead of discarding them.
 - Added durable logical tenant-resource ownership and active reference counting
   for shared instances, including orphaning and exact project adoption behavior.
-- Added bounded deterministic watched-root discovery with canonical deduplication,
-  isolated TOML migration diagnostics, size limits, and symlink-safe YAML loading.
+- Added bounded deterministic watched-root discovery with canonical
+  deduplication, size limits, and symlink-safe YAML loading.
 - Added deterministic daemon discovery scheduling with initial and periodic full
   scans, editor-event debounce, and a bounded settle deadline for continuous writes.
 - Added per-resource deterministic equal-jitter exponential retry state with

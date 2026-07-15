@@ -100,7 +100,7 @@ resolved to immutable identities before their Engine resources can be planned.
 explicit images are resolved by the singleton daemon through its selected
 Engine and the result is validated again before publication. Already immutable
 explicit images do not require an Engine lookup. `stackctl lock verify` and
-`stackctl lock diff` operate on strict YAML and never load pre-v8 config paths.
+`stackctl lock diff` operate only on the exact strict-YAML configuration path.
 Preset-only generation uses a revisioned built-in image catalog. The lock
 records that catalog revision, so changing a preset's registry source or
 default version invalidates existing locks instead of silently changing the
@@ -197,9 +197,8 @@ Repository hooks run inside the application container; automatic discovery
 never executes them on the host. Both daemon discovery and thin-CLI project
 resolution reject symbolic-link configuration files.
 
-## Clean-install configuration
+## Configuration boundary
 
-V8 does not convert an earlier Stackctl configuration. A project enters the v8
-registry only through a newly authored `.stackctl.yaml` that passes strict v8
-validation. Discovery reports a nearby `.stackctl.toml` as unsupported and
-does not read or mutate it.
+A project enters the registry only through an exact `.stackctl.yaml` file that
+passes strict v8 validation. Discovery and CLI lookup ignore every other file;
+there is no conversion, compatibility lookup, or alternate configuration path.

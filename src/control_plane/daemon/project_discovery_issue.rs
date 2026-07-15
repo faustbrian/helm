@@ -5,9 +5,6 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum ProjectDiscoveryIssue {
-    UnsupportedToml {
-        path: PathBuf,
-    },
     ConfigTooLarge {
         path: PathBuf,
         actual: u64,
@@ -41,11 +38,6 @@ pub(crate) enum ProjectDiscoveryIssue {
 impl Display for ProjectDiscoveryIssue {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnsupportedToml { path } => write!(
-                formatter,
-                "pre-v8 config '{}' is unsupported; create a new `.stackctl.yaml` for a clean v8 installation",
-                path.display()
-            ),
             Self::ConfigTooLarge {
                 path,
                 actual,

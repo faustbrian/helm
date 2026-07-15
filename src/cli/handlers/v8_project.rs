@@ -90,18 +90,8 @@ pub(super) fn locate_project_config(
     let mut current = Some(start.as_path());
     while let Some(directory) = current {
         let yaml = directory.join(".stackctl.yaml");
-        let toml = directory.join(".stackctl.toml");
-        if yaml.exists() && toml.exists() {
-            bail!(
-                "project directory '{}' contains both .stackctl.yaml and unsupported .stackctl.toml",
-                directory.display()
-            );
-        }
         if yaml.exists() {
             return Ok(Some((directory.to_path_buf(), yaml)));
-        }
-        if toml.exists() {
-            return Ok(Some((directory.to_path_buf(), toml)));
         }
         current = directory.parent();
     }

@@ -2,10 +2,8 @@
 
 ## Repository boundary
 
-The v8 binary exposes only the strict-YAML, singleton-daemon command surface.
-The pre-v8 config, Docker CLI, per-project daemon, host Caddy, hosts-file,
-random-domain, swarm, sharing, and lifecycle-handler source trees have been
-removed rather than retained as a disabled compatibility runtime.
+The v8 binary exposes one strict-YAML, singleton-daemon command surface. It has
+no alternate configuration or runtime dispatch path.
 
 The remaining `src/daemon/` module contains only macOS launchd and Linux
 systemd user-service integration for the v8 singleton. SIGINT and SIGTERM are
@@ -17,11 +15,10 @@ only through typed Engine capabilities.
 
 ## Clean-install boundary
 
-V8 has no in-place major-version upgrade, compatibility backend, pre-v8
-resource adoption, or config conversion path. Installing v8 creates a new
-per-user control-plane state directory and manages only resources bearing its
-own installation identity. Pre-v8 containers, volumes, configuration, routes,
-certificates, and host integrations remain outside its ownership.
+Installing v8 creates a new per-user control-plane state directory and manages
+only resources bearing its own installation identity. Existing external
+containers, volumes, configuration, routes, certificates, and host integrations
+remain outside its ownership.
 
 ## Two planes
 

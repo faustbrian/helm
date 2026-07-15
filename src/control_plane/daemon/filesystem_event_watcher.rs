@@ -58,7 +58,7 @@ fn requires_registry_discovery(event: &notify::Result<Event>) -> bool {
             event.need_rescan()
                 || event.paths.iter().any(|path| {
                     path.file_name()
-                        .is_some_and(|name| name == ".stackctl.yaml" || name == ".stackctl.toml")
+                        .is_some_and(|name| name == ".stackctl.yaml")
                 })
         }
     }
@@ -76,6 +76,19 @@ mod tests {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let mut event = Event::new(EventKind::Any);
         event.paths.push(PathBuf::from("/projects/bill/README.md"));
+
+        signal_change(&sender, Ok(event));
+
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+    }
+
+    #[test]
+    fn unrelated_configuration_files_do_not_schedule_registry_discovery() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let mut event = Event::new(EventKind::Any);
+        event
+            .paths
+            .push(PathBuf::from("/projects/bill/project.toml"));
 
         signal_change(&sender, Ok(event));
 

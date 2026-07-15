@@ -10,7 +10,7 @@ use crate::output;
 
 pub(crate) mod context;
 
-/// Executes one strict v8 CLI invocation without a compatibility fallback.
+/// Executes one strict v8 CLI invocation.
 pub(crate) fn run(cli: Cli) -> Result<()> {
     if cli.no_color {
         colored::control::set_override(false);
@@ -49,9 +49,6 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(unix)]
-    handlers::enforce_strict_v8_dispatch(&cli, &context)?;
-
     bail!("this v8 command requires a strict .stackctl.yaml project")
 }
 
@@ -65,7 +62,7 @@ mod tests {
     use crate::cli::args::Cli;
 
     #[test]
-    fn pre_v8_project_config_is_rejected_without_compatibility_dispatch() {
+    fn unrelated_project_files_are_not_treated_as_stackctl_configuration() {
         let root = std::env::temp_dir().join(format!(
             "stackctl-v8-dispatch-{}-{}",
             std::process::id(),
@@ -75,8 +72,8 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&root).expect("create project root");
-        fs::write(root.join(".stackctl.toml"), "schema_version = 1\n")
-            .expect("write pre-v8 config");
+        fs::write(root.join("project.toml"), "schema_version = 1\n")
+            .expect("write unrelated config");
 
         let error = super::run(Cli::parse_from([
             "stackctl",
@@ -84,10 +81,12 @@ mod tests {
             root.to_str().expect("root"),
             "status",
         ]))
-        .expect_err("pre-v8 config");
+        .expect_err("missing v8 config");
 
-        assert!(error.to_string().contains("pre-v8 config"));
-        assert!(error.to_string().contains("clean v8 installation"));
+        assert_eq!(
+            error.to_string(),
+            "this v8 command requires a strict .stackctl.yaml project"
+        );
     }
 
     #[test]

@@ -375,9 +375,9 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_toml_projects_do_not_resolve_as_v8_invocations() {
+    fn unrelated_configuration_files_do_not_resolve_as_v8_invocations() {
         let root = project(
-            ".stackctl.toml",
+            "project.toml",
             "schema_version = 1\nproject_type = \"project\"\nservice = []\nswarm = []\n",
         );
         let cli = Cli::parse_from([

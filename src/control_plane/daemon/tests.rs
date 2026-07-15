@@ -6460,13 +6460,13 @@ fn watched_root_scan_attaches_a_bounded_project_local_artifact_lock() {
 }
 
 #[test]
-fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
-    let root = temporary_directory("legacy-toml");
+fn watched_root_scan_ignores_files_outside_the_v8_configuration_contract() {
+    let root = temporary_directory("unrelated-config");
     for project in ["alpha", "zeta"] {
         let directory = root.join(project);
         std::fs::create_dir_all(&directory).expect("project directory");
-        std::fs::write(directory.join(".stackctl.toml"), "project = 'legacy'\n")
-            .expect("legacy config");
+        std::fs::write(directory.join("project.toml"), "project = 'unrelated'\n")
+            .expect("unrelated config");
     }
     let valid = root.join("valid");
     std::fs::create_dir(&valid).expect("valid project directory");
@@ -6481,18 +6481,8 @@ fn watched_root_scan_reports_all_toml_only_projects_without_loading_toml() {
         ProjectDiscoveryOptions::bounded_defaults(),
     )
     .expect("bounded discovery");
-    let diagnostics = report
-        .issues()
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-
     assert_eq!(report.sources().len(), 1);
-    assert_eq!(report.issues().len(), 2);
-    assert!(diagnostics.contains("alpha/.stackctl.toml"));
-    assert!(diagnostics.contains("zeta/.stackctl.toml"));
-    assert!(diagnostics.contains("create a new `.stackctl.yaml`"));
+    assert!(report.issues().is_empty());
 
     std::fs::remove_dir_all(&root).expect("remove TOML fixture");
 }
@@ -6565,9 +6555,10 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     );
 
     std::fs::remove_file(project.join(".stackctl.yaml")).expect("remove project config");
-    let legacy = root.join("legacy");
-    std::fs::create_dir(&legacy).expect("legacy directory");
-    std::fs::write(legacy.join(".stackctl.toml"), "project = 'legacy'\n").expect("legacy config");
+    let invalid = root.join("invalid");
+    std::fs::create_dir(&invalid).expect("invalid directory");
+    std::os::unix::fs::symlink(root.join("missing.yaml"), invalid.join(".stackctl.yaml"))
+        .expect("invalid config symlink");
 
     let blocked = reconcile_watched_roots(
         &mut control_plane,
