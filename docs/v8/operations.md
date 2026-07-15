@@ -434,6 +434,10 @@ Invalid registry plans are classified as `configuration_invalid` or
 all claimant paths; Stackctl never changes a project name or domain to repair
 them. The daemon emits the actionable diagnostic once when the set changes and
 one recovery notice when it clears.
+Each changed automatic-discovery diagnostic set is also persisted as one typed
+`project-discovery` event. `stackctl daemon status` returns the live set and
+exits nonzero while any issue remains, instead of treating a responsive process
+as healthy when project activation is blocked.
 An explicit `stackctl daemon reconcile` returns every typed discovery
 diagnostic and exits nonzero when that complete scan is blocked. Its operation
 history records `Accepted` followed by `Failed`, never `Completed`. This does

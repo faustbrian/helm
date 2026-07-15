@@ -11,11 +11,11 @@ use super::{
     ScheduledCommandClock, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
     UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
     invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
-    requires_engine_reconciliation, requires_followup_reconciliation,
+    record_discovery_diagnostics, requires_engine_reconciliation, requires_followup_reconciliation,
     restore_daemon_operation_queues, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
-use crate::control_plane::daemon::ipc::UnixIpcListener;
+use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
 use crate::control_plane::engine::{AttachedCommandOutput, EngineError, NetworkCreateOptions};
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
@@ -94,7 +94,7 @@ pub(crate) struct UnixDaemonRuntime {
     >,
     pub(super) control_plane: ControlPlane<SqliteStateStore>,
     scheduler: DiscoveryScheduler,
-    discovery_diagnostics: Vec<(String, String)>,
+    discovery_diagnostics: Vec<IpcDiagnostic>,
     pub(super) scheduled_command_clock: ScheduledCommandClock,
     pub(super) options: UnixDaemonRuntimeOptions,
 }
@@ -224,14 +224,24 @@ impl UnixDaemonRuntime {
                 .report()
                 .issues()
                 .iter()
-                .map(|issue| (issue.code().to_owned(), issue.to_string()))
+                .map(|issue| IpcDiagnostic::new(issue.code(), issue.to_string(), false))
                 .collect::<Vec<_>>();
             if diagnostics != self.discovery_diagnostics {
+                record_discovery_diagnostics(
+                    &mut self.control_plane,
+                    &mut self.event_journal,
+                    &diagnostics,
+                )
+                .map_err(|detail| UnixDaemonRuntimeError::EventPublication { detail })?;
                 if diagnostics.is_empty() && !self.discovery_diagnostics.is_empty() {
                     tracing::info!("project discovery diagnostics cleared");
                 } else {
-                    for (code, message) in &diagnostics {
-                        tracing::warn!(code, error = message, "project discovery blocked");
+                    for diagnostic in &diagnostics {
+                        tracing::warn!(
+                            code = diagnostic.code(),
+                            error = diagnostic.message(),
+                            "project discovery blocked"
+                        );
                     }
                 }
                 self.discovery_diagnostics = diagnostics;
@@ -269,6 +279,7 @@ impl UnixDaemonRuntime {
                 migration_decisions: &mut self.migration_decisions,
                 project_logs: &mut self.project_logs,
                 resource_health: &self.resource_health,
+                discovery_diagnostics: &self.discovery_diagnostics,
                 benchmark_snapshot: benchmark_snapshot.as_mut().map(|provider| {
                     let dynamic_provider: &mut dyn super::BenchmarkSnapshotProvider = provider;
                     dynamic_provider

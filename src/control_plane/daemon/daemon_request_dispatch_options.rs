@@ -4,7 +4,7 @@ use super::{
     ProjectLogSessionRegistry, ProjectRestoreQueue, ResourceHealthRegistry,
 };
 use crate::control_plane::application::ControlPlane;
-use crate::control_plane::daemon::ipc::IpcRequest;
+use crate::control_plane::daemon::ipc::{IpcDiagnostic, IpcRequest};
 
 /// Complete state and correlation inputs for one singleton IPC dispatch.
 pub(crate) struct DaemonRequestDispatchOptions<'operation, Store> {
@@ -19,6 +19,7 @@ pub(crate) struct DaemonRequestDispatchOptions<'operation, Store> {
     pub(crate) migration_decisions: &'operation mut MigrationDecisionQueue,
     pub(crate) project_logs: &'operation mut ProjectLogSessionRegistry,
     pub(crate) resource_health: &'operation ResourceHealthRegistry,
+    pub(crate) discovery_diagnostics: &'operation [IpcDiagnostic],
     pub(crate) benchmark_snapshot: Option<&'operation mut dyn BenchmarkSnapshotProvider>,
     pub(crate) image_reference_resolution: Option<&'operation mut dyn ImageReferenceResolution>,
     pub(crate) now_unix_seconds: i64,

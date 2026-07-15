@@ -249,6 +249,9 @@ fn follow_operation(socket_path: &Path, operation_id: &str) -> Result<()> {
                     stream,
                     data_base64,
                 } => write_output(*stream, data_base64)?,
+                IpcEventKind::Diagnostics { .. } => {
+                    bail!("project command returned an unexpected diagnostic snapshot")
+                }
             }
         }
         std::thread::sleep(EVENT_POLL_INTERVAL);

@@ -249,11 +249,13 @@ fn handle_daemon_watch_with_runtime_directory(
 fn handle_daemon_status() -> Result<()> {
     use crate::control_plane::{IpcOutcome, IpcPayload, IpcResult};
 
-    let response = send_singleton_request(IpcPayload::Ping)?;
+    let response = send_singleton_request(IpcPayload::DaemonStatus)?;
     match response.outcome() {
         IpcOutcome::Success {
-            result: IpcResult::Pong,
-        } => {
+            result: IpcResult::DaemonStatus {
+                discovery_diagnostics,
+            },
+        } if discovery_diagnostics.is_empty() => {
             output::event(
                 "daemon",
                 LogLevel::Success,
@@ -261,6 +263,26 @@ fn handle_daemon_status() -> Result<()> {
                 Persistence::Persistent,
             );
             Ok(())
+        }
+        IpcOutcome::Success {
+            result: IpcResult::DaemonStatus {
+                discovery_diagnostics,
+            },
+        } => {
+            let detail = discovery_diagnostics
+                .iter()
+                .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("singleton discovery is blocked: {detail}")
+        }
+        IpcOutcome::Failure { diagnostics } => {
+            let detail = diagnostics
+                .iter()
+                .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message()))
+                .collect::<Vec<_>>()
+                .join("; ");
+            anyhow::bail!("singleton status failed: {detail}")
         }
         outcome => anyhow::bail!("unexpected singleton status response: {outcome:?}"),
     }

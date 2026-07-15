@@ -29,6 +29,9 @@ pub(crate) enum UnixDaemonRuntimeError {
     ControlPlane(ControlPlaneError),
     Ipc(IpcError),
     EventJournal(IpcEventJournalError),
+    EventPublication {
+        detail: String,
+    },
     Watcher(FilesystemEventWatcherError),
     Installation(InstallationInitializationError),
     EngineConfiguration(EngineError),
@@ -59,6 +62,9 @@ impl Display for UnixDaemonRuntimeError {
             Self::ControlPlane(error) => Display::fmt(error, formatter),
             Self::Ipc(error) => Display::fmt(error, formatter),
             Self::EventJournal(error) => Display::fmt(error, formatter),
+            Self::EventPublication { detail } => {
+                write!(formatter, "failed to publish daemon event: {detail}")
+            }
             Self::Watcher(error) => Display::fmt(error, formatter),
             Self::Installation(error) => Display::fmt(error, formatter),
             Self::EngineConfiguration(error) => {
@@ -94,6 +100,7 @@ impl Error for UnixDaemonRuntimeError {
             Self::ControlPlane(error) => Some(error),
             Self::Ipc(error) => Some(error),
             Self::EventJournal(error) => Some(error),
+            Self::EventPublication { .. } => None,
             Self::Watcher(error) => Some(error),
             Self::Installation(error) => Some(error),
             Self::EngineConfiguration(error) => Some(error),

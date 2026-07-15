@@ -116,6 +116,9 @@ fn follow_decision(
                 IpcEventKind::Failed { code, message } => {
                     bail!("migration {} failed ({code}): {message}", decision.as_str())
                 }
+                IpcEventKind::Diagnostics { .. } => {
+                    bail!("migration returned an unexpected diagnostic snapshot")
+                }
                 IpcEventKind::Cancelled => {
                     bail!("migration {} was cancelled", decision.as_str())
                 }

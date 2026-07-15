@@ -1,6 +1,6 @@
 use super::{
     IPC_PROTOCOL_VERSION, IpcBenchmarkContainerMetrics, IpcBenchmarkContainerMetricsOptions,
-    IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcEventJournal, IpcEventKind,
+    IpcBenchmarkSnapshot, IpcBenchmarkTcpPort, IpcDiagnostic, IpcEventJournal, IpcEventKind,
     IpcInstallationDeletionPlan, IpcInstallationDeletionStatus, IpcInstallationLifecycle,
     IpcLogChunk, IpcLogSessionState, IpcMigrationStatus, IpcNodePackageManager, IpcOutputStream,
     IpcPayload, IpcPostgresPrunePlan, IpcPostgresPrunePlanOptions, IpcProjectCommand, IpcRequest,
@@ -47,6 +47,43 @@ fn gateway_certificate_activation_round_trips_the_exact_generation() {
         decode_response_frame(&encode_frame(&response).expect("encode response"))
             .expect("decode response"),
         response
+    );
+}
+
+#[test]
+fn daemon_status_round_trips_structured_discovery_diagnostics() {
+    let diagnostic = IpcDiagnostic::new(
+        "configuration_invalid",
+        "project config '/work/bill/.stackctl.yaml' has an unknown field",
+        false,
+    );
+    let request = IpcRequest::new("status-42", IpcPayload::DaemonStatus);
+    let response = IpcResponse::success(
+        "status-42",
+        IpcResult::DaemonStatus {
+            discovery_diagnostics: vec![diagnostic.clone()],
+        },
+    );
+    let event = IpcEventKind::Diagnostics {
+        diagnostics: vec![diagnostic],
+    };
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
+    assert_eq!(
+        serde_json::from_str::<IpcEventKind>(
+            &serde_json::to_string(&event).expect("encode diagnostic event")
+        )
+        .expect("decode diagnostic event"),
+        event
     );
 }
 

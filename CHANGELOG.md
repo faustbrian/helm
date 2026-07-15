@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Exposed the daemon's current automatic discovery failures through typed
+  status IPC instead of reporting only that the process responds. Changed
+  diagnostic snapshots are also persisted as structured daemon events and
+  status exits nonzero with every actionable issue until discovery recovers.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration

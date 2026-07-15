@@ -94,6 +94,9 @@ fn follow_prune(operation_id: &str) -> Result<()> {
                 IpcEventKind::Failed { code, message } => {
                     bail!("Logical prune failed ({code}): {message}")
                 }
+                IpcEventKind::Diagnostics { .. } => {
+                    bail!("Logical prune returned an unexpected diagnostic snapshot")
+                }
                 IpcEventKind::Cancelled => bail!("Logical prune was cancelled"),
                 IpcEventKind::Output { .. } => {
                     bail!("Logical prune returned unexpected output")

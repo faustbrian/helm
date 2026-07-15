@@ -1,7 +1,7 @@
 use super::{
-    IpcBenchmarkSnapshot, IpcEvent, IpcInstallationDeletionPlan, IpcInstallationDeletionStatus,
-    IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment, IpcMigrationStatus,
-    IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint,
+    IpcBenchmarkSnapshot, IpcDiagnostic, IpcEvent, IpcInstallationDeletionPlan,
+    IpcInstallationDeletionStatus, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,
+    IpcMigrationStatus, IpcPostgresPrunePlan, IpcProjectStatus, IpcRecoveryPoint,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -13,6 +13,10 @@ use std::collections::BTreeMap;
 pub(crate) enum IpcResult {
     /// Confirms the daemon is responsive.
     Pong,
+    /// Returns current daemon-wide diagnostics.
+    DaemonStatus {
+        discovery_diagnostics: Vec<IpcDiagnostic>,
+    },
     /// Confirms an asynchronous operation was accepted.
     Accepted { operation_id: String },
     /// Reports one complete watched-root reconciliation attempt.

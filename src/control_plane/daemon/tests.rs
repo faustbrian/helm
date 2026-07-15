@@ -6760,6 +6760,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -6788,6 +6789,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
@@ -6855,6 +6857,7 @@ fn daemon_reconcile_request_fails_with_discovery_diagnostics() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -6917,6 +6920,7 @@ fn gateway_certificate_activation_validates_the_exact_generation() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -6947,6 +6951,7 @@ fn gateway_certificate_activation_validates_the_exact_generation() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
@@ -6960,6 +6965,51 @@ fn gateway_certificate_activation_validates_the_exact_generation() {
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove certificate activation fixture");
+}
+
+#[test]
+fn daemon_status_returns_current_discovery_diagnostics() {
+    let root = temporary_directory("ipc-daemon-status");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("open state store");
+    let mut control_plane = ControlPlane::new(store);
+    let diagnostic = crate::control_plane::IpcDiagnostic::new(
+        "configuration_collision",
+        "domain 'bill-app.stackctl.localhost' has multiple claimants",
+        false,
+    );
+    let mut event_journal = IpcEventJournal::default();
+    let request = IpcRequest::new("daemon-status", IpcPayload::DaemonStatus);
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut event_journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: std::slice::from_ref(&diagnostic),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "daemon-status",
+            IpcResult::DaemonStatus {
+                discovery_diagnostics: vec![diagnostic],
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove daemon status fixture");
 }
 
 #[test]
@@ -7015,6 +7065,7 @@ fn daemon_benchmark_snapshot_is_complete_typed_and_read_only() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: Some(&mut provider),
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -7103,6 +7154,7 @@ fn daemon_resolves_exact_image_sources_through_its_selected_engine_boundary() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: Some(&mut resolver),
         now_unix_seconds: 10_000,
@@ -7214,6 +7266,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -7278,6 +7331,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &resource_health,
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
@@ -7357,6 +7411,7 @@ fn daemon_retained_status_reports_orphaned_projects_without_registry_rows() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -7491,6 +7546,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -7534,6 +7590,7 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_001,
@@ -7598,6 +7655,7 @@ fn daemon_project_environment_returns_only_the_exact_active_managed_values() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 10_000,
@@ -7676,6 +7734,7 @@ fn daemon_adoption_request_reactivates_the_exact_registered_project() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 20_000,
@@ -7769,6 +7828,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 20_000,
@@ -7849,6 +7909,7 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 30_000,
@@ -7954,6 +8015,7 @@ fn daemon_project_backup_request_persists_only_exact_secret_free_identity() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
@@ -8036,6 +8098,7 @@ fn daemon_project_volume_backup_persists_exact_owned_volume_identity() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
@@ -8176,6 +8239,7 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_100,
@@ -8235,6 +8299,7 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_101,
@@ -8263,6 +8328,7 @@ fn daemon_postgres_prune_plan_is_exact_and_effect_free() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_102,
@@ -8430,6 +8496,7 @@ fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_005,
@@ -8728,6 +8795,7 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         migration_decisions: &mut decisions,
         project_logs: &mut logs,
         resource_health: &health,
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
@@ -8756,6 +8824,7 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         migration_decisions: &mut decisions,
         project_logs: &mut logs,
         resource_health: &health,
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_001,
@@ -8777,6 +8846,7 @@ fn daemon_confirms_and_reports_installation_deletion_over_typed_ipc() {
         migration_decisions: &mut decisions,
         project_logs: &mut logs,
         resource_health: &health,
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_002,
@@ -8864,6 +8934,7 @@ fn daemon_project_restore_request_persists_exact_secret_free_recovery_point() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
@@ -8967,6 +9038,7 @@ fn daemon_project_volume_restore_requires_exact_active_physical_ownership() {
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut project_logs,
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_000,
@@ -9063,6 +9135,7 @@ fn daemon_migration_decision_persists_one_exact_operator_choice() {
         migration_decisions: &mut decisions,
         project_logs: &mut ProjectLogSessionRegistry::default(),
         resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
         benchmark_snapshot: None,
         image_reference_resolution: None,
         now_unix_seconds: 40_100,
@@ -9225,6 +9298,110 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
     assert_eq!(iteration.request(), Some(&request));
 
     drop(runtime);
+    std::fs::remove_dir_all(&root).expect("remove runtime fixture");
+}
+
+#[cfg(unix)]
+#[test]
+fn singleton_unix_runtime_publishes_automatic_discovery_diagnostics() {
+    use super::{UnixDaemonRuntime, UnixDaemonRuntimeOptions};
+    use crate::control_plane::daemon::ipc::{decode_response_frame, encode_frame};
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixStream;
+
+    let root = std::env::temp_dir().join(format!(
+        "s8d-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("runtime test root");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nenvironment: production\nservices: {}\n",
+    )
+    .expect("invalid project config");
+    let runtime_directory = root.join("runtime");
+    std::fs::create_dir(&runtime_directory).expect("runtime directory");
+    let database_path = runtime_directory.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    drop(store);
+    let socket_path = runtime_directory.join("daemon.sock");
+    let options = UnixDaemonRuntimeOptions {
+        state_database_path: database_path.clone(),
+        lease_path: runtime_directory.join("daemon.lock"),
+        socket_path: socket_path.clone(),
+        watched_roots: None,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        scheduler_options: DiscoverySchedulerOptions::new(
+            Duration::from_millis(250),
+            Duration::from_secs(2),
+            Duration::from_secs(30),
+        )
+        .expect("scheduler options"),
+        idle_poll_interval: Duration::from_millis(10),
+    };
+    let now = Instant::now();
+    let mut runtime = UnixDaemonRuntime::new(options, now).expect("singleton runtime");
+    let request = IpcRequest::new("status-runtime", IpcPayload::DaemonStatus);
+    let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
+    client
+        .write_all(&encode_frame(&request).expect("encode request"))
+        .expect("write request");
+
+    let iteration = runtime
+        .run_iteration(now, 10_000)
+        .expect("daemon iteration");
+
+    assert!(
+        !iteration
+            .reconciliation()
+            .expect("initial reconciliation")
+            .was_applied()
+    );
+    let mut response_frame = Vec::new();
+    BufReader::new(client)
+        .read_until(b'\n', &mut response_frame)
+        .expect("read response");
+    let response = decode_response_frame(&response_frame).expect("decode response");
+    let IpcOutcome::Success {
+        result: IpcResult::DaemonStatus {
+            discovery_diagnostics,
+        },
+    } = response.outcome()
+    else {
+        panic!("daemon status should succeed");
+    };
+    assert_eq!(discovery_diagnostics.len(), 1);
+    assert_eq!(discovery_diagnostics[0].code(), "configuration_invalid");
+    assert!(
+        discovery_diagnostics[0]
+            .message()
+            .contains("unknown field `environment`")
+    );
+
+    drop(runtime);
+    let store = SqliteStateStore::open(&database_path).expect("reopen state store");
+    let events = store.daemon_events().expect("load daemon events");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].operation_id(), "project-discovery");
+    let kind = serde_json::from_str::<IpcEventKind>(events[0].kind_json())
+        .expect("decode diagnostic snapshot");
+    assert!(matches!(
+        kind,
+        IpcEventKind::Diagnostics { diagnostics }
+            if diagnostics.len() == 1
+                && diagnostics[0].code() == "configuration_invalid"
+    ));
+
+    drop(store);
     std::fs::remove_dir_all(&root).expect("remove runtime fixture");
 }
 

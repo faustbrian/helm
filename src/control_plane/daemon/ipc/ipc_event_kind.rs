@@ -1,4 +1,4 @@
-use super::IpcOutputStream;
+use super::{IpcDiagnostic, IpcOutputStream};
 use serde::{Deserialize, Serialize};
 
 /// One stable lifecycle transition published for a daemon operation.
@@ -15,6 +15,9 @@ pub(crate) enum IpcEventKind {
     Output {
         stream: IpcOutputStream,
         data_base64: String,
+    },
+    Diagnostics {
+        diagnostics: Vec<IpcDiagnostic>,
     },
     Cancelled,
 }

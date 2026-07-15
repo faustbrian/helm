@@ -10,6 +10,8 @@ use std::path::PathBuf;
 pub(crate) enum IpcPayload {
     /// Verifies daemon availability and protocol compatibility.
     Ping,
+    /// Reads current daemon-wide diagnostics without mutating state.
+    DaemonStatus,
     /// Requests one complete reconciliation of every authoritative watched root.
     Reconcile,
     /// Activates one already-selected immutable certificate generation.

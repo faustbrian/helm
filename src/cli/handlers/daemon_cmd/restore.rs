@@ -108,6 +108,9 @@ fn follow_restore(operation_id: &str) -> Result<()> {
                 IpcEventKind::Failed { code, message } => {
                     bail!("project restore failed ({code}): {message}")
                 }
+                IpcEventKind::Diagnostics { .. } => {
+                    bail!("project restore returned an unexpected diagnostic snapshot")
+                }
                 IpcEventKind::Cancelled => bail!("project restore was cancelled"),
             }
         }

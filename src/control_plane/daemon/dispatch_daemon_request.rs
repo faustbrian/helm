@@ -48,12 +48,19 @@ where
         migration_decisions,
         project_logs,
         resource_health,
+        discovery_diagnostics,
         benchmark_snapshot,
         image_reference_resolution,
         now_unix_seconds,
     } = options;
     match request.payload() {
         IpcPayload::Ping => IpcResponse::success(request.request_id(), IpcResult::Pong),
+        IpcPayload::DaemonStatus => IpcResponse::success(
+            request.request_id(),
+            IpcResult::DaemonStatus {
+                discovery_diagnostics: discovery_diagnostics.to_vec(),
+            },
+        ),
         IpcPayload::ActivateGatewayCertificate { generation } => {
             if !is_valid_certificate_generation(generation) {
                 return IpcResponse::failure(

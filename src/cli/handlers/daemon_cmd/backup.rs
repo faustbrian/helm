@@ -105,6 +105,9 @@ fn follow_backup(operation_id: &str) -> Result<()> {
                 IpcEventKind::Failed { code, message } => {
                     bail!("project backup failed ({code}): {message}")
                 }
+                IpcEventKind::Diagnostics { .. } => {
+                    bail!("project backup returned an unexpected diagnostic snapshot")
+                }
                 IpcEventKind::Cancelled => bail!("project backup was cancelled"),
             }
         }
