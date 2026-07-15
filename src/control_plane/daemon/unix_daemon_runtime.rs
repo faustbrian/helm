@@ -13,7 +13,7 @@ use super::{
     invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
     record_discovery_diagnostics, requires_engine_reconciliation, requires_followup_reconciliation,
     restore_daemon_operation_queues, restore_discovery_diagnostics,
-    validate_project_workload_adoption,
+    run_bounded_independent_reconciliation, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
@@ -56,11 +56,14 @@ use crate::control_plane::workload::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PROJECT_SERVICE_PROVISIONING_TIMEOUT: Duration = Duration::from_secs(30);
+const PROJECT_PROCESS_RECONCILIATION_CONCURRENCY: NonZeroUsize =
+    NonZeroUsize::new(8).expect("project process concurrency must be non-zero");
 
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
 pub(crate) struct UnixDaemonRuntime {
@@ -1299,6 +1302,7 @@ impl UnixDaemonRuntime {
             }
         }
 
+        let mut process_requests = Vec::with_capacity(engine_plan.processes().len());
         for process in engine_plan.processes() {
             let planned_request = process.request();
             let runtime_key = planned_request
@@ -1320,14 +1324,35 @@ impl UnixDaemonRuntime {
                 },
                 None => planned_request.clone(),
             };
-            let result = self.engine_runtime.block_on(reconcile_project_process(
-                engine,
-                WorkloadReconcileOptions {
-                    request: &request,
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
+            process_requests.push(request);
+        }
+        let process_engine = (*engine).clone();
+        let installation_id = self.global_network_request.metadata().installation_id();
+        let schema_version = self.global_network_request.metadata().schema_version();
+        let process_results = self
+            .engine_runtime
+            .block_on(run_bounded_independent_reconciliation(
+                process_requests,
+                PROJECT_PROCESS_RECONCILIATION_CONCURRENCY,
+                move |request| {
+                    let mut engine = process_engine.clone();
+
+                    async move {
+                        let result = reconcile_project_process(
+                            &mut engine,
+                            WorkloadReconcileOptions {
+                                request: &request,
+                                installation_id,
+                                schema_version,
+                            },
+                        )
+                        .await;
+
+                        (request, result)
+                    }
                 },
             ));
+        for (request, result) in process_results {
             match result {
                 Ok(result) => {
                     if let Err(error) = health_snapshot.record(

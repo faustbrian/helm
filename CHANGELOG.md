@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reconciled independent project processes with bounded concurrency after their
+  application runtimes are ready. Large project sets no longer serialize every
+  worker Engine request, while result publication remains in deterministic plan
+  order and shared or dependency-bearing operations remain serialized.
 - Persisted fatal daemon-watch startup failures before returning them, so
   launchd's deliberate stderr suppression cannot hide the resolver, filesystem,
   or state diagnostic that explains a throttled restart.

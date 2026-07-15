@@ -117,6 +117,7 @@ mod retry_backoff_error;
 mod retry_backoff_options;
 mod retry_delay;
 mod retry_failed_installation_deletion_prune;
+mod run_bounded_independent_reconciliation;
 #[cfg(unix)]
 mod run_unix_daemon_watch;
 #[cfg(unix)]
@@ -285,6 +286,7 @@ pub(crate) use retry_backoff_error::RetryBackoffError;
 pub(crate) use retry_backoff_options::RetryBackoffOptions;
 pub(crate) use retry_delay::RetryDelay;
 pub(crate) use retry_failed_installation_deletion_prune::retry_failed_installation_deletion_prune;
+pub(crate) use run_bounded_independent_reconciliation::run_bounded_independent_reconciliation;
 #[cfg(unix)]
 pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
 #[cfg(unix)]
