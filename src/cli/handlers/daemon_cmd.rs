@@ -9,6 +9,7 @@ mod delete_data_uninstall;
 mod migration_decision;
 mod prune;
 mod restore;
+mod retained;
 mod service;
 mod trust;
 mod validate_benchmark_project_count;
@@ -28,6 +29,7 @@ pub(crate) fn handle_daemon(args: &DaemonArgs) -> Result<()> {
         DaemonCommands::Watch(watch) => handle_daemon_watch(watch),
         DaemonCommands::Service(service_args) => service::handle_daemon_service(service_args),
         DaemonCommands::Status => handle_daemon_status(),
+        DaemonCommands::Retained(retained_args) => retained::handle_daemon_retained(retained_args),
         DaemonCommands::Reconcile => handle_daemon_reconcile(),
         DaemonCommands::Benchmark(benchmark_args) => {
             benchmark::handle_daemon_benchmark(benchmark_args)

@@ -22,6 +22,8 @@ pub(crate) enum IpcPayload {
     AdoptProject { canonical_path: PathBuf },
     /// Reads secret-free durable status for one exact registered project path.
     ProjectStatus { canonical_path: PathBuf },
+    /// Reads all retained project resources after their registry rows are gone.
+    RetainedProjectStatus,
     /// Reads durable migration checkpoints for one exact registered project.
     ProjectMigrations { canonical_path: PathBuf },
     /// Queues one explicit decision for an exact reversible migration.

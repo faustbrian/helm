@@ -16,8 +16,8 @@ pub(crate) use daemon::{
     BenchmarkEvidenceScenario, DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs,
     DaemonBenchmarkArgs, DaemonCommands, DaemonMigrationArgs, DaemonMigrationCommands,
     DaemonMigrationDecisionArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
-    DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonServiceArgs,
-    DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
+    DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonRetainedArgs,
+    DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
     DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
 };
 pub(crate) use lifecycle::UrlArgs;

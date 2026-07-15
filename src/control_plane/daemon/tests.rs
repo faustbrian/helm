@@ -7142,6 +7142,105 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
 }
 
 #[test]
+fn daemon_retained_status_reports_orphaned_projects_without_registry_rows() {
+    let root = temporary_directory("ipc-retained-status");
+    let project_path = root.join("bill");
+    std::fs::create_dir(&project_path).expect("project directory");
+    let project = ProjectRecord::new(project_path.clone(), "bill".to_owned(), Vec::new());
+    let application = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-app".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:application".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:desired".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
+    let logical = crate::control_plane::state::LogicalResourceRecord::new(
+        crate::control_plane::state::LogicalResourceRecordOptions {
+            logical_resource_id: "bill/database".to_owned(),
+            shared_resource_id: "postgres-17".to_owned(),
+            project_id: "bill".to_owned(),
+            service_id: "db".to_owned(),
+            kind: "postgres_database_and_role".to_owned(),
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            desired_revision: "sha256:desired".to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        },
+    );
+    let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    store.replace_project(&project).expect("register project");
+    store
+        .upsert_resources(std::slice::from_ref(&application))
+        .expect("persist application");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&logical))
+        .expect("persist logical resource");
+    store
+        .orphan_project(&project_path, 9_900)
+        .expect("orphan project");
+    let mut control_plane = ControlPlane::new(store);
+    let request = IpcRequest::new("retained-42", IpcPayload::RetainedProjectStatus);
+
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &request,
+        event_journal: &mut IpcEventJournal::default(),
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "retained-42",
+            IpcResult::RetainedProjectStatus {
+                projects: vec![IpcProjectStatus::new(
+                    "bill".to_owned(),
+                    Vec::new(),
+                    vec![
+                        IpcResourceStatus::new(
+                            "app".to_owned(),
+                            "project_application".to_owned(),
+                            IpcResourceLifecycle::Orphaned,
+                            IpcResourceHealth::Unknown,
+                            None,
+                            false,
+                        ),
+                        IpcResourceStatus::with_data_lifecycle(
+                            "db".to_owned(),
+                            "postgres_database_and_role".to_owned(),
+                            IpcResourceLifecycle::Orphaned,
+                            IpcResourceHealth::Unknown,
+                            None,
+                            true,
+                            IpcDataLifecycle::LogicalResource,
+                        ),
+                    ],
+                )],
+            },
+        )
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove retained-status fixture");
+}
+
+#[test]
 fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
     let root = temporary_directory("ipc-project-logs");
     let project_path = root.join("bill");

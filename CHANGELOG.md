@@ -469,6 +469,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `stackctl daemon retained` with table and JSON output backed by typed
+  singleton IPC. Removed project configs no longer make their orphaned or
+  retained physical and logical resources invisible after the active registry
+  row is deleted.
 - Added a commit-pinned multi-architecture PHP 8.5 image publication workflow
   with SBOM, maximum-mode provenance, and keyless manifest signing. The image
   pins its Dockerfile frontend, FrankenPHP manifest, Debian snapshot, and PECL

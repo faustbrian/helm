@@ -4,7 +4,7 @@ use super::{
     ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
     ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
-    reconcile_watched_roots, retry_failed_installation_deletion_prune,
+    reconcile_watched_roots, retained_project_status, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -219,6 +219,20 @@ where
                 ),
             }
         }
+        IpcPayload::RetainedProjectStatus => match retained_project_status(control_plane) {
+            Ok(projects) => IpcResponse::success(
+                request.request_id(),
+                IpcResult::RetainedProjectStatus { projects },
+            ),
+            Err(message) => IpcResponse::failure(
+                request.request_id(),
+                vec![IpcDiagnostic::new(
+                    "retained_project_status_failed",
+                    message,
+                    false,
+                )],
+            ),
+        },
         IpcPayload::ProjectMigrations { canonical_path } => {
             match project_migrations(control_plane, canonical_path) {
                 Ok(migrations) => IpcResponse::success(

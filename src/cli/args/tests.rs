@@ -87,6 +87,19 @@ fn setup_accepts_one_or_more_watched_roots() {
 }
 
 #[test]
+fn daemon_retained_accepts_machine_readable_output() {
+    let cli = Cli::parse_from(["stackctl", "daemon", "retained", "--format", "json"]);
+
+    let Commands::Daemon(args) = cli.command else {
+        panic!("daemon command");
+    };
+    let crate::cli::args::DaemonCommands::Retained(args) = args.command else {
+        panic!("retained command");
+    };
+    assert_eq!(args.format, "json");
+}
+
+#[test]
 fn clean_slate_cli_rejects_removed_pre_v8_global_flags() {
     let command = Cli::command();
     let exposed = command

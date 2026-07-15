@@ -10,6 +10,7 @@ mod benchmark_evidence_scenario;
 mod migration;
 mod prune;
 mod restore;
+mod retained;
 mod service;
 mod trust;
 
@@ -29,6 +30,7 @@ pub(crate) use prune::{
     DaemonPruneArgs, DaemonPruneCommands, DaemonPruneExecuteArgs, DaemonPrunePlanArgs,
 };
 pub(crate) use restore::DaemonRestoreArgs;
+pub(crate) use retained::DaemonRetainedArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
     DaemonServiceUninstallArgs,
@@ -49,6 +51,8 @@ pub(crate) enum DaemonCommands {
     Service(DaemonServiceArgs),
     /// Verify that the per-user singleton is responsive
     Status,
+    /// Show retained resources whose project configs are no longer registered
+    Retained(DaemonRetainedArgs),
     /// Request one immediate complete watched-root reconciliation
     Reconcile,
     /// Emit one read-only JSON snapshot of owned Engine resource usage

@@ -31,6 +31,8 @@ pub(crate) enum IpcResult {
     ProjectAdopted { project_id: String },
     /// Returns one project status derived from authoritative daemon state.
     ProjectStatus { project: IpcProjectStatus },
+    /// Returns retained resources grouped by their exact former project ID.
+    RetainedProjectStatus { projects: Vec<IpcProjectStatus> },
     /// Returns stable migration checkpoints without credentials or recovery paths.
     ProjectMigrations { migrations: Vec<IpcMigrationStatus> },
     /// Returns immutable verified recovery evidence newest-first.
