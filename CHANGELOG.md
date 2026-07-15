@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added daemon-boundary acceptance for watched YAML removal, restoration, and
+  atomic project-directory rename. Retained resources, logical data,
+  credentials, and managed environment now have one integration proof that
+  ordinary rediscovery keeps them inactive until exact explicit adoption.
 - Added native Linux amd64 Engine acceptance for shared SQL Server and fixed
   two defects it exposed. Tenant provisioning now crosses a batch boundary
   before entering a newly created database, and reconciliation explicitly
