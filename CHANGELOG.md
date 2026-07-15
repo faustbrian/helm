@@ -12,6 +12,12 @@ All notable changes to this project are documented in this file.
   Added explicit generated-environment mapping so one application can consume
   multiple isolated databases without ambiguous `DB_*` collisions.
 
+### Changed
+
+- Updated every direct Rust dependency to its latest crates.io release,
+  including `futures-util` 0.3.32, `getrandom` 0.4.3, and `zip` 8.6.0, and
+  refreshed all compatible transitive dependencies in the lockfile.
+
 ### Fixed
 
 - Suppressed intentional dead-code and unused-import diagnostics so source

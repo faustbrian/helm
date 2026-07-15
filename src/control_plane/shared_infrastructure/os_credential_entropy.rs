@@ -6,7 +6,7 @@ pub(crate) struct OsCredentialEntropy;
 
 impl CredentialEntropy for OsCredentialEntropy {
     fn fill(&self, bytes: &mut [u8]) -> Result<(), CredentialGenerationError> {
-        getrandom::getrandom(bytes).map_err(|error| {
+        getrandom::fill(bytes).map_err(|error| {
             CredentialGenerationError::new(format!(
                 "failed to obtain operating-system credential entropy: {error}"
             ))

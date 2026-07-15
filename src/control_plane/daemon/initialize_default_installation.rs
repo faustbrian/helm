@@ -16,7 +16,7 @@ where
     }
 
     let mut identity = [0_u8; INSTALLATION_ID_BYTES];
-    getrandom::getrandom(&mut identity).map_err(InstallationInitializationError::entropy)?;
+    getrandom::fill(&mut identity).map_err(InstallationInitializationError::entropy)?;
     let installation = InstallationRecord::new(
         format!("s8-{}", hex::encode(identity)),
         EngineProvider::Docker,
