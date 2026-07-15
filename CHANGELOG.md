@@ -48,6 +48,9 @@ All notable changes to this project are documented in this file.
   disposable bucket-provisioning job. Successful jobs are suppressed for an
   unchanged service revision so their own Engine events cannot cause a loop,
   while failures and service replacement remain retryable.
+- Corrected the v8 service contract and completion audit to recognize RustFS
+  authenticated bucket provisioning while keeping scoped IAM and live drift
+  acceptance explicitly outstanding.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.
