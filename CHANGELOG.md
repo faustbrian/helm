@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for shared Gotenberg. CI now proves two
+  compatible projects reuse one stateless process, perform real HTML-to-PDF
+  conversions through the immutable image, retain the same container across
+  reconciliation, and clean up only the owned resources.
 - Added native Linux Engine acceptance for shared Mailpit. CI now proves two
   projects retain stable authenticated SMTP identities, receive exact username
   attribution, reject mismatched credentials, reuse one persistent instance,

@@ -19,3 +19,6 @@ mod plan_gotenberg_project_resources;
 mod prepare_gotenberg_shared_instances;
 mod prepared_gotenberg_shared_instance;
 mod reconcile_prepared_gotenberg_instance;
+
+#[cfg(test)]
+mod live_engine_tests;
