@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused the daemon's post-shared-service container observation for orphaned
+  tenant access revocation as well as subsequent cleanup and workload
+  convergence. A reconciliation pass no longer performs a separate full
+  Engine container scan solely before disabling retained shared credentials.
 - Clarified that physical-host and controlled benchmark records are an
   external release-evidence backlog, not part of each local implementation
   verification cycle. The verification contract now separates scripted

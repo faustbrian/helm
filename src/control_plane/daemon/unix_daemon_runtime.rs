@@ -38,8 +38,8 @@ use crate::control_plane::shared_infrastructure::{
     OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
     ProvisioningJobOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
     UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
-    resolve_execution_shared_instances, revoke_orphaned_shared_access, run_provisioning_job,
-    stop_unreferenced_shared_services_from_observed,
+    resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
+    run_provisioning_job, stop_unreferenced_shared_services_from_observed,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -860,17 +860,39 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let revoked_shared_access = self.engine_runtime.block_on(revoke_orphaned_shared_access(
-            engine,
-            OrphanedSharedAccessOptions {
-                resources: &current_resources,
-                logical_resources: &current_logical_resources,
-                credentials: &current_credentials,
-                installation_id: self.global_network_request.metadata().installation_id(),
-                schema_version: self.global_network_request.metadata().schema_version(),
-                timeout: Duration::from_secs(15),
-            },
-        ));
+        let observed_managed_containers =
+            match self.engine_runtime.block_on(engine.discover_managed()) {
+                Ok(observed) => observed,
+                Err(error) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "managed container discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            };
+        let revoked_shared_access =
+            self.engine_runtime
+                .block_on(revoke_orphaned_shared_access_from_observed(
+                    engine,
+                    &observed_managed_containers,
+                    OrphanedSharedAccessOptions {
+                        resources: &current_resources,
+                        logical_resources: &current_logical_resources,
+                        credentials: &current_credentials,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                        timeout: Duration::from_secs(15),
+                    },
+                ));
         match revoked_shared_access {
             Ok(revoked) if revoked > 0 => {
                 tracing::info!(revoked, "revoked orphaned shared-service project users");
@@ -899,25 +921,6 @@ impl UnixDaemonRuntime {
             }
         }
 
-        let observed_managed_containers =
-            match self.engine_runtime.block_on(engine.discover_managed()) {
-                Ok(observed) => observed,
-                Err(error) => {
-                    let retry = invalidate_engine_connection(
-                        &mut self.engine_connection,
-                        &mut self.resource_health,
-                        now,
-                    );
-                    tracing::debug!(
-                        attempt = retry.attempt(),
-                        retry_milliseconds = retry.duration().as_millis(),
-                        error = %error,
-                        "managed container discovery lost the selected Engine; retry scheduled"
-                    );
-
-                    return;
-                }
-            };
         let stopped_shared =
             self.engine_runtime
                 .block_on(stop_unreferenced_shared_services_from_observed(

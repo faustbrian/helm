@@ -7,10 +7,12 @@ use super::{
     revoke_postgres_project_access, revoke_rabbitmq_project_access, revoke_redis_project_access,
     revoke_sql_server_project_access,
 };
+#[cfg(test)]
+use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
-    ManagedResourceMetadata, ObservedResourceOwnership, OwnedContainer, ResourceKind,
-    RetentionClass, reconstruct_owned_container,
+    CommandExecutor, ContainerLifecycle, ContainerState, EngineError, ManagedResourceMetadata,
+    ObservedContainer, ObservedResourceOwnership, OwnedContainer, ResourceKind, RetentionClass,
+    reconstruct_owned_container,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, LogicalResourceRecord, ResourceLifecycle,
@@ -29,6 +31,7 @@ enum AccessStrategy {
 }
 
 /// Revokes orphaned tenant users without deleting their retained logical data.
+#[cfg(test)]
 pub(crate) async fn revoke_orphaned_shared_access<E>(
     engine: &mut E,
     options: OrphanedSharedAccessOptions<'_>,
@@ -45,8 +48,26 @@ where
         .discover_managed()
         .await
         .map_err(|error| engine_error("discover shared access targets", error))?;
+
+    revoke_orphaned_shared_access_from_observed(engine, &observed, options).await
+}
+
+/// Revokes orphaned tenant users against a pass-wide Engine observation.
+pub(crate) async fn revoke_orphaned_shared_access_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: OrphanedSharedAccessOptions<'_>,
+) -> Result<usize, SharedInfrastructureReconcileError>
+where
+    E: CommandExecutor + ContainerLifecycle,
+{
+    if options.timeout.is_zero() {
+        return Err(conflict(
+            "shared access revocation timeout must be positive",
+        ));
+    }
     let mut shared = Vec::new();
-    for container in &observed {
+    for container in observed {
         match reconstruct_owned_container(
             container,
             options.installation_id,

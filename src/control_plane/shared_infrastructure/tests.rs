@@ -38,10 +38,10 @@ use super::{
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
-    revoke_orphaned_shared_access, revoke_rabbitmq_project_access, run_provisioning_job,
-    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    revoke_orphaned_shared_access, revoke_orphaned_shared_access_from_observed,
+    revoke_rabbitmq_project_access, run_provisioning_job, stop_unreferenced_shared_services,
+    stop_unreferenced_shared_services_from_observed, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -3324,8 +3324,9 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
         secret: "project-secret".to_owned(),
         lifecycle: CredentialLifecycle::Disabled,
     });
+    let pass_observation = [observed];
     let mut engine = RecordingOrphanAccessEngine {
-        observed: vec![observed],
+        observed: Vec::new(),
         state: crate::control_plane::engine::ContainerState::Stopped,
         started: Vec::new(),
         commands: RecordingOutputExecutor::new(vec![b"st_bill_broker\n".to_vec(), Vec::new()]),
@@ -3337,8 +3338,9 @@ fn orphaned_rabbitmq_credentials_are_revoked_before_the_shared_service_idles() {
         .expect("test runtime");
 
     let revoked = runtime
-        .block_on(revoke_orphaned_shared_access(
+        .block_on(revoke_orphaned_shared_access_from_observed(
             &mut engine,
+            &pass_observation,
             OrphanedSharedAccessOptions {
                 resources: &[resource],
                 logical_resources: &[logical],
