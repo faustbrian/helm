@@ -6,6 +6,12 @@ substitute for a Linux host. GitHub Actions owns repeatable Ubuntu and
 publication checks. Physical-host transitions and comparative measurements
 remain explicit external release verification.
 
+`External` does not mean that every check is manual. It means the evidence is
+owned by an environment outside the ordinary per-change local gate. Missing
+external evidence MUST NOT pause implementation, local verification, or
+checkpoint commits. It blocks only a release-support claim whose acceptance
+criteria require that evidence.
+
 ## Local repository verification
 
 Run these checks on the active development host after implementation changes:
@@ -61,6 +67,18 @@ benchmark environment and must be recorded outside the ordinary local gate:
 | Linux x86_64 and arm64 hosts | Fresh install, systemd user login startup, system trust install/rotation/removal, `.localhost` loopback resolution, Docker Engine unavailable/start/restart recovery, daemon and workload crash recovery, reboot, suspend/wake where supported, inotify, bind mounts, file watching, gateway traffic, backup/restore, and uninstall keep-data/delete-data |
 | Controlled benchmark host | All six benchmark scenarios using one immutable run ID, identical Engine limits and filesystem mode, an independent host/VM collector, exact baseline inventories, and raw Stackctl samples |
 
+External verification has two different execution models:
+
+| Model | Appropriate checks | Human involvement |
+| --- | --- | --- |
+| Controlled automation on persistent or dedicated hosts | Linux install and systemd-user startup, Engine stop/start recovery, daemon and workload crash recovery, gateway and service acceptance, backup/restore, uninstall data semantics, and the 40-project benchmark | A person qualifies the environment and reviews the immutable result; the test run itself SHOULD be scripted |
+| Attended physical-host acceptance | Interactive login, persistent reboot, laptop sleep/wake, macOS Keychain and browser trust, Docker Desktop lifecycle, and behavior that hosted runners cannot reproduce faithfully | A person or managed hardware harness must perform and attest the real transition |
+
+The benchmark is not a manual exploratory test. It SHOULD run unattended on a
+dedicated, stable benchmark host. Shared hosted CI runners are unsuitable
+because their undisclosed contention and changing VM baseline make resource
+comparisons non-reproducible.
+
 Each record must contain the Stackctl revision, release candidate, host image
 and build, architecture, Engine identity and limits, immutable image digests,
 exact commands, raw outputs, timestamps, pass/fail/skip state, and cleanup
@@ -75,3 +93,6 @@ requirements must cite the corresponding physical-host or benchmark record.
 No developer is expected to reproduce Linux host behavior on macOS, fabricate
 published-image evidence without publication, or run a comparison benchmark
 without its required baseline inputs.
+
+These release records are therefore tracked as an evidence backlog, not as
+commands in the local implementation verification cycle.

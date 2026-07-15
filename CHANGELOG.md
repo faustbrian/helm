@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Clarified that physical-host and controlled benchmark records are an
+  external release-evidence backlog, not part of each local implementation
+  verification cycle. The verification contract now separates scripted
+  dedicated-host checks from transitions that require attended hardware.
 - Added a pass-scoped Engine decorator for compatibility-keyed shared
   infrastructure convergence. The daemon now discovers managed containers,
   volumes, and networks once, concurrently, then reuses that immutable

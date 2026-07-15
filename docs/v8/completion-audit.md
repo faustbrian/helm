@@ -74,18 +74,20 @@ the local gate, but their evidence remains mandatory for release acceptance.
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; shared run and collector identity; nonempty independently inventoried Engine-idle and per-project baseline capture; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Run all baseline and v8 scenarios, then publish raw records plus threshold comparison |
 | AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 804 local tests plus one explicit CI-owned live Engine acceptance test, format, all-target Clippy policy, build, host-dependency audit, immutable-workflow-action audit, guarded durable cancellation of queued daemon operations, bounded independent workload and compatibility-instance reconciliation, pass-wide container observation reuse across cleanup, applications, workers, and dedicated services, pass-scoped shared container, volume, and network observations, retained-volume observation reuse, and equal-runtime materialization deduplication at this snapshot; release-build and full-suite Unix architecture CI definition | CI artifacts and external platform, recovery, image publication, and benchmark records assigned by `external-verification.md` |
 
-## Release blockers
+## External release-evidence backlog
 
-The current audit therefore blocks a v8 release claim on externally owned
-evidence, not on additional local emulation:
+The following items block only the corresponding v8 release and platform
+support claims. They are not part of the per-change local verification cycle
+and MUST NOT pause implementation or checkpoint commits:
 
-1. Live macOS and Linux install/login/reboot/sleep/Engine recovery records.
-2. Live persistent deletion and uninstall keep-data/delete-data acceptance.
-3. Archived CI runtime image SBOM, provenance, signature, and architecture
-   proof for the release revision.
-4. Archived CI gateway records plus physical-host gateway and failure records
-   on the remaining claimed platforms.
-5. The immutable 40-project baseline/v8 benchmark record.
+| Evidence | Execution owner |
+| --- | --- |
+| macOS install, login, reboot, sleep/wake, Keychain trust, and Docker Desktop recovery | Attended physical Mac or an equivalent managed hardware harness |
+| Linux install, systemd-user login, reboot, suspend/wake, and Engine recovery | Persistent Linux host; automate where the host lifecycle permits |
+| Persistent deletion and uninstall keep-data/delete-data acceptance | CI for container data semantics; physical hosts for service-manager and trust-store cleanup |
+| Runtime image SBOM, provenance, signature, and architecture proof | Runtime-image publication CI for the exact release revision |
+| Gateway, runtime, extension, and shared-service protocol acceptance | CI where the behavior is container- or protocol-owned; physical hosts only for OS integration |
+| Forty-project baseline/v8 benchmark | Unattended script on a controlled dedicated benchmark host, followed by result review |
 
 Every blocker must link raw, reproducible evidence here before its row changes
 to `Complete`. A passing compile, unit test, interface, plan, or document cannot
