@@ -287,9 +287,14 @@ fn exact_project_credential<'credential>(
             logical.project_id(),
             logical.service_id()
         ),
+        AccessStrategy::MySql(flavor) => format!(
+            "{}/{}/{}",
+            logical.project_id(),
+            logical.service_id(),
+            flavor.implementation()
+        ),
         AccessStrategy::Minio
         | AccessStrategy::MongoDb
-        | AccessStrategy::MySql(_)
         | AccessStrategy::RabbitMq
         | AccessStrategy::Redis(_)
         | AccessStrategy::SqlServer => logical.logical_resource_id().to_owned(),

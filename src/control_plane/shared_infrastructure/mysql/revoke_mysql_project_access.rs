@@ -79,7 +79,7 @@ fn validate(
         || logical.kind() != format!("{implementation}_database")
         || logical.lifecycle() != ResourceLifecycle::Orphaned
         || logical.orphaned_at_unix_seconds().is_none()
-        || logical.logical_resource_id() != plan.credential_id()
+        || logical.logical_resource_id() != plan.schema_name()
         || credential.credential_id() != plan.credential_id()
         || credential.project_id() != Some(logical.project_id())
         || credential.service_id() != logical.service_id()

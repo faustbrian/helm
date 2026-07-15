@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux MySQL and MariaDB recovery acceptance that streams a
+  verified logical backup into an isolated retained target, proves the
+  restored point-in-time row while preserving the later-mutated source and
+  sibling schema, and authorizes exact cleanup of both volumes. Fixed
+  migration targets to use authenticated protocol readiness, persisted the
+  physical schema as logical identity, and separated schema identity from
+  credential lookup during orphan access revocation.
 - Added native Linux PostgreSQL recovery acceptance that streams a verified
   custom-format backup into an isolated retained target, proves the restored
   point-in-time row while preserving the later-mutated source and sibling

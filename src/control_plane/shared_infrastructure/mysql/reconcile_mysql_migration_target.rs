@@ -1,10 +1,11 @@
+use super::wait_for_mysql_readiness::wait_for_mysql_readiness;
 use super::{
     MySqlMigrationPreparationOptions, MySqlMigrationTargetReconcileResult,
     prepare_mysql_migration_target,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver,
+    VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, SharedInfrastructureReconcileError, SharedInstancePlan,
@@ -25,8 +26,12 @@ pub(crate) async fn reconcile_mysql_migration_target<Store, Engine, Entropy>(
 ) -> Result<MySqlMigrationTargetReconcileResult, SharedInfrastructureReconcileError>
 where
     Store: StateStore,
-    Engine:
-        ContainerDiscovery + ContainerLifecycle + HealthObserver + VolumeDiscovery + VolumeManager,
+    Engine: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + VolumeDiscovery
+        + VolumeManager,
     Entropy: CredentialEntropy,
 {
     let plan = prepare_mysql_migration_target(store, shared, entropy, options)
@@ -56,17 +61,15 @@ where
     )
     .await
     .map_err(|error| invalid("reconcile MySQL-family migration target service", error))?;
-    if service.health() != ContainerHealth::Healthy {
-        return Err(SharedInfrastructureReconcileError::InvalidRequest {
-            detail: format!(
-                "MySQL-family migration target is not ready: {:?}",
-                service.health()
-            ),
-        });
-    }
+    wait_for_mysql_readiness(engine, service.container(), &plan)
+        .await
+        .map_err(|error| invalid("wait for MySQL-family migration target readiness", error))?;
 
     Ok(MySqlMigrationTargetReconcileResult::new(
-        plan, service, volume,
+        plan,
+        service,
+        volume,
+        ContainerHealth::Healthy,
     ))
 }
 

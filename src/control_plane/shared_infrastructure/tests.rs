@@ -25,15 +25,16 @@ use super::{
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_mongodb_migration_target,
-    prepare_mysql_migration_target, prepare_postgres_migration_target,
-    prepare_postgres_shared_instances, prepare_shared_instances,
+    prepare_mysql_migration_target, prepare_mysql_shared_instances,
+    prepare_postgres_migration_target, prepare_postgres_shared_instances, prepare_shared_instances,
     prepare_sql_server_migration_target, provision_mongodb_logical_resource,
     provision_mysql_logical_resource, provision_object_store_project_resources,
     provision_postgres_logical_resource, provision_sql_server_logical_resource,
     reconcile_mailpit_authentication, reconcile_mongodb_migration_target,
-    reconcile_mongodb_project_resources, reconcile_mysql_project_resources,
-    reconcile_object_store_project_resources, reconcile_postgres_migration_target,
-    reconcile_postgres_project_resources, reconcile_prepared_postgres_instance,
+    reconcile_mongodb_project_resources, reconcile_mysql_migration_target,
+    reconcile_mysql_project_resources, reconcile_object_store_project_resources,
+    reconcile_postgres_migration_target, reconcile_postgres_project_resources,
+    reconcile_prepared_mysql_instance, reconcile_prepared_postgres_instance,
     reconcile_prepared_shared_instance, reconcile_rabbitmq_definitions,
     reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
@@ -3728,9 +3729,8 @@ fn orphaned_mysql_family_users_are_dropped_without_deleting_the_schema() {
             lifecycle: ResourceLifecycle::Active,
             orphaned_at_unix_seconds: None,
         });
-        let credential_id = format!("bill/database/{implementation}");
         let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
-            logical_resource_id: credential_id.clone(),
+            logical_resource_id: "stackctl_bill_database".to_owned(),
             shared_resource_id: format!("{implementation}-data"),
             project_id: "bill".to_owned(),
             service_id: "database".to_owned(),
@@ -3741,7 +3741,7 @@ fn orphaned_mysql_family_users_are_dropped_without_deleting_the_schema() {
             orphaned_at_unix_seconds: Some(12_345),
         });
         let credential = CredentialRecord::new(CredentialRecordOptions {
-            credential_id,
+            credential_id: format!("bill/database/{implementation}"),
             project_id: Some("bill".to_owned()),
             service_id: "database".to_owned(),
             username: "st_bill_database".to_owned(),
@@ -5784,6 +5784,75 @@ fn mysql_migration_target_reuses_its_durable_bootstrap_credential() {
 }
 
 #[test]
+fn mysql_migration_target_uses_authenticated_protocol_readiness() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-mysql-migration-reconcile-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let mut engine = RecordingSharedVolumeEngine {
+        health: crate::control_plane::engine::ContainerHealth::RunningUnverified,
+        command_exits: Arc::new(Mutex::new(VecDeque::from([1, 0]))),
+        ..RecordingSharedVolumeEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_mysql_migration_target(
+            &mut store,
+            &mut engine,
+            &shared,
+            &FixedCredentialEntropy(0x11),
+            MySqlMigrationPreparationOptions {
+                migration_id: "restore-bill-database-100",
+                project_id: "bill",
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                desired_revision: "sha256:restore-v1",
+            },
+        ))
+        .expect("authenticated MySQL probe proves the target ready");
+
+    assert_eq!(
+        result.health(),
+        crate::control_plane::engine::ContainerHealth::Healthy
+    );
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("MySQL readiness commands")
+            .len(),
+        2,
+        "migration target readiness must retry an authenticated protocol probe"
+    );
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove MySQL target state");
+        }
+    }
+}
+
+#[test]
 fn mysql_project_resources_isolate_schema_user_and_application_environment() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
@@ -5828,6 +5897,65 @@ fn mysql_project_resources_isolate_schema_user_and_application_environment() {
         Some(&instance.container().name().to_owned())
     );
     assert!(!format!("{project:?}").contains("project-secret"));
+}
+
+#[test]
+fn mysql_shared_reconciliation_records_the_physical_schema_identity() {
+    let database_path = std::env::temp_dir().join(format!(
+        "stackctl-mysql-logical-identity-{}-{}.sqlite3",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )]);
+    let prepared = prepare_mysql_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        super::MySqlPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+        },
+    )
+    .expect("prepare MySQL instance");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_mysql_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("reconcile prepared MySQL instance");
+
+    assert_eq!(result.logical_resources().len(), 1);
+    assert_eq!(
+        result.logical_resources()[0].logical_resource_id(),
+        "stackctl_bill_database",
+        "backup and restore must address the physical MySQL schema"
+    );
+
+    drop(store);
+    for suffix in ["", "-shm", "-wal"] {
+        let path = PathBuf::from(format!("{}{suffix}", database_path.display()));
+        if path.exists() {
+            std::fs::remove_file(path).expect("remove MySQL logical identity state");
+        }
+    }
 }
 
 #[test]

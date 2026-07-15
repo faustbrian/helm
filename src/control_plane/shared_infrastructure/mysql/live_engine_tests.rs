@@ -1,5 +1,7 @@
 use super::{
-    MySqlPreparationOptions, prepare_mysql_shared_instances, reconcile_prepared_mysql_instance,
+    MySqlMigrationPreparationOptions, MySqlPreparationOptions, plan_mysql_project_resources,
+    prepare_mysql_shared_instances, reconcile_mysql_migration_target,
+    reconcile_prepared_mysql_instance,
 };
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery, EngineError,
@@ -8,14 +10,20 @@ use crate::control_plane::engine::{
     OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
     reconstruct_owned_container, run_attached_command_capture,
 };
+use crate::control_plane::migration::{
+    MigrationCutoverPlan, MigrationOperations, MigrationRollbackPlan, MySqlBackupOptions,
+    MySqlMigrationOperations, MySqlMigrationOperationsOptions, backup_mysql_database,
+};
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
+    CredentialGenerationError, CredentialSecret, IsolationCapability, OrphanedSharedAccessOptions,
+    PersistenceMode, SharedServiceRequest, plan_shared_instances,
+    revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -281,6 +289,261 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
             Err(EngineError::ContainerExit { .. })
         ));
 
+        let source_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .unwrap_or_else(|| {
+                panic!("find active bill {} logical resource", options.display_name)
+            });
+        let backup_root = state_directory.join("backups");
+        let backup = backup_mysql_database(
+            &engine,
+            &container,
+            &MySqlBackupOptions {
+                flavor: prepared.instance().flavor(),
+                logical_resource: source_logical,
+                credential: bill.credential(),
+                database_name: bill.logical().schema_name(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 11_500,
+                backup_root: &backup_root,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "back up live bill {} database: {error}",
+                options.display_name
+            )
+        });
+        database_command(
+            &engine,
+            &container,
+            options.client_executable,
+            bill.credential().username(),
+            bill.credential().secret(),
+            bill.logical().schema_name(),
+            "UPDATE stackctl_acceptance SET value = 'mutated-after-backup';",
+        )
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "mutate bill {} source after backup: {error}",
+                options.display_name
+            )
+        });
+        let backup_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: format!("bill-database-{}-recovery", options.implementation),
+            project_id: "bill".to_owned(),
+            source_revision: source_logical.desired_revision().to_owned(),
+            target_revision: source_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            phase: MigrationPhase::BackupVerified,
+            backup_reference: Some(backup.reference().to_owned()),
+            backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+            backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+            target_resource_id: None,
+            rollback_reference: Some(source_logical.shared_resource_id().to_owned()),
+            updated_at_unix_seconds: 11_500,
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "record live {} backup checkpoint: {error}",
+                options.display_name
+            )
+        });
+        let target = reconcile_mysql_migration_target(
+            &mut store,
+            &mut engine,
+            &shared[0],
+            &SequentialCredentialEntropy::new(0x81),
+            MySqlMigrationPreparationOptions {
+                migration_id: backup_checkpoint.migration_id(),
+                project_id: "bill",
+                installation_id: &installation_id,
+                network_name: &network_name,
+                schema_version: 8,
+                desired_revision: source_logical.desired_revision(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "reconcile isolated {} recovery target: {error}",
+                options.display_name
+            )
+        });
+        let target_resources = plan_mysql_project_resources(
+            "bill",
+            "database",
+            target.plan(),
+            CredentialSecret::new(bill.credential().secret().to_owned()),
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "plan {} recovery target resources: {error}",
+                options.display_name
+            )
+        });
+        let target_logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: format!(
+                "{}/{}",
+                source_logical.project_id(),
+                source_logical.service_id()
+            ),
+            shared_resource_id: target.volume().name().to_owned(),
+            project_id: source_logical.project_id().to_owned(),
+            service_id: source_logical.service_id().to_owned(),
+            kind: source_logical.kind().to_owned(),
+            compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_resources.environment().revision().to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        });
+        let project = ProjectRecord::new(
+            state_directory.join("projects/bill"),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        );
+        let retained_target = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: target_logical.logical_resource_id().to_owned(),
+            shared_resource_id: target_logical.shared_resource_id().to_owned(),
+            project_id: target_logical.project_id().to_owned(),
+            service_id: target_logical.service_id().to_owned(),
+            kind: target_logical.kind().to_owned(),
+            compatibility_fingerprint: target_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_logical.desired_revision().to_owned(),
+            lifecycle: ResourceLifecycle::Retained,
+            orphaned_at_unix_seconds: None,
+        });
+        let cutover =
+            MigrationCutoverPlan::new(project.clone(), target_resources.environment().clone())
+                .unwrap_or_else(|error| {
+                    panic!("plan {} recovery cutover: {error}", options.display_name)
+                });
+        let rollback =
+            MigrationRollbackPlan::new(project, bill.environment().clone(), vec![retained_target])
+                .unwrap_or_else(|error| {
+                    panic!("plan {} recovery rollback: {error}", options.display_name)
+                });
+        let mut operations = MySqlMigrationOperations::new(
+            &engine,
+            MySqlMigrationOperationsOptions {
+                flavor: prepared.instance().flavor(),
+                source_container: &container,
+                target_container: target.container(),
+                source_logical_resource: source_logical,
+                target_logical_resource: &target_logical,
+                source_credential: bill.credential(),
+                target_credential: target_resources.credential(),
+                source_administrator: prepared.instance().bootstrap_credential(),
+                source_environment: bill.environment(),
+                target_instance: target.plan(),
+                target_plan: target_resources.logical(),
+                installation_id: &installation_id,
+                backup_root: &backup_root,
+                operation_unix_seconds: 11_700,
+                timeout: Duration::from_secs(30),
+                cutover,
+                rollback,
+            },
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "prepare live {} migration operations: {error}",
+                options.display_name
+            )
+        });
+        let target_plan = operations
+            .provision_target(&backup_checkpoint)
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "provision isolated {} recovery database: {error}",
+                    options.display_name
+                )
+            });
+        let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: backup_checkpoint.migration_id().to_owned(),
+            project_id: backup_checkpoint.project_id().to_owned(),
+            source_revision: backup_checkpoint.source_revision().to_owned(),
+            target_revision: target_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: backup_checkpoint
+                .source_compatibility_fingerprint()
+                .to_owned(),
+            target_compatibility_fingerprint: backup_checkpoint
+                .target_compatibility_fingerprint()
+                .to_owned(),
+            phase: MigrationPhase::TargetProvisioned,
+            backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
+            backup_artifact_sha256: backup_checkpoint
+                .backup_artifact_sha256()
+                .map(str::to_owned),
+            backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
+            target_resource_id: Some(target_plan.target_resource_id().to_owned()),
+            rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
+            updated_at_unix_seconds: 11_600,
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "record live {} target checkpoint: {error}",
+                options.display_name
+            )
+        });
+        operations
+            .restore(
+                &restore_checkpoint,
+                backup.reference(),
+                target_plan.target_resource_id(),
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "restore verified {} backup into isolated target: {error}",
+                    options.display_name
+                )
+            });
+        assert_eq!(
+            database_command(
+                &engine,
+                target.container(),
+                options.client_executable,
+                target_resources.credential().username(),
+                target_resources.credential().secret(),
+                target_plan.target_resource_id(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!("read restored {} target: {error}", options.display_name)
+            }),
+            b"bill-value\n",
+            "target restore must reproduce the verified point-in-time backup"
+        );
+        assert_eq!(
+            database_command(
+                &engine,
+                &container,
+                options.client_executable,
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().schema_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "read sibling {} database after restore: {error}",
+                    options.display_name
+                )
+            }),
+            b"shop-value\n"
+        );
+        drop(operations);
+
         let second = reconcile_prepared_mysql_instance(&mut engine, prepared, &installation_id, 8)
             .await
             .unwrap_or_else(|error| {
@@ -378,7 +641,8 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
                     options.display_name
                 )
             }),
-            b"bill-value\n"
+            b"mutated-after-backup\n",
+            "isolated recovery must not mutate the retained source database"
         );
 
         let restored =
@@ -405,7 +669,7 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
             .unwrap_or_else(|error| {
                 panic!("read restored bill {} data: {error}", options.display_name)
             }),
-            b"bill-value\n"
+            b"mutated-after-backup\n"
         );
         let restored_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(restored_container.id(), container.id());
@@ -415,12 +679,15 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
             InstallationResourceDeletionOptions {
                 installation_id: &installation_id,
                 schema_version: 8,
-                authorized_persistent_volumes: &[prepared
-                    .instance()
-                    .volume()
-                    .unwrap_or_else(|| panic!("persistent {} volume", options.display_name))
-                    .name()
-                    .to_owned()],
+                authorized_persistent_volumes: &[
+                    prepared
+                        .instance()
+                        .volume()
+                        .unwrap_or_else(|| panic!("persistent {} volume", options.display_name))
+                        .name()
+                        .to_owned(),
+                    target.volume().name().to_owned(),
+                ],
             },
         )
         .await

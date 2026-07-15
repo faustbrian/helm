@@ -36,7 +36,7 @@ impl PreparedMySqlSharedInstance {
             .map(|volume| volume.volume().name())
             .unwrap_or_else(|| shared.container().id().as_str());
         LogicalResourceRecord::new(LogicalResourceRecordOptions {
-            logical_resource_id: project.credential().credential_id().to_owned(),
+            logical_resource_id: project.logical().schema_name().to_owned(),
             shared_resource_id: shared_resource_id.to_owned(),
             project_id: project.environment().project_id().to_owned(),
             service_id: project.credential().service_id().to_owned(),
