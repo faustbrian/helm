@@ -6974,6 +6974,13 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     resource_health
         .record_logical_resource_drift("bill/database", 9_999)
         .expect("record logical-resource drift");
+    resource_health
+        .record(
+            "bill-app.stackctl.localhost",
+            ContainerHealth::Healthy,
+            9_999,
+        )
+        .expect("record gateway route health");
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -7008,6 +7015,14 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
                             IpcResourceHealth::Healthy,
                             Some(9_998),
                             false,
+                        ),
+                        IpcResourceStatus::new(
+                            "bill-app.stackctl.localhost".to_owned(),
+                            "gateway_route".to_owned(),
+                            IpcResourceLifecycle::Active,
+                            IpcResourceHealth::Healthy,
+                            Some(9_999),
+                            true,
                         ),
                         IpcResourceStatus::with_data_lifecycle(
                             "db".to_owned(),
@@ -7054,7 +7069,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     else {
         panic!("project status while Engine unavailable");
     };
-    assert_eq!(project.resources().len(), 2);
+    assert_eq!(project.resources().len(), 3);
     assert!(project.resources().iter().all(|resource| {
         resource.health() == IpcResourceHealth::EngineUnavailable
             && resource.observed_at_unix_seconds().is_none()

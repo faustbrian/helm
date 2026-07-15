@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Published exact-domain gateway observations separately from application
+  process health. A provider revision mismatch now reports
+  `gateway_route_drift`, retains the last good full configuration, and retries;
+  `stackctl open` requires both the selected runtime and route to be ready.
 - Preserved nonzero attached-command status as a typed container exit instead
   of misclassifying logical database, broker, cache, or object-store rejection
   as an Engine transport failure. Shared convergence now publishes

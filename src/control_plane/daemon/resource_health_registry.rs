@@ -71,6 +71,18 @@ impl ResourceHealthRegistry {
         )
     }
 
+    pub(crate) fn record_gateway_route_drift(
+        &mut self,
+        domain: &str,
+        observed_at_unix_seconds: i64,
+    ) -> Result<(), ResourceHealthRegistryError> {
+        self.record_observation(
+            domain,
+            ResourceHealth::GatewayRouteDrift,
+            observed_at_unix_seconds,
+        )
+    }
+
     pub(crate) fn observation(&self, resource_id: &str) -> Option<(ResourceHealth, i64)> {
         self.observations.get(resource_id).copied()
     }

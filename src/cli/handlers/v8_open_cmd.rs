@@ -58,7 +58,7 @@ pub(crate) fn handle_v8_open(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
 }
 
 fn ensure_routes_ready(status: &IpcProjectStatus, routes: &[(String, String)]) -> Result<()> {
-    for (service, _) in routes {
+    for (service, url) in routes {
         let resource = status
             .resources()
             .iter()
@@ -80,6 +80,31 @@ fn ensure_routes_ready(status: &IpcProjectStatus, routes: &[(String, String)]) -
                     .observed_at_unix_seconds()
                     .map_or_else(|| "never".to_owned(), |value| value.to_string())
             ),
+        }
+        let domain = url.strip_prefix("https://").ok_or_else(|| {
+            anyhow::anyhow!("v8 route '{url}' is not an authoritative HTTPS route")
+        })?;
+        let route = status
+            .resources()
+            .iter()
+            .find(|resource| {
+                resource.service() == domain
+                    && resource.kind() == "gateway_route"
+                    && resource.lifecycle() == IpcResourceLifecycle::Active
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "v8 route '{domain}' has no active gateway observation; wait for the daemon"
+                )
+            })?;
+        if route.health() != IpcResourceHealth::Healthy {
+            bail!(
+                "v8 route '{domain}' is not ready (health: {}, observed_at: {}); wait for daemon reconciliation",
+                route.health().as_str(),
+                route
+                    .observed_at_unix_seconds()
+                    .map_or_else(|| "never".to_owned(), |value| value.to_string())
+            );
         }
     }
 
@@ -157,17 +182,52 @@ mod tests {
             let status = IpcProjectStatus::new(
                 "bill".to_owned(),
                 vec!["bill-app.stackctl.localhost".to_owned()],
-                vec![IpcResourceStatus::new(
-                    "app".to_owned(),
-                    "project_application".to_owned(),
-                    IpcResourceLifecycle::Active,
-                    health,
-                    Some(10_000),
-                    false,
-                )],
+                vec![
+                    IpcResourceStatus::new(
+                        "app".to_owned(),
+                        "project_application".to_owned(),
+                        IpcResourceLifecycle::Active,
+                        health,
+                        Some(10_000),
+                        false,
+                    ),
+                    IpcResourceStatus::new(
+                        "bill-app.stackctl.localhost".to_owned(),
+                        "gateway_route".to_owned(),
+                        IpcResourceLifecycle::Active,
+                        IpcResourceHealth::Healthy,
+                        Some(10_000),
+                        true,
+                    ),
+                ],
             );
 
             assert_eq!(ensure_routes_ready(&status, &routes).is_ok(), succeeds);
         }
+
+        let drift = IpcProjectStatus::new(
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+            vec![
+                IpcResourceStatus::new(
+                    "app".to_owned(),
+                    "project_application".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    IpcResourceHealth::Healthy,
+                    Some(10_000),
+                    false,
+                ),
+                IpcResourceStatus::new(
+                    "bill-app.stackctl.localhost".to_owned(),
+                    "gateway_route".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    IpcResourceHealth::GatewayRouteDrift,
+                    Some(10_001),
+                    true,
+                ),
+            ],
+        );
+
+        assert!(ensure_routes_ready(&drift, &routes).is_err());
     }
 }

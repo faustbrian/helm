@@ -7,6 +7,7 @@ pub(crate) enum ResourceHealth {
     ServiceNotReady { attempt: u32 },
     AuthenticationFailed { attempt: u32 },
     LogicalResourceDrift,
+    GatewayRouteDrift,
     DestructiveReplacementRequired,
 }
 

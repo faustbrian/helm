@@ -16,6 +16,7 @@ pub(crate) enum IpcResourceHealth {
     ServiceNotReady { attempt: u32 },
     AuthenticationFailed { attempt: u32 },
     LogicalResourceDrift,
+    GatewayRouteDrift,
     DestructiveReplacementRequired,
 }
 
@@ -34,6 +35,7 @@ impl IpcResourceHealth {
             Self::ServiceNotReady { .. } => "service_not_ready",
             Self::AuthenticationFailed { .. } => "authentication_failed",
             Self::LogicalResourceDrift => "logical_resource_drift",
+            Self::GatewayRouteDrift => "gateway_route_drift",
             Self::DestructiveReplacementRequired => "destructive_replacement_required",
         }
     }

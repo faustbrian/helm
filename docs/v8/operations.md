@@ -383,6 +383,11 @@ database and object-store convergence continues with later tenants; atomic
 Redis ACL and RabbitMQ definition failures apply the drift to their complete
 shared instance. Exact Engine transport and ownership failures remain hard
 Engine errors.
+Every deterministic domain has a separate `gateway_route` status observation.
+Successful full-snapshot acknowledgement marks the route healthy; an active
+revision mismatch publishes `gateway_route_drift`, retains the last good
+configuration, and retries the complete snapshot. Browser opening requires a
+healthy route in addition to a ready application process.
 When an owned retained project volume has a different requested data identity,
 the daemon publishes `destructive_replacement_required`, leaves the volume
 untouched, skips creation of only the affected service container, and continues

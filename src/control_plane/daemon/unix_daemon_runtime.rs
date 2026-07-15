@@ -18,7 +18,7 @@ use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
 use crate::control_plane::engine::{AttachedCommandOutput, EngineError, NetworkCreateOptions};
 use crate::control_plane::gateway::{
-    GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
+    GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
     SystemGatewayPortProbe, prepare_gateway_runtime_assets, reconcile_gateway_plane,
     store_active_gateway_certificate_generation,
 };
@@ -1439,6 +1439,22 @@ impl UnixDaemonRuntime {
 
         match gateway {
             Ok(gateway) => {
+                for route in engine_plan.gateway().routes() {
+                    if let Err(error) = health_snapshot.record(
+                        route.domain(),
+                        crate::control_plane::engine::ContainerHealth::Healthy,
+                        observed_at_unix_seconds,
+                    ) {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(
+                            error = %error,
+                            domain = route.domain(),
+                            "gateway route health publication blocked"
+                        );
+
+                        return;
+                    }
+                }
                 if let Err(error) = store_active_gateway_certificate_generation(
                     &self.runtime_directory,
                     assets.certificate_revision(),
@@ -1475,6 +1491,28 @@ impl UnixDaemonRuntime {
                     configuration_action = ?gateway.configuration_action(),
                     certificate_action = ?assets.certificate_action(),
                     "global gateway reconciliation completed"
+                );
+            }
+            Err(GatewayError::Reconciliation { detail }) => {
+                for route in engine_plan.gateway().routes() {
+                    if let Err(error) = health_snapshot
+                        .record_gateway_route_drift(route.domain(), observed_at_unix_seconds)
+                    {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(
+                            error = %error,
+                            domain = route.domain(),
+                            "gateway route drift publication blocked"
+                        );
+
+                        return;
+                    }
+                }
+                self.resource_health = health_snapshot;
+                self.engine_reconciliation.complete();
+                tracing::warn!(
+                    error = detail,
+                    "gateway route drift retained the last good configuration; retry scheduled"
                 );
             }
             Err(error) => {

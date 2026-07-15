@@ -1399,6 +1399,21 @@ where
             })
             .collect::<Result<Vec<_>, String>>()?,
     );
+    resources.extend(project.route_domains().iter().map(|domain| {
+        let (health, observed_at) = ipc_resource_health(
+            resource_health.observation(domain),
+            resource_health.engine_is_unavailable(),
+            now_unix_seconds,
+        );
+        IpcResourceStatus::new(
+            domain.to_owned(),
+            "gateway_route".to_owned(),
+            IpcResourceLifecycle::Active,
+            health,
+            observed_at,
+            true,
+        )
+    }));
     resources.sort_by(|left, right| {
         left.service()
             .cmp(right.service())
@@ -1451,6 +1466,7 @@ const fn ipc_resource_health(
             IpcResourceHealth::AuthenticationFailed { attempt }
         }
         ResourceHealth::LogicalResourceDrift => IpcResourceHealth::LogicalResourceDrift,
+        ResourceHealth::GatewayRouteDrift => IpcResourceHealth::GatewayRouteDrift,
         ResourceHealth::DestructiveReplacementRequired => {
             IpcResourceHealth::DestructiveReplacementRequired
         }
