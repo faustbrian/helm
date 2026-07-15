@@ -15,12 +15,14 @@ just lint
 just build
 cargo test -q
 scripts/audit-v8-host-dependencies.sh
+scripts/audit-v8-workflow-actions.sh
 git diff --check
 ```
 
 These prove source formatting, compilation, deterministic tests, the host
-dependency boundary, and patch hygiene. They do not prove login startup, trust
-integration, Engine recovery, Linux host behavior, or resource efficiency.
+dependency boundary, immutable GitHub Action references, and patch hygiene.
+They do not prove login startup, trust integration, Engine recovery, Linux host
+behavior, or resource efficiency.
 
 ## CI-owned verification
 

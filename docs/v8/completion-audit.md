@@ -10,8 +10,9 @@ be treated as release acceptance.
 Snapshot date: 2026-07-15. The local full-suite evidence at the snapshot was
 `cargo test --quiet`: 792 passed, 0 failed. `just lint` (format plus all-target
 Clippy with the repository's configured severities), `just build`,
-`scripts/audit-v8-host-dependencies.sh`, and `git diff --check` also passed.
-Those local commands do not substitute for the platform and benchmark artifacts
+`scripts/audit-v8-host-dependencies.sh`,
+`scripts/audit-v8-workflow-actions.sh`, and `git diff --check` also passed. Those
+local commands do not substitute for the platform and benchmark artifacts
 identified below.
 
 [External verification](external-verification.md) assigns each remaining check
@@ -67,7 +68,7 @@ the local gate, but their evidence remains mandatory for release acceptance.
 | ID | Requirement | State | Authoritative evidence | Missing evidence or work |
 |---|---|---|---|---|
 | AC-24 | macOS and Linux claims have platform evidence | Pending live evidence | `docs/v8/platform-support.md`; Unix architecture CI matrix; top-level unsupported-host compile boundary with no production compatibility fallbacks | Complete live macOS and Linux records |
-| AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, directory-serialized crash-recoverable artifact-lock publication, manifest-pinned PHP image definition, commit-pinned multi-architecture publication workflow with revision tagging, release-tag and manual execution, digest-signature verification, architecture assertion, and raw SBOM/provenance evidence upload, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Archive and link the release revision's CI-published image evidence bundle |
+| AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, directory-serialized crash-recoverable artifact-lock publication, manifest-pinned PHP image definition, commit-pinned CI and multi-architecture publication actions with an enforcement audit, revision tagging, release-tag and manual execution, digest-signature verification, architecture assertion, and raw SBOM/provenance evidence upload, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Archive and link the release revision's CI-published image evidence bundle |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; shared run and collector identity; nonempty independently inventoried Engine-idle and per-project baseline capture; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Run all baseline and v8 scenarios, then publish raw records plus threshold comparison |
 | AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 792 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | CI artifacts and external platform, recovery, image publication, and benchmark records assigned by `external-verification.md` |

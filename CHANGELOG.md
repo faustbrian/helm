@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Pinned every GitHub Actions dependency to an immutable commit and added a
+  required workflow audit that rejects mutable action tags or branches before
+  they can silently change v8 verification or publication behavior.
 - Assigned v8 verification to the environment that owns each behavior: local
   repository checks, architecture-matrix CI, release-tagged runtime image
   publication, or explicit physical-host and benchmark evidence. CI artifacts
