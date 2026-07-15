@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added bounded administrator-authenticated PostgreSQL readiness before tenant
+  provisioning, preventing normal process initialization from being reported
+  as project database drift. Native Linux Engine acceptance now also proves
+  two projects reuse one persistent PostgreSQL instance while retaining stable,
+  mutually isolated database roles across reconciliation.
 - Added native Linux Engine acceptance for shared Redis. CI now proves two
   compatible projects reuse one persistent process and volume, retain stable
   credentials across preparation, write through separate ACL prefixes, reject

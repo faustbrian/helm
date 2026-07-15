@@ -1211,14 +1211,25 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
     );
     assert_eq!(engine.created_containers.len(), 1);
     assert_eq!(engine.started_containers.len(), 1);
-    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+    let commands = engine.command_arguments.lock().expect("commands");
+    assert_eq!(commands.len(), 3);
+    assert_eq!(
+        commands[0].last().map(String::as_str),
+        Some("--command=SELECT 1")
+    );
+    assert!(
+        commands[1..]
+            .iter()
+            .all(|arguments| arguments.last().map(String::as_str) == Some("--dbname=postgres"))
+    );
+    drop(commands);
 
     let mut partial_engine = RecordingSharedVolumeEngine::default();
     partial_engine
         .command_exits
         .lock()
         .expect("command exit queue")
-        .extend([1, 0]);
+        .extend([0, 1, 0]);
     let partial = runtime
         .block_on(reconcile_prepared_postgres_instance(
             &mut partial_engine,
@@ -1241,7 +1252,7 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
             .lock()
             .expect("partial commands")
             .len(),
-        2
+        3
     );
 
     drop(store);

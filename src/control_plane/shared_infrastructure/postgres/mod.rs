@@ -19,6 +19,7 @@ mod reconcile_postgres_migration_target;
 mod reconcile_postgres_project_resources;
 mod reconcile_prepared_postgres_instance;
 mod revoke_postgres_project_access;
+mod wait_for_postgres_readiness;
 
 pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 
@@ -43,3 +44,6 @@ pub(crate) use reconcile_postgres_migration_target::reconcile_postgres_migration
 pub(crate) use reconcile_postgres_project_resources::reconcile_postgres_project_resources;
 pub(crate) use reconcile_prepared_postgres_instance::reconcile_prepared_postgres_instance;
 pub(crate) use revoke_postgres_project_access::revoke_postgres_project_access;
+
+#[cfg(test)]
+mod live_engine_tests;
