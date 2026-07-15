@@ -16,11 +16,9 @@ pub(crate) enum IpcResult {
     /// Confirms an asynchronous operation was accepted.
     Accepted { operation_id: String },
     /// Reports one complete watched-root reconciliation attempt.
-    Reconciled {
-        project_count: usize,
-        issue_count: usize,
-        applied: bool,
-    },
+    Reconciled { project_count: usize },
+    /// Confirms that exact certificate activation was scheduled.
+    GatewayCertificateActivationRequested { generation: String },
     /// Returns one complete normalized sample of current owned containers.
     BenchmarkSnapshot { snapshot: IpcBenchmarkSnapshot },
     /// Returns immutable manifest references keyed by the caller's exact IDs.

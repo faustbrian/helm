@@ -12,6 +12,8 @@ pub(crate) enum IpcPayload {
     Ping,
     /// Requests one complete reconciliation of every authoritative watched root.
     Reconcile,
+    /// Activates one already-selected immutable certificate generation.
+    ActivateGatewayCertificate { generation: String },
     /// Samples exact owned workload-plane resources without mutating them.
     BenchmarkSnapshot { require_converged: bool },
     /// Resolves exact mutable registry sources through the selected Engine.

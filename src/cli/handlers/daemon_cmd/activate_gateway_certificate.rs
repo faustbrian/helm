@@ -13,12 +13,17 @@ pub(super) fn activate_gateway_certificate(
     let generation = paths
         .revision()
         .map_err(|error| TrustStoreError::new(error.to_string()))?;
-    let response = super::send_singleton_request(IpcPayload::Reconcile)
-        .map_err(|error| TrustStoreError::new(error.to_string()))?;
+    let response = super::send_singleton_request(IpcPayload::ActivateGatewayCertificate {
+        generation: generation.to_owned(),
+    })
+    .map_err(|error| TrustStoreError::new(error.to_string()))?;
     match response.outcome() {
         IpcOutcome::Success {
-            result: IpcResult::Reconciled { .. },
-        } => {}
+            result:
+                IpcResult::GatewayCertificateActivationRequested {
+                    generation: accepted,
+                },
+        } if accepted == generation => {}
         IpcOutcome::Failure { diagnostics } => {
             let detail = diagnostics
                 .iter()
@@ -26,12 +31,12 @@ pub(super) fn activate_gateway_certificate(
                 .collect::<Vec<_>>()
                 .join("; ");
             return Err(TrustStoreError::new(format!(
-                "gateway certificate reconciliation failed: {detail}"
+                "gateway certificate activation failed: {detail}"
             )));
         }
         outcome => {
             return Err(TrustStoreError::new(format!(
-                "unexpected gateway certificate reconciliation response: {outcome:?}"
+                "unexpected gateway certificate activation response: {outcome:?}"
             )));
         }
     }

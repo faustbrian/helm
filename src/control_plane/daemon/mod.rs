@@ -53,6 +53,7 @@ mod initialize_default_installation;
 mod installation_initialization_error;
 mod invalidate_engine_connection;
 mod ipc;
+mod is_valid_certificate_generation;
 mod migration_decision_execution_options;
 mod migration_decision_execution_result;
 mod migration_decision_queue;
@@ -102,6 +103,7 @@ mod queued_project_command;
 mod queued_project_restore;
 mod reconcile_watched_roots;
 mod record_ipc_event;
+mod requires_engine_reconciliation;
 mod requires_followup_reconciliation;
 mod resource_health;
 mod resource_health_registry;
@@ -218,6 +220,7 @@ pub(crate) use ipc::{
     IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
     send_unix_request,
 };
+pub(crate) use is_valid_certificate_generation::is_valid_certificate_generation;
 pub(crate) use migration_decision_execution_options::MigrationDecisionExecutionOptions;
 pub(crate) use migration_decision_execution_result::MigrationDecisionExecutionResult;
 pub(crate) use migration_decision_queue::MigrationDecisionQueue;
@@ -266,6 +269,7 @@ pub(crate) use queued_project_backup::QueuedProjectBackup;
 pub(crate) use queued_project_command::QueuedProjectCommand;
 pub(crate) use queued_project_restore::{QueuedProjectRestore, QueuedProjectRestoreOptions};
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
+pub(crate) use requires_engine_reconciliation::requires_engine_reconciliation;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
 pub(crate) use resource_health::ResourceHealth;
 pub(crate) use resource_health_registry::ResourceHealthRegistry;

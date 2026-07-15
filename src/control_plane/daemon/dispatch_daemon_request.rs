@@ -3,8 +3,9 @@ use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
     ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
     QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
-    ResourceHealthRegistry, build_postgres_prune_plan, plan_postgres_prune,
-    reconcile_watched_roots, retained_project_status, retry_failed_installation_deletion_prune,
+    ResourceHealthRegistry, build_postgres_prune_plan, is_valid_certificate_generation,
+    plan_postgres_prune, reconcile_watched_roots, retained_project_status,
+    retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -53,6 +54,25 @@ where
     } = options;
     match request.payload() {
         IpcPayload::Ping => IpcResponse::success(request.request_id(), IpcResult::Pong),
+        IpcPayload::ActivateGatewayCertificate { generation } => {
+            if !is_valid_certificate_generation(generation) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "certificate_generation_invalid",
+                        "gateway certificate generation must be 64 lowercase hexadecimal characters",
+                        false,
+                    )],
+                );
+            }
+
+            IpcResponse::success(
+                request.request_id(),
+                IpcResult::GatewayCertificateActivationRequested {
+                    generation: generation.clone(),
+                },
+            )
+        }
         IpcPayload::Reconcile => {
             if let Err(error) = record_ipc_event(
                 control_plane,
@@ -123,8 +143,6 @@ where
                         request.request_id(),
                         IpcResult::Reconciled {
                             project_count: result.report().sources().len(),
-                            issue_count: result.report().issues().len(),
-                            applied: true,
                         },
                     )
                 }

@@ -11,8 +11,8 @@ use super::{
     ScheduledCommandClock, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
     UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
     invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
-    validate_project_workload_adoption,
+    requires_engine_reconciliation, requires_followup_reconciliation,
+    restore_daemon_operation_queues, validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -285,6 +285,9 @@ impl UnixDaemonRuntime {
             .is_some_and(requires_followup_reconciliation)
         {
             self.scheduler.record_filesystem_event(now);
+        }
+        if request.as_ref().is_some_and(requires_engine_reconciliation) {
+            self.engine_reconciliation.request();
         }
         let installation_reconciliation_frozen = matches!(
             self.control_plane.installation_lifecycle()?,

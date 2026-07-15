@@ -25,6 +25,32 @@ fn request_frames_round_trip_with_version_id_and_typed_payload() {
 }
 
 #[test]
+fn gateway_certificate_activation_round_trips_the_exact_generation() {
+    let generation = "a".repeat(64);
+    let request = IpcRequest::new(
+        "certificate-42",
+        IpcPayload::ActivateGatewayCertificate {
+            generation: generation.clone(),
+        },
+    );
+    let response = IpcResponse::success(
+        "certificate-42",
+        IpcResult::GatewayCertificateActivationRequested { generation },
+    );
+
+    assert_eq!(
+        decode_request_frame(&encode_frame(&request).expect("encode request"))
+            .expect("decode request"),
+        request
+    );
+    assert_eq!(
+        decode_response_frame(&encode_frame(&response).expect("encode response"))
+            .expect("decode response"),
+        response
+    );
+}
+
+#[test]
 fn benchmark_snapshots_round_trip_complete_integer_metrics_and_owned_ports() {
     let request = IpcRequest::new(
         "benchmark-42",

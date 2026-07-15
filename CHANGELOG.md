@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Separated gateway certificate activation from watched-root reconciliation.
+  Trust rotation now sends one validated immutable generation over typed IPC
+  and requests Engine-only convergence, so invalid project configuration
+  cannot prevent healthy routes from receiving a renewed certificate.
 - Made explicit singleton reconciliation fail with every typed discovery
   diagnostic when the complete scan is blocked. The request now records a
   failed lifecycle event and exits nonzero while background reconciliation

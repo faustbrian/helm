@@ -28,8 +28,11 @@ ask users to trust their own CAs.
 `stackctl daemon trust rotate` creates an immutable replacement generation,
 installs and verifies its exact OS trust identity, and atomically selects the
 new generation while retaining the previous trusted identity. It then requests
-daemon reconciliation and waits for the ready gateway to publish the exact
-replacement generation before removing the previous trust entry. A failed
+Engine-only activation over typed IPC and waits for the ready gateway to
+publish the exact replacement generation before removing the previous trust
+entry. The request validates and acknowledges the immutable generation without
+rescanning watched roots, so an invalid newcomer cannot interrupt certificate
+maintenance for the last complete validated registry. A failed
 install, verification, gateway activation, or removal atomically reselects the
 prior generation and restores its trust state. If filesystem rollback fails,
 both identities remain trusted and the full recovery error is reported.

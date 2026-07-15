@@ -273,24 +273,12 @@ fn handle_daemon_reconcile() -> Result<()> {
     let response = send_singleton_request(IpcPayload::Reconcile)?;
     match response.outcome() {
         IpcOutcome::Success {
-            result:
-                IpcResult::Reconciled {
-                    project_count,
-                    issue_count,
-                    applied,
-                },
+            result: IpcResult::Reconciled { project_count },
         } => {
             output::event(
                 "daemon",
-                if *applied {
-                    LogLevel::Success
-                } else {
-                    LogLevel::Error
-                },
-                &format!(
-                    "Singleton reconciliation found {project_count} project(s) and {issue_count} issue(s); registry {}",
-                    if *applied { "applied" } else { "preserved" }
-                ),
+                LogLevel::Success,
+                &format!("Singleton reconciliation applied {project_count} project(s)"),
                 Persistence::Persistent,
             );
             Ok(())

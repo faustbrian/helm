@@ -17,8 +17,8 @@ use super::{
     finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
     publish_project_command_result, publish_project_restore_result,
     queue_next_installation_deletion_prune, reconcile_watched_roots,
-    requires_followup_reconciliation, restore_daemon_operation_queues,
-    retry_failed_installation_deletion_prune,
+    requires_engine_reconciliation, requires_followup_reconciliation,
+    restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
 use crate::control_plane::daemon::ipc::{
@@ -6767,14 +6767,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 
     assert_eq!(
         response,
-        IpcResponse::success(
-            "reconcile-42",
-            IpcResult::Reconciled {
-                project_count: 1,
-                issue_count: 0,
-                applied: true,
-            },
-        )
+        IpcResponse::success("reconcile-42", IpcResult::Reconciled { project_count: 1 },)
     );
 
     let subscription = IpcRequest::new(
@@ -6896,6 +6889,77 @@ fn daemon_reconcile_request_fails_with_discovery_diagnostics() {
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn gateway_certificate_activation_validates_the_exact_generation() {
+    let root = temporary_directory("ipc-certificate-activation");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("open state store");
+    let mut control_plane = ControlPlane::new(store);
+    let generation = "a".repeat(64);
+    let mut event_journal = IpcEventJournal::default();
+
+    let valid = IpcRequest::new(
+        "certificate-valid",
+        IpcPayload::ActivateGatewayCertificate {
+            generation: generation.clone(),
+        },
+    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &valid,
+        event_journal: &mut event_journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "certificate-valid",
+            IpcResult::GatewayCertificateActivationRequested { generation },
+        )
+    );
+
+    let invalid = IpcRequest::new(
+        "certificate-invalid",
+        IpcPayload::ActivateGatewayCertificate {
+            generation: "not-a-revision".to_owned(),
+        },
+    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &invalid,
+        event_journal: &mut event_journal,
+        project_commands: &mut ProjectCommandQueue::default(),
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut ProjectLogSessionRegistry::default(),
+        resource_health: &ResourceHealthRegistry::default(),
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_001,
+    });
+    let IpcOutcome::Failure { diagnostics } = response.outcome() else {
+        panic!("invalid certificate generation should fail");
+    };
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code(), "certificate_generation_invalid");
+    assert!(!diagnostics[0].retryable());
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove certificate activation fixture");
 }
 
 #[test]
@@ -9052,6 +9116,25 @@ fn mutating_daemon_requests_schedule_a_complete_followup_scan() {
     assert!(!requires_followup_reconciliation(&IpcRequest::new(
         "ping-42",
         IpcPayload::Ping,
+    )));
+
+    let certificate = IpcRequest::new(
+        "certificate-42",
+        IpcPayload::ActivateGatewayCertificate {
+            generation: "a".repeat(64),
+        },
+    );
+    assert!(requires_engine_reconciliation(&certificate));
+    assert!(!requires_followup_reconciliation(&certificate));
+    assert!(!requires_engine_reconciliation(&IpcRequest::new(
+        "ping-43",
+        IpcPayload::Ping,
+    )));
+    assert!(!requires_engine_reconciliation(&IpcRequest::new(
+        "certificate-invalid",
+        IpcPayload::ActivateGatewayCertificate {
+            generation: "not-a-revision".to_owned(),
+        },
     )));
 }
 
