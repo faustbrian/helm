@@ -85,7 +85,9 @@ All notable changes to this project are documented in this file.
   a project configuration, proves orphaning revokes only that credential while
   retaining its namespaced data and sibling access, restores the configuration,
   requires exact adoption, and restores the stable credential and value in the
-  same shared container.
+  same shared container. The same acceptance now streams and verifies a real
+  prefix backup, replaces mutated tenant data through the staged restore
+  adapter, removes post-backup keys, and preserves the sibling namespace.
 - Added native Linux Engine acceptance for shared Gotenberg. CI now proves two
   compatible projects reuse one stateless process, perform real HTML-to-PDF
   conversions through the immutable image, retain the same container across

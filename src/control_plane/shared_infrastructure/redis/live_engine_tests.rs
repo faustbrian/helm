@@ -11,12 +11,16 @@ use crate::control_plane::engine::{
     OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
     reconstruct_owned_container, run_attached_command_output,
 };
+use crate::control_plane::migration::{
+    RedisBackupOptions, RedisRestoreOptions, backup_redis_prefix, restore_redis_prefix,
+};
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialGenerationError, OrphanedSharedAccessOptions,
     resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
-    CredentialLifecycle, ResourceLifecycle, SqliteStateStore, StateStore,
+    CredentialLifecycle, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
+    SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -248,6 +252,116 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         assert!(
             denied.contains("NOPERM"),
             "cross-project key access unexpectedly returned: {denied:?}"
+        );
+
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill Redis logical resource");
+        let backup = backup_redis_prefix(
+            &engine,
+            &container,
+            &RedisBackupOptions {
+                flavor: options.flavor,
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                administrator: instance.bootstrap_credential(),
+                prefix: bill.acl().prefix(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 11_500,
+                backup_root: &state_directory.join("backups"),
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("back up live bill Redis prefix");
+        let recovery = RecoveryPointRecord::new(RecoveryPointRecordOptions {
+            recovery_point_id: "bill-cache-live-recovery".to_owned(),
+            project_id: bill_logical.project_id().to_owned(),
+            service_id: bill_logical.service_id().to_owned(),
+            logical_resource_id: bill_logical.logical_resource_id().to_owned(),
+            resource_kind: bill_logical.kind().to_owned(),
+            compatibility_fingerprint: bill_logical.compatibility_fingerprint().to_owned(),
+            reference: backup.reference().to_owned(),
+            artifact_sha256: backup.artifact_sha256().to_owned(),
+            artifact_size_bytes: backup.artifact_size_bytes(),
+            created_at_unix_seconds: 11_500,
+            verified_at_unix_seconds: 11_500,
+        })
+        .expect("record live bill Redis recovery point");
+        let stale_bill_key = format!("{}stale", bill.acl().prefix());
+        for (key, value) in [
+            (&bill_key, "mutated-value"),
+            (&stale_bill_key, "stale-value"),
+        ] {
+            assert_eq!(
+                key_value_command(
+                    &engine,
+                    &container,
+                    options.flavor,
+                    bill.credential().username(),
+                    bill.credential().secret(),
+                    &["SET", key, value],
+                )
+                .await,
+                "OK\n"
+            );
+        }
+        restore_redis_prefix(
+            &engine,
+            &container,
+            &RedisRestoreOptions {
+                flavor: options.flavor,
+                logical_resource: bill_logical,
+                credential: bill.credential(),
+                administrator: instance.bootstrap_credential(),
+                recovery_point: &recovery,
+                prefix: bill.acl().prefix(),
+                installation_id: &installation_id,
+                restored_at_unix_seconds: 11_700,
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("restore live bill Redis prefix");
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                bill.credential().username(),
+                bill.credential().secret(),
+                &["GET", &bill_key],
+            )
+            .await,
+            "bill-value\n"
+        );
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                bill.credential().username(),
+                bill.credential().secret(),
+                &["GET", &stale_bill_key],
+            )
+            .await,
+            "\n",
+            "restore must remove keys that were absent from the backup"
+        );
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                shop.credential().username(),
+                shop.credential().secret(),
+                &["GET", &shop_key],
+            )
+            .await,
+            "shop-value\n",
+            "restoring one prefix must not mutate a sibling namespace"
         );
 
         let second = reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
