@@ -1,20 +1,23 @@
 use super::{
     RedisFlavor, RedisPreparationOptions, prepare_redis_shared_instances,
-    reconcile_redis_acl_snapshot,
+    reconcile_prepared_redis_instance,
 };
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery,
     ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions,
     ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkManager,
-    ResourceKind, RetentionClass, delete_owned_installation_resources, reconstruct_owned_container,
-    run_attached_command_output,
+    OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
+    reconstruct_owned_container, run_attached_command_output,
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
-    plan_shared_instances,
+    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
+    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
-use crate::control_plane::state::SqliteStateStore;
+use crate::control_plane::state::{
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -171,23 +174,17 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
             .create_network(&network_request)
             .await
             .expect("create private Redis acceptance network");
-        let first = reconcile_redis_acl_snapshot(
-            &mut engine,
-            instance,
-            prepared.snapshot(),
-            prepared.state_directory(),
-            &installation_id,
-            8,
-        )
-        .await
-        .expect("converge shared Redis for two projects");
+        let first = reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
+            .await
+            .expect("converge shared Redis for two projects");
+        let container = owned_shared_container(&engine, &installation_id).await;
 
         let bill_key = format!("{}owned", bill.acl().prefix());
         let shop_key = format!("{}owned", shop.acl().prefix());
         assert_eq!(
             key_value_command(
                 &engine,
-                first.container(),
+                &container,
                 options.flavor,
                 bill.credential().username(),
                 bill.credential().secret(),
@@ -199,7 +196,7 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         assert_eq!(
             key_value_command(
                 &engine,
-                first.container(),
+                &container,
                 options.flavor,
                 shop.credential().username(),
                 shop.credential().secret(),
@@ -210,7 +207,7 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         );
         let denied = key_value_command(
             &engine,
-            first.container(),
+            &container,
             options.flavor,
             shop.credential().username(),
             shop.credential().secret(),
@@ -222,27 +219,101 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
             "cross-project key access unexpectedly returned: {denied:?}"
         );
 
-        let second = reconcile_redis_acl_snapshot(
-            &mut engine,
-            instance,
-            prepared.snapshot(),
-            prepared.state_directory(),
-            &installation_id,
-            8,
-        )
-        .await
-        .expect("reconcile unchanged shared Redis instance");
-        assert_eq!(second.container().id(), first.container().id());
-        let owned_shared = engine
+        let second = reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
+            .await
+            .expect("reconcile unchanged shared Redis instance");
+        assert!(second.logical_resource_drifts().is_empty());
+        let replayed_container = owned_shared_container(&engine, &installation_id).await;
+        assert_eq!(replayed_container.id(), container.id());
+
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .map(orphaned_logical_resource)
+            .expect("find bill logical Redis resource");
+        let bill_disabled = disabled_credential(bill.credential());
+        let credentials = [bill_disabled, instance.bootstrap_credential().clone()];
+        let observed = engine
             .discover_managed()
             .await
-            .expect("discover shared Redis acceptance resources")
-            .into_iter()
-            .filter_map(|observed| reconstruct_owned_container(&observed, &installation_id, 8).ok())
-            .filter(|owned| owned.metadata().kind() == ResourceKind::SharedService)
-            .collect::<Vec<_>>();
-        assert_eq!(owned_shared.len(), 1);
-        assert_eq!(owned_shared[0].id(), first.container().id());
+            .expect("discover Redis lifecycle acceptance resources");
+        let revoked = revoke_orphaned_shared_access_from_observed(
+            &mut engine,
+            &observed,
+            OrphanedSharedAccessOptions {
+                resources: first.physical_resources(),
+                logical_resources: std::slice::from_ref(&bill_logical),
+                credentials: &credentials,
+                installation_id: &installation_id,
+                schema_version: 8,
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("revoke removed bill Redis access");
+        assert_eq!(revoked, 1);
+
+        let denied_after_removal = key_value_command(
+            &engine,
+            &container,
+            options.flavor,
+            bill.credential().username(),
+            bill.credential().secret(),
+            &["GET", &bill_key],
+        )
+        .await;
+        assert!(
+            denied_after_removal.contains("AUTH failed")
+                || denied_after_removal.contains("WRONGPASS")
+                || denied_after_removal.contains("NOAUTH"),
+            "removed project credential remained usable: {denied_after_removal:?}"
+        );
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                shop.credential().username(),
+                shop.credential().secret(),
+                &["GET", &shop_key],
+            )
+            .await,
+            "shop-value\n"
+        );
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                instance.bootstrap_credential().username(),
+                instance.bootstrap_credential().secret(),
+                &["GET", &bill_key],
+            )
+            .await,
+            "bill-value\n",
+            "credential revocation must retain the removed project's data"
+        );
+
+        let restored =
+            reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
+                .await
+                .expect("restore bill Redis access from the active configuration");
+        assert!(restored.logical_resource_drifts().is_empty());
+        assert_eq!(
+            key_value_command(
+                &engine,
+                &container,
+                options.flavor,
+                bill.credential().username(),
+                bill.credential().secret(),
+                &["GET", &bill_key],
+            )
+            .await,
+            "bill-value\n"
+        );
+        let restored_container = owned_shared_container(&engine, &installation_id).await;
+        assert_eq!(restored_container.id(), container.id());
 
         delete_owned_installation_resources(
             &mut engine,
@@ -266,6 +337,51 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         "shared {} isolation acceptance passed for installation {installation_id}",
         options.display_name
     );
+}
+
+async fn owned_shared_container(
+    engine: &BollardEngineAdapter,
+    installation_id: &str,
+) -> OwnedContainer {
+    let owned = engine
+        .discover_managed()
+        .await
+        .expect("discover shared Redis acceptance resources")
+        .into_iter()
+        .filter_map(|observed| reconstruct_owned_container(&observed, installation_id, 8).ok())
+        .filter(|owned| owned.metadata().kind() == ResourceKind::SharedService)
+        .collect::<Vec<_>>();
+    assert_eq!(owned.len(), 1);
+
+    owned
+        .into_iter()
+        .next()
+        .expect("one shared Redis container")
+}
+
+fn orphaned_logical_resource(logical: &LogicalResourceRecord) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: logical.shared_resource_id().to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: logical.desired_revision().to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+}
+
+fn disabled_credential(credential: &CredentialRecord) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: credential.credential_id().to_owned(),
+        project_id: credential.project_id().map(str::to_owned),
+        service_id: credential.service_id().to_owned(),
+        username: credential.username().to_owned(),
+        secret: credential.secret().to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -298,7 +414,7 @@ impl CredentialEntropy for SequentialCredentialEntropy {
 
 async fn key_value_command(
     engine: &BollardEngineAdapter,
-    container: &crate::control_plane::engine::OwnedContainer,
+    container: &OwnedContainer,
     flavor: RedisFlavor,
     username: &str,
     password: &str,

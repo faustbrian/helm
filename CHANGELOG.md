@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended native Linux Redis and Valkey acceptance through project removal and
+  restoration. CI now proves orphaning revokes only the removed credential,
+  retains its namespaced data, preserves sibling access, restores the stable
+  credential and value, and keeps the same shared container.
 - Added native Linux Engine acceptance for shared Gotenberg. CI now proves two
   compatible projects reuse one stateless process, perform real HTML-to-PDF
   conversions through the immutable image, retain the same container across
