@@ -171,6 +171,148 @@ fn live_docker_engine_persistent_volume_deletion_requires_exact_authorization() 
 }
 
 #[test]
+#[ignore = "CI owns live Docker Engine workload-isolation acceptance"]
+fn live_docker_engine_project_application_uses_private_network_without_host_ports() {
+    const BUSYBOX_IMAGE: &str = concat!(
+        "busybox@sha256:",
+        "9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
+    );
+
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must follow the Unix epoch")
+        .as_nanos();
+    let installation_id = format!("ci-{}-{nonce}", std::process::id());
+    let network_name = format!("stackctl-{installation_id}");
+    let container_name = format!("stackctl-{installation_id}-app");
+    let fingerprint = format!("sha256:{}", "c".repeat(64));
+    let revision = format!("sha256:{}", "d".repeat(64));
+    let network_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.clone(),
+        kind: ResourceKind::Network,
+        project_id: None,
+        compatibility_fingerprint: fingerprint.clone(),
+        schema_version: 8,
+        desired_revision: revision.clone(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("build CI network metadata");
+    let application_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.clone(),
+        kind: ResourceKind::ProjectApplication,
+        project_id: Some("ci-project".to_owned()),
+        compatibility_fingerprint: fingerprint,
+        schema_version: 8,
+        desired_revision: revision,
+        retention: RetentionClass::Disposable,
+    })
+    .and_then(|metadata| metadata.with_resource_id("app"))
+    .expect("build CI application metadata");
+    let network_request = NetworkCreateOptions::new(&network_name, network_metadata)
+        .expect("build CI network request");
+    let container_request =
+        ContainerCreateOptions::new(&container_name, BUSYBOX_IMAGE, application_metadata)
+            .and_then(|request| request.with_network(&network_name))
+            .and_then(|request| {
+                request.with_command(vec![
+                    "sh".to_owned(),
+                    "-c".to_owned(),
+                    "while :; do sleep 30; done".to_owned(),
+                ])
+            })
+            .expect("build private CI application request");
+    let image = ImmutableImageReference::new(BUSYBOX_IMAGE).expect("build immutable CI image");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build Engine workload-isolation acceptance runtime");
+    let mut engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    runtime.block_on(async {
+        engine
+            .ensure_image(&image)
+            .await
+            .expect("resolve immutable CI application image");
+        let network = engine
+            .create_network(&network_request)
+            .await
+            .expect("create owned private CI network");
+        let container = engine
+            .create(&container_request)
+            .await
+            .expect("create owned private CI application");
+        engine
+            .start(&container)
+            .await
+            .expect("start private CI application");
+
+        assert_eq!(
+            engine
+                .inspect(&container)
+                .await
+                .expect("inspect private CI application"),
+            ContainerState::Running
+        );
+        let observed = engine
+            .discover_managed()
+            .await
+            .expect("discover private CI application");
+        let owned = observed
+            .iter()
+            .find(|observed| observed.id() == container.id())
+            .and_then(|observed| reconstruct_owned_container(observed, &installation_id, 8).ok())
+            .expect("reconstruct exact CI application ownership");
+        assert_eq!(owned.metadata().kind(), ResourceKind::ProjectApplication);
+        assert_eq!(owned.metadata().project_id(), Some("ci-project"));
+        assert_eq!(owned.metadata().resource_id(), Some("app"));
+        assert!(
+            engine
+                .discover_published_tcp_ports()
+                .await
+                .expect("inspect CI application host ports")
+                .iter()
+                .all(|binding| binding.container_id() != container.id())
+        );
+        let observed_networks = engine
+            .discover_managed_networks()
+            .await
+            .expect("discover private CI network");
+        let owned_network = observed_networks
+            .iter()
+            .find(|observed| observed.id() == network.id())
+            .and_then(|observed| reconstruct_owned_network(observed, &installation_id, 8).ok())
+            .expect("reconstruct exact CI network ownership");
+        assert_eq!(owned_network.metadata().kind(), ResourceKind::Network);
+        assert_eq!(owned_network.metadata().project_id(), None);
+
+        delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
+        )
+        .await
+        .expect("delete disposable CI application and private network");
+        assert_eq!(
+            engine
+                .inspect(&container)
+                .await
+                .expect("verify CI application deletion"),
+            ContainerState::Missing
+        );
+    });
+
+    println!("private workload acceptance passed for installation {installation_id}");
+}
+
+#[test]
 fn reconciliation_engine_reuses_pass_wide_resource_observations() {
     let containers = [ObservedContainer::new(
         ContainerId::new("shared-postgres"),

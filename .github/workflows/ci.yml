@@ -82,7 +82,7 @@ jobs:
       - name: Run tests
         run: cargo test --all-targets --all-features
 
-      - name: Exercise Engine inventory and persistent-data authorization
+      - name: Exercise Engine inventory, isolation, and data authorization
         if: startsWith(matrix.platform, 'linux-')
         env:
           STACKCTL_ENGINE_SOCKET: /var/run/docker.sock

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for a real digest-pinned project
+  application. CI now proves exact label-based ownership reconstruction,
+  private-network attachment, the absence of routine host TCP ports, running
+  lifecycle state, and typed cleanup on both supported architectures.
 - Added published PHP runtime acceptance for both Linux architectures. The
   release workflow now derives an offline image from the exact published
   digest, enables every selectable PHP extension, executes the runtime through

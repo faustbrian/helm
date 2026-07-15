@@ -40,7 +40,7 @@ their skipped status.
 | Workflow | Automated evidence | Published artifact |
 | --- | --- | --- |
 | `CI` | Release build and full Rust suite on Linux and macOS, both x86_64 and arm64 | Job logs |
-| `CI` | Production Engine adapter API negotiation, managed inventory, and exact-authorization persistent-volume retain/delete semantics on native Ubuntu x86_64 and arm64 runners | `engine-acceptance-linux-*` |
+| `CI` | Production Engine adapter API negotiation; real owned application and private-network inventory with no application host ports; and exact-authorization persistent-volume retain/delete semantics on native Ubuntu x86_64 and arm64 runners | `engine-acceptance-linux-*` |
 | `CI` | Pinned gateway HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, reload, and restart acceptance on native Linux x86_64 and arm64 runners | `gateway-acceptance-linux-*` |
 | `Runtime Images` | Multi-architecture runtime publication, exact-digest amd64/arm64 execution of every selectable PHP extension, manifest architecture checks, SBOM, provenance, and keyless signature verification | `runtime-image-evidence-php-8.5` |
 
