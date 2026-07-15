@@ -38,6 +38,8 @@ pub(crate) use project_service_preparation_error::ProjectServicePreparationError
 pub(crate) use project_service_preparation_strategy::ProjectServicePreparationStrategy;
 pub(crate) use project_service_provisioning_job::ProjectServiceProvisioningJob;
 
+#[cfg(test)]
+mod live_engine_tests;
 mod materialize_project_service_configurations;
 #[cfg(test)]
 mod tests;

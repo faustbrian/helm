@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for dedicated Dragonfly and Memcached.
+  CI now drives real YAML through service planning, starts both services on one
+  private network, verifies Dragonfly with its generated password and
+  Memcached through its exact protocol response, and removes the disposable
+  probes, containers, retained volume, and network by ownership.
 - Added native Linux Engine acceptance for immutable application runtimes.
   CI now builds the declared PHP, Composer, Node, and Bun stages, executes PHP,
   Composer, npm, Bun, and a repository hook inside the owned Linux application,
