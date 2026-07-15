@@ -18,16 +18,15 @@ impl EngineReconciliationSchedule {
         &mut self,
         reconciliation: &DiscoveryReconciliationResult,
     ) -> Result<(), ServiceStrategyError> {
-        self.permitted = false;
-        self.due = false;
+        let Some(registry) = reconciliation.registry() else {
+            return Ok(());
+        };
+        let execution_plan = resolve_execution_plan(registry)?;
+        self.desired_registry = Some(registry.clone());
+        self.execution_plan = Some(execution_plan);
+        self.permitted = true;
+        self.due = true;
         self.converged = false;
-        if let Some(registry) = reconciliation.registry() {
-            let execution_plan = resolve_execution_plan(registry)?;
-            self.desired_registry = Some(registry.clone());
-            self.execution_plan = Some(execution_plan);
-            self.permitted = true;
-            self.due = true;
-        }
 
         Ok(())
     }

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Kept the last complete validated Engine plan permitted when a later watched
+  root scan is blocked by an invalid or unreadable project. The blocked scan
+  cannot replace desired state, but Engine events and recovery passes can still
+  self-heal every previously active project.
 - Parsed the persisted wildcard leaf's exact X.509 expiry before renewal and
   carried that evidence through gateway activation. If replacement activation
   fails after the served certificate expired, every affected route reports

@@ -410,3 +410,7 @@ exponential backoff and jitter. Periodic complete discovery remains the
 correctness fallback when events are lost or coalesced.
 Repeated failures back off with jitter and one durable diagnostic rather than
 log spam. One project or shared service failure does not block unrelated work.
+A blocked filesystem scan cannot publish partial desired state, but it also
+does not revoke reconciliation permission from the last complete validated
+plan. Existing projects therefore continue responding to Engine events and
+periodic recovery while the invalid configuration is corrected.

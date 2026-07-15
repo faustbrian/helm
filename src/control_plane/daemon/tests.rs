@@ -6605,7 +6605,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     .expect("incomplete scan is a durable diagnostic");
     assert!(!blocked.was_applied());
     engine_schedule.observe(&blocked).expect("block registry");
-    assert!(!engine_schedule.may_reconcile());
+    assert!(engine_schedule.may_reconcile());
     assert!(!engine_schedule.is_due());
     assert!(!engine_schedule.is_converged());
     assert_eq!(
@@ -6627,6 +6627,8 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
     assert_eq!(blocked.report().issues().len(), 1);
+    engine_schedule.request();
+    assert!(engine_schedule.is_due());
 
     drop(control_plane);
     let store = SqliteStateStore::open(&database_path).expect("reopen state store");
