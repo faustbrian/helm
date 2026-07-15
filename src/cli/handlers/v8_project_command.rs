@@ -192,6 +192,18 @@ const fn ipc_package_manager(package_manager: PackageManager) -> IpcNodePackageM
 }
 
 fn execute_v8_invocation(invocation: V8ProjectInvocation) -> Result<()> {
+    execute_project_command(
+        invocation.project_root,
+        invocation.service,
+        invocation.command,
+    )
+}
+
+pub(super) fn execute_project_command(
+    project_root: PathBuf,
+    service: String,
+    command: IpcProjectCommand,
+) -> Result<()> {
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
     let operation_id = next_request_id("project-command");
     let response = send_unix_request(
@@ -199,9 +211,9 @@ fn execute_v8_invocation(invocation: V8ProjectInvocation) -> Result<()> {
         &IpcRequest::new(
             operation_id.clone(),
             IpcPayload::RunProjectCommand {
-                canonical_path: invocation.project_root,
-                service: invocation.service,
-                command: invocation.command,
+                canonical_path: project_root,
+                service,
+                command,
                 timeout_seconds: COMMAND_TIMEOUT_SECONDS,
             },
         ),
@@ -215,7 +227,7 @@ fn execute_v8_invocation(invocation: V8ProjectInvocation) -> Result<()> {
     follow_operation(&socket_path, &operation_id)
 }
 
-fn follow_operation(socket_path: &Path, operation_id: &str) -> Result<()> {
+pub(super) fn follow_operation(socket_path: &Path, operation_id: &str) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(COMMAND_TIMEOUT_SECONDS + 10);
     let mut cursor = None;
     loop {
@@ -258,7 +270,7 @@ fn follow_operation(socket_path: &Path, operation_id: &str) -> Result<()> {
     }
 }
 
-fn accepted_operation_id(response: &IpcResponse) -> Result<&str> {
+pub(super) fn accepted_operation_id(response: &IpcResponse) -> Result<&str> {
     match response.outcome() {
         IpcOutcome::Success {
             result: IpcResult::Accepted { operation_id },
@@ -308,7 +320,7 @@ fn write_output(stream: IpcOutputStream, encoded: &str) -> Result<()> {
     Ok(())
 }
 
-fn next_request_id(kind: &str) -> String {
+pub(super) fn next_request_id(kind: &str) -> String {
     format!(
         "{kind}-{}-{}",
         std::process::id(),

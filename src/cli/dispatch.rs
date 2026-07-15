@@ -44,6 +44,7 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
         || handlers::handle_v8_open(&cli, &context)?
         || handlers::handle_v8_logs(&cli, &context)?
         || handlers::handle_v8_lock(&cli, &context)?
+        || handlers::handle_v8_workflow(&cli, &context)?
         || handlers::handle_v8_project_command(&cli, &context)?
     {
         return Ok(());

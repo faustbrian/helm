@@ -23,6 +23,8 @@ mod v8_project_status;
 mod v8_status_cmd;
 #[cfg(unix)]
 mod v8_url_cmd;
+#[cfg(unix)]
+mod v8_workflow_cmd;
 
 pub(crate) use config_schema_cmd::handle_config_schema;
 pub(crate) use config_validate_cmd::handle_config_validate;
@@ -42,3 +44,5 @@ pub(crate) use v8_project_command::handle_v8_project_command;
 pub(crate) use v8_status_cmd::handle_v8_status;
 #[cfg(unix)]
 pub(crate) use v8_url_cmd::handle_v8_url;
+#[cfg(unix)]
+pub(crate) use v8_workflow_cmd::handle_v8_workflow;

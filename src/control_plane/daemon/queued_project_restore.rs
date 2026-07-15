@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// Secret-free identity of one exact recovery point awaiting restoration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -10,6 +11,7 @@ pub(crate) struct QueuedProjectRestore {
     logical_resource_id: String,
     kind: String,
     compatibility_fingerprint: String,
+    dump: Option<QueuedDatabaseDump>,
 }
 
 impl QueuedProjectRestore {
@@ -22,6 +24,29 @@ impl QueuedProjectRestore {
             logical_resource_id: options.logical_resource_id,
             kind: options.kind,
             compatibility_fingerprint: options.compatibility_fingerprint,
+            dump: None,
+        };
+        operation.validate()?;
+
+        Ok(operation)
+    }
+
+    pub(crate) fn from_database_dump(
+        options: QueuedDatabaseDumpRestoreOptions,
+    ) -> Result<Self, String> {
+        let operation = Self {
+            operation_id: options.restore.operation_id,
+            recovery_point_id: format!("dump:{}", options.restore.service_id),
+            project_id: options.restore.project_id,
+            service_id: options.restore.service_id,
+            logical_resource_id: options.restore.logical_resource_id,
+            kind: options.restore.kind,
+            compatibility_fingerprint: options.restore.compatibility_fingerprint,
+            dump: Some(QueuedDatabaseDump {
+                file: options.file,
+                archive_entry: options.archive_entry,
+                reset: options.reset,
+            }),
         };
         operation.validate()?;
 
@@ -54,6 +79,20 @@ impl QueuedProjectRestore {
 
     pub(crate) fn compatibility_fingerprint(&self) -> &str {
         &self.compatibility_fingerprint
+    }
+
+    pub(crate) fn dump_file(&self) -> Option<&Path> {
+        self.dump.as_ref().map(|dump| dump.file.as_path())
+    }
+
+    pub(crate) fn dump_archive_entry(&self) -> Option<&str> {
+        self.dump
+            .as_ref()
+            .and_then(|dump| dump.archive_entry.as_deref())
+    }
+
+    pub(crate) fn resets_database(&self) -> bool {
+        self.dump.as_ref().is_some_and(|dump| dump.reset)
     }
 
     pub(crate) fn payload_json(&self) -> Result<String, String> {
@@ -100,6 +139,17 @@ impl QueuedProjectRestore {
                 self.kind
             ));
         }
+        if let Some(dump) = &self.dump {
+            if !matches!(self.kind.as_str(), "mysql_database" | "mariadb_database") {
+                return Err("database dump restore currently requires MySQL or MariaDB".to_owned());
+            }
+            if !dump.file.is_absolute() || dump.file.as_os_str().is_empty() {
+                return Err("database dump path must be canonical and absolute".to_owned());
+            }
+            if dump.archive_entry.as_ref().is_some_and(String::is_empty) {
+                return Err("database dump archive entry must not be empty".to_owned());
+            }
+        }
 
         Ok(())
     }
@@ -116,6 +166,21 @@ pub(crate) struct QueuedProjectRestoreOptions {
     pub(crate) compatibility_fingerprint: String,
 }
 
+pub(crate) struct QueuedDatabaseDumpRestoreOptions {
+    pub(crate) restore: QueuedProjectRestoreOptions,
+    pub(crate) file: PathBuf,
+    pub(crate) archive_entry: Option<String>,
+    pub(crate) reset: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QueuedDatabaseDump {
+    file: PathBuf,
+    archive_entry: Option<String>,
+    reset: bool,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct PersistedProjectRestore {
@@ -125,6 +190,8 @@ struct PersistedProjectRestore {
     logical_resource_id: String,
     kind: String,
     compatibility_fingerprint: String,
+    #[serde(default)]
+    dump: Option<QueuedDatabaseDump>,
 }
 
 impl From<&QueuedProjectRestore> for PersistedProjectRestore {
@@ -136,13 +203,14 @@ impl From<&QueuedProjectRestore> for PersistedProjectRestore {
             logical_resource_id: operation.logical_resource_id.clone(),
             kind: operation.kind.clone(),
             compatibility_fingerprint: operation.compatibility_fingerprint.clone(),
+            dump: operation.dump.clone(),
         }
     }
 }
 
 impl PersistedProjectRestore {
     fn into_queued(self, operation_id: String) -> Result<QueuedProjectRestore, String> {
-        QueuedProjectRestore::new(QueuedProjectRestoreOptions {
+        let restore = QueuedProjectRestoreOptions {
             operation_id,
             recovery_point_id: self.recovery_point_id,
             project_id: self.project_id,
@@ -150,6 +218,17 @@ impl PersistedProjectRestore {
             logical_resource_id: self.logical_resource_id,
             kind: self.kind,
             compatibility_fingerprint: self.compatibility_fingerprint,
-        })
+        };
+        match self.dump {
+            Some(dump) => {
+                QueuedProjectRestore::from_database_dump(QueuedDatabaseDumpRestoreOptions {
+                    restore,
+                    file: dump.file,
+                    archive_entry: dump.archive_entry,
+                    reset: dump.reset,
+                })
+            }
+            None => QueuedProjectRestore::new(restore),
+        }
     }
 }

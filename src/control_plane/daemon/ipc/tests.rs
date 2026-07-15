@@ -722,6 +722,27 @@ fn project_command_requests_preserve_typed_non_shell_arguments() {
 }
 
 #[test]
+fn database_dump_restore_requests_preserve_explicit_destructive_options() {
+    let request = IpcRequest::new(
+        "restore-sandbox",
+        IpcPayload::RestoreProjectDatabaseDump {
+            canonical_path: PathBuf::from("/work/api"),
+            service: "shipit".to_owned(),
+            file: PathBuf::from("/work/api/database/dumps/sandbox.sql.zip"),
+            archive_entry: Some("sandbox.sql".to_owned()),
+            reset: true,
+        },
+    );
+
+    let frame = encode_frame(&request).expect("encode database dump restore request");
+
+    assert_eq!(
+        decode_request_frame(&frame).expect("decode database dump restore request"),
+        request
+    );
+}
+
+#[test]
 fn node_package_manager_requests_preserve_the_exact_known_executable() {
     let request = IpcRequest::new(
         "command-node-42",

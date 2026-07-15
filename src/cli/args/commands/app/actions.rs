@@ -19,3 +19,9 @@ impl OpenArgs {
         self.service.as_deref()
     }
 }
+
+#[derive(Args)]
+pub(crate) struct RunArgs {
+    /// Exact named workflow declared in .stackctl.yaml
+    pub(crate) workflow: String,
+}

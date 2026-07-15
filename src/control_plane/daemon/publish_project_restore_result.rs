@@ -28,10 +28,18 @@ where
                 MigrationExecutionResult::Confirmed => "confirmed",
                 MigrationExecutionResult::RolledBack => "rolled_back",
             };
-            let evidence = serde_json::json!({
-                "migration_id": operation_id,
-                "state": state,
-            });
+            let evidence = if operation.dump_file().is_some() {
+                serde_json::json!({
+                    "service": operation.service_id(),
+                    "state": "restored",
+                    "reset": operation.resets_database(),
+                })
+            } else {
+                serde_json::json!({
+                    "migration_id": operation_id,
+                    "state": state,
+                })
+            };
             record_ipc_event(
                 control_plane,
                 event_journal,

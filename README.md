@@ -6,7 +6,15 @@ Linux containers through the Engine API. It owns shared infrastructure, local
 HTTPS routing, credentials, recovery, and lifecycle state without installing
 PHP, databases, Caddy, or nginx on the host.
 
-## Start
+## Quick start
+
+Start Docker Desktop on macOS or Docker Engine on Linux, then install the
+current checkout:
+
+```bash
+cargo install --path . --locked
+stackctl --version
+```
 
 Create a project configuration:
 
@@ -21,17 +29,24 @@ services:
     version: "18"
 ```
 
-Validate it, then perform the one-time setup for one or more watched roots:
+Validate it, perform the one-time setup, and publish the project's immutable
+image lock:
 
 ```bash
 stackctl config validate .stackctl.yaml
 stackctl setup --dir ~/Developer
+stackctl lock images
+stackctl daemon reconcile
+stackctl status
+stackctl open
 ```
 
 Setup validates the roots and `.localhost` resolution before host mutation,
 installs the singleton CA trust, and starts the login service transactionally.
-The daemon then discovers valid projects automatically. Inspect them with
-`stackctl status`, `stackctl logs`, and `stackctl url`.
+The daemon then discovers valid projects automatically. If a project uses
+mutable image names or presets, it becomes runnable after `stackctl lock
+images` creates `.stackctl.lock.yaml`. Inspect it with `stackctl status`,
+`stackctl logs`, and `stackctl url`.
 
 V8 does not upgrade, migrate, adopt, or execute pre-v8 project configuration.
 Use a fresh installation and new `.stackctl.yaml` files.

@@ -63,6 +63,7 @@ stackctl url [--service <NAME>] [--format table|json]
 stackctl open [--service <NAME>|--all] [--no-browser] [--json]
 stackctl logs [--service <NAME>...] [--all] [--follow] [--tail <N>] [--prefix]
 stackctl env generate --output <PATH>
+stackctl run <WORKFLOW>
 ```
 
 Status, routes, logs, and managed environment values come from authoritative
@@ -85,3 +86,22 @@ These commands execute through typed daemon IPC inside the project's Linux
 runtime container. They do not run repository scripts or language runtimes on
 the host. Runtime versions belong in declarative project configuration rather
 than command-line version-manager flags.
+
+## Named workflows
+
+`stackctl run <WORKFLOW>` executes only a workflow explicitly declared in the
+current `.stackctl.yaml`. Steps run in order and stop at the first failure.
+Database restores are destructive only when the user invokes the workflow;
+project discovery and unattended reconciliation never run them.
+
+The initial workflow surface supports MySQL and MariaDB dump restores from a
+project-local `.sql` file or one exact entry in a project-local `.zip`, an
+optional database reset, an optional Laravel migration against an exact
+connection, and opening an exact route. Example:
+
+```text
+stackctl run sandbox
+```
+
+The daemon streams the dump into the selected owned logical database. It does
+not require `mysql`, `mariadb`, `unzip`, PHP, or Laravel on the host.

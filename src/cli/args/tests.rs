@@ -87,6 +87,17 @@ fn setup_accepts_one_or_more_watched_roots() {
 }
 
 #[test]
+fn run_requires_one_exact_named_workflow() {
+    let cli = Cli::parse_from(["stackctl", "run", "sandbox"]);
+    let Commands::Run(args) = cli.command else {
+        panic!("run command");
+    };
+
+    assert_eq!(args.workflow, "sandbox");
+    assert!(Cli::try_parse_from(["stackctl", "run"]).is_err());
+}
+
+#[test]
 fn daemon_retained_accepts_machine_readable_output() {
     let cli = Cli::parse_from(["stackctl", "daemon", "retained", "--format", "json"]);
 

@@ -18,6 +18,7 @@ pub(crate) struct DesiredService {
     database: Option<String>,
     command: Option<Vec<String>>,
     environment: BTreeMap<String, String>,
+    environment_mapping: BTreeMap<String, String>,
 }
 
 impl Debug for DesiredService {
@@ -36,6 +37,7 @@ impl Debug for DesiredService {
             .field("database", &self.database)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
+            .field("environment_mapping", &self.environment_mapping)
             .finish()
     }
 }
@@ -55,6 +57,7 @@ impl DesiredService {
             database: options.database,
             command: options.command,
             environment: options.environment,
+            environment_mapping: options.environment_mapping,
         }
     }
 
@@ -106,6 +109,10 @@ impl DesiredService {
 
     pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
+    }
+
+    pub(crate) const fn environment_mapping(&self) -> &BTreeMap<String, String> {
+        &self.environment_mapping
     }
 
     pub(crate) const fn identity(&self) -> &ServiceIdentity {

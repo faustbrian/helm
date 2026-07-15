@@ -65,6 +65,7 @@ mod postgres_prune_execution_options;
 mod postgres_prune_execution_result;
 mod postgres_prune_queue;
 mod postgres_prune_queue_error;
+mod prepared_database_dump;
 mod project_backup_execution_options;
 mod project_backup_execution_result;
 mod project_backup_queue;
@@ -239,6 +240,7 @@ pub(crate) use postgres_prune_execution_options::PostgresPruneExecutionOptions;
 pub(crate) use postgres_prune_execution_result::PostgresPruneExecutionResult;
 pub(crate) use postgres_prune_queue::PostgresPruneQueue;
 pub(crate) use postgres_prune_queue_error::PostgresPruneQueueError;
+pub(crate) use prepared_database_dump::PreparedDatabaseDump;
 pub(crate) use project_backup_execution_options::ProjectBackupExecutionOptions;
 pub(crate) use project_backup_execution_result::ProjectBackupExecutionResult;
 pub(crate) use project_backup_queue::ProjectBackupQueue;
@@ -274,7 +276,9 @@ pub(crate) use queued_migration_decision::QueuedMigrationDecision;
 pub(crate) use queued_postgres_prune::QueuedPostgresPrune;
 pub(crate) use queued_project_backup::QueuedProjectBackup;
 pub(crate) use queued_project_command::QueuedProjectCommand;
-pub(crate) use queued_project_restore::{QueuedProjectRestore, QueuedProjectRestoreOptions};
+pub(crate) use queued_project_restore::{
+    QueuedDatabaseDumpRestoreOptions, QueuedProjectRestore, QueuedProjectRestoreOptions,
+};
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
 pub(crate) use record_discovery_diagnostics::record_discovery_diagnostics;
 pub(crate) use requires_engine_reconciliation::requires_engine_reconciliation;

@@ -11,6 +11,7 @@ mod setup;
 
 pub(crate) use app::{
     ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs, OpenArgs, PhpToolArgs,
+    RunArgs,
 };
 pub(crate) use daemon::{
     BenchmarkEvidenceScenario, DaemonAdoptArgs, DaemonArgs, DaemonBackupArgs, DaemonBackupsArgs,
@@ -77,4 +78,6 @@ pub(crate) enum Commands {
     Completions(CompletionsArgs),
     /// Open one or all authoritative project routes
     Open(OpenArgs),
+    /// Run one explicitly declared project workflow
+    Run(RunArgs),
 }

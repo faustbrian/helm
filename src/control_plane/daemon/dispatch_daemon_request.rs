@@ -1,11 +1,11 @@
 use super::record_ipc_event::record_ipc_event;
 use super::{
     DaemonRequestDispatchOptions, ProjectLogRequest, ProjectLogSessionRegistryError,
-    ProjectLogTarget, QueuedMigrationDecision, QueuedPostgresPrune, QueuedProjectBackup,
-    QueuedProjectCommand, QueuedProjectRestore, QueuedProjectRestoreOptions,
-    ResourceHealthRegistry, build_postgres_prune_plan, is_valid_certificate_generation,
-    plan_postgres_prune, reconcile_watched_roots, retained_project_status,
-    retry_failed_installation_deletion_prune,
+    ProjectLogTarget, QueuedDatabaseDumpRestoreOptions, QueuedMigrationDecision,
+    QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
+    QueuedProjectRestoreOptions, ResourceHealthRegistry, build_postgres_prune_plan,
+    is_valid_certificate_generation, plan_postgres_prune, reconcile_watched_roots,
+    retained_project_status, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -1108,6 +1108,109 @@ where
                 },
             )
         }
+        IpcPayload::RestoreProjectDatabaseDump {
+            canonical_path,
+            service,
+            file,
+            archive_entry,
+            reset,
+        } => {
+            let queued = match prepare_database_dump_restore(
+                control_plane,
+                request.request_id(),
+                canonical_path,
+                service,
+                file,
+                archive_entry.as_deref(),
+                *reset,
+            ) {
+                Ok(queued) => queued,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "database_dump_restore_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            let payload_json = match queued.payload_json() {
+                Ok(payload) => payload,
+                Err(message) => {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "database_dump_restore_invalid",
+                            message,
+                            false,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = project_restores.enqueue(queued) {
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "project_restore_queue_unavailable",
+                        error.to_string(),
+                        true,
+                    )],
+                );
+            }
+            let accepted_kind_json =
+                match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
+                    Ok(json) => json,
+                    Err(response) => return response,
+                };
+            let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+                operation_id: request.request_id().to_owned(),
+                kind: "project_restore".to_owned(),
+                payload_json,
+                status: DaemonOperationStatus::Queued,
+                created_at_unix_seconds: now_unix_seconds,
+                updated_at_unix_seconds: now_unix_seconds,
+            });
+            let accepted = match control_plane.enqueue_daemon_operation(
+                &operation,
+                &accepted_kind_json,
+                event_journal.capacity(),
+            ) {
+                Ok(event) => event,
+                Err(error) => {
+                    drop(project_restores.remove(request.request_id()));
+
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "project_restore_queue_unavailable",
+                            error.to_string(),
+                            true,
+                        )],
+                    );
+                }
+            };
+            if let Err(error) = event_journal.append_record(accepted) {
+                drop(project_restores.remove(request.request_id()));
+
+                return IpcResponse::failure(
+                    request.request_id(),
+                    vec![IpcDiagnostic::new(
+                        "event_journal_failed",
+                        error.to_string(),
+                        false,
+                    )],
+                );
+            }
+
+            IpcResponse::success(
+                request.request_id(),
+                IpcResult::Accepted {
+                    operation_id: request.request_id().to_owned(),
+                },
+            )
+        }
         IpcPayload::OpenProjectLogs {
             canonical_path,
             services,
@@ -1972,6 +2075,98 @@ where
         logical_resource_id: logical.logical_resource_id().to_owned(),
         kind: logical.kind().to_owned(),
         compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+    })
+}
+
+fn prepare_database_dump_restore<Store>(
+    control_plane: &ControlPlane<Store>,
+    operation_id: &str,
+    canonical_path: &std::path::Path,
+    service_id: &str,
+    file: &std::path::Path,
+    archive_entry: Option<&str>,
+    reset: bool,
+) -> Result<QueuedProjectRestore, String>
+where
+    Store: StateStore,
+{
+    let project = control_plane
+        .projects()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|project| project.canonical_path() == canonical_path)
+        .ok_or_else(|| {
+            format!(
+                "project path '{}' is not registered by the singleton daemon",
+                canonical_path.display()
+            )
+        })?;
+    let canonical_file = std::fs::canonicalize(file)
+        .map_err(|error| format!("database dump '{}' is unavailable: {error}", file.display()))?;
+    let metadata = std::fs::symlink_metadata(file).map_err(|error| {
+        format!(
+            "database dump '{}' cannot be inspected: {error}",
+            file.display()
+        )
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() == 0 {
+        return Err("database dump must be a non-empty regular file, not a link".to_owned());
+    }
+    if canonical_file != file || !canonical_file.starts_with(canonical_path) {
+        return Err(
+            "database dump must be a canonical file inside the project directory".to_owned(),
+        );
+    }
+    if archive_entry.is_some_and(str::is_empty) {
+        return Err("database dump archive entry must not be empty".to_owned());
+    }
+    if archive_entry.is_some()
+        && canonical_file.extension().and_then(|value| value.to_str()) != Some("zip")
+    {
+        return Err("database dump archive entries are supported only for .zip files".to_owned());
+    }
+    let logical = control_plane
+        .logical_resources()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|logical| {
+            logical.project_id() == project.project_name()
+                && logical.service_id() == service_id
+                && matches!(logical.kind(), "mysql_database" | "mariadb_database")
+                && logical.lifecycle() == ResourceLifecycle::Active
+        })
+        .collect::<Vec<_>>();
+    let logical = match logical.as_slice() {
+        [logical] => logical,
+        [] => {
+            return Err(format!(
+                "project '{}' has no active MySQL or MariaDB service '{}'",
+                project.project_name(),
+                service_id
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "project '{}' service '{}' has multiple active database resources",
+                project.project_name(),
+                service_id
+            ));
+        }
+    };
+
+    QueuedProjectRestore::from_database_dump(QueuedDatabaseDumpRestoreOptions {
+        restore: QueuedProjectRestoreOptions {
+            operation_id: operation_id.to_owned(),
+            recovery_point_id: String::new(),
+            project_id: logical.project_id().to_owned(),
+            service_id: logical.service_id().to_owned(),
+            logical_resource_id: logical.logical_resource_id().to_owned(),
+            kind: logical.kind().to_owned(),
+            compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        },
+        file: canonical_file,
+        archive_entry: archive_entry.map(str::to_owned),
+        reset,
     })
 }
 

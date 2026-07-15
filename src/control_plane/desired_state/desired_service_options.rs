@@ -15,4 +15,5 @@ pub(crate) struct DesiredServiceOptions {
     pub(crate) database: Option<String>,
     pub(crate) command: Option<Vec<String>>,
     pub(crate) environment: BTreeMap<String, String>,
+    pub(crate) environment_mapping: BTreeMap<String, String>,
 }

@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [8.0.0] - 2026-07-14
 
+### Added
+
+- Added strict named YAML workflows through `stackctl run`, including durable
+  project-local MySQL and MariaDB dump restores, exact ZIP-entry streaming,
+  optional logical-schema reset, ordered Laravel migration, and route opening.
+  Added explicit generated-environment mapping so one application can consume
+  multiple isolated databases without ambiguous `DB_*` collisions.
+
 ### Fixed
 
 - Added native Linux amd64 SQL Server recovery acceptance that streams a

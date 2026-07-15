@@ -1879,24 +1879,46 @@ pub(super) fn merge_prepared_environments(
         .map(|service| (service.project().as_str().to_owned(), BTreeMap::new()))
         .collect::<BTreeMap<String, BTreeMap<String, String>>>();
 
-    for environment in prepared_shared
+    for (project_id, service_id, environment) in prepared_shared
         .iter()
-        .flat_map(PreparedSharedInstance::environments)
-        .chain(
-            prepared_project_services
-                .iter()
-                .map(PreparedProjectService::environment),
-        )
+        .flat_map(PreparedSharedInstance::service_environments)
+        .chain(prepared_project_services.iter().map(|prepared| {
+            (
+                prepared.project_id().to_owned(),
+                prepared.service_id().to_owned(),
+                prepared.environment(),
+            )
+        }))
     {
-        let project_id = environment.project_id();
-        let values = generated.entry(project_id.to_owned()).or_default();
+        let service = execution
+            .services()
+            .iter()
+            .find(|planned| {
+                planned.project().as_str() == project_id && planned.service().as_str() == service_id
+            })
+            .ok_or_else(|| {
+                format!(
+                    "prepared environment references unknown service '{project_id}/{service_id}'"
+                )
+            })?;
+        let mapping = service.desired().environment_mapping();
+        if let Some(source) = mapping
+            .keys()
+            .find(|source| !environment.values().contains_key(*source))
+        {
+            return Err(format!(
+                "service '{project_id}/{service_id}' maps unknown generated environment key '{source}'"
+            ));
+        }
+        let values = generated.entry(project_id.clone()).or_default();
         for (key, value) in environment.values() {
-            if values.get(key).is_some_and(|existing| existing != value) {
+            let target = mapping.get(key).unwrap_or(key);
+            if values.get(target).is_some_and(|existing| existing != value) {
                 return Err(format!(
-                    "project '{project_id}' has conflicting generated environment key '{key}'"
+                    "project '{project_id}' has conflicting generated environment key '{target}'"
                 ));
             }
-            values.insert(key.clone(), value.clone());
+            values.insert(target.clone(), value.clone());
         }
     }
 

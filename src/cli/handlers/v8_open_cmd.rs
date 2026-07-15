@@ -57,7 +57,10 @@ pub(crate) fn handle_v8_open(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
     Ok(true)
 }
 
-fn ensure_routes_ready(status: &IpcProjectStatus, routes: &[(String, String)]) -> Result<()> {
+pub(super) fn ensure_routes_ready(
+    status: &IpcProjectStatus,
+    routes: &[(String, String)],
+) -> Result<()> {
     for (service, url) in routes {
         let resource = status
             .resources()

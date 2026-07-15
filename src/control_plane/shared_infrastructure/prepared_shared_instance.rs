@@ -20,6 +20,14 @@ pub(crate) enum PreparedSharedInstance {
 }
 
 impl PreparedSharedInstance {
+    pub(crate) fn service_environments(&self) -> Vec<(String, String, &ManagedEnvironmentRecord)> {
+        self.service_identities()
+            .into_iter()
+            .zip(self.environments())
+            .map(|((project_id, service_id), environment)| (project_id, service_id, environment))
+            .collect()
+    }
+
     pub(crate) fn service_identities(&self) -> Vec<(String, String)> {
         match self {
             Self::Postgres(prepared) => prepared

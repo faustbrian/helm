@@ -12,7 +12,8 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::{
     MigrationCutoverPlan, MigrationOperations, MigrationRollbackPlan, MySqlBackupOptions,
-    MySqlMigrationOperations, MySqlMigrationOperationsOptions, backup_mysql_database,
+    MySqlDumpRestoreOptions, MySqlMigrationOperations, MySqlMigrationOperationsOptions,
+    backup_mysql_database, restore_mysql_dump,
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
@@ -289,6 +290,77 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
             Err(EngineError::ContainerExit { .. })
         ));
 
+        let dump_path = state_directory.join("explicit-sandbox.sql");
+        std::fs::write(
+            &dump_path,
+            b"CREATE TABLE stackctl_acceptance(value varchar(64));\n\
+              INSERT INTO stackctl_acceptance VALUES ('dump-restored');\n",
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "write explicit {} dump acceptance input: {error}",
+                options.display_name
+            )
+        });
+        restore_mysql_dump(
+            &engine,
+            &container,
+            &MySqlDumpRestoreOptions {
+                flavor: prepared.instance().flavor(),
+                logical: bill.logical(),
+                credential: bill.credential(),
+                administrator: prepared.instance().bootstrap_credential(),
+                file: &dump_path,
+                reset: true,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "restore explicit bill {} dump: {error}",
+                options.display_name
+            )
+        });
+        assert_eq!(
+            database_command(
+                &engine,
+                &container,
+                options.client_executable,
+                bill.credential().username(),
+                bill.credential().secret(),
+                bill.logical().schema_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "read explicit bill {} dump restore: {error}",
+                    options.display_name
+                )
+            }),
+            b"dump-restored\n"
+        );
+        assert_eq!(
+            database_command(
+                &engine,
+                &container,
+                options.client_executable,
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().schema_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "read sibling shop {} after explicit dump restore: {error}",
+                    options.display_name
+                )
+            }),
+            b"shop-value\n"
+        );
+
         let source_logical = first
             .logical_resources()
             .iter()
@@ -520,7 +592,7 @@ fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<
             .unwrap_or_else(|error| {
                 panic!("read restored {} target: {error}", options.display_name)
             }),
-            b"bill-value\n",
+            b"dump-restored\n",
             "target restore must reproduce the verified point-in-time backup"
         );
         assert_eq!(

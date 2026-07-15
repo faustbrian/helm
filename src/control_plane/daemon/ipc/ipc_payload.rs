@@ -93,4 +93,12 @@ pub(crate) enum IpcPayload {
         canonical_path: PathBuf,
         recovery_point_id: String,
     },
+    /// Queues one explicit in-place SQL dump restore for an owned database.
+    RestoreProjectDatabaseDump {
+        canonical_path: PathBuf,
+        service: String,
+        file: PathBuf,
+        archive_entry: Option<String>,
+        reset: bool,
+    },
 }

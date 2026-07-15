@@ -194,6 +194,18 @@ fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {
         "^[A-Za-z_][A-Za-z0-9_]*$"
     );
     assert_eq!(
+        schema["$defs"]["service"]["properties"]["environment_mapping"]["additionalProperties"]["pattern"],
+        "^[A-Za-z_][A-Za-z0-9_]*$"
+    );
+    assert_eq!(
+        schema["properties"]["workflows"]["additionalProperties"]["$ref"],
+        "#/$defs/workflow"
+    );
+    assert_eq!(
+        schema["$defs"]["databaseRestoreStep"]["properties"]["type"]["const"],
+        "database_restore"
+    );
+    assert_eq!(
         schema["$defs"]["preset"]["enum"]
             .as_array()
             .expect("preset enum")
@@ -724,6 +736,125 @@ services:
     let error = desired_from(source).expect_err("overlong route label");
 
     assert!(error.to_string().contains("exceeds 63 bytes"));
+}
+
+#[test]
+fn named_workflows_describe_ordered_restore_migrate_and_open_steps() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  app:
+    preset: laravel
+  shipit:
+    preset: mysql
+  billing:
+    preset: mysql
+workflows:
+  sandbox:
+    steps:
+      - type: database_restore
+        service: shipit
+        file: database/dumps/sandbox.sql.zip
+        archive_entry: sandbox.sql
+        reset: true
+        migrate:
+          service: app
+          connection: mysql
+      - type: database_restore
+        service: billing
+        file: database/dumps/billing_staging.sql
+        reset: true
+      - type: open
+        service: app
+"#;
+
+    let raw = parse_project_config(source, Path::new(CONFIG_PATH)).expect("workflow config");
+    let workflow = raw.workflows().get("sandbox").expect("sandbox workflow");
+    let first = workflow.steps().first().expect("first workflow step");
+
+    assert_eq!(workflow.steps().len(), 3);
+    assert_eq!(first.service(), "shipit");
+    assert_eq!(
+        first.file(),
+        Some(Path::new("database/dumps/sandbox.sql.zip"))
+    );
+    assert_eq!(first.archive_entry(), Some("sandbox.sql"));
+    assert!(first.reset());
+    assert_eq!(first.migration_service(), Some("app"));
+    assert_eq!(first.migration_connection(), Some("mysql"));
+}
+
+#[test]
+fn generated_environment_mapping_supports_multiple_database_services() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  app:
+    preset: laravel
+  shipit:
+    preset: mysql
+  billing:
+    preset: mysql
+    environment_mapping:
+      DB_HOST: DB_INVOICING_HOST
+      DB_PORT: DB_INVOICING_PORT
+      DB_DATABASE: DB_INVOICING_DATABASE
+      DB_USERNAME: DB_INVOICING_USERNAME
+      DB_PASSWORD: DB_INVOICING_PASSWORD
+"#;
+
+    let desired = desired_from(source).expect("multiple mapped databases");
+    let billing = desired.service("billing").expect("billing service");
+
+    assert_eq!(
+        billing.environment_mapping().get("DB_DATABASE"),
+        Some(&"DB_INVOICING_DATABASE".to_owned())
+    );
+}
+
+#[test]
+fn workflows_reject_database_dumps_outside_the_project() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  shipit:
+    preset: mysql
+workflows:
+  sandbox:
+    steps:
+      - type: database_restore
+        service: shipit
+        file: ../sandbox.sql
+        reset: true
+"#;
+
+    let error = desired_from(source).expect_err("escaping workflow dump");
+
+    assert!(error.to_string().contains("relative project file"));
+}
+
+#[test]
+fn workflows_reject_unknown_or_incompatible_services() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  app:
+    preset: laravel
+workflows:
+  sandbox:
+    steps:
+      - type: database_restore
+        service: app
+        file: database/dumps/sandbox.sql
+"#;
+
+    let error = desired_from(source).expect_err("application database restore target");
+
+    assert!(error.to_string().contains("MySQL or MariaDB"));
 }
 
 fn desired_from(

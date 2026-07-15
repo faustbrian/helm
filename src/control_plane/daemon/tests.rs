@@ -32,9 +32,10 @@ use crate::control_plane::engine::ContainerHealth;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::migration::{
     MigrationExecutionResult, MongoDbRestoreOptions, MongoDbVerifyTargetOptions,
-    MySqlRestoreOptions, SqlServerRestoreOptions, SqlServerVerifyTargetOptions,
-    restore_mongodb_database, restore_mysql_database, restore_sql_server_database,
-    verify_mongodb_target, verify_sql_server_target,
+    MySqlDumpRestoreOptions, MySqlRestoreOptions, SqlServerRestoreOptions,
+    SqlServerVerifyTargetOptions, restore_mongodb_database, restore_mysql_database,
+    restore_mysql_dump, restore_sql_server_database, verify_mongodb_target,
+    verify_sql_server_target,
 };
 use crate::control_plane::resolve_execution_plan;
 use crate::control_plane::shared_infrastructure::{
@@ -794,6 +795,80 @@ fn mysql_restore_intent_is_supported_and_secret_free() {
     assert!(payload.contains("mysql_database"));
     assert!(!payload.contains("password"));
     assert!(!payload.contains("secret"));
+}
+
+#[test]
+fn mysql_dump_restore_intent_survives_daemon_restart_without_secrets() {
+    let queued =
+        QueuedProjectRestore::from_database_dump(super::QueuedDatabaseDumpRestoreOptions {
+            restore: super::QueuedProjectRestoreOptions {
+                operation_id: "restore-sandbox".to_owned(),
+                recovery_point_id: String::new(),
+                project_id: "api".to_owned(),
+                service_id: "shipit".to_owned(),
+                logical_resource_id: "stackctl_api_shipit".to_owned(),
+                kind: "mysql_database".to_owned(),
+                compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+            },
+            file: PathBuf::from("/work/api/database/dumps/sandbox.sql.zip"),
+            archive_entry: Some("sandbox.sql".to_owned()),
+            reset: true,
+        })
+        .expect("MySQL dump restore intent");
+
+    let payload = queued.payload_json().expect("durable dump restore");
+    let restored = QueuedProjectRestore::from_payload_json("restore-sandbox".to_owned(), &payload)
+        .expect("restored dump intent");
+
+    assert_eq!(
+        restored.dump_file(),
+        Some(Path::new("/work/api/database/dumps/sandbox.sql.zip"))
+    );
+    assert_eq!(restored.dump_archive_entry(), Some("sandbox.sql"));
+    assert!(restored.resets_database());
+    assert!(!payload.contains("password"));
+    assert!(!payload.contains("secret"));
+}
+
+#[test]
+fn database_dump_zip_materializes_only_the_named_entry_and_cleans_it_up() {
+    use std::io::Write as _;
+
+    let root = temporary_directory("database-dump-zip");
+    let archive_path = root.join("sandbox.sql.zip");
+    let archive_file = std::fs::File::create(&archive_path).expect("create ZIP archive");
+    let mut archive = zip::ZipWriter::new(archive_file);
+    archive
+        .start_file("sandbox.sql", zip::write::SimpleFileOptions::default())
+        .expect("start SQL entry");
+    archive
+        .write_all(b"CREATE TABLE restored (id INT);\n")
+        .expect("write SQL entry");
+    archive
+        .start_file("ignored.sql", zip::write::SimpleFileOptions::default())
+        .expect("start ignored entry");
+    archive
+        .write_all(b"SELECT 2;\n")
+        .expect("write ignored entry");
+    drop(archive.finish().expect("finish ZIP archive"));
+
+    let prepared = super::PreparedDatabaseDump::materialize(
+        &archive_path,
+        Some("sandbox.sql"),
+        &root,
+        "restore-sandbox",
+    )
+    .expect("materialize selected SQL entry");
+    let staged_path = prepared.path().to_path_buf();
+
+    assert_eq!(
+        std::fs::read(prepared.path()).expect("read staged SQL"),
+        b"CREATE TABLE restored (id INT);\n"
+    );
+    drop(prepared);
+    assert!(!staged_path.exists());
+
+    std::fs::remove_dir_all(root).expect("remove ZIP fixture");
 }
 
 #[test]
@@ -1909,6 +1984,92 @@ fn queued_mysql_backup_streams_exact_verified_logical_recovery_point() {
     assert_eq!(engine.command_inputs()[1], b"installed\n");
 
     std::fs::remove_dir_all(backup_root).expect("remove backup fixture");
+}
+
+#[test]
+fn explicit_mysql_dump_restore_resets_and_streams_without_secret_arguments() {
+    use crate::control_plane::shared_infrastructure::{
+        CredentialSecret, MySqlFlavor, MySqlLogicalResourcePlan,
+    };
+    use crate::control_plane::state::{
+        CredentialLifecycle, CredentialRecord, CredentialRecordOptions,
+    };
+
+    let root = temporary_directory("explicit-mysql-dump");
+    let dump_path = root.join("sandbox.sql");
+    std::fs::write(&dump_path, b"CREATE TABLE restored (id INT);\n").expect("write SQL dump");
+    let fingerprint = format!("sha256:{}", "b".repeat(64));
+    let observed = observed_shared_service("mysql-container", "install-1", "mysql-8", &fingerprint);
+    let container =
+        crate::control_plane::engine::reconstruct_owned_container(&observed, "install-1", 8)
+            .expect("owned MySQL container");
+    let engine = RecordingProjectCommandEngine::new(vec![observed]);
+    let logical = MySqlLogicalResourcePlan::new(
+        MySqlFlavor::MySql,
+        "api",
+        "shipit",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("logical MySQL database");
+    let credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "api/shipit/mysql".to_owned(),
+        project_id: Some("api".to_owned()),
+        service_id: "shipit".to_owned(),
+        username: "st_api_shipit".to_owned(),
+        secret: "project-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/mysql-bootstrap".to_owned(),
+        project_id: None,
+        service_id: "mysql-bootstrap".to_owned(),
+        username: "root".to_owned(),
+        secret: "administrator-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+
+    runtime
+        .block_on(restore_mysql_dump(
+            &engine,
+            &container,
+            &MySqlDumpRestoreOptions {
+                flavor: MySqlFlavor::MySql,
+                logical: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                file: &dump_path,
+                reset: true,
+                timeout: Duration::from_secs(30),
+            },
+        ))
+        .expect("explicit dump restore");
+    runtime.block_on(tokio::task::yield_now());
+
+    assert_eq!(engine.command_arguments().len(), 2);
+    assert!(
+        String::from_utf8(engine.command_inputs()[0].clone())
+            .expect("reset SQL")
+            .contains("DROP DATABASE IF EXISTS `stackctl_api_shipit`")
+    );
+    assert_eq!(
+        engine.command_inputs()[1],
+        b"CREATE TABLE restored (id INT);\n"
+    );
+    assert_eq!(
+        engine.command_environments()[0].get("MYSQL_PWD"),
+        Some(&"administrator-secret".to_owned())
+    );
+    assert_eq!(
+        engine.command_environments()[1].get("MYSQL_PWD"),
+        Some(&"project-secret".to_owned())
+    );
+    assert!(!format!("{:?}", engine.command_arguments()).contains("secret"));
+
+    std::fs::remove_dir_all(root).expect("remove explicit dump fixture");
 }
 
 #[test]
@@ -5917,6 +6078,73 @@ fn managed_environment_planning_replaces_absent_shared_values_with_empty_state()
     assert_eq!(environments[0].project_id(), "bill");
     assert!(environments[0].values().is_empty());
     assert_eq!(environments[0].lifecycle(), EnvironmentLifecycle::Active);
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_environment_planning_maps_generated_values_for_each_service() {
+    use super::unix_daemon_runtime::merge_prepared_environments;
+    use crate::control_plane::shared_infrastructure::SharedPreparationOptions;
+
+    let root = temporary_directory("managed-environment-mapping");
+    let image = concat!(
+        "mysql@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        root.join("api"),
+        root.join("api/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: api\nservices:\n",
+                "  shipit:\n    preset: mysql\n    version: '8'\n    image: {}\n",
+                "  billing:\n    preset: mysql\n    version: '8'\n    image: {}\n",
+                "    environment_mapping:\n",
+                "      DB_HOST: DB_INVOICING_HOST\n",
+                "      DB_PORT: DB_INVOICING_PORT\n",
+                "      DB_DATABASE: DB_INVOICING_DATABASE\n",
+                "      DB_USERNAME: DB_INVOICING_USERNAME\n",
+                "      DB_PASSWORD: DB_INVOICING_PASSWORD\n"
+            ),
+            image, image
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let shared = resolve_execution_shared_instances(&execution, "linux/arm64")
+        .expect("shared execution instances");
+    let mut control_plane = ControlPlane::new(
+        SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store"),
+    );
+    let prepared = control_plane
+        .prepare_shared(
+            &shared,
+            &FixedRestoreEntropy(0x11),
+            SharedPreparationOptions {
+                installation_id: "install-1",
+                network_name: "stackctl",
+                schema_version: 8,
+                state_directory: &root,
+            },
+        )
+        .expect("prepared shared services");
+
+    let environments =
+        merge_prepared_environments(&execution, &prepared, &[]).expect("managed environments");
+    let values = environments[0].values();
+
+    assert_eq!(
+        values.get("DB_DATABASE"),
+        Some(&"stackctl_api_shipit".to_owned())
+    );
+    assert_eq!(
+        values.get("DB_INVOICING_DATABASE"),
+        Some(&"stackctl_api_billing".to_owned())
+    );
+    assert!(values.contains_key("DB_PASSWORD"));
+    assert!(values.contains_key("DB_INVOICING_PASSWORD"));
+
+    std::fs::remove_dir_all(root).expect("remove mapping fixture");
 }
 
 #[test]

@@ -8,6 +8,9 @@ mod parse_project_config;
 mod project_config_schema;
 mod raw_project_config;
 mod raw_service_config;
+mod raw_workflow_config;
+mod raw_workflow_migration;
+mod raw_workflow_step;
 
 pub(crate) use apply_artifact_lock::apply_artifact_lock;
 pub(crate) use artifact_lock::{ArtifactLock, ArtifactLockImage};
@@ -19,6 +22,9 @@ pub(crate) use parse_project_config::parse_project_config;
 pub(crate) use project_config_schema::project_config_schema;
 pub(crate) use raw_project_config::RawProjectConfig;
 pub(crate) use raw_service_config::RawServiceConfig;
+pub(crate) use raw_workflow_config::RawWorkflowConfig;
+pub(crate) use raw_workflow_migration::RawWorkflowMigration;
+pub(crate) use raw_workflow_step::RawWorkflowStep;
 
 #[cfg(test)]
 mod tests;

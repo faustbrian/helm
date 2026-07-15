@@ -1,7 +1,7 @@
 use super::{
-    ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult, execute_minio_project_restore,
-    execute_project_volume_restore, execute_rabbitmq_project_restore,
-    execute_redis_project_restore,
+    PreparedDatabaseDump, ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult,
+    execute_minio_project_restore, execute_project_volume_restore,
+    execute_rabbitmq_project_restore, execute_redis_project_restore,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerNetworkIsolation,
@@ -10,17 +10,17 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::{
     EnginePostgresSourceRetirement, MigrationCutoverPlan, MigrationRollbackPlan,
-    MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, MySqlMigrationOperations,
-    MySqlMigrationOperationsOptions, PostgresMigrationOperations,
+    MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, MySqlDumpRestoreOptions,
+    MySqlMigrationOperations, MySqlMigrationOperationsOptions, PostgresMigrationOperations,
     PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions,
     RecoveryPointRestoreOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
-    execute_recovery_point_restore,
+    execute_recovery_point_restore, restore_mysql_dump,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, MongoDbMigrationPreparationOptions, MySqlFlavor,
-    MySqlMigrationPreparationOptions, PostgresMigrationPreparationOptions,
-    SqlServerMigrationPreparationOptions, plan_mongodb_project_resources,
-    plan_mysql_project_resources, plan_postgres_project_resources,
+    MySqlLogicalResourcePlan, MySqlMigrationPreparationOptions,
+    PostgresMigrationPreparationOptions, SqlServerMigrationPreparationOptions,
+    plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
     plan_sql_server_project_resources, reconcile_mongodb_migration_target,
     reconcile_mysql_migration_target, reconcile_postgres_migration_target,
     reconcile_sql_server_migration_target,
@@ -74,6 +74,9 @@ where
         + Sync,
     Entropy: CredentialEntropy,
 {
+    if options.operation.dump_file().is_some() {
+        return execute_mysql_dump(engine, options).await;
+    }
     match options.operation.kind() {
         "volume" => execute_project_volume_restore(engine, options).await,
         "minio_bucket_policy" => execute_minio_project_restore(engine, options).await,
@@ -86,6 +89,97 @@ where
         "mysql_database" | "mariadb_database" => execute_mysql(engine, entropy, options).await,
         _ => execute_postgres(engine, entropy, options).await,
     }
+}
+
+async fn execute_mysql_dump<E>(
+    engine: &mut E,
+    options: &ProjectRestoreExecutionOptions,
+) -> Result<crate::control_plane::migration::MigrationExecutionResult, String>
+where
+    E: CommandExecutor + ContainerDiscovery,
+{
+    validate(options)?;
+    let flavor = mysql_flavor(options.operation.kind())?;
+    let implementation = mysql_implementation(flavor);
+    let store = SqliteStateStore::open(&options.state_database_path)
+        .map_err(|error| format!("could not open restore state: {error}"))?;
+    let source = one(
+        store
+            .logical_resources()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter(|logical| source_matches(logical, options))
+            .collect(),
+        "active source logical resource",
+    )?;
+    let credentials = store.credentials().map_err(|error| error.to_string())?;
+    let credential = one(
+        credentials
+            .iter()
+            .filter(|credential| {
+                credential.project_id() == Some(options.operation.project_id())
+                    && credential.service_id() == options.operation.service_id()
+                    && credential.lifecycle() == CredentialLifecycle::Active
+            })
+            .cloned()
+            .collect(),
+        "active source credential",
+    )?;
+    let fingerprint_id = options
+        .operation
+        .compatibility_fingerprint()
+        .strip_prefix("sha256:")
+        .ok_or_else(|| "restore compatibility fingerprint is malformed".to_owned())?;
+    let administrator_id = format!("shared/{fingerprint_id}/{implementation}-bootstrap");
+    let administrator = one(
+        credentials
+            .into_iter()
+            .filter(|candidate| {
+                candidate.credential_id() == administrator_id
+                    && candidate.project_id().is_none()
+                    && candidate.lifecycle() == CredentialLifecycle::Active
+            })
+            .collect(),
+        "active source administrator",
+    )?;
+    let container = owned_source_container(engine, options).await?;
+    let logical = MySqlLogicalResourcePlan::new(
+        flavor,
+        options.operation.project_id(),
+        options.operation.service_id(),
+        CredentialSecret::new(credential.secret().to_owned()),
+    )
+    .map_err(|error| error.to_string())?;
+    if logical.schema_name() != source.logical_resource_id() {
+        return Err("database dump target does not match the owned logical schema".to_owned());
+    }
+    let source_file = options
+        .operation
+        .dump_file()
+        .ok_or_else(|| "database dump restore has no source file".to_owned())?;
+    let dump = PreparedDatabaseDump::materialize(
+        source_file,
+        options.operation.dump_archive_entry(),
+        &options.backup_root,
+        options.operation.operation_id(),
+    )?;
+    restore_mysql_dump(
+        engine,
+        &container,
+        &MySqlDumpRestoreOptions {
+            flavor,
+            logical: &logical,
+            credential: &credential,
+            administrator: &administrator,
+            file: dump.path(),
+            reset: options.operation.resets_database(),
+            timeout: options.timeout,
+        },
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+
+    Ok(crate::control_plane::migration::MigrationExecutionResult::Confirmed)
 }
 
 async fn execute_sql_server<E, Entropy>(

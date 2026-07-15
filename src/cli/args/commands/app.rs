@@ -6,6 +6,6 @@ mod actions;
 mod php_tool;
 mod shell;
 
-pub(crate) use actions::OpenArgs;
+pub(crate) use actions::{OpenArgs, RunArgs};
 pub(crate) use php_tool::PhpToolArgs;
 pub(crate) use shell::{ArtisanArgs, BunArgs, ComposerArgs, DenoArgs, ExecArgs, NodeArgs};

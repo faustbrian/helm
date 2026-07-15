@@ -24,6 +24,15 @@
       "additionalProperties": {
         "$ref": "#/$defs/service"
       }
+    },
+    "workflows": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/dnsLabel"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/workflow"
+      }
     }
   },
   "$defs": {
@@ -149,6 +158,104 @@
           "additionalProperties": {
             "type": "string"
           }
+        },
+        "environment_mapping": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "steps"
+      ],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/databaseRestoreStep"
+              },
+              {
+                "$ref": "#/$defs/openStep"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "databaseRestoreStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "service",
+        "file"
+      ],
+      "properties": {
+        "type": {
+          "const": "database_restore"
+        },
+        "service": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_entry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reset": {
+          "type": "boolean",
+          "default": false
+        },
+        "migrate": {
+          "$ref": "#/$defs/workflowMigration"
+        }
+      }
+    },
+    "workflowMigration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "connection"
+      ],
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/dnsLabel"
+        },
+        "connection": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "openStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "service"
+      ],
+      "properties": {
+        "type": {
+          "const": "open"
+        },
+        "service": {
+          "$ref": "#/$defs/dnsLabel"
         }
       }
     }

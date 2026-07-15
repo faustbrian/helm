@@ -1,4 +1,4 @@
-use super::RawServiceConfig;
+use super::{RawServiceConfig, RawWorkflowConfig};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -9,6 +9,8 @@ pub(crate) struct RawProjectConfig {
     schema_version: u32,
     project: Option<String>,
     services: BTreeMap<String, RawServiceConfig>,
+    #[serde(default)]
+    workflows: BTreeMap<String, RawWorkflowConfig>,
 }
 
 impl RawProjectConfig {
@@ -25,6 +27,10 @@ impl RawProjectConfig {
     /// Returns services keyed by their exact declared identities.
     pub(crate) fn services(&self) -> &BTreeMap<String, RawServiceConfig> {
         &self.services
+    }
+
+    pub(crate) fn workflows(&self) -> &BTreeMap<String, RawWorkflowConfig> {
+        &self.workflows
     }
 
     pub(super) fn services_mut(&mut self) -> &mut BTreeMap<String, RawServiceConfig> {

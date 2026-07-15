@@ -20,6 +20,8 @@ pub(crate) struct RawServiceConfig {
     command: Option<Vec<String>>,
     #[serde(default)]
     environment: BTreeMap<String, String>,
+    #[serde(default)]
+    environment_mapping: BTreeMap<String, String>,
 }
 
 impl Debug for RawServiceConfig {
@@ -37,6 +39,7 @@ impl Debug for RawServiceConfig {
             .field("database", &self.database)
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
+            .field("environment_mapping", &self.environment_mapping)
             .finish()
     }
 }
@@ -103,5 +106,10 @@ impl RawServiceConfig {
     /// Returns exact project-visible process environment values.
     pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
+    }
+
+    /// Returns generated environment keys remapped for the application.
+    pub(crate) const fn environment_mapping(&self) -> &BTreeMap<String, String> {
+        &self.environment_mapping
     }
 }

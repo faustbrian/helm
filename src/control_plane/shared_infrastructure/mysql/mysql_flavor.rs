@@ -28,7 +28,7 @@ impl MySqlFlavor {
         }
     }
 
-    pub(super) const fn client_executable(self) -> &'static str {
+    pub(crate) const fn client_executable(self) -> &'static str {
         match self {
             Self::MySql => "mysql",
             Self::MariaDb => "mariadb",

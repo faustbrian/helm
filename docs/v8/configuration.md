@@ -188,6 +188,84 @@ identity and prefix, object-store bucket and identity, and resolved route URLs.
 Credentials remain stable until deliberate rotation and never appear in
 arguments, logs, labels, routes, image layers, or diagnostics.
 
+### Multiple databases and generated environment mapping
+
+Each database service receives a distinct logical schema and credential inside
+the shared compatible database instance. When one application needs more than
+one database, use `environment_mapping` on the additional service so its
+generated keys do not collide with the primary `DB_*` values:
+
+```yaml
+services:
+  app:
+    preset: laravel
+
+  shipit:
+    preset: mysql
+    version: "8"
+
+  billing:
+    preset: mysql
+    version: "8"
+    environment_mapping:
+      DB_HOST: DB_INVOICING_HOST
+      DB_PORT: DB_INVOICING_PORT
+      DB_DATABASE: DB_INVOICING_DATABASE
+      DB_USERNAME: DB_INVOICING_USERNAME
+      DB_PASSWORD: DB_INVOICING_PASSWORD
+```
+
+Mapping is explicit and strict. Stackctl does not rename a colliding key by
+guessing; invalid keys, duplicate targets, and unresolved collisions fail the
+project plan.
+
+## Explicit project workflows
+
+Named workflows capture repeatable, user-invoked development operations in
+the same strict YAML without turning them into unattended daemon hooks. For an
+API project that restores two database dumps, migrates only the primary
+Laravel connection, and then opens the app:
+
+```yaml
+workflows:
+  sandbox:
+    steps:
+      - type: database_restore
+        service: shipit
+        file: database/dumps/sandbox.sql.zip
+        archive_entry: sandbox.sql
+        reset: true
+        migrate:
+          service: app
+          connection: mysql
+
+      - type: database_restore
+        service: billing
+        file: database/dumps/billing_staging.sql
+        reset: true
+
+      - type: open
+        service: app
+```
+
+Run it from the project with:
+
+```bash
+stackctl config validate
+stackctl run sandbox
+```
+
+Steps are sequential and stop on failure. Dump paths must be traversal-free,
+project-relative regular files. `archive_entry` selects one exact non-empty
+file from a ZIP without requiring host `unzip`. `reset: true` drops and
+re-provisions only that project's selected logical schema before streaming the
+dump. A `migrate` block runs `artisan migrate --database=<connection>` inside
+the selected Linux application service only after the restore succeeds.
+
+Workflows are never executed during discovery, login, reboot, reconciliation,
+or file watching. Invoking `stackctl run` is the destructive authorization
+boundary.
+
 ## Project trust
 
 Declarative configurations in trusted watched roots reconcile automatically.

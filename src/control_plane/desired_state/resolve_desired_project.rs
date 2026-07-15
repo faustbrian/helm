@@ -3,13 +3,13 @@ use super::{
     SUPPORTED_PHP_EXTENSIONS, resolve_runtime_image_reference::resolve_runtime_image_reference,
     supports_php_extension,
 };
-use crate::control_plane::configuration::RawProjectConfig;
+use crate::control_plane::configuration::{RawProjectConfig, RawWorkflowConfig};
 use crate::control_plane::{
     ProjectIdentity, RouteClaim, ServiceDeploymentStrategy, ServiceIdentity,
     is_valid_environment_variable_key, resolve_service_deployment_strategy,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum VisitState {
@@ -60,6 +60,8 @@ pub(crate) fn resolve_desired_project(
         let database = optional_non_empty(name, "database", raw_service.database())?;
         let command = validate_command(name, raw_service.command())?;
         let environment = validate_environment(name, raw_service.environment())?;
+        let environment_mapping =
+            validate_environment_mapping(name, raw_service.environment_mapping())?;
         let mut php_extensions = raw_service.php_extensions().to_vec();
         php_extensions.sort();
         for pair in php_extensions.windows(2) {
@@ -130,10 +132,12 @@ pub(crate) fn resolve_desired_project(
                 database,
                 command,
                 environment,
+                environment_mapping,
             }),
         );
     }
 
+    validate_workflows(raw.workflows(), &services, &routable_services)?;
     validate_dependencies_exist(&services)?;
     let startup_order = resolve_startup_order(&services)?;
     let route_claims = routable_services
@@ -148,6 +152,140 @@ pub(crate) fn resolve_desired_project(
         startup_order,
         route_claims,
     ))
+}
+
+fn validate_workflows(
+    workflows: &BTreeMap<String, RawWorkflowConfig>,
+    services: &BTreeMap<String, DesiredService>,
+    routable_services: &[ServiceIdentity],
+) -> Result<(), DesiredProjectError> {
+    for (name, workflow) in workflows {
+        ServiceIdentity::new(name)?;
+        if workflow.steps().is_empty() {
+            return Err(invalid_service(
+                &format!("workflow {name}"),
+                "must declare at least one step",
+            ));
+        }
+        for step in workflow.steps() {
+            let service = services.get(step.service()).ok_or_else(|| {
+                invalid_service(
+                    &format!("workflow {name}"),
+                    format!("references unknown service '{}'", step.service()),
+                )
+            })?;
+            if let Some(file) = step.file() {
+                if !matches!(service.preset(), Some("mysql" | "mariadb")) {
+                    return Err(invalid_service(
+                        &format!("workflow {name}"),
+                        format!(
+                            "database restore service '{}' must use MySQL or MariaDB",
+                            step.service()
+                        ),
+                    ));
+                }
+                validate_workflow_path(name, "database dump", file)?;
+                if let Some(entry) = step.archive_entry() {
+                    validate_workflow_path(name, "database dump archive entry", Path::new(entry))?;
+                    if file.extension().and_then(|value| value.to_str()) != Some("zip") {
+                        return Err(invalid_service(
+                            &format!("workflow {name}"),
+                            "archive_entry requires a .zip database dump",
+                        ));
+                    }
+                }
+                if let Some(migration_service) = step.migration_service() {
+                    let migration = services.get(migration_service).ok_or_else(|| {
+                        invalid_service(
+                            &format!("workflow {name}"),
+                            format!("references unknown migration service '{migration_service}'"),
+                        )
+                    })?;
+                    if migration.preset().is_some_and(|preset| {
+                        resolve_service_deployment_strategy(preset).ok()
+                            != Some(ServiceDeploymentStrategy::ProjectApplication)
+                    }) {
+                        return Err(invalid_service(
+                            &format!("workflow {name}"),
+                            format!(
+                                "migration service '{migration_service}' is not an application"
+                            ),
+                        ));
+                    }
+                    let connection = step.migration_connection().unwrap_or_default();
+                    if connection.is_empty()
+                        || !connection
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+                    {
+                        return Err(invalid_service(
+                            &format!("workflow {name}"),
+                            "declares an invalid Laravel migration connection",
+                        ));
+                    }
+                }
+            } else if !routable_services
+                .iter()
+                .any(|identity| identity.as_str() == step.service())
+            {
+                return Err(invalid_service(
+                    &format!("workflow {name}"),
+                    format!("open service '{}' has no gateway route", step.service()),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_workflow_path(
+    workflow: &str,
+    label: &str,
+    path: &Path,
+) -> Result<(), DesiredProjectError> {
+    if path.as_os_str().is_empty()
+        || path.is_absolute()
+        || !path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
+    {
+        return Err(invalid_service(
+            &format!("workflow {workflow}"),
+            format!("{label} must be a relative project file without traversal"),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_environment_mapping(
+    service: &str,
+    mapping: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, DesiredProjectError> {
+    let mut targets = BTreeSet::new();
+    for (source, target) in mapping {
+        if !is_valid_environment_variable_key(source) {
+            return Err(invalid_service(
+                service,
+                format!("declares invalid generated environment key '{source}'"),
+            ));
+        }
+        if !is_valid_environment_variable_key(target) {
+            return Err(invalid_service(
+                service,
+                format!("declares invalid mapped environment key '{target}'"),
+            ));
+        }
+        if !targets.insert(target) {
+            return Err(invalid_service(
+                service,
+                format!("maps multiple generated values to environment key '{target}'"),
+            ));
+        }
+    }
+
+    Ok(mapping.clone())
 }
 
 fn extension_capable_preset(preset: &str) -> bool {
