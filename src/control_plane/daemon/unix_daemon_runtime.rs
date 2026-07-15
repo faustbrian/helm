@@ -1030,7 +1030,7 @@ impl UnixDaemonRuntime {
                     if let Some(request) = service.provisioning_job() {
                         if self
                             .project_service_provisioning
-                            .requires(request, result.action())
+                            .requires(request, result.action(), now)
                         {
                             let provisioning = self.engine_runtime.block_on(run_provisioning_job(
                                 engine,
@@ -1048,7 +1048,7 @@ impl UnixDaemonRuntime {
                                 },
                             ));
                             match provisioning {
-                                Ok(()) => self.project_service_provisioning.record(request),
+                                Ok(()) => self.project_service_provisioning.record(request, now),
                                 Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
                                     let retry = invalidate_engine_connection(
                                         &mut self.engine_connection,

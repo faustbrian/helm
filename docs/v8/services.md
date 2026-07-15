@@ -90,11 +90,14 @@ service ownership, deterministic container naming, immutable image and numeric
 major version, Linux platform selection, the private Stackctl network, declared
 command and environment, generated command and environment adapters, private
 revision-keyed configuration files mounted read-only, restart supervision, and
-no host ports. Generated commands and settings fail on conflicting project
-declarations instead of being silently replaced. The dedicated routable strategy
-adds one deterministic gateway route and generated service credentials through
-the same planning boundary. This substrate does not by itself make a stateful preset
-complete; each such preset still requires its documented retained-volume,
+no host ports. Owned provisioning jobs retry until successful, suppress their
+own immediate Engine-event feedback, and recheck successful unchanged revisions
+every fifteen minutes so logical drift heals without a daemon restart. Generated
+commands and settings fail on conflicting project declarations instead of being
+silently replaced. The dedicated routable strategy adds one deterministic
+gateway route and generated service credentials through the same planning
+boundary. This substrate does not by itself make a stateful preset complete;
+each such preset still requires its documented retained-volume,
 authenticated-readiness, backup, restore, and upgrade contracts.
 
 The dedicated volume contract currently mounts one stable

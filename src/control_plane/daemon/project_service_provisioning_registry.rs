@@ -1,13 +1,15 @@
 use crate::control_plane::engine::ContainerCreateOptions;
 use crate::control_plane::workload::WorkloadReconcileAction;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 type ProvisioningIdentity = (String, String, String);
+const RECHECK_INTERVAL: Duration = Duration::from_secs(15 * 60);
 
 /// Successful project-service provisioning observed by this daemon process.
 #[derive(Default)]
 pub(crate) struct ProjectServiceProvisioningRegistry {
-    completed: BTreeSet<ProvisioningIdentity>,
+    completed: BTreeMap<ProvisioningIdentity, Instant>,
 }
 
 impl ProjectServiceProvisioningRegistry {
@@ -16,13 +18,20 @@ impl ProjectServiceProvisioningRegistry {
         &self,
         request: &ContainerCreateOptions,
         action: WorkloadReconcileAction,
+        now: Instant,
     ) -> bool {
-        action != WorkloadReconcileAction::Unchanged || !self.completed.contains(&identity(request))
+        action != WorkloadReconcileAction::Unchanged
+            || self
+                .completed
+                .get(&identity(request))
+                .is_none_or(|completed| {
+                    now.saturating_duration_since(*completed) >= RECHECK_INTERVAL
+                })
     }
 
     /// Suppresses Engine-event feedback only after the job succeeds.
-    pub(crate) fn record(&mut self, request: &ContainerCreateOptions) {
-        self.completed.insert(identity(request));
+    pub(crate) fn record(&mut self, request: &ContainerCreateOptions, now: Instant) {
+        self.completed.insert(identity(request), now);
     }
 }
 

@@ -5720,18 +5720,27 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
     assert!(!format!("{job:?}").contains("rustfs-secret"));
 
     let mut registry = super::ProjectServiceProvisioningRegistry::default();
+    let now = Instant::now();
     assert!(registry.requires(
         job,
-        crate::control_plane::workload::WorkloadReconcileAction::Unchanged
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
+        now,
     ));
-    registry.record(job);
+    registry.record(job, now);
     assert!(!registry.requires(
         job,
-        crate::control_plane::workload::WorkloadReconcileAction::Unchanged
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
+        now + Duration::from_secs(899),
     ));
     assert!(registry.requires(
         job,
-        crate::control_plane::workload::WorkloadReconcileAction::Replaced
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
+        now + Duration::from_secs(900),
+    ));
+    assert!(registry.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Replaced,
+        now,
     ));
 }
 
