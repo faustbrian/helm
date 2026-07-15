@@ -11,7 +11,7 @@ impl LocalhostResolver for SystemLocalhostResolver {
         let addresses = (host, 0)
             .to_socket_addrs()
             .map_err(|error| GatewayError::Provider {
-                detail: format!("failed to resolve {host}: {error}"),
+                detail: error.to_string(),
             })?;
 
         Ok(addresses

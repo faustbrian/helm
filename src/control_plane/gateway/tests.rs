@@ -313,8 +313,41 @@ fn stackctl_localhost_preflight_rejects_non_loopback_answers() {
         .expect_err("non-loopback answer must fail closed");
 
     assert_eq!(
-        error.to_string(),
-        "stackctl-probe.stackctl.localhost resolved to non-loopback address 192.0.2.10"
+        error,
+        GatewayError::Preflight {
+            detail: "stackctl-probe.stackctl.localhost resolved to non-loopback address 192.0.2.10; Stackctl requires the OS .localhost namespace to resolve Stackctl domains to loopback and will not edit /etc/hosts; restore standard .localhost resolution, then rerun `stackctl setup`"
+                .to_owned(),
+        }
+    );
+}
+
+#[test]
+fn stackctl_localhost_preflight_rejects_empty_answers_with_recovery() {
+    let resolver = RecordingLocalhostResolver::returning(Vec::new());
+
+    let error = verify_stackctl_localhost_resolution(&resolver)
+        .expect_err("empty resolver answer must fail closed");
+
+    assert_eq!(
+        error,
+        GatewayError::Preflight {
+            detail: "stackctl-probe.stackctl.localhost did not resolve to a loopback address; Stackctl requires the OS .localhost namespace to resolve Stackctl domains to loopback and will not edit /etc/hosts; restore standard .localhost resolution, then rerun `stackctl setup`"
+                .to_owned(),
+        }
+    );
+}
+
+#[test]
+fn stackctl_localhost_preflight_wraps_resolver_failures_with_recovery() {
+    let error = verify_stackctl_localhost_resolution(&FailingLocalhostResolver)
+        .expect_err("resolver failure must fail closed");
+
+    assert_eq!(
+        error,
+        GatewayError::Preflight {
+            detail: "failed to resolve stackctl-probe.stackctl.localhost: resolver unavailable; Stackctl requires the OS .localhost namespace to resolve Stackctl domains to loopback and will not edit /etc/hosts; restore standard .localhost resolution, then rerun `stackctl setup`"
+                .to_owned(),
+        }
     );
 }
 
@@ -1287,6 +1320,16 @@ impl LocalhostResolver for RecordingLocalhostResolver {
         self.hosts.borrow_mut().push(host.to_owned());
 
         Ok(self.addresses.clone())
+    }
+}
+
+struct FailingLocalhostResolver;
+
+impl LocalhostResolver for FailingLocalhostResolver {
+    fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, GatewayError> {
+        Err(GatewayError::Provider {
+            detail: "resolver unavailable".to_owned(),
+        })
     }
 }
 

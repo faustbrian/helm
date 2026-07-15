@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-15. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 792 passed, 0 failed. `just lint` (format plus all-target
+`cargo test --quiet`: 794 passed, 0 failed. `just lint` (format plus all-target
 Clippy with the repository's configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`,
 `scripts/audit-v8-workflow-actions.sh`, and `git diff --check` also passed. Those
@@ -29,7 +29,7 @@ the local gate, but their evidence remains mandatory for release acceptance.
 | AC-03 | TOML is absent from v8 config and state paths | Implemented | strict YAML loader, unsupported-TOML discovery diagnostic, YAML lock tests, and removal of executable legacy parity harnesses | Clean-install acceptance on every claimed platform |
 | AC-04 | Invalid YAML, unknown fields, duplicates, invalid names, and collisions fail before mutation | Implemented | configuration tests; complete-registry route and non-routable project-identity collision tests; transactional registry tests; typed `configuration_invalid`, `configuration_collision`, and non-overridable `security_approval_blocked` diagnostics with exact claimants and change-deduplicated logging; automatic failures persist restart-restored structured snapshot events and remain visible through nonzero daemon status; explicit reconciliation returns the typed issues, records failure, and exits nonzero; blocked background scans retain and keep reconciling the last complete validated Engine plan without publishing partial desired state | None at repository-test level |
 | AC-05 | Domains are exactly `{project}-{service}.stackctl.localhost` without repair | Implemented | identity and `composite_name_collision_fails_instead_of_receiving_a_fallback_domain` tests | None at repository-test level |
-| AC-06 | Default domains resolve without hosts edits or a DNS daemon | Pending live evidence | setup and production startup `.localhost` resolver preflight before state mutation; loopback/non-loopback tests; host-dependency audit | Deliberate custom-domain fallback and loopback-resolution acceptance artifact for every claimed platform |
+| AC-06 | Default domains resolve without hosts edits or a DNS daemon | Pending live evidence | setup and production startup typed `.localhost` resolver preflight before state mutation; actionable resolver/empty/non-loopback diagnostics that explicitly refuse hosts-file mutation; host-dependency audit | Deliberate advanced-domain policy for hosts without standard `.localhost` behavior and loopback-resolution acceptance artifact for every claimed platform |
 
 ## Gateway, TLS, and workload plane
 
@@ -71,7 +71,7 @@ the local gate, but their evidence remains mandatory for release acceptance.
 | AC-25 | Built-in images are immutable and verified with no mutable installer pipelines | Implemented at repository-test level | digest validation, directory-serialized crash-recoverable artifact-lock publication, manifest-pinned PHP image definition, commit-pinned CI and multi-architecture publication actions with an enforcement audit, revision tagging, release-tag and manual execution, digest-signature verification, architecture assertion, and raw SBOM/provenance evidence upload, safe immutable tool-image references, offline content-addressed project builds, runtime fingerprint, and dependency audit tests | Archive and link the release revision's CI-published image evidence bundle |
 | AC-26 | Host dependency audit proves removed executables absent | Implemented | whole-v8-source `scripts/audit-v8-host-dependencies.sh`, removed-tree assertions, and required CI job | Clean-host runtime acceptance |
 | AC-27 | Forty-project benchmark substantially improves idle usage | Pending live evidence | `scripts/benchmark-v8.sh`; shared run and collector identity; nonempty independently inventoried Engine-idle and per-project baseline capture; typed ownership-scoped daemon samples gated on current desired-state convergence with exact registered ownership, service implementation and major-version profiles, fingerprint enforcement, and atomic publication; `docs/v8/benchmarks.md` | Run all baseline and v8 scenarios, then publish raw records plus threshold comparison |
-| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 792 local tests plus format, all-target Clippy policy, build, and host audit at this snapshot; Unix architecture CI definition | CI artifacts and external platform, recovery, image publication, and benchmark records assigned by `external-verification.md` |
+| AC-28 | Relevant unit, integration, recovery, chaos, platform, build, and lint checks pass | Partial | 794 local tests plus format, all-target Clippy policy, build, host-dependency audit, and immutable-workflow-action audit at this snapshot; Unix architecture CI definition | CI artifacts and external platform, recovery, image publication, and benchmark records assigned by `external-verification.md` |
 
 ## Release blockers
 

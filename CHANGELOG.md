@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Classified `.localhost` resolver, empty-answer, and non-loopback failures as
+  typed setup preflight errors with an exact recovery instruction. Stackctl now
+  states that it will not repair resolution by editing `/etc/hosts`.
 - Pinned every GitHub Actions dependency to an immutable commit and added a
   required workflow audit that rejects mutable action tags or branches before
   they can silently change v8 verification or publication behavior.
