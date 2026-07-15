@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for dedicated Garage and LocalStack.
+  CI now materializes Garage's private generated configuration, provisions
+  deterministic buckets in both retained stores, rejects an incorrect Garage
+  credential, removes both buckets to create real logical drift, and proves
+  ordinary provisioning restores them idempotently before exact cleanup.
 - Corrected the built-in Typesense artifact to its published `26.0` tag and
   advanced the preset catalog revision so stale locks fail explicitly. Added
   native Linux Engine acceptance that starts Meilisearch and Typesense from

@@ -42,6 +42,8 @@ pub(crate) use project_service_provisioning_job::ProjectServiceProvisioningJob;
 mod live_engine_tests;
 mod materialize_project_service_configurations;
 #[cfg(test)]
+mod object_store_live_engine_tests;
+#[cfg(test)]
 mod search_live_engine_tests;
 #[cfg(test)]
 mod tests;
