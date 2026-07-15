@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added published PHP runtime acceptance for both Linux architectures. The
+  release workflow now derives an offline image from the exact published
+  digest, enables every selectable PHP extension, executes the runtime through
+  amd64 and arm64 containers, and retains the raw results with the image supply
+  chain evidence.
 - Added native Linux Engine acceptance proving a persistent project volume is
   retained without exact recovery authorization and deleted only when its
   precise name is authorized. CI now runs both live Engine acceptances on

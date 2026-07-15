@@ -55,6 +55,14 @@ jobs:
           cosign sign --yes
           "ghcr.io/faustbrian/stackctl-php@${DIGEST}"
 
+      - name: Exercise published runtime extensions
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: >-
+          ./scripts/accept-v8-php-runtime.sh
+          "ghcr.io/faustbrian/stackctl-php@${DIGEST}"
+          target/runtime-image-evidence/php-8.5
+
       - name: Verify and record published runtime evidence
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
