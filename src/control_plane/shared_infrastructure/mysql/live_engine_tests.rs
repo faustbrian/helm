@@ -22,10 +22,36 @@ const MYSQL_IMAGE: &str = concat!(
     "mysql@sha256:",
     "c831a0f11348d402b43d77453e17d770be2eef356615a2823fe0f5a0d6c8b9af"
 );
+const MARIADB_IMAGE: &str = concat!(
+    "mariadb@sha256:",
+    "efb4959ef2c835cd735dbc388eb9ad6aab0c78dd64febcd51bc17481111890c4"
+);
 
 #[test]
 #[ignore = "CI owns live shared MySQL isolation acceptance"]
 fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
+    run_live_engine_shared_database_isolation(LiveEngineDatabaseOptions {
+        implementation: "mysql",
+        display_name: "MySQL",
+        major_version: "8",
+        image: MYSQL_IMAGE,
+        client_executable: "mysql",
+    });
+}
+
+#[test]
+#[ignore = "CI owns live shared MariaDB isolation acceptance"]
+fn live_docker_engine_two_projects_share_one_mariadb_with_isolated_schemas() {
+    run_live_engine_shared_database_isolation(LiveEngineDatabaseOptions {
+        implementation: "mariadb",
+        display_name: "MariaDB",
+        major_version: "11",
+        image: MARIADB_IMAGE,
+        client_executable: "mariadb",
+    });
+}
+
+fn run_live_engine_shared_database_isolation(options: LiveEngineDatabaseOptions<'_>) {
     let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
@@ -39,28 +65,38 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
     let platform = match std::env::consts::ARCH {
         "aarch64" => "linux/arm64",
         "x86_64" => "linux/amd64",
-        architecture => panic!("unsupported MySQL acceptance architecture '{architecture}'"),
+        architecture => panic!(
+            "unsupported {} acceptance architecture '{architecture}'",
+            options.display_name
+        ),
     };
     let profile = CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
-        implementation: "mysql".to_owned(),
-        major_version: "8".to_owned(),
-        image_digest: MYSQL_IMAGE.to_owned(),
+        implementation: options.implementation.to_owned(),
+        major_version: options.major_version.to_owned(),
+        image_digest: options.image.to_owned(),
         extensions: Vec::new(),
         immutable_settings: BTreeMap::new(),
         persistence: PersistenceMode::Persistent,
         isolation: IsolationCapability::DatabaseAndRole,
         platform_architecture: Some(platform.to_owned()),
     })
-    .expect("build MySQL acceptance profile");
+    .unwrap_or_else(|error| panic!("build {} acceptance profile: {error}", options.display_name));
     let shared = plan_shared_instances(vec![
         SharedServiceRequest::new("bill", "database", profile.clone()),
         SharedServiceRequest::new("shop", "database", profile),
     ]);
     assert_eq!(shared.len(), 1, "compatible projects must share one plan");
     assert_eq!(shared[0].consumers().len(), 2);
-    std::fs::create_dir(&state_directory).expect("create MySQL acceptance state");
-    let mut store = SqliteStateStore::open(&state_directory.join("state.sqlite3"))
-        .expect("open MySQL acceptance state store");
+    std::fs::create_dir(&state_directory).unwrap_or_else(|error| {
+        panic!("create {} acceptance state: {error}", options.display_name)
+    });
+    let mut store =
+        SqliteStateStore::open(&state_directory.join("state.sqlite3")).unwrap_or_else(|error| {
+            panic!(
+                "open {} acceptance state store: {error}",
+                options.display_name
+            )
+        });
     let prepared = prepare_mysql_shared_instances(
         &mut store,
         &shared,
@@ -71,7 +107,12 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
             schema_version: 8,
         },
     )
-    .expect("prepare shared MySQL acceptance resources");
+    .unwrap_or_else(|error| {
+        panic!(
+            "prepare shared {} acceptance resources: {error}",
+            options.display_name
+        )
+    });
     let replayed = prepare_mysql_shared_instances(
         &mut store,
         &shared,
@@ -82,7 +123,12 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
             schema_version: 8,
         },
     )
-    .expect("replay shared MySQL acceptance preparation");
+    .unwrap_or_else(|error| {
+        panic!(
+            "replay shared {} acceptance preparation: {error}",
+            options.display_name
+        )
+    });
     let prepared_credentials = prepared[0]
         .projects()
         .iter()
@@ -103,12 +149,12 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
         .projects()
         .iter()
         .find(|project| project.environment().project_id() == "bill")
-        .expect("prepared bill MySQL resources");
+        .unwrap_or_else(|| panic!("prepared bill {} resources", options.display_name));
     let shop = prepared
         .projects()
         .iter()
         .find(|project| project.environment().project_id() == "shop")
-        .expect("prepared shop MySQL resources");
+        .unwrap_or_else(|| panic!("prepared shop {} resources", options.display_name));
     let network_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: installation_id.clone(),
         kind: ResourceKind::Network,
@@ -118,11 +164,25 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
         desired_revision: shared[0].fingerprint().as_str().to_owned(),
         retention: RetentionClass::Persistent,
     })
-    .expect("build MySQL acceptance network metadata");
+    .unwrap_or_else(|error| {
+        panic!(
+            "build {} acceptance network metadata: {error}",
+            options.display_name
+        )
+    });
     let network_request = NetworkCreateOptions::new(&network_name, network_metadata)
-        .expect("build MySQL acceptance network request");
-    let image = ImmutableImageReference::new(MYSQL_IMAGE)
-        .expect("build immutable MySQL acceptance image reference");
+        .unwrap_or_else(|error| {
+            panic!(
+                "build {} acceptance network request: {error}",
+                options.display_name
+            )
+        });
+    let image = ImmutableImageReference::new(options.image).unwrap_or_else(|error| {
+        panic!(
+            "build immutable {} acceptance image reference: {error}",
+            options.display_name
+        )
+    });
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -132,28 +192,42 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
         .expect("negotiate the selected Docker Engine API");
 
     runtime.block_on(async {
-        engine
-            .ensure_image(&image)
-            .await
-            .expect("resolve immutable MySQL acceptance image");
+        engine.ensure_image(&image).await.unwrap_or_else(|error| {
+            panic!(
+                "resolve immutable {} acceptance image: {error}",
+                options.display_name
+            )
+        });
         engine
             .create_network(&network_request)
             .await
-            .expect("create private MySQL acceptance network");
+            .unwrap_or_else(|error| {
+                panic!(
+                    "create private {} acceptance network: {error}",
+                    options.display_name
+                )
+            });
         let first = reconcile_prepared_mysql_instance(&mut engine, prepared, &installation_id, 8)
             .await
-            .expect("converge shared MySQL for two projects");
+            .unwrap_or_else(|error| {
+                panic!(
+                    "converge shared {} for two projects: {error}",
+                    options.display_name
+                )
+            });
         assert!(
             first.logical_resource_drifts().is_empty(),
-            "initial MySQL convergence reported drift: {:?}",
+            "initial {} convergence reported drift: {:?}",
+            options.display_name,
             first.logical_resource_drifts()
         );
         assert_eq!(first.logical_resources().len(), 2);
         let container = owned_shared_container(&engine, &installation_id).await;
 
-        let bill_output = mysql_command(
+        let bill_output = database_command(
             &engine,
             &container,
+            options.client_executable,
             bill.credential().username(),
             bill.credential().secret(),
             bill.logical().schema_name(),
@@ -163,11 +237,17 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
              SELECT value FROM stackctl_acceptance;",
         )
         .await
-        .expect("write and read bill MySQL schema");
+        .unwrap_or_else(|error| {
+            panic!(
+                "write and read bill {} schema: {error}",
+                options.display_name
+            )
+        });
         assert_eq!(bill_output, b"bill-value\n");
-        let shop_output = mysql_command(
+        let shop_output = database_command(
             &engine,
             &container,
+            options.client_executable,
             shop.credential().username(),
             shop.credential().secret(),
             shop.logical().schema_name(),
@@ -177,12 +257,18 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
              SELECT value FROM stackctl_acceptance;",
         )
         .await
-        .expect("write and read shop MySQL schema");
+        .unwrap_or_else(|error| {
+            panic!(
+                "write and read shop {} schema: {error}",
+                options.display_name
+            )
+        });
         assert_eq!(shop_output, b"shop-value\n");
         assert!(matches!(
-            mysql_command(
+            database_command(
                 &engine,
                 &container,
+                options.client_executable,
                 shop.credential().username(),
                 shop.credential().secret(),
                 bill.logical().schema_name(),
@@ -194,7 +280,12 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
 
         let second = reconcile_prepared_mysql_instance(&mut engine, prepared, &installation_id, 8)
             .await
-            .expect("reconcile unchanged shared MySQL instance");
+            .unwrap_or_else(|error| {
+                panic!(
+                    "reconcile unchanged shared {} instance: {error}",
+                    options.display_name
+                )
+            });
         assert!(second.logical_resource_drifts().is_empty());
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
@@ -207,18 +298,28 @@ fn live_docker_engine_two_projects_share_one_mysql_with_isolated_schemas() {
                 authorized_persistent_volumes: &[prepared
                     .instance()
                     .volume()
-                    .expect("persistent MySQL volume")
+                    .unwrap_or_else(|| panic!("persistent {} volume", options.display_name))
                     .name()
                     .to_owned()],
             },
         )
         .await
-        .expect("delete shared MySQL acceptance resources");
+        .unwrap_or_else(|error| {
+            panic!(
+                "delete shared {} acceptance resources: {error}",
+                options.display_name
+            )
+        });
     });
 
     drop(store);
-    std::fs::remove_dir_all(&state_directory).expect("remove MySQL acceptance state");
-    println!("shared MySQL isolation acceptance passed for {installation_id}");
+    std::fs::remove_dir_all(&state_directory).unwrap_or_else(|error| {
+        panic!("remove {} acceptance state: {error}", options.display_name)
+    });
+    println!(
+        "shared {} isolation acceptance passed for {installation_id}",
+        options.display_name
+    );
 }
 
 async fn owned_shared_container(
@@ -228,16 +329,17 @@ async fn owned_shared_container(
     engine
         .discover_managed()
         .await
-        .expect("discover shared MySQL acceptance resources")
+        .expect("discover shared database acceptance resources")
         .into_iter()
         .filter_map(|observed| reconstruct_owned_container(&observed, installation_id, 8).ok())
         .find(|owned| owned.metadata().kind() == ResourceKind::SharedService)
-        .expect("discover one owned shared MySQL container")
+        .expect("discover one owned shared database container")
 }
 
-async fn mysql_command(
+async fn database_command(
     engine: &BollardEngineAdapter,
     container: &OwnedContainer,
+    client_executable: &str,
     username: &str,
     password: &str,
     schema: &str,
@@ -245,7 +347,7 @@ async fn mysql_command(
 ) -> Result<Vec<u8>, EngineError> {
     let request = CommandRequest::new(
         vec![
-            "mysql".to_owned(),
+            client_executable.to_owned(),
             "--protocol=socket".to_owned(),
             format!("--user={username}"),
             "--batch".to_owned(),
@@ -259,11 +361,20 @@ async fn mysql_command(
     let options = AttachedCommandOptions::new(
         request,
         Vec::new(),
-        "exercise MySQL tenant isolation",
+        "exercise MySQL-family tenant isolation",
         Duration::from_secs(15),
     )?;
 
     run_attached_command_capture(engine, container, &options).await
+}
+
+#[derive(Clone, Copy)]
+struct LiveEngineDatabaseOptions<'a> {
+    implementation: &'a str,
+    display_name: &'a str,
+    major_version: &'a str,
+    image: &'a str,
+    client_executable: &'a str,
 }
 
 struct SequentialCredentialEntropy {

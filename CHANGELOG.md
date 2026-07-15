@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for shared MariaDB. CI now verifies the
+  implementation-specific root contract and client while proving stable
+  credentials, isolated project schemas and users, persistent instance reuse,
+  cross-project access denial, and exact cleanup.
 - Added native Linux Engine acceptance for shared MySQL. CI now proves two
   compatible projects reuse one persistent server, retain stable credentials,
   write through isolated schemas and users, reject cross-project schema access,
