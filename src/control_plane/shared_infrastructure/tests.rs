@@ -953,7 +953,21 @@ fn rabbitmq_strategy_publishes_isolated_vhosts_for_two_projects() {
     assert_eq!(result.physical_resources().len(), 2);
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
-    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 1);
+    assert_eq!(
+        *engine.command_arguments.lock().expect("commands"),
+        vec![
+            vec![
+                "rabbitmq-diagnostics".to_owned(),
+                "-q".to_owned(),
+                "check_running".to_owned(),
+            ],
+            vec![
+                "rabbitmqctl".to_owned(),
+                "import_definitions".to_owned(),
+                "/etc/stackctl/rabbitmq/definitions.json".to_owned(),
+            ],
+        ]
+    );
     assert_eq!(
         *engine
             .reconnected_networks
@@ -2898,7 +2912,10 @@ fn rabbitmq_definitions_are_deterministic_isolated_and_hash_only() {
         document["users"][0]["hashing_algorithm"],
         "rabbit_password_hashing_sha256"
     );
-    assert_eq!(document["users"][0]["tags"], serde_json::json!([]));
+    assert_eq!(
+        document["users"][0]["tags"],
+        serde_json::json!(["management"])
+    );
     assert_eq!(
         document["permissions"][0],
         serde_json::json!({
@@ -3146,16 +3163,23 @@ fn rabbitmq_reconciliation_publishes_definitions_before_start_and_reload() {
         engine.operations,
         vec!["create-volume", "create-container", "start-container"]
     );
-    assert!(
-        engine
+    assert_eq!(
+        *engine
             .command_arguments
             .lock()
-            .expect("RabbitMQ command arguments")
-            .iter()
-            .any(|arguments| arguments.ends_with(&[
+            .expect("RabbitMQ command arguments"),
+        vec![
+            vec![
+                "rabbitmq-diagnostics".to_owned(),
+                "-q".to_owned(),
+                "check_running".to_owned(),
+            ],
+            vec![
+                "rabbitmqctl".to_owned(),
                 "import_definitions".to_owned(),
                 "/etc/stackctl/rabbitmq/definitions.json".to_owned(),
-            ]))
+            ],
+        ]
     );
 
     std::fs::remove_dir_all(&root).expect("remove RabbitMQ fixture");

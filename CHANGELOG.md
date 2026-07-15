@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added RabbitMQ application-readiness gating before definitions reload and
+  project-scoped management access for isolated tenant users. Native Linux
+  Engine acceptance now proves stable credentials, isolated vhosts, real queue
+  writes and reads, cross-project denial, persistent broker reuse, and exact
+  cleanup with the immutable RabbitMQ image.
 - Added bounded root-authenticated MongoDB readiness before tenant
   provisioning. Native Linux Engine acceptance now proves stable credentials,
   isolated databases and users, cross-project read denial, persistent instance

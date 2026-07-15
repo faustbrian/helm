@@ -17,6 +17,7 @@ pub(crate) use reload_rabbitmq_definitions::reload_rabbitmq_definitions;
 pub(crate) use revoke_rabbitmq_project_access::revoke_rabbitmq_project_access;
 pub(crate) use store_rabbitmq_definitions::store_rabbitmq_definitions;
 pub(crate) use stored_rabbitmq_paths::StoredRabbitMqPaths;
+pub(crate) use wait_for_rabbitmq_readiness::wait_for_rabbitmq_readiness;
 
 mod plan_rabbitmq_project_resources;
 mod prepare_rabbitmq_shared_instances;
@@ -37,3 +38,7 @@ mod reload_rabbitmq_definitions;
 mod revoke_rabbitmq_project_access;
 mod store_rabbitmq_definitions;
 mod stored_rabbitmq_paths;
+mod wait_for_rabbitmq_readiness;
+
+#[cfg(test)]
+mod live_engine_tests;

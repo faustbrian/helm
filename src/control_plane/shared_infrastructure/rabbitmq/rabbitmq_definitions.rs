@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 
 const HASHING_ALGORITHM: &str = "rabbit_password_hashing_sha256";
+const PROJECT_USER_TAG: &str = "management";
 
 /// Complete deterministic core definitions for all projects sharing a broker.
 pub(crate) struct RabbitMqDefinitions {
@@ -29,7 +30,7 @@ impl RabbitMqDefinitions {
                     name: project.username(),
                     password_hash: project.password_hash().encoded(),
                     hashing_algorithm: HASHING_ALGORITHM,
-                    tags: Vec::new(),
+                    tags: vec![PROJECT_USER_TAG],
                 })
                 .collect(),
             vhosts: by_username

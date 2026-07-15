@@ -1,6 +1,6 @@
 use super::{
     RabbitMqDefinitions, RabbitMqSharedInstancePlan, reload_rabbitmq_definitions,
-    store_rabbitmq_definitions,
+    store_rabbitmq_definitions, wait_for_rabbitmq_readiness,
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -67,6 +67,15 @@ where
         },
     )
     .await?;
+    wait_for_rabbitmq_readiness(engine, shared.container())
+        .await
+        .map_err(|error| {
+            classify_logical_resource_error(
+                shared.container().id().as_str(),
+                "RabbitMQ readiness",
+                error,
+            )
+        })?;
     reload_rabbitmq_definitions(engine, shared.container(), instance)
         .await
         .map_err(|error| {
