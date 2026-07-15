@@ -29,3 +29,6 @@ mod reconcile_mailpit_authentication;
 mod reconcile_prepared_mailpit_instance;
 mod store_mailpit_authentication;
 mod stored_mailpit_authentication_paths;
+
+#[cfg(test)]
+mod live_engine_tests;

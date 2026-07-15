@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for shared Mailpit. CI now proves two
+  projects retain stable authenticated SMTP identities, receive exact username
+  attribution, reject mismatched credentials, reuse one persistent instance,
+  and clean up only the owned resources.
 - Started shared MinIO with its required `server /data` command instead of the
   image's non-serving default. Native Linux Engine acceptance now proves stable
   root and tenant credentials, isolated buckets and policies, cross-project
