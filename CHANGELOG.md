@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reconciled independent dedicated project-service containers with bounded
+  concurrency after retained-volume eligibility is established. Destructive
+  volume drift still excludes its service before container mutation, while
+  readiness checks, retry state, and provisioning remain ordered and isolated.
 - Preflighted ownership for every retained dedicated project volume before any
   sibling volume mutation, then reconciled the independent volume set with
   bounded concurrency and deterministic result ordering. One conflicting or

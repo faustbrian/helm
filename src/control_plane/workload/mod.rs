@@ -39,6 +39,7 @@ mod project_process_plan;
 mod project_process_plan_options;
 mod project_process_request;
 mod project_process_request_options;
+mod project_services_reconcile_options;
 mod project_volume_reconcile_action;
 mod project_volume_reconcile_options;
 mod project_volume_reconcile_plan;
@@ -48,6 +49,7 @@ mod project_volumes_reconcile_options;
 mod reconcile_project_application;
 mod reconcile_project_process;
 mod reconcile_project_service;
+mod reconcile_project_services_from_observed;
 mod reconcile_project_volume;
 mod reconcile_project_volumes_from_observed;
 mod reconcile_retained_project_service;
@@ -109,6 +111,7 @@ pub(crate) use project_process_plan::ProjectProcessPlan;
 pub(crate) use project_process_plan_options::ProjectProcessPlanOptions;
 pub(crate) use project_process_request::project_process_request;
 pub(crate) use project_process_request_options::ProjectProcessRequestOptions;
+pub(crate) use project_services_reconcile_options::ProjectServicesReconcileOptions;
 pub(crate) use project_volume_reconcile_action::ProjectVolumeReconcileAction;
 pub(crate) use project_volume_reconcile_options::ProjectVolumeReconcileOptions;
 pub(crate) use project_volume_reconcile_plan::ProjectVolumeReconcilePlan;
@@ -124,6 +127,7 @@ pub(crate) use reconcile_project_process::reconcile_project_process_from_observe
 #[cfg(test)]
 pub(crate) use reconcile_project_service::reconcile_project_service;
 pub(crate) use reconcile_project_service::reconcile_project_service_from_observed;
+pub(crate) use reconcile_project_services_from_observed::reconcile_project_services_from_observed;
 pub(crate) use reconcile_project_volume::reconcile_project_volume;
 #[cfg(test)]
 pub(crate) use reconcile_project_volume::reconcile_project_volume_from_observed;

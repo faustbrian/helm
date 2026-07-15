@@ -3,15 +3,16 @@ use super::{
     BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
     EphemeralBrowserOptions, ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions,
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
-    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectVolumeReconcileAction,
-    ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
+    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectServicesReconcileOptions,
+    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions,
+    RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
     WorkloadReconcileOptions, application_container_request, garbage_collect_build_images,
     garbage_collect_disposable_containers, garbage_collect_disposable_containers_from_observed,
     materialize_application_request, materialize_application_requests, plan_ephemeral_browser,
     plan_immutable_project_application, project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
-    reconcile_project_service, reconcile_project_service_from_observed, reconcile_project_volume,
+    reconcile_project_service, reconcile_project_service_from_observed,
+    reconcile_project_services_from_observed, reconcile_project_volume,
     reconcile_project_volume_from_observed, reconcile_project_volumes_from_observed,
     remove_stale_ephemeral_services_from_observed, run_project_command,
     stop_orphaned_project_workloads, stop_orphaned_project_workloads_from_observed,
@@ -1016,6 +1017,52 @@ fn dedicated_project_service_reconciliation_reuses_a_pass_wide_observation() {
 
     assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
     assert!(engine.created.is_empty());
+}
+
+#[test]
+fn dedicated_project_service_mutations_are_bounded_and_preserve_request_order() {
+    let requests = [
+        dedicated_service_request("cache", "sha256:cache-v1"),
+        dedicated_service_request("search", "sha256:search-v1"),
+        dedicated_service_request("aws", "sha256:aws-v1"),
+    ];
+    let engine = RecordingBatchWorkloadEngine {
+        delay: Duration::from_millis(20),
+        ..RecordingBatchWorkloadEngine::default()
+    };
+    let maximum_active = Arc::clone(&engine.maximum_active);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let results = runtime.block_on(reconcile_project_services_from_observed(
+        &engine,
+        ProjectServicesReconcileOptions {
+            requests: &requests,
+            observed: &[],
+            installation_id: "install-1",
+            schema_version: 8,
+            concurrency: NonZeroUsize::new(2).expect("non-zero concurrency"),
+        },
+    ));
+    let names = results
+        .into_iter()
+        .map(|(request, result)| {
+            result.expect("reconcile dedicated project service");
+
+            request.name().to_owned()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        requests
+            .iter()
+            .map(|request| request.name().to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(maximum_active.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -2180,6 +2227,76 @@ fn managed_environment(
 
 struct RecordingProjectVolumeEngine {
     observed: Vec<ObservedVolume>,
+}
+
+#[derive(Clone, Default)]
+struct RecordingBatchWorkloadEngine {
+    active: Arc<AtomicUsize>,
+    maximum_active: Arc<AtomicUsize>,
+    delay: Duration,
+}
+
+impl ContainerLifecycle for RecordingBatchWorkloadEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation ContainerCreateOptions,
+    ) -> EngineFuture<'operation, OwnedContainer> {
+        Box::pin(async move {
+            let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.maximum_active.fetch_max(current, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+
+            reconstruct_owned_container(
+                &ObservedContainer::new(
+                    ContainerId::new(options.name()),
+                    options.metadata().labels(),
+                ),
+                options.metadata().installation_id(),
+                options.metadata().schema_version(),
+            )
+            .map_err(|ownership| EngineError::Backend {
+                detail: format!("could not reconstruct project service: {ownership:?}"),
+            })
+        })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerState> {
+        Box::pin(async { Ok(ContainerState::Running) })
+    }
+}
+
+impl HealthObserver for RecordingBatchWorkloadEngine {
+    fn observe_health<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ContainerHealth> {
+        Box::pin(async { Ok(ContainerHealth::Healthy) })
+    }
 }
 
 #[derive(Clone, Default)]

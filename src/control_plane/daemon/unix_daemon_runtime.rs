@@ -50,11 +50,12 @@ use crate::control_plane::tls::{
 };
 use crate::control_plane::workload::{
     BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
-    OrphanedProjectWorkloadOptions, ProjectVolumesReconcileOptions, ScheduledProjectCommandPlan,
-    WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
+    OrphanedProjectWorkloadOptions, ProjectServicesReconcileOptions,
+    ProjectVolumesReconcileOptions, ScheduledProjectCommandPlan, WorkloadReconcileError,
+    WorkloadReconcileOptions, garbage_collect_build_images,
     garbage_collect_disposable_containers_from_observed, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application_from_observed,
-    reconcile_project_process_from_observed, reconcile_project_service_from_observed,
+    reconcile_project_process_from_observed, reconcile_project_services_from_observed,
     reconcile_project_volumes_from_observed, remove_stale_ephemeral_services_from_observed,
     stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
@@ -1196,8 +1197,9 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
+        let mut eligible_services = Vec::with_capacity(engine_plan.dedicated_services().len());
 
-        'dedicated_services: for service in engine_plan.dedicated_services() {
+        'dedicated_volumes: for service in engine_plan.dedicated_services() {
             if let Some(volume) = service.volume() {
                 let Some(result) = project_volume_results.next() else {
                     self.engine_reconciliation.complete();
@@ -1266,7 +1268,7 @@ impl UnixDaemonRuntime {
                             "project volume requires explicit data migration; unrelated reconciliation continues"
                         );
 
-                        continue 'dedicated_services;
+                        continue 'dedicated_volumes;
                     }
                     Err(error) => {
                         self.engine_reconciliation.complete();
@@ -1276,17 +1278,29 @@ impl UnixDaemonRuntime {
                     }
                 }
             }
-            let result = self
-                .engine_runtime
-                .block_on(reconcile_project_service_from_observed(
-                    engine,
-                    &observed_managed_containers,
-                    WorkloadReconcileOptions {
-                        request: service.request(),
+            eligible_services.push(service);
+        }
+
+        let project_service_requests = eligible_services
+            .iter()
+            .map(|service| service.request().clone())
+            .collect::<Vec<_>>();
+        let project_service_results =
+            self.engine_runtime
+                .block_on(reconcile_project_services_from_observed(
+                    &*engine,
+                    ProjectServicesReconcileOptions {
+                        requests: &project_service_requests,
+                        observed: &observed_managed_containers,
                         installation_id: self.global_network_request.metadata().installation_id(),
                         schema_version: self.global_network_request.metadata().schema_version(),
+                        concurrency: INDEPENDENT_RECONCILIATION_CONCURRENCY,
                     },
                 ));
+
+        'dedicated_services: for (service, (request, result)) in
+            eligible_services.into_iter().zip(project_service_results)
+        {
             match result {
                 Ok(result) => {
                     if let Some(request) = service.provisioning_job() {
@@ -1421,8 +1435,8 @@ impl UnixDaemonRuntime {
                     }
                     workload_resources.push(workload_resource_record(&result));
                     tracing::debug!(
-                        project = service.request().metadata().project_id().unwrap_or_default(),
-                        service = service.request().metadata().resource_id().unwrap_or_default(),
+                        project = request.metadata().project_id().unwrap_or_default(),
+                        service = request.metadata().resource_id().unwrap_or_default(),
                         action = ?result.action(),
                         "dedicated project service reconciliation completed"
                     );
