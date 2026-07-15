@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused the daemon's post-shared container observation for dedicated-service
+  provisioning and authenticated-readiness jobs. Reconciliation no longer
+  performs a full managed-container scan for every LocalStack, search, or
+  other dedicated service that requires a transient client job.
 - Reused the shared-infrastructure container observation when cleaning up
   interrupted ephemeral browser services. Startup recovery no longer performs
   a standalone full Engine container scan immediately before collecting the

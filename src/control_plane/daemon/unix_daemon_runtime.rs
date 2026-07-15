@@ -39,7 +39,7 @@ use crate::control_plane::shared_infrastructure::{
     ProvisioningJobOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
     UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
     resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
-    run_provisioning_job, stop_unreferenced_shared_services_from_observed,
+    run_provisioning_job_from_observed, stop_unreferenced_shared_services_from_observed,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -1300,21 +1300,24 @@ impl UnixDaemonRuntime {
                             .project_service_provisioning
                             .requires(request, result.action(), now)
                         {
-                            let provisioning = self.engine_runtime.block_on(run_provisioning_job(
-                                engine,
-                                ProvisioningJobOptions {
-                                    request,
-                                    installation_id: self
-                                        .global_network_request
-                                        .metadata()
-                                        .installation_id(),
-                                    schema_version: self
-                                        .global_network_request
-                                        .metadata()
-                                        .schema_version(),
-                                    timeout: PROJECT_SERVICE_PROVISIONING_TIMEOUT,
-                                },
-                            ));
+                            let provisioning =
+                                self.engine_runtime
+                                    .block_on(run_provisioning_job_from_observed(
+                                        engine,
+                                        &observed_managed_containers,
+                                        ProvisioningJobOptions {
+                                            request,
+                                            installation_id: self
+                                                .global_network_request
+                                                .metadata()
+                                                .installation_id(),
+                                            schema_version: self
+                                                .global_network_request
+                                                .metadata()
+                                                .schema_version(),
+                                            timeout: PROJECT_SERVICE_PROVISIONING_TIMEOUT,
+                                        },
+                                    ));
                             match provisioning {
                                 Ok(()) => self
                                     .project_service_provisioning

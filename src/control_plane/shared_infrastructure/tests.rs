@@ -39,9 +39,10 @@ use super::{
     reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
     revoke_orphaned_shared_access, revoke_orphaned_shared_access_from_observed,
-    revoke_rabbitmq_project_access, run_provisioning_job, stop_unreferenced_shared_services,
-    stop_unreferenced_shared_services_from_observed, store_credential_secret,
-    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    revoke_rabbitmq_project_access, run_provisioning_job, run_provisioning_job_from_observed,
+    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -1756,11 +1757,12 @@ fn stale_owned_provisioning_jobs_finish_before_the_desired_job_runs() {
     )
     .and_then(|metadata| metadata.with_resource_id("object-store-bucket"))
     .expect("stale provisioning metadata");
+    let pass_observation = [ObservedContainer::new(
+        ContainerId::new("stale-job"),
+        stale_metadata.labels(),
+    )];
     let mut engine = RecordingSharedVolumeEngine {
-        observed_containers: vec![ObservedContainer::new(
-            ContainerId::new("stale-job"),
-            stale_metadata.labels(),
-        )],
+        observed_containers: Vec::new(),
         state: crate::control_plane::engine::ContainerState::Stopped,
         ..RecordingSharedVolumeEngine::default()
     };
@@ -1769,8 +1771,9 @@ fn stale_owned_provisioning_jobs_finish_before_the_desired_job_runs() {
         .expect("test runtime");
 
     runtime
-        .block_on(run_provisioning_job(
+        .block_on(run_provisioning_job_from_observed(
             &mut engine,
+            &pass_observation,
             ProvisioningJobOptions {
                 request: &request,
                 installation_id: "install-1",

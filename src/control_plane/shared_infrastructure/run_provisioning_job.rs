@@ -1,7 +1,9 @@
 use super::{ProvisioningJobOptions, SharedInfrastructureReconcileError};
+#[cfg(test)]
+use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    ContainerCompletion, ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
-    ImageResolver, ImmutableImageReference, ObservedResourceOwnership, OwnedContainer,
+    ContainerCompletion, ContainerLifecycle, ContainerState, EngineError, ImageResolver,
+    ImmutableImageReference, ObservedContainer, ObservedResourceOwnership, OwnedContainer,
     ResourceKind, RetentionClass, reconstruct_owned_container,
 };
 
@@ -11,6 +13,7 @@ const RESOURCE_LABEL: &str = "dev.stackctl.resource";
 const PROVISIONING_JOB_KIND: &str = "provisioning_job";
 
 /// Runs one deterministic private-network job and removes it after completion.
+#[cfg(test)]
 pub(crate) async fn run_provisioning_job<E>(
     engine: &mut E,
     options: ProvisioningJobOptions<'_>,
@@ -19,13 +22,27 @@ where
     E: ContainerCompletion + ContainerDiscovery + ContainerLifecycle + ImageResolver,
 {
     validate_request(&options)?;
-    let metadata = options.request.metadata();
-    let project_id = metadata.project_id().unwrap_or_default();
-    let resource_id = metadata.resource_id().unwrap_or_default();
     let observed = engine
         .discover_managed()
         .await
         .map_err(|error| engine_error("provisioning job discovery", error))?;
+
+    run_provisioning_job_from_observed(engine, &observed, options).await
+}
+
+/// Runs a provisioning job against a pass-wide Engine observation.
+pub(crate) async fn run_provisioning_job_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedContainer],
+    options: ProvisioningJobOptions<'_>,
+) -> Result<(), SharedInfrastructureReconcileError>
+where
+    E: ContainerCompletion + ContainerLifecycle + ImageResolver,
+{
+    validate_request(&options)?;
+    let metadata = options.request.metadata();
+    let project_id = metadata.project_id().unwrap_or_default();
+    let resource_id = metadata.resource_id().unwrap_or_default();
     let mut matching = Vec::new();
 
     for container in observed.iter().filter(|container| {
