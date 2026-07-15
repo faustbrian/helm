@@ -293,8 +293,10 @@ fn exact_project_credential<'credential>(
             logical.service_id(),
             flavor.implementation()
         ),
+        AccessStrategy::MongoDb => {
+            format!("{}/{}/mongodb", logical.project_id(), logical.service_id())
+        }
         AccessStrategy::Minio
-        | AccessStrategy::MongoDb
         | AccessStrategy::RabbitMq
         | AccessStrategy::Redis(_)
         | AccessStrategy::SqlServer => logical.logical_resource_id().to_owned(),

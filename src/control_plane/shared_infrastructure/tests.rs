@@ -25,8 +25,9 @@ use super::{
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_mongodb_migration_target,
-    prepare_mysql_migration_target, prepare_mysql_shared_instances,
-    prepare_postgres_migration_target, prepare_postgres_shared_instances, prepare_shared_instances,
+    prepare_mongodb_shared_instances, prepare_mysql_migration_target,
+    prepare_mysql_shared_instances, prepare_postgres_migration_target,
+    prepare_postgres_shared_instances, prepare_shared_instances,
     prepare_sql_server_migration_target, provision_mongodb_logical_resource,
     provision_mysql_logical_resource, provision_object_store_project_resources,
     provision_postgres_logical_resource, provision_sql_server_logical_resource,
@@ -34,17 +35,17 @@ use super::{
     reconcile_mongodb_project_resources, reconcile_mysql_migration_target,
     reconcile_mysql_project_resources, reconcile_object_store_project_resources,
     reconcile_postgres_migration_target, reconcile_postgres_project_resources,
-    reconcile_prepared_mysql_instance, reconcile_prepared_postgres_instance,
-    reconcile_prepared_shared_instance, reconcile_rabbitmq_definitions,
-    reconcile_redis_acl_snapshot, reconcile_shared_service, reconcile_shared_volume,
-    reconcile_sql_server_migration_target, reconcile_sql_server_project_resources,
-    reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
-    revoke_orphaned_shared_access, revoke_orphaned_shared_access_from_observed,
-    revoke_rabbitmq_project_access, run_provisioning_job, run_provisioning_job_from_observed,
-    run_provisioning_jobs_from_observed, stop_unreferenced_shared_services,
-    stop_unreferenced_shared_services_from_observed, store_credential_secret,
-    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
-    wait_for_mongodb_readiness,
+    reconcile_prepared_mongodb_instance, reconcile_prepared_mysql_instance,
+    reconcile_prepared_postgres_instance, reconcile_prepared_shared_instance,
+    reconcile_rabbitmq_definitions, reconcile_redis_acl_snapshot, reconcile_shared_service,
+    reconcile_shared_volume, reconcile_sql_server_migration_target,
+    reconcile_sql_server_project_resources, reload_rabbitmq_definitions, reload_redis_acl,
+    resolve_execution_shared_instances, revoke_orphaned_shared_access,
+    revoke_orphaned_shared_access_from_observed, revoke_rabbitmq_project_access,
+    run_provisioning_job, run_provisioning_job_from_observed, run_provisioning_jobs_from_observed,
+    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
+    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
+    store_redis_acl_snapshot, wait_for_mongodb_readiness,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -2580,6 +2581,63 @@ fn mongodb_project_resources_compose_user_credential_and_environment() {
 }
 
 #[test]
+fn mongodb_shared_reconciliation_records_the_physical_database_identity() {
+    let root = std::env::temp_dir().join(format!(
+        "stackctl-mongodb-logical-identity-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create MongoDB logical identity state");
+    let mut store =
+        SqliteStateStore::open(&root.join("state.sqlite3")).expect("MongoDB state store");
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mongodb", "8"),
+    )]);
+    let prepared = prepare_mongodb_shared_instances(
+        &mut store,
+        &shared,
+        &FixedCredentialEntropy(0x11),
+        super::MongoDbPreparationOptions {
+            installation_id: "install-1",
+            network_name: "stackctl",
+            schema_version: 8,
+            state_directory: &root,
+        },
+    )
+    .expect("prepare MongoDB instance");
+    let mut engine = RecordingSharedVolumeEngine::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_prepared_mongodb_instance(
+            &mut engine,
+            &prepared[0],
+            "install-1",
+            8,
+        ))
+        .expect("reconcile prepared MongoDB instance");
+
+    assert_eq!(result.logical_resources().len(), 1);
+    assert_eq!(
+        result.logical_resources()[0].logical_resource_id(),
+        "stackctl_bill_database",
+        "backup and restore must address the physical MongoDB database"
+    );
+
+    drop(store);
+    std::fs::remove_dir_all(root).expect("remove MongoDB logical identity state");
+}
+
+#[test]
 fn mongodb_migration_target_is_separate_owned_retained_and_secret_file_backed() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
@@ -2705,7 +2763,8 @@ fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_
     .pop()
     .expect("shared MongoDB plan");
     let mut engine = RecordingSharedVolumeEngine {
-        health: crate::control_plane::engine::ContainerHealth::Healthy,
+        health: crate::control_plane::engine::ContainerHealth::RunningUnverified,
+        command_exits: Arc::new(Mutex::new(VecDeque::from([1, 0]))),
         ..RecordingSharedVolumeEngine::default()
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -2740,6 +2799,19 @@ fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_
     assert_eq!(
         std::fs::read_to_string(result.bootstrap_secret_file()).expect("stored root secret"),
         result.bootstrap_credential().secret()
+    );
+    assert_eq!(
+        result.health(),
+        crate::control_plane::engine::ContainerHealth::Healthy
+    );
+    assert_eq!(
+        engine
+            .command_arguments
+            .lock()
+            .expect("MongoDB readiness commands")
+            .len(),
+        2,
+        "migration target readiness must retry an authenticated protocol probe"
     );
     assert_eq!(
         engine.operations,
@@ -3817,7 +3889,7 @@ fn orphaned_mongodb_users_are_dropped_without_deleting_the_database() {
         orphaned_at_unix_seconds: None,
     });
     let logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
-        logical_resource_id: "bill/database/mongodb".to_owned(),
+        logical_resource_id: "stackctl_bill_database".to_owned(),
         shared_resource_id: "mongodb-data".to_owned(),
         project_id: "bill".to_owned(),
         service_id: "database".to_owned(),

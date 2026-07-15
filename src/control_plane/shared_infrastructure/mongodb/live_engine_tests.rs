@@ -1,5 +1,6 @@
 use super::{
-    MongoDbPreparationOptions, prepare_mongodb_shared_instances,
+    MongoDbMigrationPreparationOptions, MongoDbPreparationOptions, plan_mongodb_project_resources,
+    prepare_mongodb_shared_instances, reconcile_mongodb_migration_target,
     reconcile_prepared_mongodb_instance,
 };
 use crate::control_plane::engine::{
@@ -9,14 +10,20 @@ use crate::control_plane::engine::{
     OwnedContainer, ResourceKind, RetentionClass, delete_owned_installation_resources,
     reconstruct_owned_container, run_attached_command_capture,
 };
+use crate::control_plane::migration::{
+    MigrationCutoverPlan, MigrationOperations, MigrationRollbackPlan, MongoDbBackupOptions,
+    MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, backup_mongodb_database,
+};
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
+    CredentialGenerationError, CredentialSecret, IsolationCapability, OrphanedSharedAccessOptions,
+    PersistenceMode, SharedServiceRequest, plan_shared_instances,
+    revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    LogicalResourceRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -192,6 +199,202 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             Err(EngineError::ContainerExit { .. })
         ));
 
+        let source_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .expect("find active bill MongoDB logical resource");
+        let backup_root = state_directory.join("backups");
+        let backup = backup_mongodb_database(
+            &engine,
+            &container,
+            &MongoDbBackupOptions {
+                logical_resource: source_logical,
+                credential: bill.credential(),
+                database_name: bill.logical().database_name(),
+                installation_id: &installation_id,
+                created_at_unix_seconds: 11_500,
+                backup_root: &backup_root,
+                timeout: Duration::from_secs(30),
+            },
+        )
+        .await
+        .expect("back up live bill MongoDB database");
+        assert_eq!(
+            mongodb_write_and_read(
+                &engine,
+                &container,
+                bill.logical().database_name(),
+                bill.credential().username(),
+                bill.credential().secret(),
+                "mutated-after-backup",
+            )
+            .await
+            .expect("mutate bill MongoDB source after backup"),
+            b"mutated-after-backup\n"
+        );
+        let backup_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: "bill-database-mongodb-recovery".to_owned(),
+            project_id: "bill".to_owned(),
+            source_revision: source_logical.desired_revision().to_owned(),
+            target_revision: source_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            phase: MigrationPhase::BackupVerified,
+            backup_reference: Some(backup.reference().to_owned()),
+            backup_artifact_sha256: Some(backup.artifact_sha256().to_owned()),
+            backup_artifact_size_bytes: Some(backup.artifact_size_bytes()),
+            target_resource_id: None,
+            rollback_reference: Some(source_logical.shared_resource_id().to_owned()),
+            updated_at_unix_seconds: 11_500,
+        })
+        .expect("record live MongoDB backup checkpoint");
+        let target = reconcile_mongodb_migration_target(
+            &mut store,
+            &mut engine,
+            &shared[0],
+            &SequentialCredentialEntropy::new(0x91),
+            MongoDbMigrationPreparationOptions {
+                migration_id: backup_checkpoint.migration_id(),
+                project_id: "bill",
+                installation_id: &installation_id,
+                network_name: &network_name,
+                schema_version: 8,
+                desired_revision: source_logical.desired_revision(),
+                state_directory: &state_directory,
+            },
+        )
+        .await
+        .expect("reconcile isolated MongoDB recovery target");
+        let target_resources = plan_mongodb_project_resources(
+            "bill",
+            "database",
+            target.plan(),
+            CredentialSecret::new(bill.credential().secret().to_owned()),
+        )
+        .expect("plan MongoDB recovery target resources");
+        let target_logical = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: format!(
+                "{}/{}",
+                source_logical.project_id(),
+                source_logical.service_id()
+            ),
+            shared_resource_id: target.volume().name().to_owned(),
+            project_id: source_logical.project_id().to_owned(),
+            service_id: source_logical.service_id().to_owned(),
+            kind: source_logical.kind().to_owned(),
+            compatibility_fingerprint: source_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_resources.environment().revision().to_owned(),
+            lifecycle: ResourceLifecycle::Active,
+            orphaned_at_unix_seconds: None,
+        });
+        let project = ProjectRecord::new(
+            state_directory.join("projects/bill"),
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+        );
+        let retained_target = LogicalResourceRecord::new(LogicalResourceRecordOptions {
+            logical_resource_id: target_logical.logical_resource_id().to_owned(),
+            shared_resource_id: target_logical.shared_resource_id().to_owned(),
+            project_id: target_logical.project_id().to_owned(),
+            service_id: target_logical.service_id().to_owned(),
+            kind: target_logical.kind().to_owned(),
+            compatibility_fingerprint: target_logical.compatibility_fingerprint().to_owned(),
+            desired_revision: target_logical.desired_revision().to_owned(),
+            lifecycle: ResourceLifecycle::Retained,
+            orphaned_at_unix_seconds: None,
+        });
+        let cutover =
+            MigrationCutoverPlan::new(project.clone(), target_resources.environment().clone())
+                .expect("plan MongoDB recovery cutover");
+        let rollback =
+            MigrationRollbackPlan::new(project, bill.environment().clone(), vec![retained_target])
+                .expect("plan MongoDB recovery rollback");
+        let mut operations = MongoDbMigrationOperations::new(
+            &engine,
+            MongoDbMigrationOperationsOptions {
+                source_container: &container,
+                target_container: target.container(),
+                source_logical_resource: source_logical,
+                target_logical_resource: &target_logical,
+                source_credential: bill.credential(),
+                target_credential: target_resources.credential(),
+                source_administrator: prepared.instance().bootstrap_credential(),
+                target_administrator: target.bootstrap_credential(),
+                source_environment: bill.environment(),
+                target_plan: target_resources.logical(),
+                installation_id: &installation_id,
+                backup_root: &backup_root,
+                operation_unix_seconds: 11_700,
+                timeout: Duration::from_secs(30),
+                cutover,
+                rollback,
+            },
+        )
+        .expect("prepare live MongoDB migration operations");
+        let target_plan = operations
+            .provision_target(&backup_checkpoint)
+            .await
+            .expect("provision isolated MongoDB recovery database");
+        let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+            migration_id: backup_checkpoint.migration_id().to_owned(),
+            project_id: backup_checkpoint.project_id().to_owned(),
+            source_revision: backup_checkpoint.source_revision().to_owned(),
+            target_revision: target_logical.desired_revision().to_owned(),
+            source_compatibility_fingerprint: backup_checkpoint
+                .source_compatibility_fingerprint()
+                .to_owned(),
+            target_compatibility_fingerprint: backup_checkpoint
+                .target_compatibility_fingerprint()
+                .to_owned(),
+            phase: MigrationPhase::TargetProvisioned,
+            backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
+            backup_artifact_sha256: backup_checkpoint
+                .backup_artifact_sha256()
+                .map(str::to_owned),
+            backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
+            target_resource_id: Some(target_plan.target_resource_id().to_owned()),
+            rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
+            updated_at_unix_seconds: 11_600,
+        })
+        .expect("record live MongoDB target checkpoint");
+        operations
+            .restore(
+                &restore_checkpoint,
+                backup.reference(),
+                target_plan.target_resource_id(),
+            )
+            .await
+            .expect("restore verified MongoDB backup into isolated target");
+        assert_eq!(
+            mongodb_read(
+                &engine,
+                target.container(),
+                target_plan.target_resource_id(),
+                target_resources.credential().username(),
+                target_resources.credential().secret(),
+                target_plan.target_resource_id(),
+            )
+            .await
+            .expect("read restored MongoDB target"),
+            b"bill-value\n",
+            "target restore must reproduce the verified point-in-time backup"
+        );
+        assert_eq!(
+            mongodb_read(
+                &engine,
+                &container,
+                shop.logical().database_name(),
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().database_name(),
+            )
+            .await
+            .expect("read sibling MongoDB database after restore"),
+            b"shop-value\n"
+        );
+        drop(operations);
+
         let second =
             reconcile_prepared_mongodb_instance(&mut engine, prepared, &installation_id, 8)
                 .await
@@ -265,7 +468,8 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             )
             .await
             .expect("verify retained bill MongoDB data as administrator"),
-            b"bill-value\n"
+            b"mutated-after-backup\n",
+            "isolated recovery must not mutate the retained source database"
         );
 
         let restored =
@@ -284,7 +488,7 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             )
             .await
             .expect("read restored bill MongoDB data"),
-            b"bill-value\n"
+            b"mutated-after-backup\n"
         );
         let restored_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(restored_container.id(), container.id());
@@ -294,12 +498,15 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             InstallationResourceDeletionOptions {
                 installation_id: &installation_id,
                 schema_version: 8,
-                authorized_persistent_volumes: &[prepared
-                    .instance()
-                    .volume()
-                    .expect("persistent MongoDB volume")
-                    .name()
-                    .to_owned()],
+                authorized_persistent_volumes: &[
+                    prepared
+                        .instance()
+                        .volume()
+                        .expect("persistent MongoDB volume")
+                        .name()
+                        .to_owned(),
+                    target.volume().name().to_owned(),
+                ],
             },
         )
         .await

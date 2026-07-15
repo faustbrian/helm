@@ -1,10 +1,11 @@
+use super::wait_for_mongodb_readiness::wait_for_mongodb_readiness;
 use super::{
     MongoDbMigrationPreparationOptions, MongoDbMigrationTargetReconcileResult,
     prepare_mongodb_migration_target,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver, VolumeDiscovery,
-    VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver,
+    VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, SharedInfrastructureReconcileError, SharedInstancePlan,
@@ -26,8 +27,12 @@ pub(crate) async fn reconcile_mongodb_migration_target<Store, Engine, Entropy>(
 ) -> Result<MongoDbMigrationTargetReconcileResult, SharedInfrastructureReconcileError>
 where
     Store: StateStore,
-    Engine:
-        ContainerDiscovery + ContainerLifecycle + HealthObserver + VolumeDiscovery + VolumeManager,
+    Engine: CommandExecutor
+        + ContainerDiscovery
+        + ContainerLifecycle
+        + HealthObserver
+        + VolumeDiscovery
+        + VolumeManager,
     Entropy: CredentialEntropy,
 {
     let plan = prepare_mongodb_migration_target(store, shared, entropy, options)
@@ -64,17 +69,15 @@ where
     )
     .await
     .map_err(|error| invalid("reconcile MongoDB migration target service", error))?;
-    if service.health() != ContainerHealth::Healthy {
-        return Err(SharedInfrastructureReconcileError::InvalidRequest {
-            detail: format!(
-                "MongoDB migration target is not ready: {:?}",
-                service.health()
-            ),
-        });
-    }
+    wait_for_mongodb_readiness(engine, service.container(), plan.bootstrap_credential())
+        .await
+        .map_err(|error| invalid("wait for MongoDB migration target readiness", error))?;
 
     Ok(MongoDbMigrationTargetReconcileResult::new(
-        plan, service, volume,
+        plan,
+        service,
+        volume,
+        ContainerHealth::Healthy,
     ))
 }
 

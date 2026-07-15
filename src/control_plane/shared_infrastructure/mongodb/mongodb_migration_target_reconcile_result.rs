@@ -1,5 +1,5 @@
 use super::MongoDbSharedInstancePlan;
-use crate::control_plane::engine::{OwnedContainer, OwnedVolume};
+use crate::control_plane::engine::{ContainerHealth, OwnedContainer, OwnedVolume};
 use crate::control_plane::state::CredentialRecord;
 use crate::control_plane::workload::{ProjectVolumeReconcileResult, WorkloadReconcileResult};
 use std::path::Path;
@@ -9,6 +9,7 @@ pub(crate) struct MongoDbMigrationTargetReconcileResult {
     plan: MongoDbSharedInstancePlan,
     service: WorkloadReconcileResult,
     volume: ProjectVolumeReconcileResult,
+    health: ContainerHealth,
 }
 
 impl MongoDbMigrationTargetReconcileResult {
@@ -16,11 +17,13 @@ impl MongoDbMigrationTargetReconcileResult {
         plan: MongoDbSharedInstancePlan,
         service: WorkloadReconcileResult,
         volume: ProjectVolumeReconcileResult,
+        health: ContainerHealth,
     ) -> Self {
         Self {
             plan,
             service,
             volume,
+            health,
         }
     }
 
@@ -30,6 +33,10 @@ impl MongoDbMigrationTargetReconcileResult {
 
     pub(crate) const fn volume(&self) -> &OwnedVolume {
         self.volume.volume()
+    }
+
+    pub(crate) const fn health(&self) -> ContainerHealth {
+        self.health
     }
 
     pub(crate) const fn bootstrap_credential(&self) -> &CredentialRecord {
