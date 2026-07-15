@@ -1,4 +1,7 @@
-use super::{ProjectServiceContainerConfiguration, ProjectServicePreparationError};
+use super::{
+    ProjectServiceContainerConfiguration, ProjectServicePreparationError,
+    ProjectServiceProvisioningJob,
+};
 use crate::control_plane::engine::BindMount;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::state::{CredentialRecord, ManagedEnvironmentRecord};
@@ -16,6 +19,7 @@ pub(crate) struct PreparedProjectService {
     container_command: Option<Vec<String>>,
     container_configuration: Option<ProjectServiceContainerConfiguration>,
     container_configuration_mount: Option<BindMount>,
+    provisioning_job: Option<ProjectServiceProvisioningJob>,
     route: Option<GatewayRoute>,
 }
 
@@ -37,6 +41,7 @@ impl PreparedProjectService {
             container_command: None,
             container_configuration: None,
             container_configuration_mount: None,
+            provisioning_job: None,
             route,
         }
     }
@@ -60,6 +65,15 @@ impl PreparedProjectService {
         configuration: ProjectServiceContainerConfiguration,
     ) -> Self {
         self.container_configuration = Some(configuration);
+
+        self
+    }
+
+    pub(crate) fn with_provisioning_job(
+        mut self,
+        provisioning_job: ProjectServiceProvisioningJob,
+    ) -> Self {
+        self.provisioning_job = Some(provisioning_job);
 
         self
     }
@@ -102,6 +116,10 @@ impl PreparedProjectService {
         self.container_configuration_mount = Some(mount);
     }
 
+    pub(crate) const fn provisioning_job(&self) -> Option<&ProjectServiceProvisioningJob> {
+        self.provisioning_job.as_ref()
+    }
+
     pub(crate) const fn route(&self) -> Option<&GatewayRoute> {
         self.route.as_ref()
     }
@@ -125,6 +143,7 @@ impl Debug for PreparedProjectService {
                 "container_configuration_mount",
                 &self.container_configuration_mount(),
             )
+            .field("provisioning_job", &self.provisioning_job())
             .field("route", &self.route())
             .finish()
     }

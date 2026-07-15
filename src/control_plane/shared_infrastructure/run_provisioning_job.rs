@@ -1,8 +1,8 @@
 use super::{ProvisioningJobOptions, SharedInfrastructureReconcileError};
 use crate::control_plane::engine::{
     ContainerCompletion, ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError,
-    ObservedResourceOwnership, OwnedContainer, ResourceKind, RetentionClass,
-    reconstruct_owned_container,
+    ImageResolver, ImmutableImageReference, ObservedResourceOwnership, OwnedContainer,
+    ResourceKind, RetentionClass, reconstruct_owned_container,
 };
 
 const KIND_LABEL: &str = "dev.stackctl.kind";
@@ -16,7 +16,7 @@ pub(crate) async fn run_provisioning_job<E>(
     options: ProvisioningJobOptions<'_>,
 ) -> Result<(), SharedInfrastructureReconcileError>
 where
-    E: ContainerCompletion + ContainerDiscovery + ContainerLifecycle,
+    E: ContainerCompletion + ContainerDiscovery + ContainerLifecycle + ImageResolver,
 {
     validate_request(&options)?;
     let metadata = options.request.metadata();
@@ -88,8 +88,14 @@ async fn create_and_run<E>(
     options: &ProvisioningJobOptions<'_>,
 ) -> Result<(), SharedInfrastructureReconcileError>
 where
-    E: ContainerCompletion + ContainerLifecycle,
+    E: ContainerCompletion + ContainerLifecycle + ImageResolver,
 {
+    let image = ImmutableImageReference::new(options.request.image())
+        .map_err(|error| engine_error("validate provisioning image", error))?;
+    engine
+        .ensure_image(&image)
+        .await
+        .map_err(|error| engine_error("ensure provisioning image", error))?;
     let container = engine
         .create(options.request)
         .await

@@ -88,6 +88,7 @@ pub(crate) fn plan_engine_reconciliation(
                     generated_command: prepared.and_then(|prepared| prepared.container_command()),
                     generated_configuration_mount: prepared
                         .and_then(|prepared| prepared.container_configuration_mount()),
+                    provisioning_job: prepared.and_then(|prepared| prepared.provisioning_job()),
                     installation_id: options.installation_id,
                     schema_version: options.schema_version,
                     platform: options.platform,

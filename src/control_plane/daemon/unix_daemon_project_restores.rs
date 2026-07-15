@@ -160,6 +160,7 @@ impl UnixDaemonRuntime {
                             .and_then(|prepared| prepared.container_command()),
                         generated_configuration_mount: prepared
                             .and_then(|prepared| prepared.container_configuration_mount()),
+                        provisioning_job: prepared.and_then(|prepared| prepared.provisioning_job()),
                         installation_id: self.global_network_request.metadata().installation_id(),
                         schema_version: self.global_network_request.metadata().schema_version(),
                         platform,

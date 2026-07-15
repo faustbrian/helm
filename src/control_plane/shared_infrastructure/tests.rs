@@ -1250,13 +1250,19 @@ fn provisioning_jobs_are_bounded_owned_and_removed_after_success() {
         ))
         .expect("run provisioning job");
 
-    assert_eq!(engine.created_containers, vec![request]);
+    assert_eq!(engine.created_containers, vec![request.clone()]);
     assert_eq!(engine.started_containers.len(), 1);
     assert_eq!(engine.removed_containers.len(), 1);
+    assert_eq!(engine.ensured_images, [request.image()]);
     assert_eq!(*completions.lock().expect("completion count"), 1);
     assert_eq!(
         engine.operations,
-        vec!["create-container", "start-container", "remove-container"]
+        vec![
+            "ensure-image",
+            "create-container",
+            "start-container",
+            "remove-container"
+        ]
     );
 }
 
@@ -6403,6 +6409,7 @@ struct RecordingSharedVolumeEngine {
     completions: Arc<Mutex<usize>>,
     completion_fails: bool,
     completion_times_out: bool,
+    ensured_images: Vec<String>,
 }
 
 impl Default for RecordingSharedVolumeEngine {
@@ -6427,7 +6434,21 @@ impl Default for RecordingSharedVolumeEngine {
             completions: Arc::new(Mutex::new(0)),
             completion_fails: false,
             completion_times_out: false,
+            ensured_images: Vec::new(),
         }
+    }
+}
+
+impl crate::control_plane::engine::ImageResolver for RecordingSharedVolumeEngine {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation crate::control_plane::engine::ImmutableImageReference,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ImageId> {
+        self.operations.push("ensure-image");
+        self.ensured_images.push(reference.as_str().to_owned());
+        Box::pin(async {
+            crate::control_plane::engine::ImageId::new(format!("sha256:{}", "1".repeat(64)))
+        })
     }
 }
 

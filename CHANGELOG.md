@@ -44,8 +44,10 @@ All notable changes to this project are documented in this file.
   service adapter so generated credentials, commands, environment, and config
   mounts survive recovery instead of producing a partial container request.
 - Added stable RustFS root credentials, private S3 endpoint values, explicit
-  single-node data-volume configuration, and console disablement while leaving
-  unproven bucket provisioning fail-closed instead of using MinIO-only commands.
+  single-node data-volume configuration, console disablement, and an owned
+  disposable bucket-provisioning job. Successful jobs are suppressed for an
+  unchanged service revision so their own Engine events cannot cause a loop,
+  while failures and service replacement remain retryable.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

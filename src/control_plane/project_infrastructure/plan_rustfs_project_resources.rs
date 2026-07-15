@@ -1,4 +1,6 @@
-use super::{PreparedProjectService, ProjectServicePreparationError};
+use super::{
+    PreparedProjectService, ProjectServicePreparationError, ProjectServiceProvisioningJob,
+};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::state::{
@@ -7,6 +9,11 @@ use crate::control_plane::state::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+
+const MINIO_CLIENT_IMAGE: &str = concat!(
+    "minio/mc@sha256:",
+    "a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
+);
 
 /// Composes one authenticated single-node RustFS endpoint and data volume.
 pub(crate) fn plan_rustfs_project_resources(
@@ -23,6 +30,12 @@ pub(crate) fn plan_rustfs_project_resources(
     let project_id = service.project().as_str();
     let service_id = service.service().as_str();
     let container_name = format!("stackctl-{project_id}-{service_id}");
+    let bucket = container_name.clone();
+    if bucket.len() > 63 {
+        return Err(invalid(format!(
+            "RustFS bucket '{bucket}' exceeds the 63-byte S3 limit"
+        )));
+    }
     let credential = CredentialRecord::new(CredentialRecordOptions {
         credential_id: format!("{project_id}/{service_id}/rustfs"),
         project_id: Some(project_id.to_owned()),
@@ -54,6 +67,7 @@ pub(crate) fn plan_rustfs_project_resources(
 
     let values = BTreeMap::from([
         ("AWS_ACCESS_KEY_ID".to_owned(), "stackctl_admin".to_owned()),
+        ("AWS_BUCKET".to_owned(), bucket.clone()),
         ("AWS_DEFAULT_REGION".to_owned(), "us-east-1".to_owned()),
         (
             "AWS_ENDPOINT".to_owned(),
@@ -72,6 +86,21 @@ pub(crate) fn plan_rustfs_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let provisioning_job = ProjectServiceProvisioningJob::new(
+        MINIO_CLIENT_IMAGE,
+        vec![
+            "mb".to_owned(),
+            "--ignore-existing".to_owned(),
+            format!("stackctl/{bucket}"),
+        ],
+        BTreeMap::from([(
+            "MC_HOST_stackctl".to_owned(),
+            format!(
+                "http://stackctl_admin:{}@{container_name}:9000",
+                secret.expose()
+            ),
+        )]),
+    )?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -80,7 +109,8 @@ pub(crate) fn plan_rustfs_project_resources(
         environment,
         container_environment,
         None,
-    ))
+    )
+    .with_provisioning_job(provisioning_job))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {

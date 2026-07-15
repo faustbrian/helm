@@ -7,11 +7,12 @@ use super::{
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
     ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, ScheduledCommandClock,
-    SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions, UnixDaemonShutdownSignal,
-    dispatch_daemon_request, initialize_default_installation, invalidate_engine_connection,
-    plan_engine_reconciliation, reconcile_watched_roots, requires_followup_reconciliation,
-    restore_daemon_operation_queues, validate_project_workload_adoption,
+    ProjectServiceProvisioningRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    ScheduledCommandClock, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
+    UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
+    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::UnixIpcListener;
@@ -31,9 +32,10 @@ use crate::control_plane::project_infrastructure::{
 use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
     OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
-    SharedInfrastructureReconcileError, SharedPreparationOptions, UnreferencedSharedServiceOptions,
-    reconcile_prepared_shared_instance, resolve_execution_shared_instances,
-    revoke_orphaned_shared_access, stop_unreferenced_shared_services,
+    ProvisioningJobOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
+    UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
+    resolve_execution_shared_instances, revoke_orphaned_shared_access, run_provisioning_job,
+    stop_unreferenced_shared_services,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -57,6 +59,8 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+const PROJECT_SERVICE_PROVISIONING_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// One authoritative Unix daemon owning state, scheduling, lease, and IPC.
 pub(crate) struct UnixDaemonRuntime {
     _lease: SingletonLease,
@@ -76,6 +80,7 @@ pub(crate) struct UnixDaemonRuntime {
     pub(super) migration_decisions: MigrationDecisionQueue,
     pub(super) project_logs: ProjectLogSessionRegistry,
     pub(super) resource_health: ResourceHealthRegistry,
+    project_service_provisioning: ProjectServiceProvisioningRegistry,
     pub(super) active_project_logs: BTreeMap<String, ActiveProjectLogSession>,
     pub(super) active_project_command: Option<ActiveProjectCommand>,
     pub(super) active_project_backup: Option<ActiveProjectBackup>,
@@ -167,6 +172,7 @@ impl UnixDaemonRuntime {
             migration_decisions,
             project_logs: ProjectLogSessionRegistry::default(),
             resource_health: ResourceHealthRegistry::default(),
+            project_service_provisioning: ProjectServiceProvisioningRegistry::default(),
             active_project_logs: BTreeMap::new(),
             active_project_command: None,
             active_project_backup: None,
@@ -1021,6 +1027,52 @@ impl UnixDaemonRuntime {
             ));
             match result {
                 Ok(result) => {
+                    if let Some(request) = service.provisioning_job() {
+                        if self
+                            .project_service_provisioning
+                            .requires(request, result.action())
+                        {
+                            let provisioning = self.engine_runtime.block_on(run_provisioning_job(
+                                engine,
+                                ProvisioningJobOptions {
+                                    request,
+                                    installation_id: self
+                                        .global_network_request
+                                        .metadata()
+                                        .installation_id(),
+                                    schema_version: self
+                                        .global_network_request
+                                        .metadata()
+                                        .schema_version(),
+                                    timeout: PROJECT_SERVICE_PROVISIONING_TIMEOUT,
+                                },
+                            ));
+                            match provisioning {
+                                Ok(()) => self.project_service_provisioning.record(request),
+                                Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
+                                    let retry = invalidate_engine_connection(
+                                        &mut self.engine_connection,
+                                        &mut self.resource_health,
+                                        now,
+                                    );
+                                    tracing::debug!(
+                                        attempt = retry.attempt(),
+                                        retry_milliseconds = retry.duration().as_millis(),
+                                        error = %error,
+                                        "project service provisioning lost the selected Engine; retry scheduled"
+                                    );
+
+                                    return;
+                                }
+                                Err(error) => {
+                                    self.engine_reconciliation.complete();
+                                    tracing::error!(error = %error, "project service provisioning blocked");
+
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     if let Err(error) = health_snapshot.record(
                         result.container().id().as_str(),
                         result.health(),

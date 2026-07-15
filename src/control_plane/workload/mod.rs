@@ -25,6 +25,7 @@ mod plan_dedicated_project_service;
 mod plan_ephemeral_browser;
 mod plan_immutable_project_application;
 mod plan_project_process_operation;
+mod plan_project_service_provisioning_job;
 mod plan_scheduled_project_command;
 mod project_command;
 mod project_command_plan;

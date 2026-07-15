@@ -857,7 +857,10 @@ fn rustfs_preparation_replays_stable_root_credentials_and_private_endpoint() {
         first.environment().values().get("AWS_ACCESS_KEY_ID"),
         Some(&"stackctl_admin".to_owned())
     );
-    assert_eq!(first.environment().values().get("AWS_BUCKET"), None);
+    assert_eq!(
+        first.environment().values().get("AWS_BUCKET"),
+        Some(&"stackctl-bill-storage".to_owned())
+    );
     assert_eq!(first.route(), None);
     assert!(!format!("{first:?}").contains(credential.secret()));
 

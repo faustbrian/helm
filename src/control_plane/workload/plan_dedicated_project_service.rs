@@ -141,9 +141,24 @@ pub(crate) fn plan_dedicated_project_service(
         request
     };
 
+    let provisioning_job = options
+        .provisioning_job
+        .map(|provisioning| {
+            super::plan_project_service_provisioning_job::plan_project_service_provisioning_job(
+                service,
+                provisioning,
+                options.installation_id,
+                options.schema_version,
+                options.platform,
+                options.network_name,
+            )
+        })
+        .transpose()?;
+
     Ok(DedicatedProjectServicePlan::new(
         request.with_restart_policy(ContainerRestartPolicy::UnlessStopped),
         volume,
+        provisioning_job,
     ))
 }
 

@@ -5652,6 +5652,44 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
     assert_eq!(dedicated.request().volume_mounts()[0].target(), "/data");
     assert!(dedicated.request().port_bindings().is_empty());
     assert!(plan.gateway().routes().is_empty());
+    let job = dedicated
+        .provisioning_job()
+        .expect("RustFS bucket provisioning job");
+    assert_eq!(
+        job.image(),
+        concat!(
+            "minio/mc@sha256:",
+            "a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
+        )
+    );
+    assert_eq!(
+        job.metadata().kind(),
+        crate::control_plane::engine::ResourceKind::ProvisioningJob
+    );
+    assert_eq!(job.metadata().project_id(), Some("bill"));
+    assert_eq!(job.metadata().resource_id(), Some("storage"));
+    assert_eq!(
+        job.command(),
+        ["mb", "--ignore-existing", "stackctl/stackctl-bill-storage"]
+    );
+    assert_eq!(job.network(), Some("stackctl"));
+    assert_eq!(job.platform(), Some("linux/arm64"));
+    assert!(!format!("{job:?}").contains("rustfs-secret"));
+
+    let mut registry = super::ProjectServiceProvisioningRegistry::default();
+    assert!(registry.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged
+    ));
+    registry.record(job);
+    assert!(!registry.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Unchanged
+    ));
+    assert!(registry.requires(
+        job,
+        crate::control_plane::workload::WorkloadReconcileAction::Replaced
+    ));
 }
 
 #[cfg(unix)]
