@@ -19,6 +19,7 @@ mod reconcile_mysql_migration_target;
 mod reconcile_mysql_project_resources;
 mod reconcile_prepared_mysql_instance;
 mod revoke_mysql_project_access;
+mod wait_for_mysql_readiness;
 
 pub(crate) use mysql_access_revocation_options::MySqlAccessRevocationOptions;
 pub(crate) use mysql_flavor::MySqlFlavor;

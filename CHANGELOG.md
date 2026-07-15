@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a common bounded shared-service readiness strategy and applied it to
+  MySQL and MariaDB before tenant provisioning. Redis, Valkey, PostgreSQL,
+  MySQL, and MariaDB now share the same transient startup retry policy while
+  retaining service-specific authenticated probes and fail-closed validation.
 - Added bounded administrator-authenticated PostgreSQL readiness before tenant
   provisioning, preventing normal process initialization from being reported
   as project database drift. Native Linux Engine acceptance now also proves

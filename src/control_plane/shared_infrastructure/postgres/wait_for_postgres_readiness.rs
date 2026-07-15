@@ -1,14 +1,12 @@
 use super::POSTGRES_BOOTSTRAP_USERNAME;
 use crate::control_plane::engine::{
     AttachedCommandOptions, CommandExecutor, CommandRequest, EngineError, OwnedContainer,
-    run_attached_command,
 };
+use crate::control_plane::shared_infrastructure::run_shared_service_readiness_probe;
 use crate::control_plane::state::{CredentialLifecycle, CredentialRecord};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-const READINESS_ATTEMPTS: usize = 30;
-const READINESS_RETRY_MILLISECONDS: u64 = 200;
 const READINESS_PROBE_TIMEOUT_SECONDS: u64 = 5;
 
 /// Waits for PostgreSQL through its managed administrator identity.
@@ -44,19 +42,7 @@ pub(super) async fn wait_for_postgres_readiness(
         Duration::from_secs(READINESS_PROBE_TIMEOUT_SECONDS),
     )?;
 
-    for attempt in 1..=READINESS_ATTEMPTS {
-        match run_attached_command(executor, container, &options).await {
-            Ok(()) => return Ok(()),
-            Err(EngineError::ContainerExit { .. } | EngineError::Backend { .. })
-                if attempt < READINESS_ATTEMPTS =>
-            {
-                tokio::time::sleep(Duration::from_millis(READINESS_RETRY_MILLISECONDS)).await;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    unreachable!("the final PostgreSQL readiness attempt always returns")
+    run_shared_service_readiness_probe(executor, container, &options).await
 }
 
 #[cfg(test)]

@@ -304,7 +304,14 @@ fn mysql_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
     assert_eq!(result.physical_resources().len(), 2);
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
-    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 2);
+    let commands = engine.command_arguments.lock().expect("commands");
+    assert_eq!(commands.len(), 3);
+    assert_eq!(
+        commands[0].last().map(String::as_str),
+        Some("--execute=SELECT 1")
+    );
+    assert!(commands[1..].iter().all(|arguments| arguments.len() == 5));
+    drop(commands);
 
     drop(store);
     std::fs::remove_file(database_path).expect("remove state store");

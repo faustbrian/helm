@@ -105,6 +105,7 @@ pub(crate) use revoke_orphaned_shared_access::revoke_orphaned_shared_access_from
 pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use run_provisioning_job::run_provisioning_job_from_observed;
 pub(crate) use run_provisioning_jobs_from_observed::run_provisioning_jobs_from_observed;
+pub(crate) use run_shared_service_readiness_probe::run_shared_service_readiness_probe;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
@@ -171,6 +172,7 @@ mod resolve_execution_shared_instances;
 mod revoke_orphaned_shared_access;
 mod run_provisioning_job;
 mod run_provisioning_jobs_from_observed;
+mod run_shared_service_readiness_probe;
 mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;

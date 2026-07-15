@@ -1,3 +1,4 @@
+use super::wait_for_mysql_readiness::wait_for_mysql_readiness;
 use super::{PreparedMySqlSharedInstance, provision_mysql_logical_resource};
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
@@ -33,6 +34,15 @@ where
         },
     )
     .await?;
+    wait_for_mysql_readiness(engine, shared.container(), prepared.instance())
+        .await
+        .map_err(|error| SharedInfrastructureReconcileError::Engine {
+            action: format!(
+                "{} readiness",
+                prepared.instance().flavor().implementation()
+            ),
+            detail: error.to_string(),
+        })?;
     let mut logical = Vec::with_capacity(prepared.projects().len());
     let mut logical_resource_drifts = Vec::new();
 
