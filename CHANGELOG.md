@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended native Linux MySQL and MariaDB acceptance through project removal
+  and restoration. CI now proves tenant-user deletion retains its schema,
+  sibling access remains available, and reconciliation restores the stable user
+  and data without replacing the shared server.
 - Extended native Linux PostgreSQL acceptance through project removal and
   restoration. CI now proves `NOLOGIN` blocks the removed role while retaining
   its database, sibling access continues, and reconciliation restores the
