@@ -38,3 +38,6 @@ mod revoke_redis_project_access;
 mod store_redis_acl_snapshot;
 mod stored_redis_acl_paths;
 mod wait_for_redis_readiness;
+
+#[cfg(test)]
+mod live_engine_tests;

@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for shared Redis. CI now proves two
+  compatible projects reuse one persistent process and volume, retain stable
+  credentials across preparation, write through separate ACL prefixes, reject
+  cross-project key access, and preserve the container across reconciliation.
 - Added bounded authenticated Redis and Valkey cold-start readiness before ACL
   publication is loaded. Transient container and protocol startup failures now
   retry without exposing the administrator secret, while invalid requests,

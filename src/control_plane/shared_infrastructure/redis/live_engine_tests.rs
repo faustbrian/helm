@@ -1,0 +1,291 @@
+use super::{
+    RedisPreparationOptions, prepare_redis_shared_instances, reconcile_redis_acl_snapshot,
+};
+use crate::control_plane::engine::{
+    AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery,
+    ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions,
+    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkManager,
+    ResourceKind, RetentionClass, delete_owned_installation_resources, reconstruct_owned_container,
+    run_attached_command_output,
+};
+use crate::control_plane::shared_infrastructure::{
+    CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
+    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
+    plan_shared_instances,
+};
+use crate::control_plane::state::SqliteStateStore;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+const REDIS_IMAGE: &str = concat!(
+    "redis@sha256:",
+    "9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005"
+);
+
+#[test]
+#[ignore = "CI owns live shared Redis isolation acceptance"]
+fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must follow the Unix epoch")
+        .as_nanos();
+    let installation_id = format!("ci-{}-{nonce}", std::process::id());
+    let network_name = format!("stackctl-{installation_id}");
+    let state_directory = std::env::temp_dir().join(format!("stackctl-{installation_id}"));
+    let platform = match std::env::consts::ARCH {
+        "aarch64" => "linux/arm64",
+        "x86_64" => "linux/amd64",
+        architecture => panic!("unsupported Redis acceptance architecture '{architecture}'"),
+    };
+    let profile = CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
+        implementation: "redis".to_owned(),
+        major_version: "8".to_owned(),
+        image_digest: REDIS_IMAGE.to_owned(),
+        extensions: Vec::new(),
+        immutable_settings: BTreeMap::new(),
+        persistence: PersistenceMode::Persistent,
+        isolation: IsolationCapability::AclAndPrefix,
+        platform_architecture: Some(platform.to_owned()),
+    })
+    .expect("build Redis acceptance profile");
+    let shared = plan_shared_instances(vec![
+        SharedServiceRequest::new("bill", "cache", profile.clone()),
+        SharedServiceRequest::new("shop", "cache", profile),
+    ]);
+    assert_eq!(shared.len(), 1, "compatible projects must share one plan");
+    assert_eq!(shared[0].consumers().len(), 2);
+    std::fs::create_dir(&state_directory).expect("create Redis acceptance state");
+    let mut store = SqliteStateStore::open(&state_directory.join("state.sqlite3"))
+        .expect("open Redis acceptance state store");
+    let prepared = prepare_redis_shared_instances(
+        &mut store,
+        &shared,
+        &SequentialCredentialEntropy::new(0x11),
+        RedisPreparationOptions {
+            installation_id: &installation_id,
+            network_name: &network_name,
+            schema_version: 8,
+            state_directory: &state_directory,
+        },
+    )
+    .expect("prepare shared Redis acceptance resources");
+    let replayed = prepare_redis_shared_instances(
+        &mut store,
+        &shared,
+        &SequentialCredentialEntropy::new(0x51),
+        RedisPreparationOptions {
+            installation_id: &installation_id,
+            network_name: &network_name,
+            schema_version: 8,
+            state_directory: &state_directory,
+        },
+    )
+    .expect("replay shared Redis acceptance preparation");
+    let prepared_credentials = prepared[0]
+        .projects()
+        .iter()
+        .map(|project| project.credential().clone())
+        .collect::<Vec<_>>();
+    let replayed_credentials = replayed[0]
+        .projects()
+        .iter()
+        .map(|project| project.credential().clone())
+        .collect::<Vec<_>>();
+    assert_eq!(prepared_credentials, replayed_credentials);
+    assert_ne!(
+        prepared_credentials[0].secret(),
+        prepared_credentials[1].secret()
+    );
+    let prepared = &prepared[0];
+    let instance = prepared.instance();
+    let bill = prepared
+        .projects()
+        .iter()
+        .find(|project| project.environment().project_id() == "bill")
+        .expect("prepared bill Redis resources");
+    let shop = prepared
+        .projects()
+        .iter()
+        .find(|project| project.environment().project_id() == "shop")
+        .expect("prepared shop Redis resources");
+    let network_metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.clone(),
+        kind: ResourceKind::Network,
+        project_id: None,
+        compatibility_fingerprint: shared[0].fingerprint().as_str().to_owned(),
+        schema_version: 8,
+        desired_revision: shared[0].fingerprint().as_str().to_owned(),
+        retention: RetentionClass::Persistent,
+    })
+    .expect("build Redis acceptance network metadata");
+    let network_request = NetworkCreateOptions::new(&network_name, network_metadata)
+        .expect("build Redis acceptance network request");
+    let image = ImmutableImageReference::new(REDIS_IMAGE)
+        .expect("build immutable Redis acceptance image reference");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build Redis acceptance runtime");
+    let mut engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    runtime.block_on(async {
+        engine
+            .ensure_image(&image)
+            .await
+            .expect("resolve immutable Redis acceptance image");
+        engine
+            .create_network(&network_request)
+            .await
+            .expect("create private Redis acceptance network");
+        let first = reconcile_redis_acl_snapshot(
+            &mut engine,
+            instance,
+            prepared.snapshot(),
+            prepared.state_directory(),
+            &installation_id,
+            8,
+        )
+        .await
+        .expect("converge shared Redis for two projects");
+
+        let bill_key = format!("{}owned", bill.acl().prefix());
+        let shop_key = format!("{}owned", shop.acl().prefix());
+        assert_eq!(
+            redis_command(
+                &engine,
+                first.container(),
+                bill.credential().username(),
+                bill.credential().secret(),
+                &["SET", &bill_key, "bill-value"],
+            )
+            .await,
+            "OK\n"
+        );
+        assert_eq!(
+            redis_command(
+                &engine,
+                first.container(),
+                shop.credential().username(),
+                shop.credential().secret(),
+                &["SET", &shop_key, "shop-value"],
+            )
+            .await,
+            "OK\n"
+        );
+        let denied = redis_command(
+            &engine,
+            first.container(),
+            shop.credential().username(),
+            shop.credential().secret(),
+            &["GET", &bill_key],
+        )
+        .await;
+        assert!(
+            denied.contains("NOPERM"),
+            "cross-project key access unexpectedly returned: {denied:?}"
+        );
+
+        let second = reconcile_redis_acl_snapshot(
+            &mut engine,
+            instance,
+            prepared.snapshot(),
+            prepared.state_directory(),
+            &installation_id,
+            8,
+        )
+        .await
+        .expect("reconcile unchanged shared Redis instance");
+        assert_eq!(second.container().id(), first.container().id());
+        let owned_shared = engine
+            .discover_managed()
+            .await
+            .expect("discover shared Redis acceptance resources")
+            .into_iter()
+            .filter_map(|observed| reconstruct_owned_container(&observed, &installation_id, 8).ok())
+            .filter(|owned| owned.metadata().kind() == ResourceKind::SharedService)
+            .collect::<Vec<_>>();
+        assert_eq!(owned_shared.len(), 1);
+        assert_eq!(owned_shared[0].id(), first.container().id());
+
+        delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &[instance
+                    .volume()
+                    .expect("persistent Redis volume")
+                    .name()
+                    .to_owned()],
+            },
+        )
+        .await
+        .expect("delete shared Redis acceptance resources");
+    });
+
+    drop(store);
+    std::fs::remove_dir_all(&state_directory).expect("remove Redis acceptance state");
+    println!("shared Redis isolation acceptance passed for installation {installation_id}");
+}
+
+struct SequentialCredentialEntropy {
+    next: AtomicU8,
+}
+
+impl SequentialCredentialEntropy {
+    const fn new(first: u8) -> Self {
+        Self {
+            next: AtomicU8::new(first),
+        }
+    }
+}
+
+impl CredentialEntropy for SequentialCredentialEntropy {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CredentialGenerationError> {
+        bytes.fill(self.next.fetch_add(1, Ordering::SeqCst));
+
+        Ok(())
+    }
+}
+
+async fn redis_command(
+    engine: &BollardEngineAdapter,
+    container: &crate::control_plane::engine::OwnedContainer,
+    username: &str,
+    password: &str,
+    arguments: &[&str],
+) -> String {
+    let mut command = vec![
+        "redis-cli".to_owned(),
+        "--user".to_owned(),
+        username.to_owned(),
+        "--raw".to_owned(),
+    ];
+    command.extend(arguments.iter().map(ToString::to_string));
+    let request = CommandRequest::new(
+        command,
+        BTreeMap::from([("REDISCLI_AUTH".to_owned(), password.to_owned())]),
+        None,
+    )
+    .expect("build Redis tenant command");
+    let options = AttachedCommandOptions::new(
+        request,
+        Vec::new(),
+        "exercise Redis tenant isolation",
+        Duration::from_secs(10),
+    )
+    .expect("build bounded Redis tenant command");
+    let output = run_attached_command_output(engine, container, &options)
+        .await
+        .expect("execute Redis tenant command");
+    let mut bytes = output.stdout().to_vec();
+    bytes.extend_from_slice(output.stderr());
+
+    String::from_utf8(bytes).expect("Redis tenant output must be UTF-8")
+}
