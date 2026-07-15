@@ -50,12 +50,12 @@ use crate::control_plane::tls::{
 };
 use crate::control_plane::workload::{
     BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
-    OrphanedProjectWorkloadOptions, ProjectVolumeReconcileOptions, ScheduledProjectCommandPlan,
+    OrphanedProjectWorkloadOptions, ProjectVolumesReconcileOptions, ScheduledProjectCommandPlan,
     WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
     garbage_collect_disposable_containers_from_observed, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application_from_observed,
     reconcile_project_process_from_observed, reconcile_project_service_from_observed,
-    reconcile_project_volume_from_observed, remove_stale_ephemeral_services_from_observed,
+    reconcile_project_volumes_from_observed, remove_stale_ephemeral_services_from_observed,
     stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
@@ -1170,23 +1170,45 @@ impl UnixDaemonRuntime {
         }
 
         let observed_project_volumes = observed_shared_volumes.as_slice();
+        let project_volume_requests = engine_plan
+            .dedicated_services()
+            .iter()
+            .filter_map(|service| service.volume().cloned())
+            .collect::<Vec<_>>();
+        let project_volume_results =
+            self.engine_runtime
+                .block_on(reconcile_project_volumes_from_observed(
+                    &*engine,
+                    ProjectVolumesReconcileOptions {
+                        requests: &project_volume_requests,
+                        observed: observed_project_volumes,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                        concurrency: INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                    },
+                ));
+        let mut project_volume_results = match project_volume_results {
+            Ok(results) => results.into_iter(),
+            Err(error) => {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "project volume preflight blocked");
+
+                return;
+            }
+        };
 
         'dedicated_services: for service in engine_plan.dedicated_services() {
             if let Some(volume) = service.volume() {
-                let result = self
-                    .engine_runtime
-                    .block_on(reconcile_project_volume_from_observed(
-                        engine,
-                        observed_project_volumes,
-                        ProjectVolumeReconcileOptions {
-                            request: volume,
-                            installation_id: self
-                                .global_network_request
-                                .metadata()
-                                .installation_id(),
-                            schema_version: self.global_network_request.metadata().schema_version(),
-                        },
-                    ));
+                let Some(result) = project_volume_results.next() else {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        project = volume.metadata().project_id().unwrap_or_default(),
+                        service = volume.metadata().resource_id().unwrap_or_default(),
+                        "project volume reconciliation result was missing"
+                    );
+
+                    return;
+                };
                 match result {
                     Ok(result) => {
                         let record = match project_volume_resource_record(&result) {

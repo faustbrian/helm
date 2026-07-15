@@ -1,11 +1,8 @@
 use super::{
-    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, ProjectVolumeReconcileResult,
-    WorkloadReconcileError,
+    ProjectVolumeReconcileOptions, ProjectVolumeReconcileResult, WorkloadReconcileError,
+    execute_project_volume_reconciliation, plan_project_volume_reconciliation,
 };
-use crate::control_plane::engine::{
-    EngineError, ObservedVolume, ResourceKind, RetentionClass, VolumeDiscovery, VolumeManager,
-    reconstruct_owned_volume,
-};
+use crate::control_plane::engine::{EngineError, ObservedVolume, VolumeDiscovery, VolumeManager};
 
 /// Creates or adopts one exact retained project volume without deleting data.
 pub(crate) async fn reconcile_project_volume<E>(
@@ -32,85 +29,14 @@ pub(crate) async fn reconcile_project_volume_from_observed<E>(
 where
     E: VolumeManager,
 {
-    validate_request(&options)?;
-    let matching = observed
-        .iter()
-        .filter(|volume| volume.name() == options.request.name())
-        .collect::<Vec<_>>();
+    let plan = plan_project_volume_reconciliation(
+        options.request,
+        observed,
+        options.installation_id,
+        options.schema_version,
+    )?;
 
-    match matching.as_slice() {
-        [] => {
-            let volume = engine
-                .create_volume(options.request)
-                .await
-                .map_err(|error| engine_error("create project volume", error))?;
-            if volume.name() != options.request.name()
-                || volume.metadata() != options.request.metadata()
-            {
-                return Err(WorkloadReconcileError::Engine {
-                    action: "create project volume".to_owned(),
-                    detail: "Engine returned a project volume with unexpected ownership".to_owned(),
-                });
-            }
-
-            Ok(ProjectVolumeReconcileResult::new(
-                volume,
-                ProjectVolumeReconcileAction::Created,
-            ))
-        }
-        [observed] => {
-            let volume = reconstruct_owned_volume(
-                observed,
-                options.installation_id,
-                options.schema_version,
-            )
-            .map_err(|ownership| WorkloadReconcileError::Conflict {
-                detail: format!(
-                    "project volume '{}' exists without exact current-installation ownership: {ownership:?}",
-                    options.request.name()
-                ),
-            })?;
-            if volume.metadata() != options.request.metadata() {
-                return Err(WorkloadReconcileError::DestructiveReplacementRequired {
-                    detail: format!(
-                        "project volume '{}' ownership differs from its requested data identity; explicit migration is required",
-                        options.request.name()
-                    ),
-                });
-            }
-
-            Ok(ProjectVolumeReconcileResult::new(
-                volume,
-                ProjectVolumeReconcileAction::Unchanged,
-            ))
-        }
-        volumes => Err(WorkloadReconcileError::Conflict {
-            detail: format!(
-                "project volume '{}' was observed {} times; refusing to guess",
-                options.request.name(),
-                volumes.len()
-            ),
-        }),
-    }
-}
-
-fn validate_request(
-    options: &ProjectVolumeReconcileOptions<'_>,
-) -> Result<(), WorkloadReconcileError> {
-    let metadata = options.request.metadata();
-    if metadata.kind() != ResourceKind::Volume
-        || metadata.project_id().is_none()
-        || metadata.resource_id().is_none()
-        || metadata.installation_id() != options.installation_id
-        || metadata.schema_version() != options.schema_version
-        || metadata.retention() != RetentionClass::Persistent
-    {
-        return Err(WorkloadReconcileError::InvalidRequest {
-            detail: "project volume ownership does not match the active installation".to_owned(),
-        });
-    }
-
-    Ok(())
+    execute_project_volume_reconciliation(engine, plan).await
 }
 
 fn engine_error(action: &str, error: EngineError) -> WorkloadReconcileError {

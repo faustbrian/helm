@@ -4,17 +4,18 @@ use super::{
     EphemeralBrowserOptions, ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions,
     ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
     ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectVolumeReconcileAction,
-    ProjectVolumeReconcileOptions, RuntimeEnvironment, RuntimeEnvironmentOptions,
-    WorkloadReconcileAction, WorkloadReconcileError, WorkloadReconcileOptions,
-    application_container_request, garbage_collect_build_images,
+    ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
+    WorkloadReconcileOptions, application_container_request, garbage_collect_build_images,
     garbage_collect_disposable_containers, garbage_collect_disposable_containers_from_observed,
     materialize_application_request, materialize_application_requests, plan_ephemeral_browser,
     plan_immutable_project_application, project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
     reconcile_project_service, reconcile_project_service_from_observed, reconcile_project_volume,
-    reconcile_project_volume_from_observed, remove_stale_ephemeral_services_from_observed,
-    run_project_command, stop_orphaned_project_workloads,
-    stop_orphaned_project_workloads_from_observed, workload_resource_record,
+    reconcile_project_volume_from_observed, reconcile_project_volumes_from_observed,
+    remove_stale_ephemeral_services_from_observed, run_project_command,
+    stop_orphaned_project_workloads, stop_orphaned_project_workloads_from_observed,
+    workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -25,7 +26,7 @@ use crate::control_plane::engine::{
     ImageResolver, ImmutableImageReference, LogChunk, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, ObservedImage, ObservedVolume,
     OwnedContainer, OwnedImage, OwnedVolume, ResourceKind, RetentionClass, VolumeCreateOptions,
-    VolumeDiscovery, VolumeManager, reconstruct_owned_container,
+    VolumeDiscovery, VolumeManager, reconstruct_owned_container, reconstruct_owned_volume,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -33,8 +34,10 @@ use crate::control_plane::state::{
 };
 use crate::control_plane::{ProjectIdentity, ServiceIdentity, resolve_execution_plan};
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[test]
@@ -1074,6 +1077,88 @@ fn retained_project_volume_reconciliation_reuses_a_pass_wide_observation() {
 }
 
 #[test]
+fn retained_project_volumes_preflight_all_ownership_before_mutation() {
+    let creatable = project_volume_request_for("aws", "sha256:localstack-4");
+    let conflicting = project_volume_request_for("search", "sha256:search-2");
+    let requests = [creatable, conflicting.clone()];
+    let observed = [
+        ObservedVolume::new(conflicting.name(), conflicting.metadata().labels()),
+        ObservedVolume::new(conflicting.name(), conflicting.metadata().labels()),
+    ];
+    let engine = RecordingBatchProjectVolumeEngine::default();
+    let created = Arc::clone(&engine.created);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let error = runtime
+        .block_on(reconcile_project_volumes_from_observed(
+            &engine,
+            ProjectVolumesReconcileOptions {
+                requests: &requests,
+                observed: &observed,
+                installation_id: "install-1",
+                schema_version: 8,
+                concurrency: NonZeroUsize::new(2).expect("non-zero concurrency"),
+            },
+        ))
+        .expect_err("duplicate ownership must block the complete volume batch");
+
+    assert!(error.to_string().contains("observed 2 times"));
+    assert!(created.lock().expect("created volumes").is_empty());
+}
+
+#[test]
+fn retained_project_volume_mutations_are_bounded_and_preserve_request_order() {
+    let requests = [
+        project_volume_request_for("aws", "sha256:localstack-4"),
+        project_volume_request_for("search", "sha256:search-2"),
+        project_volume_request_for("browser", "sha256:browser-1"),
+    ];
+    let engine = RecordingBatchProjectVolumeEngine {
+        delay: Duration::from_millis(20),
+        ..RecordingBatchProjectVolumeEngine::default()
+    };
+    let maximum_active = Arc::clone(&engine.maximum_active);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let results = runtime
+        .block_on(reconcile_project_volumes_from_observed(
+            &engine,
+            ProjectVolumesReconcileOptions {
+                requests: &requests,
+                observed: &[],
+                installation_id: "install-1",
+                schema_version: 8,
+                concurrency: NonZeroUsize::new(2).expect("non-zero concurrency"),
+            },
+        ))
+        .expect("preflight retained project volumes");
+    let names = results
+        .into_iter()
+        .map(|result| {
+            result
+                .expect("reconcile retained project volume")
+                .volume()
+                .name()
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        requests
+            .iter()
+            .map(|request| request.name().to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(maximum_active.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn retained_project_volume_requires_migration_for_identity_drift() {
     let old = project_volume_request("sha256:localstack-3");
     let request = project_volume_request("sha256:localstack-4");
@@ -1660,6 +1745,13 @@ fn dedicated_service_request(service: &str, desired_revision: &str) -> Container
 }
 
 fn project_volume_request(compatibility_fingerprint: &str) -> VolumeCreateOptions {
+    project_volume_request_for("aws", compatibility_fingerprint)
+}
+
+fn project_volume_request_for(
+    service: &str,
+    compatibility_fingerprint: &str,
+) -> VolumeCreateOptions {
     let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
         installation_id: "install-1".to_owned(),
         kind: ResourceKind::Volume,
@@ -1670,10 +1762,11 @@ fn project_volume_request(compatibility_fingerprint: &str) -> VolumeCreateOption
         retention: RetentionClass::Persistent,
     })
     .expect("project volume metadata")
-    .with_resource_id("aws")
+    .with_resource_id(service)
     .expect("project volume resource identity");
 
-    VolumeCreateOptions::new("stackctl-bill-aws-data", metadata).expect("project volume request")
+    VolumeCreateOptions::new(format!("stackctl-bill-{service}-data"), metadata)
+        .expect("project volume request")
 }
 
 fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOptions {
@@ -2087,6 +2180,48 @@ fn managed_environment(
 
 struct RecordingProjectVolumeEngine {
     observed: Vec<ObservedVolume>,
+}
+
+#[derive(Clone, Default)]
+struct RecordingBatchProjectVolumeEngine {
+    created: Arc<Mutex<Vec<String>>>,
+    active: Arc<AtomicUsize>,
+    maximum_active: Arc<AtomicUsize>,
+    delay: Duration,
+}
+
+impl VolumeManager for RecordingBatchProjectVolumeEngine {
+    fn create_volume<'operation>(
+        &'operation mut self,
+        options: &'operation VolumeCreateOptions,
+    ) -> EngineFuture<'operation, OwnedVolume> {
+        Box::pin(async move {
+            let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.maximum_active.fetch_max(current, Ordering::SeqCst);
+            self.created
+                .lock()
+                .expect("created volumes")
+                .push(options.name().to_owned());
+            tokio::time::sleep(self.delay).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+
+            reconstruct_owned_volume(
+                &ObservedVolume::new(options.name(), options.metadata().labels()),
+                options.metadata().installation_id(),
+                options.metadata().schema_version(),
+            )
+            .map_err(|ownership| EngineError::Backend {
+                detail: format!("could not reconstruct project volume: {ownership:?}"),
+            })
+        })
+    }
+
+    fn remove_volume<'operation>(
+        &'operation mut self,
+        _volume: &'operation OwnedVolume,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 impl VolumeDiscovery for RecordingProjectVolumeEngine {

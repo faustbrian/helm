@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preflighted ownership for every retained dedicated project volume before any
+  sibling volume mutation, then reconciled the independent volume set with
+  bounded concurrency and deterministic result ordering. One conflicting or
+  ambiguously owned volume now blocks the complete mutation batch, while large
+  valid registries no longer create retained volumes serially.
 - Reused the pass-wide managed-volume observation for retained dedicated
   project volumes as well as compatibility-keyed shared volumes. The daemon no
   longer repeats a complete Engine volume inventory between those independent
