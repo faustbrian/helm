@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused one pass-wide managed-container observation for dedicated project
+  services and one lazily acquired managed-volume observation for all retained
+  project volumes. Large registries no longer repeat whole-Engine inventory
+  scans for every dedicated service while serialized provisioning and
+  destructive-volume safeguards remain unchanged.
 - Reconciled distinct compatibility-keyed shared infrastructure instances with
   bounded concurrency while preserving deterministic result publication.
   Tenant provisioning within one physical instance remains serialized, but an

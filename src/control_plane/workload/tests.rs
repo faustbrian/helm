@@ -11,8 +11,9 @@ use super::{
     materialize_application_requests, plan_ephemeral_browser, plan_immutable_project_application,
     project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
-    reconcile_project_service, reconcile_project_volume, remove_stale_ephemeral_services,
-    run_project_command, stop_orphaned_project_workloads, workload_resource_record,
+    reconcile_project_service, reconcile_project_service_from_observed, reconcile_project_volume,
+    reconcile_project_volume_from_observed, remove_stale_ephemeral_services, run_project_command,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -982,6 +983,38 @@ fn dedicated_project_service_reconciliation_creates_exact_missing_service() {
 }
 
 #[test]
+fn dedicated_project_service_reconciliation_reuses_a_pass_wide_observation() {
+    let request = dedicated_service_request("cache", "sha256:desired-v1");
+    let observed = [ObservedContainer::new(
+        ContainerId::new("bill-cache"),
+        request.metadata().labels(),
+    )];
+    let mut engine = RecordingWorkloadEngine {
+        state: ContainerState::Running,
+        health: ContainerHealth::Healthy,
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_service_from_observed(
+            &mut engine,
+            &observed,
+            WorkloadReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile dedicated service from shared observation");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
+    assert!(engine.created.is_empty());
+}
+
+#[test]
 fn retained_project_volume_adopts_only_its_exact_data_identity() {
     let request = project_volume_request("sha256:localstack-4");
     let mut engine = RecordingProjectVolumeEngine {
@@ -1004,6 +1037,36 @@ fn retained_project_volume_adopts_only_its_exact_data_identity() {
             },
         ))
         .expect("adopt exact project volume");
+
+    assert_eq!(result.action(), ProjectVolumeReconcileAction::Unchanged);
+    assert_eq!(result.volume().name(), request.name());
+}
+
+#[test]
+fn retained_project_volume_reconciliation_reuses_a_pass_wide_observation() {
+    let request = project_volume_request("sha256:localstack-4");
+    let observed = [ObservedVolume::new(
+        request.name(),
+        request.metadata().labels(),
+    )];
+    let mut engine = RecordingProjectVolumeEngine {
+        observed: Vec::new(),
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_volume_from_observed(
+            &mut engine,
+            &observed,
+            ProjectVolumeReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("reconcile retained volume from shared observation");
 
     assert_eq!(result.action(), ProjectVolumeReconcileAction::Unchanged);
     assert_eq!(result.volume().name(), request.name());

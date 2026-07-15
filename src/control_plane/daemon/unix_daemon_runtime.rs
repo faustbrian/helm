@@ -18,7 +18,7 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
 use crate::control_plane::engine::{
-    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions,
+    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions, VolumeDiscovery,
 };
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
@@ -53,8 +53,9 @@ use crate::control_plane::workload::{
     WorkloadReconcileError, WorkloadReconcileOptions, garbage_collect_build_images,
     garbage_collect_disposable_containers, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application_from_observed,
-    reconcile_project_process_from_observed, reconcile_project_service, reconcile_project_volume,
-    remove_stale_ephemeral_services, stop_orphaned_project_workloads, workload_resource_record,
+    reconcile_project_process_from_observed, reconcile_project_service_from_observed,
+    reconcile_project_volume_from_observed, remove_stale_ephemeral_services,
+    stop_orphaned_project_workloads, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -1116,16 +1117,52 @@ impl UnixDaemonRuntime {
             }
         }
 
+        let observed_project_volumes = if engine_plan
+            .dedicated_services()
+            .iter()
+            .any(|service| service.volume().is_some())
+        {
+            match self
+                .engine_runtime
+                .block_on(engine.discover_managed_volumes())
+            {
+                Ok(observed) => observed,
+                Err(error) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        error = %error,
+                        "project volume discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
         'dedicated_services: for service in engine_plan.dedicated_services() {
             if let Some(volume) = service.volume() {
-                let result = self.engine_runtime.block_on(reconcile_project_volume(
-                    engine,
-                    ProjectVolumeReconcileOptions {
-                        request: volume,
-                        installation_id: self.global_network_request.metadata().installation_id(),
-                        schema_version: self.global_network_request.metadata().schema_version(),
-                    },
-                ));
+                let result = self
+                    .engine_runtime
+                    .block_on(reconcile_project_volume_from_observed(
+                        engine,
+                        &observed_project_volumes,
+                        ProjectVolumeReconcileOptions {
+                            request: volume,
+                            installation_id: self
+                                .global_network_request
+                                .metadata()
+                                .installation_id(),
+                            schema_version: self.global_network_request.metadata().schema_version(),
+                        },
+                    ));
                 match result {
                     Ok(result) => {
                         let record = match project_volume_resource_record(&result) {
@@ -1193,14 +1230,17 @@ impl UnixDaemonRuntime {
                     }
                 }
             }
-            let result = self.engine_runtime.block_on(reconcile_project_service(
-                engine,
-                WorkloadReconcileOptions {
-                    request: service.request(),
-                    installation_id: self.global_network_request.metadata().installation_id(),
-                    schema_version: self.global_network_request.metadata().schema_version(),
-                },
-            ));
+            let result = self
+                .engine_runtime
+                .block_on(reconcile_project_service_from_observed(
+                    engine,
+                    &observed_project_workloads,
+                    WorkloadReconcileOptions {
+                        request: service.request(),
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                    },
+                ));
             match result {
                 Ok(result) => {
                     if let Some(request) = service.provisioning_job() {

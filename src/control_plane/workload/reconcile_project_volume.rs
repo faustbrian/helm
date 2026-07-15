@@ -3,7 +3,7 @@ use super::{
     WorkloadReconcileError,
 };
 use crate::control_plane::engine::{
-    EngineError, ResourceKind, RetentionClass, VolumeDiscovery, VolumeManager,
+    EngineError, ObservedVolume, ResourceKind, RetentionClass, VolumeDiscovery, VolumeManager,
     reconstruct_owned_volume,
 };
 
@@ -15,11 +15,24 @@ pub(crate) async fn reconcile_project_volume<E>(
 where
     E: VolumeDiscovery + VolumeManager,
 {
-    validate_request(&options)?;
     let observed = engine
         .discover_managed_volumes()
         .await
         .map_err(|error| engine_error("discover project volumes", error))?;
+
+    reconcile_project_volume_from_observed(engine, &observed, options).await
+}
+
+/// Reconciles one retained volume against a pass-wide Engine observation.
+pub(crate) async fn reconcile_project_volume_from_observed<E>(
+    engine: &mut E,
+    observed: &[ObservedVolume],
+    options: ProjectVolumeReconcileOptions<'_>,
+) -> Result<ProjectVolumeReconcileResult, WorkloadReconcileError>
+where
+    E: VolumeManager,
+{
+    validate_request(&options)?;
     let matching = observed
         .iter()
         .filter(|volume| volume.name() == options.request.name())

@@ -110,8 +110,11 @@ pub(crate) use reconcile_project_application::reconcile_project_application_from
 #[cfg(test)]
 pub(crate) use reconcile_project_process::reconcile_project_process;
 pub(crate) use reconcile_project_process::reconcile_project_process_from_observed;
+#[cfg(test)]
 pub(crate) use reconcile_project_service::reconcile_project_service;
+pub(crate) use reconcile_project_service::reconcile_project_service_from_observed;
 pub(crate) use reconcile_project_volume::reconcile_project_volume;
+pub(crate) use reconcile_project_volume::reconcile_project_volume_from_observed;
 pub(crate) use reconcile_retained_project_service::reconcile_retained_project_service;
 pub(crate) use remove_stale_ephemeral_services::remove_stale_ephemeral_services;
 pub(crate) use run_ephemeral_browser_command::run_ephemeral_browser_command;
