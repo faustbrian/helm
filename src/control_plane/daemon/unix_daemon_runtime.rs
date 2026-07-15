@@ -969,7 +969,7 @@ impl UnixDaemonRuntime {
             }
         }
 
-        for service in engine_plan.dedicated_services() {
+        'dedicated_services: for service in engine_plan.dedicated_services() {
             if let Some(volume) = service.volume() {
                 let result = self.engine_runtime.block_on(reconcile_project_volume(
                     engine,
@@ -1077,15 +1077,41 @@ impl UnixDaemonRuntime {
                                             return;
                                         }
                                     };
-                                    self.engine_reconciliation.complete();
+                                    if let Err(health_error) = health_snapshot
+                                        .record_service_not_ready(
+                                            result.container().id().as_str(),
+                                            retry.attempt(),
+                                            observed_at_unix_seconds,
+                                        )
+                                    {
+                                        self.engine_reconciliation.complete();
+                                        tracing::error!(
+                                            error = %error,
+                                            health_error = %health_error,
+                                            "project service readiness failure publication blocked"
+                                        );
+
+                                        return;
+                                    }
+                                    workload_resources.push(workload_resource_record(&result));
                                     tracing::warn!(
+                                        project = service
+                                            .request()
+                                            .metadata()
+                                            .project_id()
+                                            .unwrap_or_default(),
+                                        service = service
+                                            .request()
+                                            .metadata()
+                                            .resource_id()
+                                            .unwrap_or_default(),
                                         attempt = retry.attempt(),
                                         retry_milliseconds = retry.duration().as_millis(),
                                         error = %error,
-                                        "project service provisioning failed; retry scheduled"
+                                        "project service is not ready; retry scheduled while unrelated reconciliation continues"
                                     );
 
-                                    return;
+                                    continue 'dedicated_services;
                                 }
                                 Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
                                     let retry = invalidate_engine_connection(

@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Isolated dedicated-service readiness failures from the Engine connection and
+  the rest of the reconciliation pass. A failed authenticated or logical probe
+  now publishes `service_not_ready`, retains exact resource ownership, and
+  retries independently while later services, processes, and gateway state
+  continue converging.
 - Added a pinned multi-architecture Memcached protocol probe that requires an
   exact `VERSION` response over the private Stackctl network. The daemon no
   longer treats a merely running dedicated Memcached container as ready.

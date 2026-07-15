@@ -321,6 +321,38 @@ fn project_status_responses_preserve_typed_timestamped_health() {
 }
 
 #[test]
+fn project_status_responses_preserve_service_readiness_failures() {
+    assert_eq!(
+        IpcResourceHealth::ServiceNotReady { attempt: 3 }.as_str(),
+        "service_not_ready"
+    );
+    let response = IpcResponse::success(
+        "status-43",
+        IpcResult::ProjectStatus {
+            project: super::IpcProjectStatus::new(
+                "bill".to_owned(),
+                Vec::new(),
+                vec![IpcResourceStatus::new(
+                    "search".to_owned(),
+                    "project_service".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    IpcResourceHealth::ServiceNotReady { attempt: 3 },
+                    Some(10_000),
+                    false,
+                )],
+            ),
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode project status");
+
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode project status"),
+        response
+    );
+}
+
+#[test]
 fn project_environment_requests_round_trip_with_the_exact_target_path() {
     let request = IpcRequest::new(
         "environment-42",

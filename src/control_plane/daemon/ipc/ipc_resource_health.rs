@@ -11,6 +11,7 @@ pub(crate) enum IpcResourceHealth {
     Starting,
     Healthy,
     Unhealthy { failing_streak: u64 },
+    ServiceNotReady { attempt: u32 },
 }
 
 impl IpcResourceHealth {
@@ -23,6 +24,7 @@ impl IpcResourceHealth {
             Self::Starting => "starting",
             Self::Healthy => "healthy",
             Self::Unhealthy { .. } => "unhealthy",
+            Self::ServiceNotReady { .. } => "service_not_ready",
         }
     }
 }

@@ -9,14 +9,15 @@ use super::{
     ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
-    ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions, ScheduledCommandClock,
-    SingletonLease, collect_benchmark_snapshot, discover_project_sources, dispatch_daemon_request,
-    execute_project_logs, execute_queued_migration_decision, execute_queued_postgres_prune,
-    execute_queued_project_backup, execute_queued_project_command, execute_queued_project_restore,
-    execute_scheduled_project_command, finalize_installation_deletion,
-    invalidate_engine_connection, plan_engine_reconciliation, publish_project_command_result,
-    publish_project_restore_result, queue_next_installation_deletion_prune,
-    reconcile_watched_roots, requires_followup_reconciliation, restore_daemon_operation_queues,
+    ResourceHealth, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    ScheduledCommandClock, SingletonLease, collect_benchmark_snapshot, discover_project_sources,
+    dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
+    execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
+    execute_queued_project_restore, execute_scheduled_project_command,
+    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
+    publish_project_command_result, publish_project_restore_result,
+    queue_next_installation_deletion_prune, reconcile_watched_roots,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
     retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
@@ -49,6 +50,20 @@ use crate::control_plane::state::{
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[test]
+fn resource_health_distinguishes_service_readiness_from_container_health() {
+    let mut health = ResourceHealthRegistry::default();
+
+    health
+        .record_service_not_ready("container-search", 3, 10_000)
+        .expect("record service readiness failure");
+
+    assert_eq!(
+        health.observation("container-search"),
+        Some((ResourceHealth::ServiceNotReady { attempt: 3 }, 10_000))
+    );
+}
 
 #[test]
 fn project_logs_stream_from_exact_live_owned_containers() {

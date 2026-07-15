@@ -1410,9 +1410,10 @@ where
 }
 
 const fn ipc_resource_health(
-    observation: Option<(crate::control_plane::engine::ContainerHealth, i64)>,
+    observation: Option<(super::ResourceHealth, i64)>,
     now_unix_seconds: i64,
 ) -> (IpcResourceHealth, Option<i64>) {
+    use super::ResourceHealth;
     use crate::control_plane::engine::ContainerHealth;
 
     let Some((health, observed_at)) = observation else {
@@ -1424,13 +1425,18 @@ const fn ipc_resource_health(
         return (IpcResourceHealth::Unknown, Some(observed_at));
     }
     let health = match health {
-        ContainerHealth::Missing => IpcResourceHealth::Missing,
-        ContainerHealth::Stopped => IpcResourceHealth::Stopped,
-        ContainerHealth::RunningUnverified => IpcResourceHealth::RunningUnverified,
-        ContainerHealth::Starting => IpcResourceHealth::Starting,
-        ContainerHealth::Healthy => IpcResourceHealth::Healthy,
-        ContainerHealth::Unhealthy { failing_streak } => {
+        ResourceHealth::Container(ContainerHealth::Missing) => IpcResourceHealth::Missing,
+        ResourceHealth::Container(ContainerHealth::Stopped) => IpcResourceHealth::Stopped,
+        ResourceHealth::Container(ContainerHealth::RunningUnverified) => {
+            IpcResourceHealth::RunningUnverified
+        }
+        ResourceHealth::Container(ContainerHealth::Starting) => IpcResourceHealth::Starting,
+        ResourceHealth::Container(ContainerHealth::Healthy) => IpcResourceHealth::Healthy,
+        ResourceHealth::Container(ContainerHealth::Unhealthy { failing_streak }) => {
             IpcResourceHealth::Unhealthy { failing_streak }
+        }
+        ResourceHealth::ServiceNotReady { attempt } => {
+            IpcResourceHealth::ServiceNotReady { attempt }
         }
     };
 
