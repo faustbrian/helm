@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended native Linux PostgreSQL acceptance through project removal and
+  restoration. CI now proves `NOLOGIN` blocks the removed role while retaining
+  its database, sibling access continues, and reconciliation restores the
+  stable role and data without replacing the shared server.
 - Extended native Linux Redis and Valkey acceptance through project removal and
   restoration. CI now proves orphaning revokes only the removed credential,
   retains its namespaced data, preserves sibling access, restores the stable

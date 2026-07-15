@@ -11,10 +11,13 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::shared_infrastructure::{
     CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, PersistenceMode, SharedServiceRequest,
-    plan_shared_instances,
+    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
+    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
-use crate::control_plane::state::SqliteStateStore;
+use crate::control_plane::state::{
+    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
+    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -202,6 +205,95 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
 
+        let bill_logical = first
+            .logical_resources()
+            .iter()
+            .find(|logical| logical.project_id() == "bill")
+            .map(orphaned_logical_resource)
+            .expect("find bill logical PostgreSQL resource");
+        let credentials = [
+            disabled_credential(bill.credential()),
+            prepared.instance().bootstrap_credential().clone(),
+        ];
+        let observed = engine
+            .discover_managed()
+            .await
+            .expect("discover PostgreSQL lifecycle acceptance resources");
+        let revoked = revoke_orphaned_shared_access_from_observed(
+            &mut engine,
+            &observed,
+            OrphanedSharedAccessOptions {
+                resources: first.physical_resources(),
+                logical_resources: std::slice::from_ref(&bill_logical),
+                credentials: &credentials,
+                installation_id: &installation_id,
+                schema_version: 8,
+                timeout: Duration::from_secs(15),
+            },
+        )
+        .await
+        .expect("revoke removed bill PostgreSQL access");
+        assert_eq!(revoked, 1);
+        assert!(matches!(
+            postgres_command(
+                &engine,
+                &container,
+                bill.credential().username(),
+                bill.credential().secret(),
+                bill.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await,
+            Err(EngineError::ContainerExit { .. })
+        ));
+        assert_eq!(
+            postgres_command(
+                &engine,
+                &container,
+                shop.credential().username(),
+                shop.credential().secret(),
+                shop.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read shop PostgreSQL data after bill removal"),
+            b"shop-value\n"
+        );
+        assert_eq!(
+            postgres_command(
+                &engine,
+                &container,
+                prepared.instance().bootstrap_credential().username(),
+                prepared.instance().bootstrap_credential().secret(),
+                bill.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("verify retained bill PostgreSQL data as administrator"),
+            b"bill-value\n"
+        );
+
+        let restored =
+            reconcile_prepared_postgres_instance(&mut engine, prepared, &installation_id, 8)
+                .await
+                .expect("restore bill PostgreSQL access from active configuration");
+        assert!(restored.logical_resource_drifts().is_empty());
+        assert_eq!(
+            postgres_command(
+                &engine,
+                &container,
+                bill.credential().username(),
+                bill.credential().secret(),
+                bill.logical().database_name(),
+                "SELECT value FROM stackctl_acceptance;",
+            )
+            .await
+            .expect("read restored bill PostgreSQL data"),
+            b"bill-value\n"
+        );
+        let restored_container = owned_shared_container(&engine, &installation_id).await;
+        assert_eq!(restored_container.id(), container.id());
+
         delete_owned_installation_resources(
             &mut engine,
             InstallationResourceDeletionOptions {
@@ -222,6 +314,31 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
     drop(store);
     std::fs::remove_dir_all(&state_directory).expect("remove PostgreSQL acceptance state");
     println!("shared PostgreSQL isolation acceptance passed for {installation_id}");
+}
+
+fn orphaned_logical_resource(logical: &LogicalResourceRecord) -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: logical.logical_resource_id().to_owned(),
+        shared_resource_id: logical.shared_resource_id().to_owned(),
+        project_id: logical.project_id().to_owned(),
+        service_id: logical.service_id().to_owned(),
+        kind: logical.kind().to_owned(),
+        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        desired_revision: logical.desired_revision().to_owned(),
+        lifecycle: ResourceLifecycle::Orphaned,
+        orphaned_at_unix_seconds: Some(12_345),
+    })
+}
+
+fn disabled_credential(credential: &CredentialRecord) -> CredentialRecord {
+    CredentialRecord::new(CredentialRecordOptions {
+        credential_id: credential.credential_id().to_owned(),
+        project_id: credential.project_id().map(str::to_owned),
+        service_id: credential.service_id().to_owned(),
+        username: credential.username().to_owned(),
+        secret: credential.secret().to_owned(),
+        lifecycle: CredentialLifecycle::Disabled,
+    })
 }
 
 async fn owned_shared_container(
