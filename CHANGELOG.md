@@ -43,6 +43,9 @@ All notable changes to this project are documented in this file.
 - Made dedicated-volume restore rebuild the target from the same prepared
   service adapter so generated credentials, commands, environment, and config
   mounts survive recovery instead of producing a partial container request.
+- Added stable RustFS root credentials, private S3 endpoint values, explicit
+  single-node data-volume configuration, and console disablement while leaving
+  unproven bucket provisioning fail-closed instead of using MinIO-only commands.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

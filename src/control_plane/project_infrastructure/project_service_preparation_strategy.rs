@@ -3,8 +3,8 @@ use super::{
     plan_dragonfly_project_resources, plan_elasticsearch_project_resources,
     plan_garage_project_resources, plan_localstack_project_resources,
     plan_meilisearch_project_resources, plan_memcached_project_resources,
-    plan_opensearch_project_resources, plan_soketi_project_resources,
-    plan_typesense_project_resources,
+    plan_opensearch_project_resources, plan_rustfs_project_resources,
+    plan_soketi_project_resources, plan_typesense_project_resources,
 };
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::{ServiceDeploymentStrategy, ServiceExecutionPlan};
@@ -19,6 +19,7 @@ pub(crate) enum ProjectServicePreparationStrategy {
     Memcached,
     Meilisearch,
     OpenSearch,
+    RustFs,
     Soketi,
     Typesense,
 }
@@ -35,6 +36,7 @@ impl ProjectServicePreparationStrategy {
             Some("memcached") => Some(Self::Memcached),
             Some("meilisearch") => Some(Self::Meilisearch),
             Some("opensearch") => Some(Self::OpenSearch),
+            Some("rustfs") => Some(Self::RustFs),
             Some("soketi") => Some(Self::Soketi),
             Some("typesense") => Some(Self::Typesense),
             _ => None,
@@ -62,6 +64,7 @@ impl ProjectServicePreparationStrategy {
                     | "meilisearch"
                     | "memcached"
                     | "opensearch"
+                    | "rustfs"
                     | "soketi"
                     | "typesense"
             )
@@ -81,6 +84,7 @@ impl ProjectServicePreparationStrategy {
             | Self::LocalStack
             | Self::Meilisearch
             | Self::Memcached
+            | Self::RustFs
             | Self::Soketi
             | Self::Typesense => secret,
         }
@@ -111,6 +115,7 @@ impl ProjectServicePreparationStrategy {
             Self::OpenSearch => {
                 plan_opensearch_project_resources(service, required(secret, "OpenSearch")?)
             }
+            Self::RustFs => plan_rustfs_project_resources(service, required(secret, "RustFS")?),
             Self::Soketi => plan_soketi_project_resources(service, required(secret, "Soketi")?),
             Self::Typesense => {
                 plan_typesense_project_resources(service, required(secret, "Typesense")?)

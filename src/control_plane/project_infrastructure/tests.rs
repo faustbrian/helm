@@ -794,6 +794,111 @@ fn garage_preparation_rejects_generated_command_override_before_storing_a_secret
     std::fs::remove_file(database).expect("remove state store");
 }
 
+#[test]
+fn rustfs_preparation_replays_stable_root_credentials_and_private_endpoint() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  storage:\n    preset: rustfs\n    version: '1'\n    image: rustfs/rustfs@sha256:{}\n",
+            "4".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-rustfs-preparation-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    let first = prepare_project_services(&mut store, &execution, &FixedEntropy(0x56))
+        .expect("first preparation");
+    let replayed = prepare_project_services(&mut store, &execution, &FixedEntropy(0x78))
+        .expect("replayed preparation");
+
+    assert_eq!(first.len(), 1);
+    assert_eq!(replayed.len(), 1);
+    let first = &first[0];
+    let credential = first.credential().expect("RustFS credential");
+    assert_eq!(credential.username(), "stackctl_admin");
+    assert_eq!(
+        credential.secret(),
+        replayed[0]
+            .credential()
+            .expect("replayed RustFS credential")
+            .secret()
+    );
+    assert_eq!(
+        first.container_environment().get("RUSTFS_ADDRESS"),
+        Some(&":9000".to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("RUSTFS_ACCESS_KEY"),
+        Some(&"stackctl_admin".to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("RUSTFS_SECRET_KEY"),
+        Some(&credential.secret().to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("RUSTFS_CONSOLE_ENABLE"),
+        Some(&"false".to_owned())
+    );
+    assert_eq!(
+        first.container_environment().get("RUSTFS_VOLUMES"),
+        Some(&"/data".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("AWS_ENDPOINT"),
+        Some(&"http://stackctl-bill-storage:9000".to_owned())
+    );
+    assert_eq!(
+        first.environment().values().get("AWS_ACCESS_KEY_ID"),
+        Some(&"stackctl_admin".to_owned())
+    );
+    assert_eq!(first.environment().values().get("AWS_BUCKET"), None);
+    assert_eq!(first.route(), None);
+    assert!(!format!("{first:?}").contains(credential.secret()));
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
+#[test]
+fn rustfs_preparation_rejects_reserved_environment_before_storing_a_secret() {
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: bill\nservices:\n  storage:\n",
+                "    preset: rustfs\n    version: '1'\n",
+                "    image: rustfs/rustfs@sha256:{}\n",
+                "    environment:\n      RUSTFS_SECRET_KEY: override\n"
+            ),
+            "4".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let database = std::env::temp_dir().join(format!(
+        "stackctl-rustfs-conflict-{}.sqlite3",
+        std::process::id()
+    ));
+    let mut store = SqliteStateStore::open(&database).expect("state store");
+
+    assert_eq!(
+        prepare_project_services(&mut store, &execution, &FixedEntropy(0x56))
+            .expect_err("reserved environment conflict")
+            .to_string(),
+        "RustFS service 'bill-storage' cannot replace generated environment key \
+         'RUSTFS_SECRET_KEY'"
+    );
+    assert!(store.credentials().expect("credentials").is_empty());
+
+    std::fs::remove_file(database).expect("remove state store");
+}
+
 struct FixedEntropy(u8);
 
 impl CredentialEntropy for FixedEntropy {

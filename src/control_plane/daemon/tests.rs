@@ -5596,6 +5596,64 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
     );
 }
 
+#[test]
+fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
+    use crate::control_plane::project_infrastructure::plan_rustfs_project_resources;
+    use crate::control_plane::shared_infrastructure::CredentialSecret;
+
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  storage:\n    preset: rustfs\n    version: '1'\n    image: rustfs/rustfs@sha256:{}\n",
+            "4".repeat(64)
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+    let rustfs = execution
+        .services()
+        .iter()
+        .find(|service| service.service().as_str() == "storage")
+        .expect("RustFS execution service");
+    let prepared = vec![
+        plan_rustfs_project_resources(rustfs, CredentialSecret::new("rustfs-secret".to_owned()))
+            .expect("prepared RustFS"),
+    ];
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        prepared_project_services: &prepared,
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("RustFS Engine plan");
+
+    let dedicated = plan.dedicated_services().first().expect("RustFS service");
+    assert_eq!(
+        dedicated.request().environment().get("RUSTFS_SECRET_KEY"),
+        Some(&"rustfs-secret".to_owned())
+    );
+    assert_eq!(
+        dedicated.request().environment().get("RUSTFS_VOLUMES"),
+        Some(&"/data".to_owned())
+    );
+    assert_eq!(
+        dedicated.volume().expect("RustFS volume").name(),
+        "stackctl-bill-storage-data"
+    );
+    assert_eq!(dedicated.request().volume_mounts()[0].target(), "/data");
+    assert!(dedicated.request().port_bindings().is_empty());
+    assert!(plan.gateway().routes().is_empty());
+}
+
 #[cfg(unix)]
 #[test]
 fn managed_environment_planning_replaces_absent_shared_values_with_empty_state() {
