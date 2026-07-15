@@ -77,6 +77,7 @@ pub(crate) use postgres::{
 pub(crate) use prepare_shared_instances::prepare_shared_instances;
 pub(crate) use prepared_shared_instance::PreparedSharedInstance;
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
+pub(crate) use provisioning_jobs_run_options::ProvisioningJobsRunOptions;
 pub(crate) use rabbitmq::{
     PreparedRabbitMqSharedInstance, RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqPlanError,
     RabbitMqPreparationError, RabbitMqPreparationOptions, RabbitMqProjectDefinition,
@@ -103,6 +104,7 @@ pub(crate) use revoke_orphaned_shared_access::revoke_orphaned_shared_access_from
 #[cfg(test)]
 pub(crate) use run_provisioning_job::run_provisioning_job;
 pub(crate) use run_provisioning_job::run_provisioning_job_from_observed;
+pub(crate) use run_provisioning_jobs_from_observed::run_provisioning_jobs_from_observed;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
@@ -159,6 +161,7 @@ mod postgres;
 mod prepare_shared_instances;
 mod prepared_shared_instance;
 mod provisioning_job_options;
+mod provisioning_jobs_run_options;
 mod rabbitmq;
 mod reconcile_prepared_shared_instance;
 mod reconcile_shared_service;
@@ -167,6 +170,7 @@ mod redis;
 mod resolve_execution_shared_instances;
 mod revoke_orphaned_shared_access;
 mod run_provisioning_job;
+mod run_provisioning_jobs_from_observed;
 mod shared_demand_plan_error;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;

@@ -36,10 +36,10 @@ use crate::control_plane::project_infrastructure::{
 use crate::control_plane::retention::DEFAULT_ORPHAN_RETENTION_SECONDS;
 use crate::control_plane::shared_infrastructure::{
     OrphanedSharedAccessOptions, OsCredentialEntropy, PreparedSharedInstance,
-    ProvisioningJobOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
+    ProvisioningJobsRunOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
     UnreferencedSharedServiceOptions, reconcile_prepared_shared_instance,
     resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
-    run_provisioning_job_from_observed, stop_unreferenced_shared_services_from_observed,
+    run_provisioning_jobs_from_observed, stop_unreferenced_shared_services_from_observed,
 };
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -1298,149 +1298,12 @@ impl UnixDaemonRuntime {
                     },
                 ));
 
-        'dedicated_services: for (service, (request, result)) in
+        let mut successful_services = Vec::with_capacity(eligible_services.len());
+        for (service, (request, result)) in
             eligible_services.into_iter().zip(project_service_results)
         {
             match result {
-                Ok(result) => {
-                    if let Some(request) = service.provisioning_job() {
-                        if self
-                            .project_service_provisioning
-                            .requires(request, result.action(), now)
-                        {
-                            let provisioning =
-                                self.engine_runtime
-                                    .block_on(run_provisioning_job_from_observed(
-                                        engine,
-                                        &observed_managed_containers,
-                                        ProvisioningJobOptions {
-                                            request,
-                                            installation_id: self
-                                                .global_network_request
-                                                .metadata()
-                                                .installation_id(),
-                                            schema_version: self
-                                                .global_network_request
-                                                .metadata()
-                                                .schema_version(),
-                                            timeout: PROJECT_SERVICE_PROVISIONING_TIMEOUT,
-                                        },
-                                    ));
-                            match provisioning {
-                                Ok(()) => self
-                                    .project_service_provisioning
-                                    .record_success(request, now),
-                                Err(
-                                    error
-                                    @ SharedInfrastructureReconcileError::ProvisioningFailed {
-                                        status_code,
-                                        ..
-                                    },
-                                ) => {
-                                    let retry = match self
-                                        .project_service_provisioning
-                                        .record_failure(request, now)
-                                    {
-                                        Ok(retry) => retry,
-                                        Err(retry_error) => {
-                                            self.engine_reconciliation.complete();
-                                            tracing::error!(
-                                                error = %error,
-                                                retry_error = %retry_error,
-                                                "project service provisioning retry could not be scheduled"
-                                            );
-
-                                            return;
-                                        }
-                                    };
-                                    let health_result = if service
-                                        .authentication_failure_exit_status()
-                                        == Some(status_code)
-                                    {
-                                        health_snapshot.record_authentication_failed(
-                                            result.container().id().as_str(),
-                                            retry.attempt(),
-                                            observed_at_unix_seconds,
-                                        )
-                                    } else {
-                                        health_snapshot.record_service_not_ready(
-                                            result.container().id().as_str(),
-                                            retry.attempt(),
-                                            observed_at_unix_seconds,
-                                        )
-                                    };
-                                    if let Err(health_error) = health_result {
-                                        self.engine_reconciliation.complete();
-                                        tracing::error!(
-                                            error = %error,
-                                            health_error = %health_error,
-                                            "project service readiness failure publication blocked"
-                                        );
-
-                                        return;
-                                    }
-                                    workload_resources.push(workload_resource_record(&result));
-                                    tracing::warn!(
-                                        project = service
-                                            .request()
-                                            .metadata()
-                                            .project_id()
-                                            .unwrap_or_default(),
-                                        service = service
-                                            .request()
-                                            .metadata()
-                                            .resource_id()
-                                            .unwrap_or_default(),
-                                        attempt = retry.attempt(),
-                                        retry_milliseconds = retry.duration().as_millis(),
-                                        error = %error,
-                                        "project service is not ready; retry scheduled while unrelated reconciliation continues"
-                                    );
-
-                                    continue 'dedicated_services;
-                                }
-                                Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
-                                    let retry = invalidate_engine_connection(
-                                        &mut self.engine_connection,
-                                        &mut self.resource_health,
-                                        now,
-                                    );
-                                    tracing::debug!(
-                                        attempt = retry.attempt(),
-                                        retry_milliseconds = retry.duration().as_millis(),
-                                        error = %error,
-                                        "project service provisioning lost the selected Engine; retry scheduled"
-                                    );
-
-                                    return;
-                                }
-                                Err(error) => {
-                                    self.engine_reconciliation.complete();
-                                    tracing::error!(error = %error, "project service provisioning blocked");
-
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    if let Err(error) = health_snapshot.record(
-                        result.container().id().as_str(),
-                        result.health(),
-                        observed_at_unix_seconds,
-                    ) {
-                        self.engine_reconciliation.complete();
-                        tracing::error!(error = %error, "project service health snapshot publication blocked");
-
-                        return;
-                    }
-                    workload_resources.push(workload_resource_record(&result));
-                    tracing::debug!(
-                        project = request.metadata().project_id().unwrap_or_default(),
-                        service = request.metadata().resource_id().unwrap_or_default(),
-                        action = ?result.action(),
-                        "dedicated project service reconciliation completed"
-                    );
-                }
+                Ok(result) => successful_services.push((service, request, result)),
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
                     let retry = invalidate_engine_connection(
                         &mut self.engine_connection,
@@ -1463,6 +1326,158 @@ impl UnixDaemonRuntime {
                     return;
                 }
             }
+        }
+
+        let mut provisioning_required = Vec::with_capacity(successful_services.len());
+        let mut provisioning_requests = Vec::new();
+        for (service, _, result) in &successful_services {
+            let required = match service.provisioning_job() {
+                Some(request)
+                    if self.project_service_provisioning.requires(
+                        request,
+                        result.action(),
+                        now,
+                    ) =>
+                {
+                    provisioning_requests.push(request.clone());
+
+                    true
+                }
+                Some(_) | None => false,
+            };
+            provisioning_required.push(required);
+        }
+        let provisioning_results =
+            self.engine_runtime
+                .block_on(run_provisioning_jobs_from_observed(
+                    &*engine,
+                    ProvisioningJobsRunOptions {
+                        requests: &provisioning_requests,
+                        observed: &observed_managed_containers,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                        timeout: PROJECT_SERVICE_PROVISIONING_TIMEOUT,
+                        concurrency: INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                    },
+                ));
+        let mut provisioning_results = provisioning_results.into_iter();
+
+        'dedicated_services: for ((service, request, result), provisioning_required) in
+            successful_services.into_iter().zip(provisioning_required)
+        {
+            if provisioning_required {
+                let Some((provisioning_request, provisioning)) = provisioning_results.next() else {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        project = request.metadata().project_id().unwrap_or_default(),
+                        service = request.metadata().resource_id().unwrap_or_default(),
+                        "project service provisioning result was missing"
+                    );
+
+                    return;
+                };
+                match provisioning {
+                    Ok(()) => self
+                        .project_service_provisioning
+                        .record_success(&provisioning_request, now),
+                    Err(
+                        error @ SharedInfrastructureReconcileError::ProvisioningFailed {
+                            status_code,
+                            ..
+                        },
+                    ) => {
+                        let retry = match self
+                            .project_service_provisioning
+                            .record_failure(&provisioning_request, now)
+                        {
+                            Ok(retry) => retry,
+                            Err(retry_error) => {
+                                self.engine_reconciliation.complete();
+                                tracing::error!(
+                                    error = %error,
+                                    retry_error = %retry_error,
+                                    "project service provisioning retry could not be scheduled"
+                                );
+
+                                return;
+                            }
+                        };
+                        let health_result =
+                            if service.authentication_failure_exit_status() == Some(status_code) {
+                                health_snapshot.record_authentication_failed(
+                                    result.container().id().as_str(),
+                                    retry.attempt(),
+                                    observed_at_unix_seconds,
+                                )
+                            } else {
+                                health_snapshot.record_service_not_ready(
+                                    result.container().id().as_str(),
+                                    retry.attempt(),
+                                    observed_at_unix_seconds,
+                                )
+                            };
+                        if let Err(health_error) = health_result {
+                            self.engine_reconciliation.complete();
+                            tracing::error!(
+                                error = %error,
+                                health_error = %health_error,
+                                "project service readiness failure publication blocked"
+                            );
+
+                            return;
+                        }
+                        workload_resources.push(workload_resource_record(&result));
+                        tracing::warn!(
+                            project = request.metadata().project_id().unwrap_or_default(),
+                            service = request.metadata().resource_id().unwrap_or_default(),
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            error = %error,
+                            "project service is not ready; retry scheduled while unrelated reconciliation continues"
+                        );
+
+                        continue 'dedicated_services;
+                    }
+                    Err(error @ SharedInfrastructureReconcileError::Engine { .. }) => {
+                        let retry = invalidate_engine_connection(
+                            &mut self.engine_connection,
+                            &mut self.resource_health,
+                            now,
+                        );
+                        tracing::debug!(
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            error = %error,
+                            "project service provisioning lost the selected Engine; retry scheduled"
+                        );
+
+                        return;
+                    }
+                    Err(error) => {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "project service provisioning blocked");
+
+                        return;
+                    }
+                }
+            }
+            if let Err(error) = health_snapshot.record(
+                result.container().id().as_str(),
+                result.health(),
+                observed_at_unix_seconds,
+            ) {
+                self.engine_reconciliation.complete();
+                tracing::error!(error = %error, "project service health snapshot publication blocked");
+
+                return;
+            }
+            workload_resources.push(workload_resource_record(&result));
+            tracing::debug!(
+                project = request.metadata().project_id().unwrap_or_default(),
+                service = request.metadata().resource_id().unwrap_or_default(),
+                action = ?result.action(),
+                "dedicated project service reconciliation completed"
+            );
         }
 
         let mut process_requests = Vec::with_capacity(engine_plan.processes().len());

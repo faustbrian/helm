@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Ran independent dedicated-service readiness and provisioning jobs with
+  bounded concurrency after service reconciliation succeeds. Retry eligibility,
+  failure backoff, health publication, and result ordering remain serialized,
+  so a registry with several 30-second readiness checks no longer waits for
+  each unrelated job in sequence.
 - Reconciled independent dedicated project-service containers with bounded
   concurrency after retained-volume eligibility is established. Destructive
   volume drift still excludes its service before container mutation, while

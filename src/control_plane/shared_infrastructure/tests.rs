@@ -12,16 +12,16 @@ use super::{
     PostgresLogicalResourcePlan, PostgresMigrationInstancePlanOptions,
     PostgresMigrationPreparationOptions, PostgresPreparationOptions, PostgresSharedInstancePlan,
     PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance, ProvisioningJobOptions,
-    RabbitMqDefinitions, RabbitMqPasswordHash, RabbitMqProjectDefinition,
-    RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions, RedisAclProject,
-    RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan, RedisSharedInstancePlanOptions,
-    SharedInfrastructureReconcileError, SharedPreparationOptions, SharedServiceReconcileAction,
-    SharedServiceReconcileOptions, SharedServiceRequest, SharedVolumeReconcileAction,
-    SharedVolumeReconcileOptions, SqlServerMigrationInstancePlanOptions,
-    SqlServerMigrationPreparationOptions, SqlServerSharedInstancePlan,
-    SqlServerSharedInstancePlanOptions, UnreferencedSharedServiceOptions,
-    generate_credential_secret, plan_gotenberg_project_resources, plan_mailpit_project_resources,
-    plan_mongodb_project_resources, plan_mysql_project_resources,
+    ProvisioningJobsRunOptions, RabbitMqDefinitions, RabbitMqPasswordHash,
+    RabbitMqProjectDefinition, RabbitMqSharedInstancePlan, RabbitMqSharedInstancePlanOptions,
+    RedisAclProject, RedisAclSnapshot, RedisFlavor, RedisSharedInstancePlan,
+    RedisSharedInstancePlanOptions, SharedInfrastructureReconcileError, SharedPreparationOptions,
+    SharedServiceReconcileAction, SharedServiceReconcileOptions, SharedServiceRequest,
+    SharedVolumeReconcileAction, SharedVolumeReconcileOptions,
+    SqlServerMigrationInstancePlanOptions, SqlServerMigrationPreparationOptions,
+    SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
+    UnreferencedSharedServiceOptions, generate_credential_secret, plan_gotenberg_project_resources,
+    plan_mailpit_project_resources, plan_mongodb_project_resources, plan_mysql_project_resources,
     plan_object_store_project_resources, plan_postgres_project_resources,
     plan_rabbitmq_project_resources, plan_redis_project_resources, plan_shared_instances,
     plan_sql_server_project_resources, prepare_mongodb_migration_target,
@@ -40,9 +40,9 @@ use super::{
     reload_rabbitmq_definitions, reload_redis_acl, resolve_execution_shared_instances,
     revoke_orphaned_shared_access, revoke_orphaned_shared_access_from_observed,
     revoke_rabbitmq_project_access, run_provisioning_job, run_provisioning_job_from_observed,
-    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot,
+    run_provisioning_jobs_from_observed, stop_unreferenced_shared_services,
+    stop_unreferenced_shared_services_from_observed, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -58,9 +58,11 @@ use crate::control_plane::state::{
 };
 use futures_util::stream;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncReadExt;
 
 #[cfg(unix)]
@@ -1299,6 +1301,53 @@ fn provisioning_jobs_are_bounded_owned_and_removed_after_success() {
             "remove-container"
         ]
     );
+}
+
+#[test]
+fn independent_provisioning_jobs_are_bounded_and_preserve_request_order() {
+    let requests = [
+        provisioning_job_request_for("object-store-bucket"),
+        provisioning_job_request_for("search-index"),
+        provisioning_job_request_for("localstack-bucket"),
+    ];
+    let engine = RecordingBatchProvisioningEngine {
+        delay: StdDuration::from_millis(20),
+        ..RecordingBatchProvisioningEngine::default()
+    };
+    let maximum_active = Arc::clone(&engine.maximum_active);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    let results = runtime.block_on(run_provisioning_jobs_from_observed(
+        &engine,
+        ProvisioningJobsRunOptions {
+            requests: &requests,
+            observed: &[],
+            installation_id: "install-1",
+            schema_version: 8,
+            timeout: StdDuration::from_secs(30),
+            concurrency: NonZeroUsize::new(2).expect("non-zero concurrency"),
+        },
+    ));
+    let names = results
+        .into_iter()
+        .map(|(request, result)| {
+            result.expect("run provisioning job");
+
+            request.name().to_owned()
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        requests
+            .iter()
+            .map(|request| request.name().to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(maximum_active.load(Ordering::SeqCst), 2);
 }
 
 #[test]
@@ -6480,6 +6529,92 @@ fn owned_global_network() -> crate::control_plane::engine::ObservedNetwork {
     )
 }
 
+#[derive(Clone, Default)]
+struct RecordingBatchProvisioningEngine {
+    active: Arc<AtomicUsize>,
+    maximum_active: Arc<AtomicUsize>,
+    delay: StdDuration,
+}
+
+impl crate::control_plane::engine::ImageResolver for RecordingBatchProvisioningEngine {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        _reference: &'operation crate::control_plane::engine::ImmutableImageReference,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ImageId> {
+        Box::pin(async {
+            crate::control_plane::engine::ImageId::new(format!("sha256:{}", "1".repeat(64)))
+        })
+    }
+}
+
+impl crate::control_plane::engine::ContainerLifecycle for RecordingBatchProvisioningEngine {
+    fn create<'operation>(
+        &'operation mut self,
+        options: &'operation crate::control_plane::engine::ContainerCreateOptions,
+    ) -> EngineFuture<'operation, OwnedContainer> {
+        Box::pin(async move {
+            reconstruct_owned_container(
+                &ObservedContainer::new(
+                    ContainerId::new(options.name()),
+                    options.metadata().labels(),
+                ),
+                options.metadata().installation_id(),
+                options.metadata().schema_version(),
+            )
+            .map_err(
+                |ownership| crate::control_plane::engine::EngineError::Backend {
+                    detail: format!("could not reconstruct provisioning job: {ownership:?}"),
+                },
+            )
+        })
+    }
+
+    fn start<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn stop<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn remove<'operation>(
+        &'operation mut self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn inspect<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+    ) -> EngineFuture<'operation, crate::control_plane::engine::ContainerState> {
+        Box::pin(async { Ok(crate::control_plane::engine::ContainerState::Missing) })
+    }
+}
+
+impl crate::control_plane::engine::ContainerCompletion for RecordingBatchProvisioningEngine {
+    fn wait_for_success<'operation>(
+        &'operation self,
+        _container: &'operation OwnedContainer,
+        _timeout: StdDuration,
+    ) -> EngineFuture<'operation, ()> {
+        Box::pin(async move {
+            let current = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.maximum_active.fetch_max(current, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+
+            Ok(())
+        })
+    }
+}
+
 struct RecordingSharedVolumeEngine {
     observed: Vec<crate::control_plane::engine::ObservedVolume>,
     created: Vec<crate::control_plane::engine::VolumeCreateOptions>,
@@ -6787,6 +6922,19 @@ fn shared_volume_request() -> crate::control_plane::engine::VolumeCreateOptions 
 fn provisioning_job_request(
     installation_id: &str,
 ) -> crate::control_plane::engine::ContainerCreateOptions {
+    provisioning_job_request_for_installation("object-store-bucket", installation_id)
+}
+
+fn provisioning_job_request_for(
+    resource_id: &str,
+) -> crate::control_plane::engine::ContainerCreateOptions {
+    provisioning_job_request_for_installation(resource_id, "install-1")
+}
+
+fn provisioning_job_request_for_installation(
+    resource_id: &str,
+    installation_id: &str,
+) -> crate::control_plane::engine::ContainerCreateOptions {
     let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
         crate::control_plane::engine::ManagedResourceMetadataOptions {
             installation_id: installation_id.to_owned(),
@@ -6798,10 +6946,10 @@ fn provisioning_job_request(
             retention: crate::control_plane::engine::RetentionClass::Disposable,
         },
     )
-    .and_then(|metadata| metadata.with_resource_id("object-store-bucket"))
+    .and_then(|metadata| metadata.with_resource_id(resource_id))
     .expect("provisioning job metadata");
     crate::control_plane::engine::ContainerCreateOptions::new(
-        "stackctl-job-bill-object-store-bucket",
+        format!("stackctl-job-bill-{resource_id}"),
         format!("minio/mc@sha256:{}", "f".repeat(64)),
         metadata,
     )
