@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added bounded authenticated Redis and Valkey cold-start readiness before ACL
+  publication is loaded. Transient container and protocol startup failures now
+  retry without exposing the administrator secret, while invalid requests,
+  ownership failures, and exhausted attempts still fail closed.
 - Added native Linux Engine acceptance for a real digest-pinned project
   application. CI now proves exact label-based ownership reconstruction,
   private-network attachment, the absence of routine host TCP ports, running

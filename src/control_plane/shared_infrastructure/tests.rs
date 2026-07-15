@@ -707,7 +707,14 @@ fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
     assert_eq!(result.physical_resources().len(), 2);
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
-    assert_eq!(engine.command_arguments.lock().expect("commands").len(), 1);
+    let commands = engine.command_arguments.lock().expect("commands");
+    assert_eq!(commands.len(), 2);
+    assert_eq!(commands[0].last().map(String::as_str), Some("PING"));
+    assert_eq!(
+        commands[1].iter().map(String::as_str).collect::<Vec<_>>(),
+        ["redis-cli", "-e", "--user", "stackctl_admin", "ACL", "LOAD"]
+    );
+    drop(commands);
     let identity = shared[0]
         .fingerprint()
         .as_str()
@@ -4781,6 +4788,53 @@ fn redis_acl_reload_uses_environment_auth_and_checks_command_status() {
 }
 
 #[test]
+fn redis_acl_reload_waits_for_authenticated_readiness() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "cache",
+        cache_profile("redis", "8", PersistenceMode::Persistent),
+    )])
+    .pop()
+    .expect("shared Redis plan");
+    let instance = RedisSharedInstancePlan::new(
+        &shared,
+        RedisSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:redis-v1".to_owned(),
+            acl_directory: "/private/redis-acl".into(),
+            bootstrap_secret: CredentialSecret::new("redis-admin".to_owned()),
+        },
+    )
+    .expect("Redis instance");
+    let container = owned_shared_container("redis-container", "sha256:redis-8");
+    let executor = SequencedRedisExecutor::new([
+        CommandStatus::Exited(1),
+        CommandStatus::Exited(0),
+        CommandStatus::Exited(0),
+    ]);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(reload_redis_acl(&executor, &container, &instance))
+        .expect("reload Redis ACL after readiness");
+
+    let requests = executor.requests.lock().expect("Redis requests");
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[0].last().map(String::as_str), Some("PING"));
+    assert_eq!(requests[1].last().map(String::as_str), Some("PING"));
+    assert_eq!(
+        requests[2].iter().map(String::as_str).collect::<Vec<_>>(),
+        ["redis-cli", "-e", "--user", "stackctl_admin", "ACL", "LOAD"]
+    );
+}
+
+#[test]
 fn postgres_logical_resources_use_deterministic_isolated_names_and_stdin() {
     let plan = PostgresLogicalResourcePlan::new(
         "bill",
@@ -6043,6 +6097,72 @@ impl CredentialEntropy for SequentialEntropy {
 struct RecordingPostgresExecutor {
     stdin: Arc<Mutex<Vec<u8>>>,
     request_debug: Arc<Mutex<String>>,
+}
+
+struct SequencedRedisExecutor {
+    requests: Arc<Mutex<Vec<Vec<String>>>>,
+    statuses: Arc<Mutex<VecDeque<CommandStatus>>>,
+    next_execution: AtomicUsize,
+}
+
+impl SequencedRedisExecutor {
+    fn new(statuses: impl IntoIterator<Item = CommandStatus>) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            statuses: Arc::new(Mutex::new(statuses.into_iter().collect())),
+            next_execution: AtomicUsize::new(1),
+        }
+    }
+}
+
+impl CommandExecutor for SequencedRedisExecutor {
+    fn start_command<'operation>(
+        &'operation self,
+        container: &'operation OwnedContainer,
+        request: &'operation CommandRequest,
+    ) -> EngineFuture<'operation, CommandSession> {
+        self.requests
+            .lock()
+            .expect("Redis request lock")
+            .push(request.arguments().to_vec());
+        let execution = self.next_execution.fetch_add(1, Ordering::SeqCst);
+        let container_id = container.id().clone();
+
+        Box::pin(async move {
+            let (writer, mut reader) = tokio::io::duplex(1024);
+            tokio::spawn(async move {
+                let mut bytes = Vec::new();
+                reader
+                    .read_to_end(&mut bytes)
+                    .await
+                    .expect("read Redis readiness stdin");
+            });
+            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+
+            Ok(CommandSession::new(
+                CommandExecutionId::new(format!("redis-exec-{execution}")),
+                container_id,
+                Box::pin(writer),
+                output,
+            ))
+        })
+    }
+
+    fn command_status<'operation>(
+        &'operation self,
+        _execution_id: &'operation CommandExecutionId,
+        _container_id: &'operation ContainerId,
+    ) -> EngineFuture<'operation, CommandStatus> {
+        Box::pin(async move {
+            self.statuses
+                .lock()
+                .expect("Redis status lock")
+                .pop_front()
+                .ok_or_else(|| crate::control_plane::engine::EngineError::Backend {
+                    detail: "Redis test executor has no configured status".to_owned(),
+                })
+        })
+    }
 }
 
 #[derive(Default)]

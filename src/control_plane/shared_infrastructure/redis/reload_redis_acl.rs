@@ -1,4 +1,5 @@
 use super::RedisSharedInstancePlan;
+use super::wait_for_redis_readiness::wait_for_redis_readiness;
 use crate::control_plane::engine::{
     AttachedCommandOptions, CommandExecutor, CommandRequest, EngineError, OwnedContainer,
     run_attached_command,
@@ -14,6 +15,8 @@ pub(crate) async fn reload_redis_acl(
     container: &OwnedContainer,
     instance: &RedisSharedInstancePlan,
 ) -> Result<(), EngineError> {
+    wait_for_redis_readiness(executor, container, instance).await?;
+
     let flavor = instance.flavor();
     let request = CommandRequest::new(
         vec![
