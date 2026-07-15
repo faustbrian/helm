@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance for shared MySQL. CI now proves two
+  compatible projects reuse one persistent server, retain stable credentials,
+  write through isolated schemas and users, reject cross-project schema access,
+  preserve the container across reconciliation, and clean up exact resources.
 - Added a common bounded shared-service readiness strategy and applied it to
   MySQL and MariaDB before tenant provisioning. Redis, Valkey, PostgreSQL,
   MySQL, and MariaDB now share the same transient startup retry policy while

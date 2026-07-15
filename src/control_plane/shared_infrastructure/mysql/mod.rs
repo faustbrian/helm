@@ -42,3 +42,6 @@ pub(crate) use reconcile_mysql_migration_target::reconcile_mysql_migration_targe
 pub(crate) use reconcile_mysql_project_resources::reconcile_mysql_project_resources;
 pub(crate) use reconcile_prepared_mysql_instance::reconcile_prepared_mysql_instance;
 pub(crate) use revoke_mysql_project_access::revoke_mysql_project_access;
+
+#[cfg(test)]
+mod live_engine_tests;
