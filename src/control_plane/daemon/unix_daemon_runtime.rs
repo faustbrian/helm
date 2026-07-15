@@ -18,7 +18,8 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
 use crate::control_plane::engine::{
-    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions, VolumeDiscovery,
+    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions, NetworkDiscovery,
+    ReconciliationEngine, VolumeDiscovery,
 };
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
@@ -640,7 +641,45 @@ impl UnixDaemonRuntime {
             .iter()
             .map(|service| (service.project().as_str().to_owned(), Vec::new()))
             .collect::<BTreeMap<String, Vec<_>>>();
+        let shared_observation: Result<_, (&str, EngineError)> =
+            self.engine_runtime.block_on(async {
+                let (containers, volumes, networks) = futures_util::future::join3(
+                    engine.discover_managed(),
+                    engine.discover_managed_volumes(),
+                    engine.discover_managed_networks(),
+                )
+                .await;
+
+                Ok((
+                    containers.map_err(|error| ("container discovery", error))?,
+                    volumes.map_err(|error| ("volume discovery", error))?,
+                    networks.map_err(|error| ("network discovery", error))?,
+                ))
+            });
+        let (observed_shared_containers, observed_shared_volumes, observed_shared_networks) =
+            match shared_observation {
+                Ok(observation) => observation,
+                Err((action, error)) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        action,
+                        error = %error,
+                        "shared inventory discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            };
         let shared_engine = (*engine).clone();
+        let shared_container_observation = observed_shared_containers.as_slice();
+        let shared_volume_observation = observed_shared_volumes.as_slice();
+        let shared_network_observation = observed_shared_networks.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
         let shared_results = self
@@ -649,7 +688,12 @@ impl UnixDaemonRuntime {
                 prepared_shared.iter(),
                 INDEPENDENT_RECONCILIATION_CONCURRENCY,
                 move |prepared| {
-                    let mut engine = shared_engine.clone();
+                    let mut engine = ReconciliationEngine::new(
+                        shared_engine.clone(),
+                        shared_container_observation,
+                        shared_volume_observation,
+                        shared_network_observation,
+                    );
 
                     async move {
                         reconcile_prepared_shared_instance(

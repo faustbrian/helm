@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added a pass-scoped Engine decorator for compatibility-keyed shared
+  infrastructure convergence. The daemon now discovers managed containers,
+  volumes, and networks once, concurrently, then reuses that immutable
+  observation across independently reconciled instances instead of multiplying
+  full Engine inventory requests by the number of compatibility profiles.
 - Reused one post-shared-reconciliation container observation across shared
   service idling, orphan stopping, disposable garbage collection, application
   convergence, dedicated services, and workers. Each mutation still inspects

@@ -10,11 +10,12 @@ use super::{
     ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
     NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedImage, ObservedNetwork,
     ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedImage, OwnedNetwork,
-    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, RegistryImageReference,
-    ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions, VolumeDiscovery,
-    VolumeManager, VolumeMount, classify_observed_resource, delete_owned_installation_resources,
-    gateway_container_request, reconstruct_owned_container, reconstruct_owned_image,
-    reconstruct_owned_network, reconstruct_owned_volume, validate_container_completion,
+    OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ReconciliationEngine,
+    RegistryImageReference, ResourceKind, ResourceMetrics, RetentionClass, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
+    delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
+    reconstruct_owned_image, reconstruct_owned_network, reconstruct_owned_volume,
+    validate_container_completion,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -79,6 +80,46 @@ fn live_docker_engine_adapter_negotiates_and_reads_owned_inventory() {
             .await
             .expect("read published port inventory");
     });
+}
+
+#[test]
+fn reconciliation_engine_reuses_pass_wide_resource_observations() {
+    let containers = [ObservedContainer::new(
+        ContainerId::new("shared-postgres"),
+        BTreeMap::new(),
+    )];
+    let volumes = [ObservedVolume::new("shared-postgres-data", BTreeMap::new())];
+    let networks = [ObservedNetwork::new(
+        NetworkId::new("stackctl-network"),
+        BTreeMap::new(),
+    )];
+    let engine = ReconciliationEngine::new(
+        RecordingContainerBackend::default(),
+        &containers,
+        &volumes,
+        &networks,
+    );
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build test runtime");
+
+    let (observed_containers, observed_volumes, observed_networks) = runtime.block_on(async {
+        (
+            engine.discover_managed().await.expect("cached containers"),
+            engine
+                .discover_managed_volumes()
+                .await
+                .expect("cached volumes"),
+            engine
+                .discover_managed_networks()
+                .await
+                .expect("cached networks"),
+        )
+    });
+
+    assert_eq!(observed_containers[0].id().as_str(), "shared-postgres");
+    assert_eq!(observed_volumes[0].name(), "shared-postgres-data");
+    assert_eq!(observed_networks[0].id().as_str(), "stackctl-network");
 }
 
 #[test]
