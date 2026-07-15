@@ -1,4 +1,6 @@
-use super::{PreparedProjectService, ProjectServicePreparationError};
+use super::{
+    PreparedProjectService, ProjectServicePreparationError, ProjectServiceProvisioningJob,
+};
 use crate::control_plane::ServiceExecutionPlan;
 use crate::control_plane::shared_infrastructure::CredentialSecret;
 use crate::control_plane::state::{
@@ -7,6 +9,11 @@ use crate::control_plane::state::{
 };
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+
+const REDIS_CLIENT_IMAGE: &str = concat!(
+    "redis@sha256:",
+    "6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+);
 
 /// Composes one authenticated Dragonfly endpoint with scheduled snapshots.
 pub(crate) fn plan_dragonfly_project_resources(
@@ -56,7 +63,7 @@ pub(crate) fn plan_dragonfly_project_resources(
     }
 
     let values = BTreeMap::from([
-        ("DRAGONFLY_HOST".to_owned(), container_name),
+        ("DRAGONFLY_HOST".to_owned(), container_name.clone()),
         (
             "DRAGONFLY_PASSWORD".to_owned(),
             password.expose().to_owned(),
@@ -71,6 +78,19 @@ pub(crate) fn plan_dragonfly_project_resources(
         values,
         lifecycle: EnvironmentLifecycle::Active,
     });
+    let provisioning_job = ProjectServiceProvisioningJob::new(
+        REDIS_CLIENT_IMAGE,
+        vec![
+            "redis-cli".to_owned(),
+            "-e".to_owned(),
+            "-h".to_owned(),
+            container_name,
+            "-p".to_owned(),
+            "6379".to_owned(),
+            "ping".to_owned(),
+        ],
+        BTreeMap::from([("REDISCLI_AUTH".to_owned(), password.expose().to_owned())]),
+    )?;
 
     Ok(PreparedProjectService::new(
         project_id.to_owned(),
@@ -79,7 +99,8 @@ pub(crate) fn plan_dragonfly_project_resources(
         environment,
         container_environment,
         None,
-    ))
+    )
+    .with_provisioning_job(provisioning_job))
 }
 
 fn invalid(error: impl std::fmt::Display) -> ProjectServicePreparationError {

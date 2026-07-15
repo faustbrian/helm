@@ -51,6 +51,9 @@ All notable changes to this project are documented in this file.
 - Corrected the v8 service contract and completion audit to recognize RustFS
   authenticated bucket provisioning while keeping scoped IAM and live drift
   acceptance explicitly outstanding.
+- Added pinned-client authenticated Dragonfly readiness without exposing its
+  password in command arguments or creating repeated disposable jobs after an
+  unchanged revision succeeds.
 - Expanded the service strategy matrix to state every preset's credential,
   endpoint, readiness, deletion, sharing, isolation, backup, and dedication
   boundary without implying unimplemented tenant isolation.

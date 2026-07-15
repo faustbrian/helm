@@ -619,6 +619,25 @@ fn dragonfly_preparation_replays_stable_password_and_snapshot_contract() {
         Some(&credential.secret().to_owned())
     );
     assert_eq!(first.route(), None);
+    let provisioning = first
+        .provisioning_job()
+        .expect("Dragonfly authenticated readiness job");
+    assert_eq!(
+        provisioning.command(),
+        [
+            "redis-cli",
+            "-e",
+            "-h",
+            "stackctl-bill-cache",
+            "-p",
+            "6379",
+            "ping"
+        ]
+    );
+    assert_eq!(
+        provisioning.environment().get("REDISCLI_AUTH"),
+        Some(&credential.secret().to_owned())
+    );
     assert!(!format!("{first:?}").contains(credential.secret()));
 
     std::fs::remove_file(database).expect("remove state store");

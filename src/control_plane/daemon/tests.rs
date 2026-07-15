@@ -5420,6 +5420,26 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         Some(&"* * * * *".to_owned())
     );
     assert!(cache.volume().is_some());
+    let readiness = cache
+        .provisioning_job()
+        .expect("Dragonfly authenticated readiness job");
+    assert_eq!(
+        readiness.command(),
+        [
+            "redis-cli",
+            "-e",
+            "-h",
+            "stackctl-bill-cache",
+            "-p",
+            "6379",
+            "ping"
+        ]
+    );
+    assert_eq!(
+        readiness.environment().get("REDISCLI_AUTH"),
+        Some(&"dragonfly-secret".to_owned())
+    );
+    assert!(!format!("{readiness:?}").contains("dragonfly-secret"));
     assert_eq!(
         plan.applications()[0]
             .request()
