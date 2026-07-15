@@ -1,6 +1,7 @@
-//! Data service container manager CLI.
+//! Omnipresent local development control plane.
 //!
-//! Stackctl is a command-line tool for managing local data services with Docker.
+//! Stackctl coordinates one per-user daemon and a Linux container workload
+//! plane through the selected Docker Engine API.
 
 #![allow(clippy::print_stdout)] // CLI tool needs to print to stdout
 #![allow(clippy::clone_on_ref_ptr)] // Arc clones are explicit at call sites for clarity

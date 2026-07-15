@@ -48,7 +48,7 @@ const MINIMUM_ENGINE_API_VERSION: ClientVersion = ClientVersion {
     minor_version: 41,
 };
 
-/// A direct Docker-compatible Engine API adapter used for Docker and Podman.
+/// The direct Docker Engine API adapter selected by a v8 installation.
 #[derive(Clone)]
 pub(crate) struct BollardEngineAdapter {
     docker: Docker,

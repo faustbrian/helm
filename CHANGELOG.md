@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Removed current-v8 Podman support implications from Engine comments and
+  health/retry changelog entries. V8 selects the typed Docker Engine contract;
+  Podman remains unsupported until it has equivalent acceptance evidence.
 - Corrected the v8 acceptance audit to treat RabbitMQ non-durable queues,
   non-persistent messages, quorum queues, and streams as explicit fail-closed
   unsupported recovery boundaries, not silently incomplete support. Supported
@@ -52,7 +55,7 @@ All notable changes to this project are documented in this file.
   waits now tolerate a bounded in-progress restart without collapsing it into
   `starting`, `stopped`, or generic process health.
 - Published `engine_unavailable` as a distinct project-resource health state
-  while the selected Docker or Podman adapter is disconnected. Status no
+  while the selected Docker adapter is disconnected. Status no
   longer collapses an Engine outage into the same `unknown` state used for a
   missing or stale observation, and successful reconnect clears the outage.
 - Removed alternate configuration detection from CLI lookup, watched-root
@@ -76,7 +79,7 @@ All notable changes to this project are documented in this file.
 - Rejected nonzero disposable-container exit statuses instead of recording
   failed service readiness and provisioning jobs as successful. Application
   failures now retry with bounded stable-jitter exponential backoff without
-  disconnecting a healthy Docker or Podman Engine, and removed services cannot
+  disconnecting a healthy Docker Engine, and removed services cannot
   leave a hot reconciliation loop behind.
 - Added explicit Engine-idle, one-project, and forty-project baseline modes to
   the v8 benchmark harness. Baselines now require and preserve independently

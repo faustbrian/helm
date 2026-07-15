@@ -6,7 +6,7 @@ use std::pin::Pin;
 pub(crate) type EngineFuture<'operation, Output> =
     Pin<Box<dyn Future<Output = Result<Output, EngineError>> + Send + 'operation>>;
 
-/// Narrow container lifecycle effects implemented by Docker and Podman adapters.
+/// Narrow container lifecycle effects implemented by Engine adapters.
 pub(crate) trait ContainerLifecycle {
     fn create<'operation>(
         &'operation mut self,
