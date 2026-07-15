@@ -4540,6 +4540,14 @@ fn redis_and_valkey_materialize_as_separate_private_acl_backed_instances() {
 
     assert_eq!(redis.flavor(), RedisFlavor::Redis);
     assert_eq!(valkey.flavor(), RedisFlavor::Valkey);
+    assert_eq!(
+        RedisFlavor::Redis.client_auth_environment_key(),
+        "REDISCLI_AUTH"
+    );
+    assert_eq!(
+        RedisFlavor::Valkey.client_auth_environment_key(),
+        "REDISCLI_AUTH"
+    );
     assert_ne!(redis.container().name(), valkey.container().name());
     assert_eq!(redis.acl_mount_target(), "/etc/stackctl/acl");
     assert_eq!(redis.acl_file(), "/etc/stackctl/acl/users.acl");

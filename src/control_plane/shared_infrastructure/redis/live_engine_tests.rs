@@ -1,5 +1,6 @@
 use super::{
-    RedisPreparationOptions, prepare_redis_shared_instances, reconcile_redis_acl_snapshot,
+    RedisFlavor, RedisPreparationOptions, prepare_redis_shared_instances,
+    reconcile_redis_acl_snapshot,
 };
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery,
@@ -22,10 +23,34 @@ const REDIS_IMAGE: &str = concat!(
     "redis@sha256:",
     "9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005"
 );
+const VALKEY_IMAGE: &str = concat!(
+    "valkey/valkey@sha256:",
+    "3e31dd49b6b742e614975e8ab7b1b19809d00ecac7657c6b34bff23582a433cd"
+);
 
 #[test]
 #[ignore = "CI owns live shared Redis isolation acceptance"]
 fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
+    run_live_engine_shared_key_value_isolation(LiveEngineKeyValueOptions {
+        flavor: RedisFlavor::Redis,
+        display_name: "Redis",
+        major_version: "8",
+        image: REDIS_IMAGE,
+    });
+}
+
+#[test]
+#[ignore = "CI owns live shared Valkey isolation acceptance"]
+fn live_docker_engine_two_projects_share_one_valkey_with_isolated_prefixes() {
+    run_live_engine_shared_key_value_isolation(LiveEngineKeyValueOptions {
+        flavor: RedisFlavor::Valkey,
+        display_name: "Valkey",
+        major_version: "8",
+        image: VALKEY_IMAGE,
+    });
+}
+
+fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions<'_>) {
     let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
@@ -39,12 +64,15 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
     let platform = match std::env::consts::ARCH {
         "aarch64" => "linux/arm64",
         "x86_64" => "linux/amd64",
-        architecture => panic!("unsupported Redis acceptance architecture '{architecture}'"),
+        architecture => panic!(
+            "unsupported {} acceptance architecture '{architecture}'",
+            options.display_name
+        ),
     };
     let profile = CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
-        implementation: "redis".to_owned(),
-        major_version: "8".to_owned(),
-        image_digest: REDIS_IMAGE.to_owned(),
+        implementation: options.flavor.implementation().to_owned(),
+        major_version: options.major_version.to_owned(),
+        image_digest: options.image.to_owned(),
         extensions: Vec::new(),
         immutable_settings: BTreeMap::new(),
         persistence: PersistenceMode::Persistent,
@@ -124,8 +152,8 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
     .expect("build Redis acceptance network metadata");
     let network_request = NetworkCreateOptions::new(&network_name, network_metadata)
         .expect("build Redis acceptance network request");
-    let image = ImmutableImageReference::new(REDIS_IMAGE)
-        .expect("build immutable Redis acceptance image reference");
+    let image = ImmutableImageReference::new(options.image)
+        .expect("build immutable Redis-family acceptance image reference");
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -157,9 +185,10 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
         let bill_key = format!("{}owned", bill.acl().prefix());
         let shop_key = format!("{}owned", shop.acl().prefix());
         assert_eq!(
-            redis_command(
+            key_value_command(
                 &engine,
                 first.container(),
+                options.flavor,
                 bill.credential().username(),
                 bill.credential().secret(),
                 &["SET", &bill_key, "bill-value"],
@@ -168,9 +197,10 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
             "OK\n"
         );
         assert_eq!(
-            redis_command(
+            key_value_command(
                 &engine,
                 first.container(),
+                options.flavor,
                 shop.credential().username(),
                 shop.credential().secret(),
                 &["SET", &shop_key, "shop-value"],
@@ -178,9 +208,10 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
             .await,
             "OK\n"
         );
-        let denied = redis_command(
+        let denied = key_value_command(
             &engine,
             first.container(),
+            options.flavor,
             shop.credential().username(),
             shop.credential().secret(),
             &["GET", &bill_key],
@@ -231,7 +262,18 @@ fn live_docker_engine_two_projects_share_one_redis_with_isolated_prefixes() {
 
     drop(store);
     std::fs::remove_dir_all(&state_directory).expect("remove Redis acceptance state");
-    println!("shared Redis isolation acceptance passed for installation {installation_id}");
+    println!(
+        "shared {} isolation acceptance passed for installation {installation_id}",
+        options.display_name
+    );
+}
+
+#[derive(Clone, Copy)]
+struct LiveEngineKeyValueOptions<'a> {
+    flavor: RedisFlavor,
+    display_name: &'a str,
+    major_version: &'a str,
+    image: &'a str,
 }
 
 struct SequentialCredentialEntropy {
@@ -254,15 +296,16 @@ impl CredentialEntropy for SequentialCredentialEntropy {
     }
 }
 
-async fn redis_command(
+async fn key_value_command(
     engine: &BollardEngineAdapter,
     container: &crate::control_plane::engine::OwnedContainer,
+    flavor: RedisFlavor,
     username: &str,
     password: &str,
     arguments: &[&str],
 ) -> String {
     let mut command = vec![
-        "redis-cli".to_owned(),
+        flavor.client_executable().to_owned(),
         "--user".to_owned(),
         username.to_owned(),
         "--raw".to_owned(),
@@ -270,7 +313,10 @@ async fn redis_command(
     command.extend(arguments.iter().map(ToString::to_string));
     let request = CommandRequest::new(
         command,
-        BTreeMap::from([("REDISCLI_AUTH".to_owned(), password.to_owned())]),
+        BTreeMap::from([(
+            flavor.client_auth_environment_key().to_owned(),
+            password.to_owned(),
+        )]),
         None,
     )
     .expect("build Redis tenant command");

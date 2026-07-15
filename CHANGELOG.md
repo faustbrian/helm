@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fixed Valkey authentication commands to use the environment contract
+  supported by `valkey-cli`. Native Linux Engine acceptance now proves stable
+  credentials, isolated ACL prefixes, cross-project access denial, persistent
+  instance reuse, and exact cleanup with the immutable Valkey image.
 - Added native Linux Engine acceptance for shared MariaDB. CI now verifies the
   implementation-specific root contract and client while proving stable
   credentials, isolated project schemas and users, persistent instance reuse,

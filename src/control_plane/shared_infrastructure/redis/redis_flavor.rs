@@ -37,8 +37,7 @@ impl RedisFlavor {
 
     pub(crate) const fn client_auth_environment_key(self) -> &'static str {
         match self {
-            Self::Redis => "REDISCLI_AUTH",
-            Self::Valkey => "VALKEYCLI_AUTH",
+            Self::Redis | Self::Valkey => "REDISCLI_AUTH",
         }
     }
 }
