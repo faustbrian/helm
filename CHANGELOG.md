@@ -80,10 +80,12 @@ All notable changes to this project are documented in this file.
   restoration. CI now proves `NOLOGIN` blocks the removed role while retaining
   its database, sibling access continues, and reconciliation restores the
   stable role and data without replacing the shared server.
-- Extended native Linux Redis and Valkey acceptance through project removal and
-  restoration. CI now proves orphaning revokes only the removed credential,
-  retains its namespaced data, preserves sibling access, restores the stable
-  credential and value, and keeps the same shared container.
+- Extended native Linux Redis and Valkey acceptance through the real watched
+  YAML lifecycle. CI now publishes the Engine result into daemon state, removes
+  a project configuration, proves orphaning revokes only that credential while
+  retaining its namespaced data and sibling access, restores the configuration,
+  requires exact adoption, and restores the stable credential and value in the
+  same shared container.
 - Added native Linux Engine acceptance for shared Gotenberg. CI now proves two
   compatible projects reuse one stateless process, perform real HTML-to-PDF
   conversions through the immutable image, retain the same container across

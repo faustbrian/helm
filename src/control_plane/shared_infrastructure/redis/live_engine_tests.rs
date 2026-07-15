@@ -2,6 +2,8 @@ use super::{
     RedisFlavor, RedisPreparationOptions, prepare_redis_shared_instances,
     reconcile_prepared_redis_instance,
 };
+use crate::control_plane::application::ControlPlane;
+use crate::control_plane::daemon::{ProjectDiscoveryOptions, reconcile_watched_roots};
 use crate::control_plane::engine::{
     AttachedCommandOptions, BollardEngineAdapter, CommandRequest, ContainerDiscovery,
     ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions,
@@ -10,13 +12,11 @@ use crate::control_plane::engine::{
     reconstruct_owned_container, run_attached_command_output,
 };
 use crate::control_plane::shared_infrastructure::{
-    CompatibilityFingerprintOptions, CompatibilityProfile, CredentialEntropy,
-    CredentialGenerationError, IsolationCapability, OrphanedSharedAccessOptions, PersistenceMode,
-    SharedServiceRequest, plan_shared_instances, revoke_orphaned_shared_access_from_observed,
+    CredentialEntropy, CredentialGenerationError, OrphanedSharedAccessOptions,
+    resolve_execution_shared_instances, revoke_orphaned_shared_access_from_observed,
 };
 use crate::control_plane::state::{
-    CredentialLifecycle, CredentialRecord, CredentialRecordOptions, LogicalResourceRecord,
-    LogicalResourceRecordOptions, ResourceLifecycle, SqliteStateStore,
+    CredentialLifecycle, ResourceLifecycle, SqliteStateStore, StateStore,
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -64,6 +64,10 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
     let installation_id = format!("ci-{}-{nonce}", std::process::id());
     let network_name = format!("stackctl-{installation_id}");
     let state_directory = std::env::temp_dir().join(format!("stackctl-{installation_id}"));
+    let projects_root = state_directory.join("projects");
+    let bill_directory = projects_root.join("bill");
+    let shop_directory = projects_root.join("shop");
+    let database_path = state_directory.join("state.sqlite3");
     let platform = match std::env::consts::ARCH {
         "aarch64" => "linux/arm64",
         "x86_64" => "linux/amd64",
@@ -72,26 +76,35 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
             options.display_name
         ),
     };
-    let profile = CompatibilityProfile::from_options(CompatibilityFingerprintOptions {
-        implementation: options.flavor.implementation().to_owned(),
-        major_version: options.major_version.to_owned(),
-        image_digest: options.image.to_owned(),
-        extensions: Vec::new(),
-        immutable_settings: BTreeMap::new(),
-        persistence: PersistenceMode::Persistent,
-        isolation: IsolationCapability::AclAndPrefix,
-        platform_architecture: Some(platform.to_owned()),
-    })
-    .expect("build Redis acceptance profile");
-    let shared = plan_shared_instances(vec![
-        SharedServiceRequest::new("bill", "cache", profile.clone()),
-        SharedServiceRequest::new("shop", "cache", profile),
-    ]);
+    std::fs::create_dir_all(&bill_directory).expect("create bill Redis project");
+    std::fs::create_dir_all(&shop_directory).expect("create shop Redis project");
+    write_configuration(&bill_directory, "bill", options);
+    write_configuration(&shop_directory, "shop", options);
+    let mut store =
+        SqliteStateStore::open(&database_path).expect("open Redis acceptance state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&projects_root))
+        .expect("persist Redis acceptance watched root");
+    drop(store);
+    let mut control_plane = ControlPlane::new(
+        SqliteStateStore::open(&database_path).expect("reopen Redis discovery state"),
+    );
+    let discovered = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        10_000,
+    )
+    .expect("discover Redis acceptance projects");
+    let execution = crate::control_plane::resolve_execution_plan(
+        discovered.registry().expect("complete Redis registry"),
+    )
+    .expect("resolve Redis acceptance execution");
+    let shared = resolve_execution_shared_instances(&execution, platform)
+        .expect("resolve Redis acceptance shared demand");
+    drop(control_plane);
     assert_eq!(shared.len(), 1, "compatible projects must share one plan");
     assert_eq!(shared[0].consumers().len(), 2);
-    std::fs::create_dir(&state_directory).expect("create Redis acceptance state");
-    let mut store = SqliteStateStore::open(&state_directory.join("state.sqlite3"))
-        .expect("open Redis acceptance state store");
+    let mut store = SqliteStateStore::open(&database_path).expect("reopen Redis preparation state");
     let prepared = prepare_redis_shared_instances(
         &mut store,
         &shared,
@@ -177,6 +190,24 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         let first = reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
             .await
             .expect("converge shared Redis for two projects");
+        let mut publication_control_plane = ControlPlane::new(
+            SqliteStateStore::open(&database_path).expect("open Redis publication state"),
+        );
+        publication_control_plane
+            .record_resources(first.physical_resources(), 11_000)
+            .expect("publish Redis physical resources");
+        for project in [bill, shop] {
+            let logical = first
+                .logical_resources()
+                .iter()
+                .filter(|logical| logical.project_id() == project.environment().project_id())
+                .cloned()
+                .collect::<Vec<_>>();
+            publication_control_plane
+                .reconcile_logical_environment(&logical, project.environment(), 11_000)
+                .expect("publish Redis logical resources and environment");
+        }
+        drop(publication_control_plane);
         let container = owned_shared_container(&engine, &installation_id).await;
 
         let bill_key = format!("{}owned", bill.acl().prefix());
@@ -226,13 +257,37 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
         let replayed_container = owned_shared_container(&engine, &installation_id).await;
         assert_eq!(replayed_container.id(), container.id());
 
-        let bill_logical = first
+        std::fs::remove_file(bill_directory.join(".stackctl.yaml"))
+            .expect("remove bill Redis configuration");
+        let mut removal_control_plane = ControlPlane::new(
+            SqliteStateStore::open(&database_path).expect("open Redis removal state"),
+        );
+        let removed = reconcile_watched_roots(
+            &mut removal_control_plane,
+            ProjectDiscoveryOptions::bounded_defaults(),
+            12_345,
+        )
+        .expect("reconcile removed bill Redis configuration");
+        assert!(removed.was_applied());
+        drop(removal_control_plane);
+        let lifecycle_store =
+            SqliteStateStore::open(&database_path).expect("inspect Redis orphan state");
+        let bill_logical = lifecycle_store
             .logical_resources()
-            .iter()
+            .expect("load orphaned Redis resources")
+            .into_iter()
             .find(|logical| logical.project_id() == "bill")
-            .map(orphaned_logical_resource)
             .expect("find bill logical Redis resource");
-        let bill_disabled = disabled_credential(bill.credential());
+        assert_eq!(bill_logical.lifecycle(), ResourceLifecycle::Orphaned);
+        assert_eq!(bill_logical.orphaned_at_unix_seconds(), Some(12_345));
+        let bill_disabled = lifecycle_store
+            .credentials()
+            .expect("load disabled Redis credential")
+            .into_iter()
+            .find(|credential| credential.project_id() == Some("bill"))
+            .expect("find disabled bill Redis credential");
+        assert_eq!(bill_disabled.lifecycle(), CredentialLifecycle::Disabled);
+        assert_eq!(bill_disabled.secret(), bill.credential().secret());
         let credentials = [bill_disabled, instance.bootstrap_credential().clone()];
         let observed = engine
             .discover_managed()
@@ -295,18 +350,61 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
             "credential revocation must retain the removed project's data"
         );
 
-        let restored =
-            reconcile_prepared_redis_instance(&mut engine, prepared, &installation_id, 8)
-                .await
-                .expect("restore bill Redis access from the active configuration");
+        write_configuration(&bill_directory, "bill", options);
+        let bill_directory = bill_directory
+            .canonicalize()
+            .expect("canonical restored bill project");
+        let mut restoration_control_plane = ControlPlane::new(
+            SqliteStateStore::open(&database_path).expect("open Redis restoration state"),
+        );
+        let restored_registry = reconcile_watched_roots(
+            &mut restoration_control_plane,
+            ProjectDiscoveryOptions::bounded_defaults(),
+            15_000,
+        )
+        .expect("rediscover bill Redis configuration");
+        assert!(restored_registry.was_applied());
+        assert_eq!(
+            restoration_control_plane
+                .adopt_project(&bill_directory)
+                .expect("adopt restored bill Redis project"),
+            "bill"
+        );
+        drop(restoration_control_plane);
+        let restored_prepared = prepare_redis_shared_instances(
+            &mut store,
+            &shared,
+            &SequentialCredentialEntropy::new(0x71),
+            RedisPreparationOptions {
+                installation_id: &installation_id,
+                network_name: &network_name,
+                schema_version: 8,
+                state_directory: &state_directory,
+            },
+        )
+        .expect("prepare adopted Redis resources");
+        let restored_bill = restored_prepared[0]
+            .projects()
+            .iter()
+            .find(|project| project.environment().project_id() == "bill")
+            .expect("restored bill Redis resources");
+        assert_eq!(restored_bill.credential(), bill.credential());
+        let restored = reconcile_prepared_redis_instance(
+            &mut engine,
+            &restored_prepared[0],
+            &installation_id,
+            8,
+        )
+        .await
+        .expect("restore bill Redis access from the adopted configuration");
         assert!(restored.logical_resource_drifts().is_empty());
         assert_eq!(
             key_value_command(
                 &engine,
                 &container,
                 options.flavor,
-                bill.credential().username(),
-                bill.credential().secret(),
+                restored_bill.credential().username(),
+                restored_bill.credential().secret(),
                 &["GET", &bill_key],
             )
             .await,
@@ -359,29 +457,26 @@ async fn owned_shared_container(
         .expect("one shared Redis container")
 }
 
-fn orphaned_logical_resource(logical: &LogicalResourceRecord) -> LogicalResourceRecord {
-    LogicalResourceRecord::new(LogicalResourceRecordOptions {
-        logical_resource_id: logical.logical_resource_id().to_owned(),
-        shared_resource_id: logical.shared_resource_id().to_owned(),
-        project_id: logical.project_id().to_owned(),
-        service_id: logical.service_id().to_owned(),
-        kind: logical.kind().to_owned(),
-        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
-        desired_revision: logical.desired_revision().to_owned(),
-        lifecycle: ResourceLifecycle::Orphaned,
-        orphaned_at_unix_seconds: Some(12_345),
-    })
-}
-
-fn disabled_credential(credential: &CredentialRecord) -> CredentialRecord {
-    CredentialRecord::new(CredentialRecordOptions {
-        credential_id: credential.credential_id().to_owned(),
-        project_id: credential.project_id().map(str::to_owned),
-        service_id: credential.service_id().to_owned(),
-        username: credential.username().to_owned(),
-        secret: credential.secret().to_owned(),
-        lifecycle: CredentialLifecycle::Disabled,
-    })
+fn write_configuration(
+    directory: &std::path::Path,
+    project: &str,
+    options: LiveEngineKeyValueOptions<'_>,
+) {
+    std::fs::write(
+        directory.join(".stackctl.yaml"),
+        format!(
+            concat!(
+                "schema_version: 8\nproject: {project}\nservices:\n",
+                "  cache:\n    preset: {preset}\n    version: '{version}'\n",
+                "    image: {image}\n"
+            ),
+            project = project,
+            preset = options.flavor.implementation(),
+            version = options.major_version,
+            image = options.image,
+        ),
+    )
+    .expect("write Redis acceptance configuration");
 }
 
 #[derive(Clone, Copy)]
