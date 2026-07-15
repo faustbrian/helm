@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended typed IPC cancellation from live log sessions to every queued
+  durable daemon operation. Cancellation now performs a guarded SQLite
+  transition, records a resumable event, and removes only the matching
+  in-memory queue item; running, terminal, unknown, or unrestored work fails
+  explicitly instead of reporting a cancellation that did not occur.
 - Deduplicated equal content-addressed application runtime materialization
   within each reconciliation pass, so projects sharing a runtime fingerprint
   resolve and inspect its immutable inputs once while retaining dedicated

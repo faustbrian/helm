@@ -1177,14 +1177,92 @@ where
                     operation_id: target_request_id.clone(),
                 },
             ),
-            Err(ProjectLogSessionRegistryError::UnknownSession { .. }) => IpcResponse::failure(
-                request.request_id(),
-                vec![IpcDiagnostic::new(
-                    "operation_not_available",
-                    "the singleton daemon does not support this operation yet",
-                    false,
-                )],
-            ),
+            Err(ProjectLogSessionRegistryError::UnknownSession { .. }) => {
+                let operation = match control_plane.daemon_operation(target_request_id) {
+                    Ok(Some(operation)) => operation,
+                    Ok(None) => {
+                        return operation_not_available(request.request_id());
+                    }
+                    Err(error) => {
+                        return IpcResponse::failure(
+                            request.request_id(),
+                            vec![IpcDiagnostic::new(
+                                "operation_cancel_failed",
+                                error.to_string(),
+                                true,
+                            )],
+                        );
+                    }
+                };
+                if operation.status() != DaemonOperationStatus::Queued {
+                    return operation_not_available(request.request_id());
+                }
+                let is_queued = match operation.kind() {
+                    "project_command" => project_commands.contains(target_request_id),
+                    "project_backup" => project_backups.contains(target_request_id),
+                    "postgres_prune" => postgres_prunes.contains(target_request_id),
+                    "project_restore" => project_restores.contains(target_request_id),
+                    "migration_decision" => migration_decisions.contains(target_request_id),
+                    _ => false,
+                };
+                if !is_queued {
+                    return operation_not_available(request.request_id());
+                }
+                let operation_kind = operation.kind().to_owned();
+                let cancelled_json =
+                    match serialize_event_kind(target_request_id, &IpcEventKind::Cancelled) {
+                        Ok(json) => json,
+                        Err(response) => return response,
+                    };
+                let cancelled = match control_plane.transition_daemon_operation(
+                    DaemonOperationTransitionOptions {
+                        operation_id: target_request_id,
+                        expected: DaemonOperationStatus::Queued,
+                        next: DaemonOperationStatus::Cancelled,
+                        updated_at_unix_seconds: now_unix_seconds,
+                        event_kind_json: Some(&cancelled_json),
+                        event_retention_limit: event_journal.capacity(),
+                    },
+                ) {
+                    Ok(Some(event)) => event,
+                    Ok(None) => return operation_not_available(request.request_id()),
+                    Err(error) => {
+                        return IpcResponse::failure(
+                            request.request_id(),
+                            vec![IpcDiagnostic::new(
+                                "operation_cancel_failed",
+                                error.to_string(),
+                                true,
+                            )],
+                        );
+                    }
+                };
+                match operation_kind.as_str() {
+                    "project_command" => drop(project_commands.remove(target_request_id)),
+                    "project_backup" => drop(project_backups.remove(target_request_id)),
+                    "postgres_prune" => drop(postgres_prunes.remove(target_request_id)),
+                    "project_restore" => drop(project_restores.remove(target_request_id)),
+                    "migration_decision" => drop(migration_decisions.remove(target_request_id)),
+                    _ => unreachable!("queued operation kind was checked before transition"),
+                }
+                if let Err(error) = event_journal.append_record(cancelled) {
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new(
+                            "event_journal_failed",
+                            error.to_string(),
+                            false,
+                        )],
+                    );
+                }
+
+                IpcResponse::success(
+                    request.request_id(),
+                    IpcResult::Accepted {
+                        operation_id: target_request_id.clone(),
+                    },
+                )
+            }
             Err(error) => IpcResponse::failure(
                 request.request_id(),
                 vec![IpcDiagnostic::new(
@@ -1964,4 +2042,15 @@ fn serialize_event_kind(request_id: &str, kind: &IpcEventKind) -> Result<String,
             )],
         )
     })
+}
+
+fn operation_not_available(request_id: &str) -> IpcResponse {
+    IpcResponse::failure(
+        request_id,
+        vec![IpcDiagnostic::new(
+            "operation_not_available",
+            "the requested operation is not queued and cancellable",
+            false,
+        )],
+    )
 }

@@ -52,6 +52,12 @@ impl ProjectCommandQueue {
         self.pending.push_front(operation);
     }
 
+    pub(crate) fn contains(&self, operation_id: &str) -> bool {
+        self.pending
+            .iter()
+            .any(|operation| operation.operation_id() == operation_id)
+    }
+
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedProjectCommand> {
         let index = self
             .pending

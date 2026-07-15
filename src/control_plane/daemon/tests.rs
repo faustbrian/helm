@@ -7860,7 +7860,7 @@ fn daemon_reports_only_the_exact_projects_durable_migrations() {
 }
 
 #[test]
-fn daemon_project_command_request_queues_an_exact_registered_runtime() {
+fn daemon_project_command_request_queues_and_cancels_an_exact_registered_runtime() {
     let root = temporary_directory("ipc-project-command");
     let project_path = root.join("bill");
     std::fs::create_dir(&project_path).expect("project directory");
@@ -7943,15 +7943,53 @@ fn daemon_project_command_request_queues_an_exact_registered_runtime() {
         queued.plan().environment().get("DB_PASSWORD"),
         Some(&"secret-value".to_owned())
     );
+    project_commands.requeue_front(queued);
+
+    let cancel_request = IpcRequest::new(
+        "cancel-command-42",
+        IpcPayload::Cancel {
+            target_request_id: "command-42".to_owned(),
+        },
+    );
+    let cancel_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &cancel_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 30_001,
+    });
+
+    assert_eq!(
+        cancel_response,
+        IpcResponse::success(
+            "cancel-command-42",
+            IpcResult::Accepted {
+                operation_id: "command-42".to_owned(),
+            },
+        )
+    );
+    assert_eq!(project_commands.len(), 0);
+    assert_eq!(event_journal.latest_sequence(), 2);
 
     drop(control_plane);
     let persisted = SqliteStateStore::open(&database_path)
         .expect("reopen state store")
-        .active_daemon_operations()
-        .expect("load queued operation");
-    assert_eq!(persisted.len(), 1);
-    assert!(!persisted[0].payload_json().contains("secret-value"));
-    assert!(!persisted[0].payload_json().contains("DB_PASSWORD"));
+        .daemon_operation("command-42")
+        .expect("load cancelled operation")
+        .expect("cancelled operation");
+    assert_eq!(persisted.status(), DaemonOperationStatus::Cancelled);
+    assert!(!persisted.payload_json().contains("secret-value"));
+    assert!(!persisted.payload_json().contains("DB_PASSWORD"));
     std::fs::remove_dir_all(&root).expect("remove command fixture");
 }
 

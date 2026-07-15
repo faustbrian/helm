@@ -56,6 +56,12 @@ impl ProjectRestoreQueue {
         self.pending.front()
     }
 
+    pub(crate) fn contains(&self, operation_id: &str) -> bool {
+        self.pending
+            .iter()
+            .any(|operation| operation.operation_id() == operation_id)
+    }
+
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedProjectRestore> {
         let index = self
             .pending

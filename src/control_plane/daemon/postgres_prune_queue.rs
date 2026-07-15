@@ -50,6 +50,11 @@ impl PostgresPruneQueue {
     pub(crate) fn requeue_front(&mut self, operation: QueuedPostgresPrune) {
         self.pending.push_front(operation);
     }
+    pub(crate) fn contains(&self, operation_id: &str) -> bool {
+        self.pending
+            .iter()
+            .any(|operation| operation.operation_id() == operation_id)
+    }
     pub(crate) fn remove(&mut self, operation_id: &str) -> Option<QueuedPostgresPrune> {
         let index = self
             .pending
