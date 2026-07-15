@@ -2,6 +2,9 @@ name: Runtime Images
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v8.*'
 
 permissions:
   contents: read
@@ -50,7 +53,7 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: >-
           cosign sign --yes
-          ghcr.io/faustbrian/stackctl-php@${DIGEST}
+          "ghcr.io/faustbrian/stackctl-php@${DIGEST}"
 
       - name: Verify and record published runtime evidence
         env:
@@ -107,3 +110,4 @@ jobs:
           name: runtime-image-evidence-php-8.5
           path: target/runtime-image-evidence/php-8.5
           if-no-files-found: error
+          retention-days: 90

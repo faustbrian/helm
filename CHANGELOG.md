@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Assigned v8 verification to the environment that owns each behavior: local
+  repository checks, architecture-matrix CI, release-tagged runtime image
+  publication, or explicit physical-host and benchmark evidence. CI artifacts
+  now have defined retention windows and release records must archive them.
 - Preserved Caddy admin reload transport and timeout failures as typed gateway
   Engine errors so the daemon invalidates the adapter and reconnects. Nonzero
   Caddy command exits remain provider failures and no longer masquerade as

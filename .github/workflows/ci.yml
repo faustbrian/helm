@@ -109,3 +109,4 @@ jobs:
           name: gateway-acceptance-${{ matrix.platform }}
           path: target/gateway-acceptance-${{ matrix.platform }}.txt
           if-no-files-found: error
+          retention-days: 30

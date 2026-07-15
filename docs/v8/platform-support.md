@@ -3,6 +3,8 @@
 This matrix is release policy, not an architecture aspiration. A combination
 is supported only after the complete acceptance record exists. Compilation and
 unit tests are necessary evidence but never sufficient on their own.
+The ownership boundary for local, CI, and physical-host checks is defined in
+[External verification](external-verification.md).
 
 ## Current status
 

@@ -16,6 +16,8 @@ is not complete until its milestone evidence and acceptance tests pass.
 - [Benchmarks](benchmarks.md): resource and recovery measurement protocol.
 - [Platform support](platform-support.md): claimed, preview, blocked, and
   unsupported operating-system and architecture combinations.
+- [External verification](external-verification.md): the exact boundary between
+  local checks, CI-owned acceptance, and physical-host release evidence.
 - [Completion audit](completion-audit.md): requirement-level evidence and
   explicit release blockers.
 
