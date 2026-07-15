@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reused the shared-infrastructure container observation when cleaning up
+  interrupted ephemeral browser services. Startup recovery no longer performs
+  a standalone full Engine container scan immediately before collecting the
+  same inventory for shared-service reconciliation.
 - Reused the daemon's post-shared-service container observation for orphaned
   tenant access revocation as well as subsequent cleanup and workload
   convergence. A reconciliation pass no longer performs a separate full

@@ -55,7 +55,7 @@ use crate::control_plane::workload::{
     garbage_collect_disposable_containers_from_observed, materialize_application_requests,
     project_volume_resource_record, reconcile_project_application_from_observed,
     reconcile_project_process_from_observed, reconcile_project_service_from_observed,
-    reconcile_project_volume_from_observed, remove_stale_ephemeral_services,
+    reconcile_project_volume_from_observed, remove_stale_ephemeral_services_from_observed,
     stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
@@ -598,13 +598,49 @@ impl UnixDaemonRuntime {
             );
         }
 
-        let removed_ephemeral = self
-            .engine_runtime
-            .block_on(remove_stale_ephemeral_services(
-                engine,
-                self.global_network_request.metadata().installation_id(),
-                self.global_network_request.metadata().schema_version(),
-            ));
+        let shared_observation: Result<_, (&str, EngineError)> =
+            self.engine_runtime.block_on(async {
+                let (containers, volumes, networks) = futures_util::future::join3(
+                    engine.discover_managed(),
+                    engine.discover_managed_volumes(),
+                    engine.discover_managed_networks(),
+                )
+                .await;
+
+                Ok((
+                    containers.map_err(|error| ("container discovery", error))?,
+                    volumes.map_err(|error| ("volume discovery", error))?,
+                    networks.map_err(|error| ("network discovery", error))?,
+                ))
+            });
+        let (observed_shared_containers, observed_shared_volumes, observed_shared_networks) =
+            match shared_observation {
+                Ok(observation) => observation,
+                Err((action, error)) => {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        action,
+                        error = %error,
+                        "shared inventory discovery lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            };
+        let removed_ephemeral =
+            self.engine_runtime
+                .block_on(remove_stale_ephemeral_services_from_observed(
+                    engine,
+                    &observed_shared_containers,
+                    self.global_network_request.metadata().installation_id(),
+                    self.global_network_request.metadata().schema_version(),
+                ));
         match removed_ephemeral {
             Ok(removed) if removed > 0 => {
                 tracing::info!(removed, "removed interrupted ephemeral services");
@@ -641,41 +677,6 @@ impl UnixDaemonRuntime {
             .iter()
             .map(|service| (service.project().as_str().to_owned(), Vec::new()))
             .collect::<BTreeMap<String, Vec<_>>>();
-        let shared_observation: Result<_, (&str, EngineError)> =
-            self.engine_runtime.block_on(async {
-                let (containers, volumes, networks) = futures_util::future::join3(
-                    engine.discover_managed(),
-                    engine.discover_managed_volumes(),
-                    engine.discover_managed_networks(),
-                )
-                .await;
-
-                Ok((
-                    containers.map_err(|error| ("container discovery", error))?,
-                    volumes.map_err(|error| ("volume discovery", error))?,
-                    networks.map_err(|error| ("network discovery", error))?,
-                ))
-            });
-        let (observed_shared_containers, observed_shared_volumes, observed_shared_networks) =
-            match shared_observation {
-                Ok(observation) => observation,
-                Err((action, error)) => {
-                    let retry = invalidate_engine_connection(
-                        &mut self.engine_connection,
-                        &mut self.resource_health,
-                        now,
-                    );
-                    tracing::debug!(
-                        attempt = retry.attempt(),
-                        retry_milliseconds = retry.duration().as_millis(),
-                        action,
-                        error = %error,
-                        "shared inventory discovery lost the selected Engine; retry scheduled"
-                    );
-
-                    return;
-                }
-            };
         let shared_engine = (*engine).clone();
         let shared_container_observation = observed_shared_containers.as_slice();
         let shared_volume_observation = observed_shared_volumes.as_slice();

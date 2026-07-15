@@ -12,9 +12,9 @@ use super::{
     plan_immutable_project_application, project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
     reconcile_project_service, reconcile_project_service_from_observed, reconcile_project_volume,
-    reconcile_project_volume_from_observed, remove_stale_ephemeral_services, run_project_command,
-    stop_orphaned_project_workloads, stop_orphaned_project_workloads_from_observed,
-    workload_resource_record,
+    reconcile_project_volume_from_observed, remove_stale_ephemeral_services_from_observed,
+    run_project_command, stop_orphaned_project_workloads,
+    stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -1207,11 +1207,12 @@ fn interrupted_ephemeral_services_are_stopped_and_removed_on_reconciliation() {
     .expect("browser metadata")
     .with_resource_id("browser")
     .expect("browser identity");
+    let pass_observation = [ObservedContainer::new(
+        ContainerId::new("interrupted-browser"),
+        metadata.labels(),
+    )];
     let mut engine = RecordingWorkloadEngine {
-        observed: vec![ObservedContainer::new(
-            ContainerId::new("interrupted-browser"),
-            metadata.labels(),
-        )],
+        observed: Vec::new(),
         state: ContainerState::Running,
         ..RecordingWorkloadEngine::default()
     };
@@ -1220,7 +1221,12 @@ fn interrupted_ephemeral_services_are_stopped_and_removed_on_reconciliation() {
         .expect("test runtime");
 
     let removed = runtime
-        .block_on(remove_stale_ephemeral_services(&mut engine, "install-1", 8))
+        .block_on(remove_stale_ephemeral_services_from_observed(
+            &mut engine,
+            &pass_observation,
+            "install-1",
+            8,
+        ))
         .expect("remove interrupted browser");
 
     assert_eq!(removed, 1);

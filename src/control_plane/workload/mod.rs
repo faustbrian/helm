@@ -118,7 +118,7 @@ pub(crate) use reconcile_project_service::reconcile_project_service_from_observe
 pub(crate) use reconcile_project_volume::reconcile_project_volume;
 pub(crate) use reconcile_project_volume::reconcile_project_volume_from_observed;
 pub(crate) use reconcile_retained_project_service::reconcile_retained_project_service;
-pub(crate) use remove_stale_ephemeral_services::remove_stale_ephemeral_services;
+pub(crate) use remove_stale_ephemeral_services::remove_stale_ephemeral_services_from_observed;
 pub(crate) use run_ephemeral_browser_command::run_ephemeral_browser_command;
 pub(crate) use run_project_command::run_project_command;
 pub(crate) use runtime_environment::RuntimeEnvironment;

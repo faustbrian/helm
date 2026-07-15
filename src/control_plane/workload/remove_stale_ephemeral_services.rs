@@ -1,25 +1,22 @@
 use super::WorkloadReconcileError;
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, ObservedResourceOwnership,
+    ContainerLifecycle, ContainerState, EngineError, ObservedContainer, ObservedResourceOwnership,
     ResourceKind, reconstruct_owned_container,
 };
 
-/// Removes disposable browser sessions left by an interrupted daemon command.
-pub(crate) async fn remove_stale_ephemeral_services<E>(
+/// Removes stale browser sessions against a pass-wide Engine observation.
+pub(crate) async fn remove_stale_ephemeral_services_from_observed<E>(
     engine: &mut E,
+    observed: &[ObservedContainer],
     installation_id: &str,
     schema_version: u32,
 ) -> Result<usize, WorkloadReconcileError>
 where
-    E: ContainerDiscovery + ContainerLifecycle,
+    E: ContainerLifecycle,
 {
-    let observed = engine
-        .discover_managed()
-        .await
-        .map_err(|error| engine_error("discover stale ephemeral services", error))?;
     let mut removed = 0;
 
-    for observed in &observed {
+    for observed in observed {
         let container = match reconstruct_owned_container(observed, installation_id, schema_version)
         {
             Ok(container) if container.metadata().kind() == ResourceKind::EphemeralService => {
