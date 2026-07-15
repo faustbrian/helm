@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Linux Engine acceptance proving a persistent project volume is
+  retained without exact recovery authorization and deleted only when its
+  precise name is authorized. CI now runs both live Engine acceptances on
+  x86_64 and arm64 and publishes the raw architecture-specific records.
 - Ran independent dedicated-service readiness and provisioning jobs with
   bounded concurrency after service reconciliation succeeds. Retry eligibility,
   failure backoff, health publication, and result ordering remain serialized,

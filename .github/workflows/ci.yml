@@ -82,14 +82,23 @@ jobs:
       - name: Run tests
         run: cargo test --all-targets --all-features
 
-      - name: Exercise the selected Docker Engine API
+      - name: Exercise Engine inventory and persistent-data authorization
         if: startsWith(matrix.platform, 'linux-')
         env:
           STACKCTL_ENGINE_SOCKET: /var/run/docker.sock
-        run: >-
-          cargo test
-          live_docker_engine_adapter_negotiates_and_reads_owned_inventory
-          -- --ignored
+        run: |
+          set -o pipefail
+          cargo test live_docker_engine_ -- --ignored --test-threads=1 --nocapture |
+            tee target/engine-acceptance-${{ matrix.platform }}.txt
+
+      - name: Publish raw Engine acceptance record
+        if: startsWith(matrix.platform, 'linux-') && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-acceptance-${{ matrix.platform }}
+          path: target/engine-acceptance-${{ matrix.platform }}.txt
+          if-no-files-found: error
+          retention-days: 30
 
   gateway-acceptance:
     name: Gateway Protocol Acceptance (${{ matrix.platform }})

@@ -29,7 +29,7 @@ use futures_util::StreamExt;
 use std::collections::BTreeMap;
 use std::future::pending;
 use std::io::Read;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::bollard_engine_adapter::{
     build_image_options, command_create_request, container_event, container_health,
@@ -80,6 +80,94 @@ fn live_docker_engine_adapter_negotiates_and_reads_owned_inventory() {
             .await
             .expect("read published port inventory");
     });
+}
+
+#[test]
+#[ignore = "CI owns live Docker Engine persistent-data acceptance"]
+fn live_docker_engine_persistent_volume_deletion_requires_exact_authorization() {
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must follow the Unix epoch")
+        .as_nanos();
+    let installation_id = format!("ci-{}-{nonce}", std::process::id());
+    let volume_name = format!("stackctl-{installation_id}-project-data");
+    let metadata = ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.clone(),
+        kind: ResourceKind::Volume,
+        project_id: Some("ci-project".to_owned()),
+        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        schema_version: 8,
+        desired_revision: format!("sha256:{}", "b".repeat(64)),
+        retention: RetentionClass::Persistent,
+    })
+    .and_then(|metadata| metadata.with_resource_id("data"))
+    .expect("build persistent CI volume metadata");
+    let request = VolumeCreateOptions::new(&volume_name, metadata)
+        .expect("build persistent CI volume request");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build Engine persistent-data acceptance runtime");
+    let mut engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    runtime.block_on(async {
+        engine
+            .create_volume(&request)
+            .await
+            .expect("create owned persistent CI volume");
+
+        let error = delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
+        )
+        .await
+        .expect_err("persistent project volume must require exact authorization");
+        assert!(
+            error
+                .to_string()
+                .contains("without exact recovery authorization")
+        );
+        assert!(
+            engine
+                .discover_managed_volumes()
+                .await
+                .expect("inspect retained CI volume")
+                .iter()
+                .any(|volume| volume.name() == volume_name)
+        );
+
+        delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &[volume_name.clone()],
+            },
+        )
+        .await
+        .expect("delete exactly authorized persistent CI volume");
+        assert!(
+            engine
+                .discover_managed_volumes()
+                .await
+                .expect("verify persistent CI volume deletion")
+                .iter()
+                .all(|volume| volume.name() != volume_name)
+        );
+    });
+
+    println!(
+        "persistent-volume authorization acceptance passed for installation {installation_id}"
+    );
 }
 
 #[test]

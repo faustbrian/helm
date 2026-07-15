@@ -30,25 +30,25 @@ dependency boundary, immutable GitHub Action references, and patch hygiene.
 They do not prove login startup, trust integration, Engine recovery, Linux host
 behavior, or resource efficiency.
 
-The live Docker Engine adapter test is explicitly ignored by the ordinary Rust
-suite and invoked with `--ignored` only by native Ubuntu CI. Local verification
-must compile it but must not infer a passing Engine check from its skipped
-status.
+The live Docker Engine adapter tests are explicitly ignored by the ordinary
+Rust suite and invoked with `--ignored` only by native Ubuntu CI. Local
+verification must compile them but must not infer passing Engine checks from
+their skipped status.
 
 ## CI-owned verification
 
 | Workflow | Automated evidence | Published artifact |
 | --- | --- | --- |
 | `CI` | Release build and full Rust suite on Linux and macOS, both x86_64 and arm64 | Job logs |
-| `CI` | Production Engine adapter API negotiation plus managed container, network, image, volume, and published-port inventory on native Ubuntu x86_64 and arm64 runners | Job logs |
+| `CI` | Production Engine adapter API negotiation, managed inventory, and exact-authorization persistent-volume retain/delete semantics on native Ubuntu x86_64 and arm64 runners | `engine-acceptance-linux-*` |
 | `CI` | Pinned gateway HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, reload, and restart acceptance on native Linux x86_64 and arm64 runners | `gateway-acceptance-linux-*` |
 | `Runtime Images` | Multi-architecture runtime publication, manifest architecture checks, SBOM, provenance, and keyless signature verification | `runtime-image-evidence-php-8.5` |
 
 The runtime-image workflow runs automatically for `v8.*` release tags and may
 also be dispatched deliberately for a release candidate. Publication evidence
-is retained for 90 days. Gateway evidence is retained for 30 days. Release
-preparation must archive the exact artifacts with the release record; a link to
-an expired workflow artifact is not durable evidence.
+is retained for 90 days. Gateway and Engine acceptance evidence is retained for
+30 days. Release preparation must archive the exact artifacts with the release
+record; a link to an expired workflow artifact is not durable evidence.
 
 CI may exercise only behavior genuinely provided by its runner. A hosted
 Ubuntu runner can prove Linux compilation, tests, Engine protocol behavior, and
