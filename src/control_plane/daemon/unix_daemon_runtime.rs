@@ -156,6 +156,8 @@ impl UnixDaemonRuntime {
         let global_network_request = global_network_request(installation.installation_id())?;
         let engine_events = EngineEventSubscription::new(installation.installation_id())?;
         let scheduler = DiscoveryScheduler::new(now, options.scheduler_options);
+        let mut resource_health = ResourceHealthRegistry::default();
+        resource_health.mark_engine_unavailable();
 
         Ok(Self {
             _lease: lease,
@@ -174,7 +176,7 @@ impl UnixDaemonRuntime {
             project_restores,
             migration_decisions,
             project_logs: ProjectLogSessionRegistry::default(),
-            resource_health: ResourceHealthRegistry::default(),
+            resource_health,
             project_service_provisioning: ProjectServiceProvisioningRegistry::default(),
             active_project_logs: BTreeMap::new(),
             active_project_command: None,

@@ -6978,6 +6978,8 @@ fn daemon_status_returns_current_discovery_diagnostics() {
         false,
     );
     let mut event_journal = IpcEventJournal::default();
+    let mut resource_health = ResourceHealthRegistry::default();
+    resource_health.mark_engine_unavailable();
     let request = IpcRequest::new("daemon-status", IpcPayload::DaemonStatus);
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
@@ -6991,7 +6993,7 @@ fn daemon_status_returns_current_discovery_diagnostics() {
         project_restores: &mut ProjectRestoreQueue::default(),
         migration_decisions: &mut MigrationDecisionQueue::default(),
         project_logs: &mut ProjectLogSessionRegistry::default(),
-        resource_health: &ResourceHealthRegistry::default(),
+        resource_health: &resource_health,
         discovery_diagnostics: std::slice::from_ref(&diagnostic),
         benchmark_snapshot: None,
         image_reference_resolution: None,
@@ -7003,6 +7005,7 @@ fn daemon_status_returns_current_discovery_diagnostics() {
         IpcResponse::success(
             "daemon-status",
             IpcResult::DaemonStatus {
+                engine_available: false,
                 discovery_diagnostics: vec![diagnostic],
             },
         )
@@ -9372,13 +9375,16 @@ fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
         .expect("read response");
     let response = decode_response_frame(&response_frame).expect("decode response");
     let IpcOutcome::Success {
-        result: IpcResult::DaemonStatus {
-            discovery_diagnostics,
-        },
+        result:
+            IpcResult::DaemonStatus {
+                engine_available,
+                discovery_diagnostics,
+            },
     } = response.outcome()
     else {
         panic!("daemon status should succeed");
     };
+    assert!(!engine_available);
     assert_eq!(discovery_diagnostics.len(), 1);
     assert_eq!(discovery_diagnostics[0].code(), "configuration_invalid");
     assert!(

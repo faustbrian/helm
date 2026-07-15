@@ -12,6 +12,9 @@ All notable changes to this project are documented in this file.
   status exits nonzero with every actionable issue until discovery recovers.
   The latest snapshot is restored after daemon restarts so unchanged failures
   and recoveries do not produce duplicate history or notification noise.
+- Made daemon status report the selected container Engine as unavailable until
+  a real connection succeeds, and after any connection loss, instead of
+  treating an IPC-responsive control plane as fully ready.
 - Separated gateway certificate activation from watched-root reconciliation.
   Trust rotation now sends one validated immutable generation over typed IPC
   and requests Engine-only convergence, so invalid project configuration

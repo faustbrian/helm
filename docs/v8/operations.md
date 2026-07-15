@@ -440,6 +440,9 @@ exits nonzero while any issue remains, instead of treating a responsive process
 as healthy when project activation is blocked. The daemon restores the latest
 snapshot before its initial rescan, preserving change deduplication across
 daemon restarts.
+Daemon status also returns live selected-Engine availability. It exits nonzero
+from startup until the first successful Engine connection and after any
+connection loss, while the daemon continues its bounded automatic reconnects.
 An explicit `stackctl daemon reconcile` returns every typed discovery
 diagnostic and exits nonzero when that complete scan is blocked. Its operation
 history records `Accepted` followed by `Failed`, never `Completed`. This does

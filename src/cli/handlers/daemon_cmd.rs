@@ -252,9 +252,11 @@ fn handle_daemon_status() -> Result<()> {
     let response = send_singleton_request(IpcPayload::DaemonStatus)?;
     match response.outcome() {
         IpcOutcome::Success {
-            result: IpcResult::DaemonStatus {
-                discovery_diagnostics,
-            },
+            result:
+                IpcResult::DaemonStatus {
+                    engine_available: true,
+                    discovery_diagnostics,
+                },
         } if discovery_diagnostics.is_empty() => {
             output::event(
                 "daemon",
@@ -265,16 +267,24 @@ fn handle_daemon_status() -> Result<()> {
             Ok(())
         }
         IpcOutcome::Success {
-            result: IpcResult::DaemonStatus {
-                discovery_diagnostics,
-            },
+            result:
+                IpcResult::DaemonStatus {
+                    engine_available,
+                    discovery_diagnostics,
+                },
         } => {
-            let detail = discovery_diagnostics
-                .iter()
-                .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message()))
-                .collect::<Vec<_>>()
-                .join("; ");
-            anyhow::bail!("singleton discovery is blocked: {detail}")
+            let mut issues = Vec::new();
+            if !engine_available {
+                issues.push(
+                    "engine_unavailable: selected container Engine is unavailable".to_owned(),
+                );
+            }
+            issues.extend(
+                discovery_diagnostics
+                    .iter()
+                    .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message())),
+            );
+            anyhow::bail!("singleton is not ready: {}", issues.join("; "))
         }
         IpcOutcome::Failure { diagnostics } => {
             let detail = diagnostics

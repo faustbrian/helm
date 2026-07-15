@@ -58,6 +58,7 @@ where
         IpcPayload::DaemonStatus => IpcResponse::success(
             request.request_id(),
             IpcResult::DaemonStatus {
+                engine_available: !resource_health.engine_is_unavailable(),
                 discovery_diagnostics: discovery_diagnostics.to_vec(),
             },
         ),

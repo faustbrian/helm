@@ -15,6 +15,7 @@ pub(crate) enum IpcResult {
     Pong,
     /// Returns current daemon-wide diagnostics.
     DaemonStatus {
+        engine_available: bool,
         discovery_diagnostics: Vec<IpcDiagnostic>,
     },
     /// Confirms an asynchronous operation was accepted.
