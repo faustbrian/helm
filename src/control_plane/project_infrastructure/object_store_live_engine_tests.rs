@@ -1,6 +1,7 @@
 use super::{
     PreparedProjectService, materialize_project_service_configurations,
     plan_garage_project_resources, plan_localstack_project_resources,
+    plan_rustfs_project_resources,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -29,6 +30,10 @@ const LOCALSTACK_IMAGE: &str = concat!(
     "localstack/localstack@sha256:",
     "3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a"
 );
+const RUSTFS_IMAGE: &str = concat!(
+    "rustfs/rustfs@sha256:",
+    "6bd08dc511cebe0a4b5c35c266db465c7eb92cf3df4321c69967be66fe4cb395"
+);
 
 #[test]
 #[ignore = "CI owns live dedicated object-store readiness acceptance"]
@@ -54,11 +59,14 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
                 "  storage:\n    preset: garage\n    version: '2'\n",
                 "    image: {garage_image}\n",
                 "  cloud:\n    preset: localstack\n    version: '4'\n",
-                "    image: {localstack_image}\n"
+                "    image: {localstack_image}\n",
+                "  archive:\n    preset: rustfs\n    version: '1'\n",
+                "    image: {rustfs_image}\n"
             ),
             project = project_id,
             garage_image = GARAGE_IMAGE,
             localstack_image = LOCALSTACK_IMAGE,
+            rustfs_image = RUSTFS_IMAGE,
         ),
     );
     let registry = plan_project_registry(&[source]).expect("plan dedicated object-store registry");
@@ -66,11 +74,15 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
         resolve_execution_plan(&registry).expect("resolve dedicated object-store execution");
     let garage = service(&execution, "storage");
     let localstack = service(&execution, "cloud");
+    let rustfs = service(&execution, "archive");
     let garage_secret = format!("garage-{nonce}-secret");
+    let rustfs_secret = format!("rustfs-{nonce}-secret");
     let mut prepared = vec![
         plan_garage_project_resources(garage, CredentialSecret::new(garage_secret.clone()))
             .expect("prepare dedicated Garage"),
         plan_localstack_project_resources(localstack).expect("prepare dedicated LocalStack"),
+        plan_rustfs_project_resources(rustfs, CredentialSecret::new(rustfs_secret.clone()))
+            .expect("prepare dedicated RustFS"),
     ];
     materialize_project_service_configurations(&mut prepared, &state_directory)
         .expect("materialize Garage configuration");
@@ -89,6 +101,13 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
         &network_name,
         platform,
     );
+    let rustfs_plan = plan_service(
+        rustfs,
+        &prepared[2],
+        &installation_id,
+        &network_name,
+        platform,
+    );
     let wrong_garage = plan_garage_project_resources(
         garage,
         CredentialSecret::new(format!("wrong-{garage_secret}")),
@@ -97,6 +116,18 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
     let wrong_garage_plan = plan_service(
         garage,
         &wrong_garage,
+        &installation_id,
+        &network_name,
+        platform,
+    );
+    let wrong_rustfs = plan_rustfs_project_resources(
+        rustfs,
+        CredentialSecret::new(format!("wrong-{rustfs_secret}")),
+    )
+    .expect("prepare incorrect RustFS credential");
+    let wrong_rustfs_plan = plan_service(
+        rustfs,
+        &wrong_rustfs,
         &installation_id,
         &network_name,
         platform,
@@ -113,10 +144,11 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
     .expect("build dedicated object-store network metadata");
     let network = NetworkCreateOptions::new(&network_name, network_metadata)
         .expect("build dedicated object-store network request");
-    let plans = [garage_plan, localstack_plan];
+    let plans = [garage_plan, localstack_plan, rustfs_plan];
     let bucket_names = [
         format!("garage/stackctl-{project_id}-storage"),
         format!("localstack/stackctl-{project_id}-cloud"),
+        format!("stackctl/stackctl-{project_id}-archive"),
     ];
     let remove_bucket_jobs = plans
         .iter()
@@ -210,6 +242,15 @@ fn live_docker_engine_dedicated_object_stores_provision_idempotent_buckets() {
                 .expect("incorrect Garage provisioning job"),
             &installation_id,
             "incorrect Garage credential unexpectedly provisioned a bucket",
+        )
+        .await?;
+        assert_job_fails(
+            &mut engine,
+            wrong_rustfs_plan
+                .provisioning_job()
+                .expect("incorrect RustFS provisioning job"),
+            &installation_id,
+            "incorrect RustFS credential unexpectedly provisioned a bucket",
         )
         .await?;
         for request in &remove_bucket_jobs {

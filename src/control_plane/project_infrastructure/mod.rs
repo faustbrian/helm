@@ -46,5 +46,7 @@ mod object_store_live_engine_tests;
 #[cfg(test)]
 mod search_live_engine_tests;
 #[cfg(test)]
+mod soketi_live_engine_tests;
+#[cfg(test)]
 mod tests;
 pub(crate) use materialize_project_service_configurations::materialize_project_service_configurations;

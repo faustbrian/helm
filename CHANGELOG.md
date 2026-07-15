@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Extended native Linux object-store acceptance to RustFS, including
+  generated-credential rejection and real bucket drift repair. Added Soketi
+  acceptance that starts its immutable multi-architecture image, waits for
+  the owned container health check, and verifies the exact deterministic
+  public domain and private plain-HTTP gateway upstream.
 - Added native Linux Engine acceptance for dedicated Garage and LocalStack.
   CI now materializes Garage's private generated configuration, provisions
   deterministic buckets in both retained stores, rejects an incorrect Garage
