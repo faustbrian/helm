@@ -1495,9 +1495,14 @@ impl UnixDaemonRuntime {
             }
             Err(GatewayError::Reconciliation { detail }) => {
                 for route in engine_plan.gateway().routes() {
-                    if let Err(error) = health_snapshot
-                        .record_gateway_route_drift(route.domain(), observed_at_unix_seconds)
-                    {
+                    let health = if assets.certificate_was_expired() {
+                        health_snapshot
+                            .record_certificate_expired(route.domain(), observed_at_unix_seconds)
+                    } else {
+                        health_snapshot
+                            .record_gateway_route_drift(route.domain(), observed_at_unix_seconds)
+                    };
+                    if let Err(error) = health {
                         self.engine_reconciliation.complete();
                         tracing::error!(
                             error = %error,
@@ -1512,10 +1517,29 @@ impl UnixDaemonRuntime {
                 self.engine_reconciliation.complete();
                 tracing::warn!(
                     error = detail,
-                    "gateway route drift retained the last good configuration; retry scheduled"
+                    certificate_expired = assets.certificate_was_expired(),
+                    "gateway activation retained the last good configuration; retry scheduled"
                 );
             }
             Err(error) => {
+                if assets.certificate_was_expired() {
+                    for route in engine_plan.gateway().routes() {
+                        if let Err(health_error) = health_snapshot
+                            .record_certificate_expired(route.domain(), observed_at_unix_seconds)
+                        {
+                            self.engine_reconciliation.complete();
+                            tracing::error!(
+                                error = %error,
+                                health_error = %health_error,
+                                domain = route.domain(),
+                                "expired gateway certificate publication blocked"
+                            );
+
+                            return;
+                        }
+                    }
+                    self.resource_health = health_snapshot;
+                }
                 self.engine_reconciliation.complete();
                 tracing::error!(error = %error, "global gateway reconciliation blocked");
             }

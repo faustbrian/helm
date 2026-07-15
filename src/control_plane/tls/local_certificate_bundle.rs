@@ -1,5 +1,8 @@
+use super::LocalCertificateError;
 use std::fmt::{Debug, Formatter};
 use time::OffsetDateTime;
+use x509_parser::parse_x509_certificate;
+use x509_parser::pem::parse_x509_pem;
 
 /// Stackctl-owned CA and gateway leaf material awaiting secure persistence.
 #[derive(Clone, Eq, PartialEq)]
@@ -59,5 +62,26 @@ impl LocalCertificateBundle {
 
     pub(crate) const fn leaf_renew_after(&self) -> OffsetDateTime {
         self.leaf_renew_after
+    }
+
+    pub(crate) fn leaf_expires_at(&self) -> Result<OffsetDateTime, LocalCertificateError> {
+        let (_, pem) = parse_x509_pem(self.leaf_certificate_pem.as_bytes()).map_err(|error| {
+            LocalCertificateError::new(format!(
+                "gateway leaf certificate is not valid PEM: {error}"
+            ))
+        })?;
+        let (_, certificate) = parse_x509_certificate(&pem.contents).map_err(|error| {
+            LocalCertificateError::new(format!(
+                "gateway leaf certificate is not valid X.509: {error}"
+            ))
+        })?;
+
+        OffsetDateTime::from_unix_timestamp(certificate.validity().not_after.timestamp()).map_err(
+            |error| {
+                LocalCertificateError::new(format!(
+                    "gateway leaf certificate expiry is outside the supported range: {error}"
+                ))
+            },
+        )
     }
 }

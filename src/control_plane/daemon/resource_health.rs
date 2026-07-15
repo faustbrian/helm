@@ -8,6 +8,7 @@ pub(crate) enum ResourceHealth {
     AuthenticationFailed { attempt: u32 },
     LogicalResourceDrift,
     GatewayRouteDrift,
+    CertificateExpired,
     DestructiveReplacementRequired,
 }
 

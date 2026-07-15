@@ -25,6 +25,10 @@ fn stackctl_generates_its_own_ca_and_wildcard_gateway_leaf() {
     let now = datetime!(2026-07-13 12:00 UTC);
 
     let bundle = generate_local_certificates(now).expect("local TLS bundle");
+    assert_eq!(
+        bundle.leaf_expires_at().expect("leaf expiry"),
+        datetime!(2026-10-11 12:00 UTC)
+    );
     let (_, leaf_pem) =
         parse_x509_pem(bundle.leaf_certificate_pem().as_bytes()).expect("leaf certificate PEM");
     let (_, leaf) = parse_x509_certificate(&leaf_pem.contents).expect("leaf X.509");

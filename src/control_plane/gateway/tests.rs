@@ -53,8 +53,15 @@ fn gateway_runtime_assets_recover_idempotently_without_exposing_the_ca_key() {
     std::fs::write(&interrupted_bootstrap, "partial gateway config")
         .expect("interrupted gateway bootstrap");
     let recovered = prepare_gateway_runtime_assets(options).expect("recover gateway assets");
+    let renewed = prepare_gateway_runtime_assets(GatewayRuntimeAssetOptions {
+        now: time::macros::datetime!(2026-10-20 12:00 UTC),
+        ..options
+    })
+    .expect("renew expired gateway assets");
 
     assert_eq!(initial.request(), recovered.request());
+    assert!(!initial.certificate_was_expired());
+    assert!(renewed.certificate_was_expired());
     assert!(!interrupted_bootstrap.exists());
     assert_eq!(initial.bootstrap_paths(), recovered.bootstrap_paths());
     assert!(initial.bootstrap_paths().config_path().is_file());

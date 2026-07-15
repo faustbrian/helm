@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Parsed the persisted wildcard leaf's exact X.509 expiry before renewal and
+  carried that evidence through gateway activation. If replacement activation
+  fails after the served certificate expired, every affected route reports
+  `certificate_expired`; successful activation returns routes to healthy.
 - Published exact-domain gateway observations separately from application
   process health. A provider revision mismatch now reports
   `gateway_route_drift`, retains the last good full configuration, and retries;

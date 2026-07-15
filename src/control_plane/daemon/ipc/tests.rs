@@ -539,6 +539,37 @@ fn project_status_responses_preserve_gateway_route_drift() {
 }
 
 #[test]
+fn project_status_responses_preserve_certificate_expiry() {
+    let health = IpcResourceHealth::CertificateExpired;
+
+    assert_eq!(health.as_str(), "certificate_expired");
+    let response = IpcResponse::success(
+        "status-50",
+        IpcResult::ProjectStatus {
+            project: super::IpcProjectStatus::new(
+                "bill".to_owned(),
+                vec!["bill-app.stackctl.localhost".to_owned()],
+                vec![IpcResourceStatus::new(
+                    "bill-app.stackctl.localhost".to_owned(),
+                    "gateway_route".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    health,
+                    Some(10_000),
+                    true,
+                )],
+            ),
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode project status");
+
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode project status"),
+        response
+    );
+}
+
+#[test]
 fn project_environment_requests_round_trip_with_the_exact_target_path() {
     let request = IpcRequest::new(
         "environment-42",

@@ -1467,6 +1467,7 @@ const fn ipc_resource_health(
         }
         ResourceHealth::LogicalResourceDrift => IpcResourceHealth::LogicalResourceDrift,
         ResourceHealth::GatewayRouteDrift => IpcResourceHealth::GatewayRouteDrift,
+        ResourceHealth::CertificateExpired => IpcResourceHealth::CertificateExpired,
         ResourceHealth::DestructiveReplacementRequired => {
             IpcResourceHealth::DestructiveReplacementRequired
         }

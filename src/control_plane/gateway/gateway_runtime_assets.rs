@@ -17,6 +17,7 @@ pub(crate) struct GatewayRuntimeAssets {
     bootstrap_paths: StoredGatewayBootstrapPaths,
     certificate_action: LocalCertificateReconcileAction,
     certificate_revision: String,
+    certificate_was_expired: bool,
 }
 
 impl GatewayRuntimeAssets {
@@ -25,12 +26,14 @@ impl GatewayRuntimeAssets {
         bootstrap_paths: StoredGatewayBootstrapPaths,
         certificate_action: LocalCertificateReconcileAction,
         certificate_revision: String,
+        certificate_was_expired: bool,
     ) -> Self {
         Self {
             request,
             bootstrap_paths,
             certificate_action,
             certificate_revision,
+            certificate_was_expired,
         }
     }
 
@@ -48,6 +51,10 @@ impl GatewayRuntimeAssets {
 
     pub(crate) fn certificate_revision(&self) -> &str {
         &self.certificate_revision
+    }
+
+    pub(crate) const fn certificate_was_expired(&self) -> bool {
+        self.certificate_was_expired
     }
 
     pub(crate) fn configuration_provider<E>(

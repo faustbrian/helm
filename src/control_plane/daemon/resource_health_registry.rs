@@ -83,6 +83,18 @@ impl ResourceHealthRegistry {
         )
     }
 
+    pub(crate) fn record_certificate_expired(
+        &mut self,
+        domain: &str,
+        observed_at_unix_seconds: i64,
+    ) -> Result<(), ResourceHealthRegistryError> {
+        self.record_observation(
+            domain,
+            ResourceHealth::CertificateExpired,
+            observed_at_unix_seconds,
+        )
+    }
+
     pub(crate) fn observation(&self, resource_id: &str) -> Option<(ResourceHealth, i64)> {
         self.observations.get(resource_id).copied()
     }

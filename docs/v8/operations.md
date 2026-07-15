@@ -388,6 +388,11 @@ Successful full-snapshot acknowledgement marks the route healthy; an active
 revision mismatch publishes `gateway_route_drift`, retains the last good
 configuration, and retries the complete snapshot. Browser opening requires a
 healthy route in addition to a ready application process.
+Certificate renewal parses the persisted wildcard leaf's X.509 `notAfter`
+value before generating its replacement. If gateway activation fails while the
+previously served generation is already expired, affected route rows publish
+`certificate_expired`; successful activation acknowledges the replacement and
+returns those routes to healthy.
 When an owned retained project volume has a different requested data identity,
 the daemon publishes `destructive_replacement_required`, leaves the volume
 untouched, skips creation of only the affected service container, and continues

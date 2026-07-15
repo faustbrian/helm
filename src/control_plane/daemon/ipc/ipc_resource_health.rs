@@ -17,6 +17,7 @@ pub(crate) enum IpcResourceHealth {
     AuthenticationFailed { attempt: u32 },
     LogicalResourceDrift,
     GatewayRouteDrift,
+    CertificateExpired,
     DestructiveReplacementRequired,
 }
 
@@ -36,6 +37,7 @@ impl IpcResourceHealth {
             Self::AuthenticationFailed { .. } => "authentication_failed",
             Self::LogicalResourceDrift => "logical_resource_drift",
             Self::GatewayRouteDrift => "gateway_route_drift",
+            Self::CertificateExpired => "certificate_expired",
             Self::DestructiveReplacementRequired => "destructive_replacement_required",
         }
     }

@@ -12,16 +12,29 @@ pub(crate) fn prepare_gateway_runtime_assets(
     options: GatewayRuntimeAssetOptions<'_>,
 ) -> Result<GatewayRuntimeAssets, GatewayRuntimeAssetError> {
     let certificate_store = FilesystemCertificateStore::new(options.runtime_directory.join("tls"));
-    let (certificate_paths, certificate_action) = {
+    let (certificate_paths, certificate_action, certificate_was_expired) = {
         let _lock = certificate_store.lock()?;
         let current = certificate_store.load_current()?;
+        let certificate_was_expired = current
+            .as_ref()
+            .map(|(bundle, _paths)| {
+                bundle
+                    .leaf_expires_at()
+                    .map(|expires_at| options.now >= expires_at)
+            })
+            .transpose()?
+            .unwrap_or(false);
         let reconciliation = reconcile_local_certificates(
             current.as_ref().map(|(bundle, _paths)| bundle),
             options.now,
         )?;
         let certificate_paths = certificate_store.persist(reconciliation.bundle())?;
 
-        (certificate_paths, reconciliation.action())
+        (
+            certificate_paths,
+            reconciliation.action(),
+            certificate_was_expired,
+        )
     };
     let certificate_revision = certificate_paths.revision()?.to_owned();
 
@@ -49,5 +62,6 @@ pub(crate) fn prepare_gateway_runtime_assets(
         bootstrap_paths,
         certificate_action,
         certificate_revision,
+        certificate_was_expired,
     ))
 }
