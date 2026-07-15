@@ -353,6 +353,38 @@ fn project_status_responses_preserve_service_readiness_failures() {
 }
 
 #[test]
+fn project_status_responses_preserve_engine_unavailability() {
+    let response = IpcResponse::success(
+        "status-44",
+        IpcResult::ProjectStatus {
+            project: super::IpcProjectStatus::new(
+                "bill".to_owned(),
+                Vec::new(),
+                vec![IpcResourceStatus::new(
+                    "app".to_owned(),
+                    "project_application".to_owned(),
+                    IpcResourceLifecycle::Active,
+                    IpcResourceHealth::EngineUnavailable,
+                    None,
+                    false,
+                )],
+            ),
+        },
+    );
+
+    let frame = encode_frame(&response).expect("encode project status");
+
+    assert_eq!(
+        decode_response_frame(&frame).expect("decode project status"),
+        response
+    );
+    assert_eq!(
+        IpcResourceHealth::EngineUnavailable.as_str(),
+        "engine_unavailable"
+    );
+}
+
+#[test]
 fn project_environment_requests_round_trip_with_the_exact_target_path() {
     let request = IpcRequest::new(
         "environment-42",

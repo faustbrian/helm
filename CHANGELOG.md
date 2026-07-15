@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Published `engine_unavailable` as a distinct project-resource health state
+  while the selected Docker or Podman adapter is disconnected. Status no
+  longer collapses an Engine outage into the same `unknown` state used for a
+  missing or stale observation, and successful reconnect clears the outage.
 - Removed alternate configuration detection from CLI lookup, watched-root
   discovery, and filesystem event filtering. The clean v8 runtime now
   recognizes only `.stackctl.yaml`; unrelated files are outside its

@@ -66,6 +66,22 @@ fn resource_health_distinguishes_service_readiness_from_container_health() {
 }
 
 #[test]
+fn resource_health_distinguishes_engine_unavailability_from_missing_observations() {
+    let mut health = ResourceHealthRegistry::default();
+
+    assert!(!health.engine_is_unavailable());
+
+    health.mark_engine_unavailable();
+
+    assert!(health.engine_is_unavailable());
+    assert_eq!(health.observation("container-app"), None);
+
+    health.mark_engine_available();
+
+    assert!(!health.engine_is_unavailable());
+}
+
+#[test]
 fn project_logs_stream_from_exact_live_owned_containers() {
     let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
         "container-app",
@@ -6921,7 +6937,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     let request = IpcRequest::new(
         "status-42",
         IpcPayload::ProjectStatus {
-            canonical_path: project_path,
+            canonical_path: project_path.clone(),
         },
     );
     let mut event_journal = IpcEventJournal::default();
@@ -6983,6 +6999,42 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
             },
         )
     );
+
+    resource_health.mark_engine_unavailable();
+    let unavailable_request = IpcRequest::new(
+        "status-43",
+        IpcPayload::ProjectStatus {
+            canonical_path: project_path,
+        },
+    );
+    let unavailable_response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &unavailable_request,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &resource_health,
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_001,
+    });
+
+    let IpcOutcome::Success {
+        result: IpcResult::ProjectStatus { project },
+    } = unavailable_response.outcome()
+    else {
+        panic!("project status while Engine unavailable");
+    };
+    assert_eq!(project.resources().len(), 2);
+    assert!(project.resources().iter().all(|resource| {
+        resource.health() == IpcResourceHealth::EngineUnavailable
+            && resource.observed_at_unix_seconds().is_none()
+    }));
 
     drop(control_plane);
     std::fs::remove_dir_all(root).expect("remove status fixture");

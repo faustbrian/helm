@@ -1350,6 +1350,7 @@ where
         .map(|resource| {
             let (health, observed_at) = ipc_resource_health(
                 resource_health.observation(resource.resource_id()),
+                resource_health.engine_is_unavailable(),
                 now_unix_seconds,
             );
             IpcResourceStatus::new(
@@ -1381,6 +1382,7 @@ where
                 };
                 let (health, observed_at) = ipc_resource_health(
                     resource_health.observation(resource.shared_resource_id()),
+                    resource_health.engine_is_unavailable(),
                     now_unix_seconds,
                 );
                 Ok(IpcResourceStatus::with_data_lifecycle(
@@ -1411,11 +1413,15 @@ where
 
 const fn ipc_resource_health(
     observation: Option<(super::ResourceHealth, i64)>,
+    engine_unavailable: bool,
     now_unix_seconds: i64,
 ) -> (IpcResourceHealth, Option<i64>) {
     use super::ResourceHealth;
     use crate::control_plane::engine::ContainerHealth;
 
+    if engine_unavailable {
+        return (IpcResourceHealth::EngineUnavailable, None);
+    }
     let Some((health, observed_at)) = observation else {
         return (IpcResourceHealth::Unknown, None);
     };

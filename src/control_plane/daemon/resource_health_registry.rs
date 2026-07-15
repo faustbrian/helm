@@ -7,6 +7,7 @@ use super::{ResourceHealth, ResourceHealthRegistryError};
 /// Non-durable health snapshot keyed by exact Engine resource identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ResourceHealthRegistry {
+    engine_unavailable: bool,
     observations: BTreeMap<String, (ResourceHealth, i64)>,
 }
 
@@ -37,9 +38,22 @@ impl ResourceHealthRegistry {
         self.observations.get(resource_id).copied()
     }
 
+    pub(crate) const fn engine_is_unavailable(&self) -> bool {
+        self.engine_unavailable
+    }
+
+    pub(crate) fn mark_engine_available(&mut self) {
+        self.engine_unavailable = false;
+    }
+
+    pub(crate) fn mark_engine_unavailable(&mut self) {
+        self.engine_unavailable = true;
+        self.observations.clear();
+    }
+
     /// Invalidates every observation when the selected Engine adapter is lost.
     pub(crate) fn clear(&mut self) {
-        self.observations.clear();
+        self.mark_engine_unavailable();
     }
 
     fn record_observation(
@@ -56,6 +70,7 @@ impl ResourceHealthRegistry {
         }
         self.observations
             .insert(resource_id.to_owned(), (health, observed_at_unix_seconds));
+        self.mark_engine_available();
 
         Ok(())
     }

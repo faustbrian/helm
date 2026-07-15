@@ -372,6 +372,7 @@ impl UnixDaemonRuntime {
             .block_on(self.engine_connection.poll(now))
         {
             EngineConnectionOutcome::Unavailable { retry, detail } => {
+                self.resource_health.mark_engine_unavailable();
                 tracing::debug!(
                     attempt = retry.attempt(),
                     retry_milliseconds = retry.duration().as_millis(),
@@ -381,7 +382,8 @@ impl UnixDaemonRuntime {
 
                 return;
             }
-            EngineConnectionOutcome::Connected | EngineConnectionOutcome::BackingOff { .. } => {}
+            EngineConnectionOutcome::Connected => self.resource_health.mark_engine_available(),
+            EngineConnectionOutcome::BackingOff { .. } => {}
         }
 
         if !self.engine_connection.is_connected() || !self.engine_reconciliation.is_due() {
@@ -587,6 +589,7 @@ impl UnixDaemonRuntime {
         }
 
         let mut health_snapshot = ResourceHealthRegistry::default();
+        health_snapshot.mark_engine_available();
         let mut physical_resources = Vec::new();
         let mut provisioned = execution
             .services()

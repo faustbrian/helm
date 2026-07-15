@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "state")]
 pub(crate) enum IpcResourceHealth {
+    EngineUnavailable,
     Unknown,
     Missing,
     Stopped,
@@ -17,6 +18,7 @@ pub(crate) enum IpcResourceHealth {
 impl IpcResourceHealth {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
+            Self::EngineUnavailable => "engine_unavailable",
             Self::Unknown => "unknown",
             Self::Missing => "missing",
             Self::Stopped => "stopped",

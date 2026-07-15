@@ -365,13 +365,14 @@ process health, service readiness, authentication, logical-resource drift,
 gateway drift, certificate expiry, name collision, invalid registry state,
 orphaning, and destructive replacement.
 
-Project status reports durable lifecycle and last Engine-observed health as
-separate fields. Health snapshots remain in daemon memory, are timestamped, and
-publish only after a complete Engine reconciliation; they are never written to
-SQLite. Missing or stale observations are `unknown`, not implicitly healthy.
+Project status reports durable lifecycle and live health as separate fields.
+Health snapshots remain in daemon memory, are timestamped, and publish only
+after a complete Engine reconciliation; they are never written to SQLite.
+Missing or stale resource observations are `unknown`, not implicitly healthy.
 Losing the selected Engine adapter immediately clears the complete live-health
-snapshot before reconnect backoff begins, so disconnected state is never
-reported from a recently successful pass.
+snapshot and publishes `engine_unavailable` before reconnect backoff begins, so
+an Engine outage is neither hidden as `unknown` nor reported from a recently
+successful pass.
 Browser opening accepts `healthy` and `running_unverified` routes and otherwise
 fails with the exact service state and observation time instead of issuing an
 ad-hoc application HTTP probe.
