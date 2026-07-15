@@ -1,7 +1,8 @@
-use super::RetryDelay;
+use super::{RetryBackoff, RetryBackoffError, RetryBackoffOptions, RetryDelay};
 use crate::control_plane::engine::ContainerCreateOptions;
 use crate::control_plane::workload::WorkloadReconcileAction;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::time::{Duration, Instant};
 
 type ProvisioningIdentity = (String, String, String);
@@ -13,7 +14,7 @@ const MAXIMUM_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub(crate) struct ProjectServiceProvisioningRegistry {
     completed: BTreeMap<ProvisioningIdentity, Instant>,
-    failed: BTreeMap<ProvisioningIdentity, (u32, Option<Instant>)>,
+    failed: BTreeMap<ProvisioningIdentity, (RetryBackoff, Option<Instant>)>,
 }
 
 impl ProjectServiceProvisioningRegistry {
@@ -49,21 +50,26 @@ impl ProjectServiceProvisioningRegistry {
         &mut self,
         request: &ContainerCreateOptions,
         now: Instant,
-    ) -> RetryDelay {
+    ) -> Result<RetryDelay, RetryBackoffError> {
         let identity = identity(request);
-        let attempt = self
-            .failed
-            .get(&identity)
-            .map_or(1, |(attempt, _)| attempt.saturating_add(1));
-        let multiplier = 1_u32 << attempt.saturating_sub(1).min(31);
-        let duration = INITIAL_RETRY_INTERVAL
-            .saturating_mul(multiplier)
-            .min(MAXIMUM_RETRY_INTERVAL);
+        let (retry, retry_at) = match self.failed.entry(identity.clone()) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert((
+                RetryBackoff::new(
+                    format!(
+                        "project-service-provisioning:{}/{}/{}",
+                        identity.0, identity.1, identity.2
+                    ),
+                    RetryBackoffOptions::new(INITIAL_RETRY_INTERVAL, MAXIMUM_RETRY_INTERVAL)?,
+                )?,
+                None,
+            )),
+        };
+        let delay = retry.next_delay();
         self.completed.remove(&identity);
-        self.failed
-            .insert(identity, (attempt, Some(now + duration)));
+        *retry_at = Some(now + delay.duration());
 
-        RetryDelay::new(attempt, duration)
+        Ok(delay)
     }
 
     /// Activates due retries once so removed services cannot create a loop.

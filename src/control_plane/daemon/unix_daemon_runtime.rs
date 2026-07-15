@@ -1061,9 +1061,22 @@ impl UnixDaemonRuntime {
                                         ..
                                     },
                                 ) => {
-                                    let retry = self
+                                    let retry = match self
                                         .project_service_provisioning
-                                        .record_failure(request, now);
+                                        .record_failure(request, now)
+                                    {
+                                        Ok(retry) => retry,
+                                        Err(retry_error) => {
+                                            self.engine_reconciliation.complete();
+                                            tracing::error!(
+                                                error = %error,
+                                                retry_error = %retry_error,
+                                                "project service provisioning retry could not be scheduled"
+                                            );
+
+                                            return;
+                                        }
+                                    };
                                     self.engine_reconciliation.complete();
                                     tracing::warn!(
                                         attempt = retry.attempt(),

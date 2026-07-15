@@ -5756,9 +5756,18 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         now,
     ));
     let mut failed = super::ProjectServiceProvisioningRegistry::default();
-    let first = failed.record_failure(job, now);
+    let first = failed
+        .record_failure(job, now)
+        .expect("first provisioning retry");
+    let mut replayed_failure = super::ProjectServiceProvisioningRegistry::default();
+    let replayed_first = replayed_failure
+        .record_failure(job, now)
+        .expect("stable replayed provisioning retry");
 
     assert_eq!(first.attempt(), 1);
+    assert_eq!(first, replayed_first);
+    assert!(first.duration() >= Duration::from_millis(250));
+    assert!(first.duration() < Duration::from_millis(500));
     assert!(!failed.requires(
         job,
         crate::control_plane::workload::WorkloadReconcileAction::Unchanged,
@@ -5773,7 +5782,9 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         now + first.duration(),
     ));
 
-    let second = failed.record_failure(job, now + first.duration());
+    let second = failed
+        .record_failure(job, now + first.duration())
+        .expect("second provisioning retry");
 
     assert_eq!(second.attempt(), 2);
     assert!(second.duration() > first.duration());
