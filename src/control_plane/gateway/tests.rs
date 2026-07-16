@@ -174,7 +174,7 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
     assert_eq!(request.user(), Some("501:20"));
     assert_eq!(
         request.command(),
-        ["caddy", "run", "--config", "/etc/stackctl/config.json"]
+        ["run", "--config", "/etc/stackctl/config.json"]
     );
     assert_eq!(request.metadata().installation_id(), "install-1");
     assert_eq!(request.metadata().kind(), ResourceKind::Gateway);

@@ -40,7 +40,6 @@ pub(crate) fn gateway_container_request(
             .with_tmpfs_mount(TmpfsMount::new("/data", GATEWAY_TMPFS_BYTES)?)
             .with_tmpfs_mount(TmpfsMount::new("/tmp", GATEWAY_TMPFS_BYTES)?)
             .with_command(vec![
-                "caddy".to_owned(),
                 "run".to_owned(),
                 "--config".to_owned(),
                 GATEWAY_CONFIG_PATH.to_owned(),

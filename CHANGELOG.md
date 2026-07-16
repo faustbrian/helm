@@ -177,6 +177,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The production gateway now passes `run` directly to the official Caddy
+  image's existing entrypoint instead of attempting `caddy caddy run`, which
+  caused the singleton gateway to restart continuously.
 - Report the live singleton owner PID when foreground and login-service daemons
   compete, together with exact inspection and stop guidance. Unreadable PID
   metadata no longer reduces the contention error to an unactionable lock path.
