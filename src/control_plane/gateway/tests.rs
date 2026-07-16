@@ -1076,6 +1076,16 @@ fn caddy_document_uses_stackctl_tls_plain_upstreams_and_private_admin_endpoint()
             .is_none()
     );
     assert_eq!(
+        json.pointer("/apps/http/servers/stackctl_http/routes/1/handle/0/status_code")
+            .and_then(Value::as_u64),
+        Some(404)
+    );
+    assert_eq!(
+        json.pointer("/apps/http/servers/stackctl_https/routes/1/handle/0/status_code")
+            .and_then(Value::as_u64),
+        Some(404)
+    );
+    assert_eq!(
         json.pointer("/apps/http/servers/stackctl_https/tls_connection_policies/0"),
         Some(&serde_json::json!({}))
     );

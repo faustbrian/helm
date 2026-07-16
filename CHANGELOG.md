@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The global gateway now returns an explicit HTTP 404 for unknown hostnames
+  instead of Caddy's empty default 200, so health checks cannot mistake an
+  absent project route for a running application.
 - Existing v8 state databases now receive a verified recovery snapshot and a
   transactional forward schema migration during daemon startup. Pre-v8 and
   unknown future schemas remain unsupported and fail closed.

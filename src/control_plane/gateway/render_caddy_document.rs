@@ -16,16 +16,18 @@ pub(crate) fn render_caddy_document(
             detail: "gateway admin address must remain private inside the container".to_owned(),
         });
     }
-    let proxy_routes = snapshot
+    let mut proxy_routes = snapshot
         .routes()
         .iter()
         .map(caddy_proxy_route)
         .collect::<Vec<_>>();
-    let redirect_routes = snapshot
+    proxy_routes.push(caddy_unknown_host_route());
+    let mut redirect_routes = snapshot
         .routes()
         .iter()
         .map(caddy_https_redirect_route)
         .collect::<Vec<_>>();
+    redirect_routes.push(caddy_unknown_host_route());
     let document = json!({
         "admin": {
             "listen": admin_address,
@@ -90,6 +92,17 @@ fn caddy_https_redirect_route(route: &GatewayRoute) -> Value {
             "headers": {
                 "Location": ["https://{http.request.host}{http.request.uri}"]
             }
+        }],
+        "terminal": true
+    })
+}
+
+fn caddy_unknown_host_route() -> Value {
+    json!({
+        "handle": [{
+            "handler": "static_response",
+            "status_code": 404,
+            "body": "unknown Stackctl route\n"
         }],
         "terminal": true
     })
