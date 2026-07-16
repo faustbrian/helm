@@ -46,7 +46,23 @@ where
                 now_unix_seconds,
             )?;
         }
-        Err(error) => {
+        Err(mut error) => {
+            if let Some(output) = error.take_attached_command_output() {
+                publish_output(
+                    control_plane,
+                    event_journal,
+                    &operation_id,
+                    IpcOutputStream::Stdout,
+                    output.stdout(),
+                )?;
+                publish_output(
+                    control_plane,
+                    event_journal,
+                    &operation_id,
+                    IpcOutputStream::Stderr,
+                    output.stderr(),
+                )?;
+            }
             publish_terminal_event(
                 control_plane,
                 event_journal,

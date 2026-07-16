@@ -1,8 +1,20 @@
+use std::fmt::{Debug, Formatter};
+
 /// Bounded raw output from one completed attached Engine command.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct AttachedCommandOutput {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+}
+
+impl Debug for AttachedCommandOutput {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AttachedCommandOutput")
+            .field("stdout_bytes", &self.stdout.len())
+            .field("stderr_bytes", &self.stderr.len())
+            .finish()
+    }
 }
 
 impl AttachedCommandOutput {

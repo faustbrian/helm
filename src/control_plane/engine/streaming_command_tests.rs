@@ -77,6 +77,7 @@ fn streaming_command_drains_stderr_without_exposing_its_contents() {
         super::EngineError::ContainerExit {
             container_id: "postgres-source".to_owned(),
             status_code: 9,
+            output: None,
         }
     );
     assert_eq!(
@@ -117,6 +118,7 @@ fn streaming_command_reports_process_exit_instead_of_broken_input_pipe() {
         super::EngineError::ContainerExit {
             container_id: "postgres-source".to_owned(),
             status_code: 1,
+            output: None,
         }
     );
 }

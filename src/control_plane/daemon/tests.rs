@@ -587,6 +587,91 @@ fn project_command_results_publish_binary_safe_output_before_completion() {
 }
 
 #[test]
+fn failed_project_commands_publish_binary_safe_output_before_the_error() {
+    use crate::control_plane::daemon::ipc::IpcOutputStream;
+    use base64::Engine as _;
+
+    let root = temporary_directory("failed-project-command-result");
+    let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
+    let mut control_plane = ControlPlane::new(store);
+    let mut journal = IpcEventJournal::default();
+    let engine = RecordingProjectCommandEngine::new(vec![observed_project_application(
+        "container-app",
+        "install-1",
+        "bill",
+        "app",
+    )])
+    .with_command_exit_code(9);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("async runtime");
+    let queued = queued_composer_command("operation-failed-42", "bill", "app");
+    let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
+        operation_id: "operation-failed-42".to_owned(),
+        kind: "project_command".to_owned(),
+        payload_json: queued.payload_json().expect("durable command payload"),
+        status: DaemonOperationStatus::Queued,
+        created_at_unix_seconds: 100,
+        updated_at_unix_seconds: 100,
+    });
+    let accepted_json = serde_json::to_string(&IpcEventKind::Accepted).expect("accepted event");
+    let accepted = control_plane
+        .enqueue_daemon_operation(&operation, &accepted_json, journal.capacity())
+        .expect("durable queued operation");
+    journal
+        .append_record(accepted)
+        .expect("accepted event record");
+    drop(
+        control_plane
+            .transition_daemon_operation(DaemonOperationTransitionOptions {
+                operation_id: "operation-failed-42",
+                expected: DaemonOperationStatus::Queued,
+                next: DaemonOperationStatus::Running,
+                updated_at_unix_seconds: 101,
+                event_kind_json: None,
+                event_retention_limit: journal.capacity(),
+            })
+            .expect("running operation"),
+    );
+    let result = runtime.block_on(execute_queued_project_command(
+        engine,
+        command_execution_options(queued),
+    ));
+
+    publish_project_command_result(&mut control_plane, &mut journal, result, 102)
+        .expect("publish failed command result");
+
+    let events = journal.events_after(Some(0)).expect("command events");
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0].kind(), &IpcEventKind::Accepted);
+    assert_eq!(
+        events[1].kind(),
+        &IpcEventKind::Output {
+            stream: IpcOutputStream::Stdout,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(b"installed\n"),
+        }
+    );
+    assert_eq!(
+        events[2].kind(),
+        &IpcEventKind::Output {
+            stream: IpcOutputStream::Stderr,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(b"notice\n"),
+        }
+    );
+    assert_eq!(
+        events[3].kind(),
+        &IpcEventKind::Failed {
+            code: "project_command_failed".to_owned(),
+            message: "container 'container-app' exited with status 9".to_owned(),
+        }
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove failed command result fixture");
+}
+
+#[test]
 fn daemon_restart_restores_queued_commands_and_fails_ambiguous_running_commands() {
     let root = temporary_directory("project-command-restart");
     let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");

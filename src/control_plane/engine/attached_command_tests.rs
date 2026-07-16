@@ -1,8 +1,8 @@
 use super::{
     AttachedCommandOptions, CommandExecutionId, CommandExecutor, CommandRequest, CommandSession,
-    CommandStatus, ContainerId, ContainerLogStream, EngineError, EngineFuture,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, OwnedContainer, ResourceKind,
-    RetentionClass, run_attached_command,
+    CommandStatus, ContainerId, ContainerLogStream, EngineFuture, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, OwnedContainer, ResourceKind, RetentionClass,
+    run_attached_command,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
@@ -38,13 +38,15 @@ fn attached_command_preserves_nonzero_container_exit_status() {
         .expect_err("nonzero command status");
 
     assert_eq!(
-        error,
-        EngineError::ContainerExit {
-            container_id: "postgres-17".to_owned(),
-            status_code: 9,
-        }
+        error.attached_command_output().unwrap().stdout(),
+        b"failed stdout\n"
     );
-    assert!(!error.to_string().contains("hidden"));
+    assert_eq!(
+        error.attached_command_output().unwrap().stderr(),
+        b"failed stderr\n"
+    );
+    assert!(!error.to_string().contains("failed stderr"));
+    assert!(!format!("{error:?}").contains("failed stderr"));
 }
 
 struct ExitedCommandExecutor;
@@ -59,7 +61,13 @@ impl CommandExecutor for ExitedCommandExecutor {
 
         Box::pin(async move {
             let (writer, _reader) = duplex(64);
-            let output: ContainerLogStream<'static> = Box::pin(stream::empty());
+            let output: ContainerLogStream<'static> = Box::pin(stream::iter([
+                Ok(super::LogChunk::stdout(b"failed stdout\n".to_vec())),
+                Ok(super::LogChunk::new(
+                    super::LogStreamKind::Stderr,
+                    b"failed stderr\n".to_vec(),
+                )),
+            ]));
 
             Ok(CommandSession::new(
                 CommandExecutionId::new("attached-exec"),

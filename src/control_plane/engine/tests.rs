@@ -736,6 +736,7 @@ fn container_completion_rejects_nonzero_exit_status() {
         EngineError::ContainerExit {
             container_id: "provisioning-job-1".to_owned(),
             status_code: 23,
+            output: None,
         }
     );
     assert_eq!(
@@ -764,6 +765,7 @@ fn docker_wait_exit_errors_preserve_the_container_status() {
         EngineError::ContainerExit {
             container_id: "provisioning-job-1".to_owned(),
             status_code: 42,
+            output: None,
         }
     );
 }

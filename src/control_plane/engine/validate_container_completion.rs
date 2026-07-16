@@ -12,5 +12,6 @@ pub(crate) fn validate_container_completion(
     Err(EngineError::ContainerExit {
         container_id: container_id.to_owned(),
         status_code,
+        output: None,
     })
 }

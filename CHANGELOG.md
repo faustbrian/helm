@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Failed project commands now publish their bounded binary-safe standard output
+  and standard error before the terminal failure event. Error display and debug
+  formatting retain only the container identity, exit status, and output byte
+  counts, preventing captured command content from leaking through diagnostics.
 - Release verification now binds both provenance and SBOM attestations to the
   exact workflow source digest, preventing a valid artifact from another
   Stackctl revision from satisfying the release candidate gate.

@@ -1,6 +1,8 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use super::AttachedCommandOutput;
+
 /// A typed Engine request validation or backend failure.
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -14,6 +16,7 @@ pub(crate) enum EngineError {
     ContainerExit {
         container_id: String,
         status_code: i64,
+        output: Option<Box<AttachedCommandOutput>>,
     },
     OwnershipMismatch {
         action: &'static str,
@@ -26,6 +29,26 @@ pub(crate) enum EngineError {
     },
 }
 
+impl EngineError {
+    #[cfg(test)]
+    pub(crate) fn attached_command_output(&self) -> Option<&AttachedCommandOutput> {
+        match self {
+            Self::ContainerExit {
+                output: Some(output),
+                ..
+            } => Some(output.as_ref()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn take_attached_command_output(&mut self) -> Option<AttachedCommandOutput> {
+        match self {
+            Self::ContainerExit { output, .. } => output.take().map(|output| *output),
+            _ => None,
+        }
+    }
+}
+
 impl Display for EngineError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -35,6 +58,7 @@ impl Display for EngineError {
             Self::ContainerExit {
                 container_id,
                 status_code,
+                ..
             } => write!(
                 formatter,
                 "container '{container_id}' exited with status {status_code}"

@@ -7534,6 +7534,7 @@ impl crate::control_plane::engine::ContainerCompletion for RecordingSharedVolume
                 Err(crate::control_plane::engine::EngineError::ContainerExit {
                     container_id: "provisioning-job".to_owned(),
                     status_code: 1,
+                    output: None,
                 })
             } else {
                 Ok(())

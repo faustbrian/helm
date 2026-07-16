@@ -2195,6 +2195,7 @@ pub(super) fn container_wait_error(container_id: &str, error: BollardError) -> E
         BollardError::DockerContainerWaitError { code, .. } => EngineError::ContainerExit {
             container_id: container_id.to_owned(),
             status_code: code,
+            output: None,
         },
         backend => backend_error("wait for container completion", backend),
     }

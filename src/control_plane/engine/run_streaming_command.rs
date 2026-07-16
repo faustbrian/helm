@@ -86,6 +86,7 @@ where
                 return Err(EngineError::ContainerExit {
                     container_id: container_id.as_str().to_owned(),
                     status_code: status,
+                    output: None,
                 });
             }
         }
