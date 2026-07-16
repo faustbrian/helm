@@ -110,6 +110,8 @@ pub(crate) struct UnixDaemonRuntime {
     discovery_diagnostics: Vec<IpcDiagnostic>,
     pub(super) scheduled_command_clock: ScheduledCommandClock,
     pub(super) automatic_workflow_revisions: BTreeMap<(PathBuf, String), Result<String, String>>,
+    pub(super) reported_invalid_automatic_workflows: BTreeSet<(PathBuf, String)>,
+    defer_initial_artifact_lock_resolution: bool,
     pub(super) options: UnixDaemonRuntimeOptions,
 }
 
@@ -204,6 +206,8 @@ impl UnixDaemonRuntime {
             discovery_diagnostics,
             scheduled_command_clock: ScheduledCommandClock::default(),
             automatic_workflow_revisions: BTreeMap::new(),
+            reported_invalid_automatic_workflows: BTreeSet::new(),
+            defer_initial_artifact_lock_resolution: true,
             options,
         })
     }
@@ -223,6 +227,7 @@ impl UnixDaemonRuntime {
         );
         if self.filesystem_watcher.take_change()? {
             self.automatic_workflow_revisions.clear();
+            self.reported_invalid_automatic_workflows.clear();
             if !reconciliation_frozen {
                 self.record_filesystem_event(now);
             }
@@ -246,13 +251,17 @@ impl UnixDaemonRuntime {
                 .issues()
                 .iter()
                 .any(|issue| issue.code() == "artifact_lock_pending")
-            && self.resolve_missing_artifact_locks(observed, now)
         {
-            reconciliation = Some(reconcile_watched_roots(
-                &mut self.control_plane,
-                self.options.discovery_options,
-                now_unix_seconds,
-            )?);
+            if self.defer_initial_artifact_lock_resolution {
+                self.defer_initial_artifact_lock_resolution = false;
+                self.scheduler.record_filesystem_event(now);
+            } else if self.resolve_missing_artifact_locks(observed, now) {
+                reconciliation = Some(reconcile_watched_roots(
+                    &mut self.control_plane,
+                    self.options.discovery_options,
+                    now_unix_seconds,
+                )?);
+            }
         }
         if let Some(reconciliation) = &reconciliation {
             let diagnostics = reconciliation

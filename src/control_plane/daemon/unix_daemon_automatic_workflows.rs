@@ -42,7 +42,7 @@ impl UnixDaemonRuntime {
                 );
                 let revision = self
                     .automatic_workflow_revisions
-                    .entry(revision_key)
+                    .entry(revision_key.clone())
                     .or_insert_with(|| {
                         automatic_workflow_revision(
                             project.project_directory(),
@@ -54,12 +54,17 @@ impl UnixDaemonRuntime {
                 let revision = match revision {
                     Ok(revision) => revision,
                     Err(error) => {
-                        tracing::error!(
-                            project = project.project_name(),
-                            workflow = workflow_name,
-                            error,
-                            "automatic workflow input validation failed"
-                        );
+                        if self
+                            .reported_invalid_automatic_workflows
+                            .insert(revision_key)
+                        {
+                            tracing::error!(
+                                project = project.project_name(),
+                                workflow = workflow_name,
+                                error,
+                                "automatic workflow input validation failed"
+                            );
+                        }
                         continue;
                     }
                 };

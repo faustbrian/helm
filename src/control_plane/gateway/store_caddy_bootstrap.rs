@@ -68,14 +68,19 @@ pub(crate) fn store_caddy_bootstrap(
         }
     };
     if existing {
-        verify_existing(config_path, document.bytes())?;
-        fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
-            .map_err(|error| io_error("restrict gateway bootstrap", config_path, error))?;
-        File::open(config_directory)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| io_error("sync gateway config directory", config_directory, error))?;
+        let found = fs::read(config_path)
+            .map_err(|error| io_error("read existing gateway bootstrap", config_path, error))?;
+        if found == document.bytes() {
+            fs::set_permissions(config_path, fs::Permissions::from_mode(0o600))
+                .map_err(|error| io_error("restrict gateway bootstrap", config_path, error))?;
+            File::open(config_directory)
+                .and_then(|directory| directory.sync_all())
+                .map_err(|error| {
+                    io_error("sync gateway config directory", config_directory, error)
+                })?;
 
-        return Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()));
+            return Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()));
+        }
     }
 
     let mut file = OpenOptions::new()
@@ -95,23 +100,6 @@ pub(crate) fn store_caddy_bootstrap(
         .map_err(|error| io_error("sync gateway config directory", config_directory, error))?;
 
     Ok(StoredGatewayBootstrapPaths::new(config_path.to_path_buf()))
-}
-
-#[cfg(unix)]
-fn verify_existing(path: &Path, expected: &[u8]) -> Result<(), GatewayError> {
-    let found = std::fs::read(path)
-        .map_err(|error| io_error("read existing gateway bootstrap", path, error))?;
-
-    if found != expected {
-        return Err(GatewayError::Provider {
-            detail: format!(
-                "existing gateway bootstrap '{}' does not match revision",
-                path.display()
-            ),
-        });
-    }
-
-    Ok(())
 }
 
 #[cfg(unix)]

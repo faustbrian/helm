@@ -1120,8 +1120,25 @@ fn caddy_bootstrap_is_atomic_private_and_idempotent() {
     let stored = store_caddy_bootstrap(&document, &config_path).expect("store bootstrap");
     store_caddy_bootstrap(&document, &config_path).expect("repeat bootstrap");
 
+    let changed_snapshot = GatewaySnapshot::new(vec![
+        GatewayRoute::new("bill-app.stackctl.localhost", "http://bill-app:8080")
+            .expect("changed route"),
+    ])
+    .expect("changed snapshot");
+    let changed_document = render_caddy_document(
+        &changed_snapshot,
+        Path::new("/etc/stackctl/tls/leaf.pem"),
+        Path::new("/etc/stackctl/tls/leaf-key.pem"),
+        "localhost:2019",
+    )
+    .expect("changed document");
+    store_caddy_bootstrap(&changed_document, &config_path).expect("replace stale bootstrap");
+
     assert_eq!(stored.config_path(), config_path);
-    assert_eq!(std::fs::read(&config_path).unwrap(), document.bytes());
+    assert_eq!(
+        std::fs::read(&config_path).unwrap(),
+        changed_document.bytes()
+    );
 
     #[cfg(unix)]
     {
