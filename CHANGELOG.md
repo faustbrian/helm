@@ -43,7 +43,8 @@ All notable changes to this project are documented in this file.
   open TCP socket, removing host-runner coupling and gateway startup races.
 - Correctly compile macOS and Linux trust adapters only for their owning host
   target, removing Linux release-build and Clippy failures hidden by macOS-only
-  local verification. A source-policy regression now enforces the boundary.
+  local verification. The macOS production constructor is also excluded from
+  portable test builds, and a source-policy regression enforces the boundary.
 - Corrected the command reference to preserve the one-command setup,
   automatic missing-lock creation, and mutually exclusive manual/automatic
   workflow contracts. A regression test now rejects the stale manual-lock and

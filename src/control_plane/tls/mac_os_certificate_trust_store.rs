@@ -11,6 +11,7 @@ pub(crate) struct MacOsCertificateTrustStore<E> {
 }
 
 impl<E> MacOsCertificateTrustStore<E> {
+    #[cfg(target_os = "macos")]
     pub(crate) fn new(executor: E) -> Self {
         let user_keychain = std::env::var_os("HOME").map(|home| {
             PathBuf::from(home)

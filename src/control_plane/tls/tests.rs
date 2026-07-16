@@ -23,6 +23,7 @@ use x509_parser::pem::parse_x509_pem;
 #[test]
 fn host_trust_adapters_are_compiled_only_for_their_platform_or_tests() {
     let module = include_str!("mod.rs");
+    let macos_adapter = include_str!("mac_os_certificate_trust_store.rs");
     let output = include_str!("host_command_output.rs");
 
     assert!(module.contains(concat!(
@@ -36,6 +37,10 @@ fn host_trust_adapters_are_compiled_only_for_their_platform_or_tests() {
     assert!(output.contains(concat!(
         "#[cfg(any(target_os = \"macos\", test))]\n",
         "    pub(crate) fn stdout"
+    )));
+    assert!(macos_adapter.contains(concat!(
+        "#[cfg(target_os = \"macos\")]\n",
+        "    pub(crate) fn new"
     )));
 }
 
