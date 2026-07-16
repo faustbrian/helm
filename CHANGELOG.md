@@ -33,6 +33,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Laravel clean-room failures now retain secret-free shared-service inventory,
+  Engine state, and bounded container logs before exact cleanup, so a database
+  startup failure cannot collapse into an unactionable `engine_unavailable`
+  timeout record. Application runtime build failures are now persisted as
+  warnings with a typed daemon diagnostic and retained status snapshot.
 - Project workers and schedulers now implicitly inherit the sole application
   runtime. Projects with multiple applications must use `depends_on` to select
   exactly one, preserving deterministic planning without burdening the common

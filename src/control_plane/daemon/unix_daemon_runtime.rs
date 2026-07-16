@@ -1257,12 +1257,16 @@ impl UnixDaemonRuntime {
                 )) {
                 Ok(requests) => requests,
                 Err(error @ WorkloadReconcileError::Engine { .. }) => {
+                    self.resource_health.record_reconciliation_failure(
+                        "application_runtime_build_failed",
+                        error.to_string(),
+                    );
                     let retry = invalidate_engine_connection(
                         &mut self.engine_connection,
                         &mut self.resource_health,
                         now,
                     );
-                    tracing::debug!(
+                    tracing::warn!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         error = %error,
