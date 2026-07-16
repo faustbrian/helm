@@ -15,7 +15,8 @@ All notable changes to this project are documented in this file.
   the login service, daemon IPC, project discovery, Engine availability and
   convergence, reconciliation diagnostics, and current OS CA trust. It reports
   every observed issue in one run and distinguishes retryable daemon-owned
-  recovery from operator diagnostics.
+  recovery from operator diagnostics while keeping native login-service access
+  inside its explicit CLI boundary.
 - Added automatic PostgreSQL major-version upgrades. A declared version or
   compatibility change now creates one durable verified backup, restores into
   the new compatibility instance, atomically cuts the project over, and

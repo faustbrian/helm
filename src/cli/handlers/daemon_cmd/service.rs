@@ -9,6 +9,34 @@ use crate::output::{self, LogLevel, Persistence};
 use anyhow::Result;
 use std::io::Write;
 
+pub(crate) fn daemon_service_issues() -> Result<Vec<String>> {
+    Ok(service_issues(&daemon::service_status()?))
+}
+
+fn service_issues(status: &daemon::DaemonServiceStatus) -> Vec<String> {
+    if !status.installed {
+        return vec![format!(
+            "login service '{}' is not installed at {}",
+            status.label,
+            status.path.display()
+        )];
+    }
+    if !status.running {
+        return vec![format!(
+            "login service '{}' is installed but not running",
+            status.label
+        )];
+    }
+    if !status.responsive {
+        return vec![format!(
+            "login service '{}' is running but not IPC-responsive",
+            status.label
+        )];
+    }
+
+    Vec::new()
+}
+
 pub(super) fn handle_daemon_service(args: &DaemonServiceArgs) -> Result<()> {
     match &args.command {
         DaemonServiceCommands::Install(install) => handle_install(install),

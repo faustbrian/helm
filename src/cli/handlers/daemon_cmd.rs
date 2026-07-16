@@ -15,6 +15,8 @@ mod trust;
 mod validate_benchmark_project_count;
 mod validate_benchmark_scenario;
 
+pub(super) use service::daemon_service_issues;
+
 use crate::cli::args::{
     DaemonAdoptArgs, DaemonArgs, DaemonBackupsArgs, DaemonCommands, DaemonMigrationArgs,
     DaemonMigrationCommands, DaemonMigrationStatusArgs, DaemonWatchArgs,

@@ -3,13 +3,11 @@ use crate::control_plane::{
     CurrentCaTrustStatus, FilesystemCertificateStore, IpcOutcome, IpcPayload, IpcResult,
     ProcessHostCommandExecutor, inspect_current_ca_trust,
 };
-use crate::daemon::DaemonServiceStatus;
 use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Result, bail};
 
 pub(crate) fn handle_doctor(_args: &DoctorArgs) -> Result<()> {
-    let service = crate::daemon::service_status()?;
-    let mut issues = service_issues(&service);
+    let mut issues = super::daemon_cmd::daemon_service_issues()?;
     if issues.is_empty() {
         output::event(
             "doctor",
@@ -60,30 +58,6 @@ pub(crate) fn handle_doctor(_args: &DoctorArgs) -> Result<()> {
         "Stackctl doctor found {} issue(s); the daemon will continue self-healing retryable states",
         issues.len()
     )
-}
-
-fn service_issues(status: &DaemonServiceStatus) -> Vec<String> {
-    if !status.installed {
-        return vec![format!(
-            "login service '{}' is not installed at {}",
-            status.label,
-            status.path.display()
-        )];
-    }
-    if !status.running {
-        return vec![format!(
-            "login service '{}' is installed but not running",
-            status.label
-        )];
-    }
-    if !status.responsive {
-        return vec![format!(
-            "login service '{}' is running but not IPC-responsive",
-            status.label
-        )];
-    }
-
-    Vec::new()
 }
 
 fn daemon_issues(outcome: &IpcOutcome) -> Vec<String> {
