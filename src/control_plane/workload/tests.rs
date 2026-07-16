@@ -373,6 +373,15 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
     assert_eq!(request.bind_mounts()[0].target(), "/workspace");
     assert_eq!(request.working_directory(), Some("/workspace"));
     assert!(!request.bind_mounts()[0].is_read_only());
+    assert_eq!(request.tmpfs_mounts().len(), 2);
+    assert_eq!(request.tmpfs_mounts()[0].target(), "/config");
+    assert_eq!(request.tmpfs_mounts()[1].target(), "/data");
+    assert!(
+        request
+            .tmpfs_mounts()
+            .iter()
+            .all(|mount| mount.options().contains("mode=1777"))
+    );
     assert_eq!(request.command()[0], "stackctl-runtime");
     assert_eq!(
         request.restart_policy(),

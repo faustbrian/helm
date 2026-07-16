@@ -1,11 +1,12 @@
 use super::{ApplicationContainerRequestOptions, ApplicationHealthCheck};
 use crate::control_plane::engine::{
     BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
-    LinuxCapability, ResourceKind, RetentionClass,
+    LinuxCapability, ResourceKind, RetentionClass, TmpfsMount,
 };
 use std::time::Duration;
 
 const PROJECT_SOURCE_TARGET: &str = "/workspace";
+const APPLICATION_TMPFS_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Produces the exact Engine request for one dedicated project application.
 pub(crate) fn application_container_request(
@@ -52,6 +53,8 @@ pub(crate) fn application_container_request(
     .with_user(options.container_user)?
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
+    .with_tmpfs_mount(TmpfsMount::new("/config", APPLICATION_TMPFS_BYTES)?)
+    .with_tmpfs_mount(TmpfsMount::new("/data", APPLICATION_TMPFS_BYTES)?)
     .with_working_directory(PROJECT_SOURCE_TARGET)?
     .with_environment(options.environment.values().clone())?;
     let request = if options.command.is_empty() {
