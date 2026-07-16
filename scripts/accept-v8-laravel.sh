@@ -186,6 +186,7 @@ git -C "$PROJECT_DIRECTORY" init --quiet
 git -C "$PROJECT_DIRECTORY" remote add origin https://github.com/laravel/laravel.git
 git -C "$PROJECT_DIRECTORY" fetch --quiet --depth 1 origin "$LARAVEL_COMMIT"
 git -C "$PROJECT_DIRECTORY" checkout --quiet --detach FETCH_HEAD
+mkdir -p "$PROJECT_DIRECTORY/database/dumps"
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   --env COMPOSER_HOME=/tmp/composer \
@@ -214,6 +215,64 @@ printf 'composer_lock_sha256=%s\n' \
   "$(sha256sum "$PROJECT_DIRECTORY/composer.lock" | cut -d ' ' -f 1)" \
   >> "$METADATA"
 
+printf '%s\n' \
+  'CREATE TABLE workflow_shipit_probe (' \
+  '  id INTEGER PRIMARY KEY,' \
+  '  marker VARCHAR(64) NOT NULL' \
+  ');' \
+  "INSERT INTO workflow_shipit_probe (id, marker) VALUES (1, 'shipit-restored');" \
+  > "$PROJECT_DIRECTORY/database/dumps/shipit.sql"
+printf '%s\n' \
+  'CREATE TABLE workflow_billing_probe (' \
+  '  id INTEGER PRIMARY KEY,' \
+  '  marker VARCHAR(64) NOT NULL' \
+  ');' \
+  "INSERT INTO workflow_billing_probe (id, marker) VALUES (1, 'billing-restored');" \
+  > "$PROJECT_DIRECTORY/database/dumps/billing.sql"
+# PHP variables in this generated fixture must remain literal.
+# shellcheck disable=SC2016
+printf '%s\n' \
+  '<?php' \
+  '' \
+  '$expectedShipit = $argv[1] ?? "shipit-restored";' \
+  '$connect = static function (string $prefix): PDO {' \
+  '    $value = static fn (string $key): string => (string) getenv($prefix.$key);' \
+  '    return new PDO(' \
+  '        sprintf("mysql:host=%s;port=%s;dbname=%s", $value("HOST"), $value("PORT"), $value("DATABASE")),' \
+  '        $value("USERNAME"),' \
+  '        $value("PASSWORD"),' \
+  '        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],' \
+  '    );' \
+  '};' \
+  '$shipit = $connect("DB_");' \
+  '$billing = $connect("DB_INVOICING_");' \
+  'if ($shipit->query("SELECT marker FROM workflow_shipit_probe WHERE id = 1")->fetchColumn() !== $expectedShipit) {' \
+  '    throw new RuntimeException("shipit restore or replay state is incorrect");' \
+  '}' \
+  'if ($billing->query("SELECT marker FROM workflow_billing_probe WHERE id = 1")->fetchColumn() !== "billing-restored") {' \
+  '    throw new RuntimeException("billing restore state is incorrect");' \
+  '}' \
+  'if (!in_array("migrations", $shipit->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN), true)) {' \
+  '    throw new RuntimeException("primary Laravel migration did not run");' \
+  '}' \
+  'echo "automatic workflow verified\n";' \
+  > "$PROJECT_DIRECTORY/database/workflow-verify.php"
+# PHP variables in this generated fixture must remain literal.
+# shellcheck disable=SC2016
+printf '%s\n' \
+  '<?php' \
+  '' \
+  '$pdo = new PDO(' \
+  '    sprintf("mysql:host=%s;port=%s;dbname=%s", getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_DATABASE")),' \
+  '    (string) getenv("DB_USERNAME"),' \
+  '    (string) getenv("DB_PASSWORD"),' \
+  '    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],' \
+  ');' \
+  '$statement = $pdo->prepare("UPDATE workflow_shipit_probe SET marker = ? WHERE id = 1");' \
+  '$statement->execute(["workflow-replay-guard"]);' \
+  'echo "workflow replay guard written\n";' \
+  > "$PROJECT_DIRECTORY/database/workflow-replay-guard.php"
+
 cp "$PROJECT_DIRECTORY/bootstrap/app.php" "$ACCEPTANCE_ROOT/bootstrap-app.php"
 printf '%s\n' \
   '<?php' \
@@ -233,16 +292,44 @@ printf '%s\n' \
   'schema_version: 8' \
   'project: acceptance' \
   'services:' \
+  '  shipit:' \
+  '    preset: mysql' \
+  '    version: "8"' \
+  '  billing:' \
+  '    preset: mysql' \
+  '    version: "8"' \
+  '    environment_mapping:' \
+  '      DB_HOST: DB_INVOICING_HOST' \
+  '      DB_PORT: DB_INVOICING_PORT' \
+  '      DB_DATABASE: DB_INVOICING_DATABASE' \
+  '      DB_USERNAME: DB_INVOICING_USERNAME' \
+  '      DB_PASSWORD: DB_INVOICING_PASSWORD' \
   '  app:' \
   '    preset: laravel' \
   '    version: "8.5"' \
   "    image: $PHP_IMAGE" \
   "    composer_image: $COMPOSER_IMAGE" \
-  '    php_extensions: [pdo_sqlite]' \
+  '    php_extensions: [pdo_mysql, pdo_sqlite]' \
+  '    depends_on: [shipit, billing]' \
   '  worker:' \
   '    preset: queue-worker' \
   '  scheduler:' \
   '    preset: scheduler' \
+  'workflows:' \
+  '  sandbox:' \
+  '    mode: automatic' \
+  '    steps:' \
+  '      - type: database_restore' \
+  '        service: shipit' \
+  '        file: database/dumps/shipit.sql' \
+  '        reset: true' \
+  '        migrate:' \
+  '          service: app' \
+  '          connection: mysql' \
+  '      - type: database_restore' \
+  '        service: billing' \
+  '        file: database/dumps/billing.sql' \
+  '        reset: true' \
   > "$PROJECT_DIRECTORY/.stackctl.yaml"
 
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
@@ -375,8 +462,34 @@ while (( SECONDS < scheduler_deadline )); do
 done
 grep -q 'scheduled' "$PROJECT_DIRECTORY/storage/logs/stackctl-scheduler"
 
+workflow_deadline=$((SECONDS + 300))
+while (( SECONDS < workflow_deadline )); do
+  if HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+    --project-root "$PROJECT_DIRECTORY" exec \
+    php database/workflow-verify.php shipit-restored \
+    > "$OUTPUT_DIRECTORY/automatic-workflow.txt" 2>> "$STATUS_ATTEMPTS"; then
+    break
+  fi
+  if ! kill -0 "$daemon_pid" 2>/dev/null; then
+    printf 'Stackctl daemon exited before the automatic workflow completed\n' >&2
+    exit 1
+  fi
+  sleep 2
+done
+grep -q 'automatic workflow verified' "$OUTPUT_DIRECTORY/automatic-workflow.txt"
+HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+  --project-root "$PROJECT_DIRECTORY" exec \
+  php database/workflow-replay-guard.php \
+  > "$OUTPUT_DIRECTORY/workflow-replay-guard.txt" 2>&1
+grep -q 'workflow replay guard written' \
+  "$OUTPUT_DIRECTORY/workflow-replay-guard.txt"
+
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" daemon reconcile \
   > "$OUTPUT_DIRECTORY/reconcile.txt" 2>&1
+HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+  --project-root "$PROJECT_DIRECTORY" exec \
+  php database/workflow-verify.php workflow-replay-guard \
+  > "$OUTPUT_DIRECTORY/reconciled-automatic-workflow.txt" 2>&1
 test "$(sha256sum "$CA_CERTIFICATE" | cut -d ' ' -f 1)" = "$INITIAL_CA_SHA256"
 stop_daemon
 start_daemon
@@ -410,6 +523,10 @@ test "$(docker ps -aq \
   --filter label=dev.stackctl.kind=project_application \
   --filter label=dev.stackctl.project=acceptance | sed -n '1p')" = "$application_container_id"
 test "$(sha256sum "$CA_CERTIFICATE" | cut -d ' ' -f 1)" = "$INITIAL_CA_SHA256"
+HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+  --project-root "$PROJECT_DIRECTORY" exec \
+  php database/workflow-verify.php workflow-replay-guard \
+  > "$OUTPUT_DIRECTORY/restarted-automatic-workflow.txt" 2>&1
 NO_PROXY="${NO_PROXY:-},.stackctl.localhost" \
   no_proxy="${no_proxy:-},.stackctl.localhost" \
   curl --fail --silent --show-error \

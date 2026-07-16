@@ -12,7 +12,9 @@ All notable changes to this project are documented in this file.
 - Added native Linux x86_64 and arm64 clean-room Laravel acceptance with an
   isolated home, pinned public runtime inputs, fatal-bootstrap rejection,
   framework health, strict CA-file HTTPS, Artisan, worker, scheduler, stable-CA
-  reconciliation, daemon restart, raw evidence, and exact Engine cleanup.
+  reconciliation, daemon restart, two-schema automatic database restore,
+  primary-connection migration, durable replay rejection, raw evidence, and
+  exact Engine cleanup.
 - Added explicit `manual` and `automatic` workflow modes. Manual remains the
   safe default; automatic workflows wait for complete Engine convergence and
   execute ordered restores and migrations once per exact workflow and dump
