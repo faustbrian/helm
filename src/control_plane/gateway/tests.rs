@@ -513,7 +513,7 @@ fn gateway_reconciliation_creates_starts_and_observes_a_missing_gateway() {
     assert_eq!(engine.images, vec![request.image().to_owned()]);
     assert_eq!(engine.created, vec![request]);
     assert_eq!(engine.started.len(), 1);
-    assert_eq!(host_probe.addresses.borrow().len(), 4);
+    assert_eq!(host_probe.addresses.borrow().len(), 2);
 }
 
 #[test]
@@ -587,7 +587,7 @@ fn gateway_reconciliation_starts_a_stopped_owned_gateway() {
 
     assert_eq!(result.action(), GatewayReconcileAction::Started);
     assert_eq!(engine.started.len(), 1);
-    assert_eq!(host_probe.addresses.borrow().len(), 4);
+    assert_eq!(host_probe.addresses.borrow().len(), 2);
 }
 
 #[test]
@@ -711,7 +711,7 @@ fn gateway_replacement_fails_before_mutation_when_a_foreign_binding_conflicts() 
             PublishedPortBinding::new(
                 "foreign-1",
                 "foreign-proxy",
-                IpAddr::V6(Ipv6Addr::LOCALHOST),
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
                 443,
             )
             .expect("foreign HTTPS binding"),
@@ -739,7 +739,7 @@ fn gateway_replacement_fails_before_mutation_when_a_foreign_binding_conflicts() 
     assert!(
         error
             .to_string()
-            .contains("[::1]:443 is occupied by Engine container 'foreign-proxy'")
+            .contains("127.0.0.1:443 is occupied by Engine container 'foreign-proxy'")
     );
     assert!(engine.stopped.is_empty());
     assert!(engine.removed.is_empty());

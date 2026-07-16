@@ -23,6 +23,23 @@ where
         return Ok(DiscoveryReconciliationResult::blocked(report));
     }
 
+    let unlocked_sources = report
+        .sources()
+        .iter()
+        .map(|source| {
+            crate::control_plane::application::ProjectSource::new(
+                source.canonical_path().to_path_buf(),
+                source.config_path().to_path_buf(),
+                source.yaml().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) = plan_project_registry(&unlocked_sources) {
+        return Ok(DiscoveryReconciliationResult::blocked(
+            report.with_issue(plan_issue(error)),
+        ));
+    }
+
     let mut pending_locks = Vec::new();
     for source in report.sources() {
         let config = match parse_project_config(source.yaml(), source.config_path()) {
