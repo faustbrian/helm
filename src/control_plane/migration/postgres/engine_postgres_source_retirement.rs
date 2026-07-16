@@ -12,6 +12,9 @@ use std::collections::BTreeMap;
 const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 
 /// Direct-Engine confirmed retirement of one PostgreSQL database and role.
+///
+/// Retirement revokes application login access while retaining the exact
+/// database and role as a rollback source.
 pub(crate) struct EnginePostgresSourceRetirement<'operation, E> {
     executor: &'operation E,
     options: PostgresSourceRetirementOptions<'operation>,
@@ -147,8 +150,7 @@ fn retirement_sql(database_name: &str, role_name: &str) -> String {
     format!(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
          WHERE datname = '{database_name}' AND pid <> pg_backend_pid();\n\
-         DROP DATABASE IF EXISTS {database_name};\n\
-         DROP ROLE IF EXISTS {role_name};\n"
+         ALTER ROLE {role_name} NOLOGIN;\n"
     )
 }
 

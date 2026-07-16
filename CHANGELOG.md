@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Confirmed PostgreSQL migration cutovers now terminate source sessions and
+  revoke the source role's login while retaining its database and role as
+  rollback material. Confirmation no longer destroys the previous logical
+  source.
 - Laravel application health checks now allow a bounded fifteen-second
   framework cold start and run every thirty seconds. This avoids false
   unhealthy replacement loops when a valid Artisan boot exceeds the previous

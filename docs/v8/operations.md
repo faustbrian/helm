@@ -322,7 +322,10 @@ require an explicit destructive workflow with the documented backup policy.
 Backups are host-visible Stackctl artifacts with project/resource identity,
 source compatibility fingerprint, checksum, creation time, and restore
 requirements. Migration does not switch routes or environment until restore and
-readiness verification pass. Rollback material remains until confirmation.
+readiness verification pass. PostgreSQL confirmation terminates source sessions
+and disables the source role's login, but retains the source database and role
+as rollback material. Removing retained migration sources requires a separate
+explicit destructive workflow.
 
 PostgreSQL and MySQL/MariaDB logical deletion use one effect-free explicit plan:
 
