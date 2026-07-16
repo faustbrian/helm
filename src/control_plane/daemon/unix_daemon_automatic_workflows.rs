@@ -360,9 +360,9 @@ fn automatic_retry_due(operation: &DaemonOperationRecord, now_unix_seconds: i64)
     }
     let delay_seconds = match age_seconds {
         ..300 => 60,
-        ..1_800 => 300,
-        ..7_200 => 1_800,
-        ..43_200 => 7_200,
+        300..1_800 => 300,
+        1_800..7_200 => 1_800,
+        7_200..43_200 => 7_200,
         _ => 21_600,
     };
 
