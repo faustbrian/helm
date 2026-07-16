@@ -8,7 +8,7 @@ or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
 Snapshot date: 2026-07-16. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 862 passed, 0 failed, and 24 explicitly gated tests
+`cargo test --quiet`: 864 passed, 0 failed, and 24 explicitly gated tests
 ignored. Twenty-three are CI-owned live Engine acceptances; one is the
 release-mode discovery performance benchmark. `just lint` (format plus
 all-target Clippy with the repository's

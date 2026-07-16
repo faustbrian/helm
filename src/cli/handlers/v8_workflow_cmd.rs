@@ -8,7 +8,7 @@ use crate::cli::args::{Cli, Commands};
 use crate::cli::browser_opener::try_open_in_browser;
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
-    IpcPayload, IpcProjectCommand, IpcRequest, RawWorkflowStep,
+    IpcPayload, IpcProjectCommand, IpcRequest, RawWorkflowMode, RawWorkflowStep,
     default_unix_daemon_runtime_directory, send_unix_request,
 };
 
@@ -45,12 +45,24 @@ pub(crate) fn handle_v8_workflow(cli: &Cli, context: &CliDispatchContext<'_>) ->
     if workflow.steps().is_empty() {
         bail!("workflow '{}' has no steps", args.workflow);
     }
+    ensure_explicit_workflow_mode(&args.workflow, workflow.mode())?;
 
     for step in workflow.steps() {
         execute_step(&project, step, context)?;
     }
 
     Ok(true)
+}
+
+fn ensure_explicit_workflow_mode(name: &str, mode: RawWorkflowMode) -> Result<()> {
+    if mode == RawWorkflowMode::Automatic {
+        bail!(
+            "workflow '{name}' is automatic and cannot be run explicitly; \
+             change its mode to 'manual' to use 'stackctl run {name}'"
+        );
+    }
+
+    Ok(())
 }
 
 fn execute_step(
@@ -133,4 +145,28 @@ fn open_service(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::control_plane::RawWorkflowMode;
+
+    use super::ensure_explicit_workflow_mode;
+
+    #[test]
+    fn manual_workflows_allow_explicit_execution() {
+        ensure_explicit_workflow_mode("sandbox", RawWorkflowMode::Manual).expect("manual workflow");
+    }
+
+    #[test]
+    fn automatic_workflows_reject_explicit_execution() {
+        let error = ensure_explicit_workflow_mode("sandbox", RawWorkflowMode::Automatic)
+            .expect_err("automatic workflow");
+
+        assert_eq!(
+            error.to_string(),
+            "workflow 'sandbox' is automatic and cannot be run explicitly; ".to_owned()
+                + "change its mode to 'manual' to use 'stackctl run sandbox'"
+        );
+    }
 }

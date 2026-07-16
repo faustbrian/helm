@@ -30,6 +30,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Workflow modes now define mutually exclusive triggers: manual workflows run
+  only through explicit `stackctl run` invocation, while automatic workflows
+  run only implicitly through convergence-gated daemon scheduling.
 - Clarified the supported-target dependency inventory without retaining stale
   references to a removed host platform.
 - Project discovery now stops filesystem enumeration at the configured
@@ -88,6 +91,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reject explicit execution of automatic workflows so `stackctl run` cannot
+  bypass their deterministic operation identity and durable replay guard.
 - Drop the complete default Linux capability set from the gateway, application,
   worker, Horizon, and scheduler containers in addition to disabling privileged
   mode and privilege escalation. Infrastructure images keep their upstream

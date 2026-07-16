@@ -229,12 +229,14 @@ project plan.
 ## Project workflows
 
 Named workflows capture repeatable ordered development operations in the same
-strict YAML. `mode: manual` is the default and requires `stackctl run`.
-`mode: automatic` runs only after the daemon has fully converged the project,
-once per deterministic workflow and dump-content revision. Successful steps
-remain durably recorded across rescans, daemon restarts, login, and reboot.
-A changed workflow or dump creates a new revision; a failed revision remains
-failed until its input changes or the workflow is run manually.
+strict YAML. `mode: manual` is the default and permits only explicit
+`stackctl run` invocation. `mode: automatic` permits only implicit daemon
+execution after the project has fully converged, once per deterministic
+workflow and dump-content revision. Successful steps remain durably recorded
+across rescans, daemon restarts, login, and reboot. A changed workflow or dump
+creates a new revision; a failed automatic revision remains failed until its
+input changes. Stackctl rejects `stackctl run` for automatic workflows so an
+operator cannot bypass the durable replay guard.
 
 For an API project that restores two database dumps and migrates only the
 primary Laravel connection after first convergence:
@@ -277,8 +279,9 @@ the selected Linux application service only after the restore succeeds.
 
 Automatic workflows cannot declare `open`: an unattended daemon must never
 launch a browser. Automatic mode is the explicit destructive authorization
-boundary for one revision. Omitting `mode`, or declaring `mode: manual`, keeps
-all effects behind `stackctl run`.
+boundary for one revision and cannot be invoked through `stackctl run`.
+Omitting `mode`, or declaring `mode: manual`, keeps all effects behind an
+explicit `stackctl run` invocation and prevents implicit daemon execution.
 
 ## Project trust
 

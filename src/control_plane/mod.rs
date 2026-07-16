@@ -27,9 +27,9 @@ mod validated_route_registry;
 mod workload;
 
 pub(crate) use configuration::{
-    ArtifactLock, ArtifactLockImage, MAX_PROJECT_CONFIG_BYTES, RawProjectConfig, RawWorkflowStep,
-    apply_artifact_lock, artifact_source, parse_artifact_lock, parse_project_config,
-    project_config_schema, read_bounded_yaml_file,
+    ArtifactLock, ArtifactLockImage, MAX_PROJECT_CONFIG_BYTES, RawProjectConfig, RawWorkflowMode,
+    RawWorkflowStep, apply_artifact_lock, artifact_source, parse_artifact_lock,
+    parse_project_config, project_config_schema, read_bounded_yaml_file,
 };
 #[cfg(unix)]
 pub(crate) use daemon::{
