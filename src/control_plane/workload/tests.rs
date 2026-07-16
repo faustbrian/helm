@@ -497,7 +497,7 @@ fn laravel_runtime_environment_bypasses_host_configuration_caches() {
 }
 
 #[test]
-fn laravel_application_health_checks_the_framework_route() {
+fn laravel_application_health_boots_the_framework() {
     let application = resolved_application(concat!(
         "schema_version: 8\nproject: bill\nservices:\n  app:\n",
         "    preset: laravel\n    version: \"8.5\"\n",
@@ -512,10 +512,17 @@ fn laravel_application_health_checks_the_framework_route() {
         .request()
         .health_check()
         .expect("Laravel framework health check");
-    assert_eq!(health_check.engine_test()[0..3], ["CMD", "php", "-r"]);
-    assert!(health_check.engine_test()[3].contains("GET /up HTTP/1.1"));
-    assert!(health_check.engine_test()[3].contains("preg_match"));
-    assert!(!health_check.engine_test()[3].contains("exit($socket === false ? 1 : 0)"));
+    assert_eq!(
+        health_check.engine_test(),
+        [
+            "CMD",
+            "php",
+            "artisan",
+            "about",
+            "--only=environment",
+            "--no-ansi"
+        ]
+    );
 }
 
 #[test]

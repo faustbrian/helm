@@ -60,27 +60,25 @@ pub(crate) fn application_container_request(
         request.with_command(options.command)?
     };
 
-    let probe = match options.plan.health_check() {
-        ApplicationHealthCheck::Http(path) => format!(
-            concat!(
-                "$socket = @fsockopen('127.0.0.1', {port}); ",
-                "if ($socket === false) {{ exit(1); }} ",
-                "fwrite($socket, \"GET {path} HTTP/1.1\\r\\nHost: localhost\\r\\n",
-                "Connection: close\\r\\n\\r\\n\"); ",
-                "$status = fgets($socket); fclose($socket); ",
-                "exit(is_string($status) && ",
-                "preg_match('/^HTTP\\/1\\.[01] 2[0-9]{{2}}(?: |\\r?$)/', $status) === 1 ? 0 : 1);"
+    let health_command = match options.plan.health_check() {
+        ApplicationHealthCheck::Laravel => vec![
+            "php".to_owned(),
+            "artisan".to_owned(),
+            "about".to_owned(),
+            "--only=environment".to_owned(),
+            "--no-ansi".to_owned(),
+        ],
+        ApplicationHealthCheck::Tcp => vec![
+            "php".to_owned(),
+            "-r".to_owned(),
+            format!(
+                "$socket = @fsockopen('127.0.0.1', {}); exit($socket === false ? 1 : 0);",
+                options.plan.internal_http_port()
             ),
-            port = options.plan.internal_http_port(),
-            path = path,
-        ),
-        ApplicationHealthCheck::Tcp => format!(
-            "$socket = @fsockopen('127.0.0.1', {}); exit($socket === false ? 1 : 0);",
-            options.plan.internal_http_port()
-        ),
+        ],
     };
     let application_health_check = ContainerHealthCheck::new(
-        vec!["php".to_owned(), "-r".to_owned(), probe],
+        health_command,
         Duration::from_secs(10),
         Duration::from_secs(3),
         Duration::from_secs(15),

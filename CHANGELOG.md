@@ -180,6 +180,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Laravel container health now boots the framework through a direct non-shell
+  Artisan command. FrankenPHP listener responses can no longer mark a fatal
+  `bootstrap/app.php` as healthy; trusted HTTPS `/up` remains an end-to-end
+  clean-room assertion.
 - Ephemeral gateway runtime filesystems now use sticky world-writable tmpfs
   roots, allowing the configured numeric host user to create private Caddy
   state without persistent storage or root-owned permission errors.

@@ -4,14 +4,14 @@ use serde::Serialize;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind", content = "path")]
 pub(crate) enum ApplicationHealthCheck {
-    Http(&'static str),
+    Laravel,
     Tcp,
 }
 
 impl ApplicationHealthCheck {
     pub(crate) fn for_preset(preset: Option<&str>) -> Self {
         match preset {
-            Some("laravel") => Self::Http("/up"),
+            Some("laravel") => Self::Laravel,
             _ => Self::Tcp,
         }
     }
