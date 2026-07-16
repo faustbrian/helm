@@ -48,7 +48,7 @@ report_matches \
 report_matches \
   'build and run recipes must not disable compiler warnings:' \
   'RUSTFLAGS=.*-A ?warnings|RUSTFLAGS=.*--allow[= ]warnings' \
-  Justfile scripts .github
+  justfile scripts .github
 
 if (( failures != 0 )); then
   exit 1
