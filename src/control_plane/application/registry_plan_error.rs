@@ -70,6 +70,30 @@ impl RegistryPlanError {
             Self::Configuration(error) if error.is_security_policy_blocked()
         )
     }
+
+    pub(crate) const fn is_artifact_lock_error(&self) -> bool {
+        matches!(self, Self::ArtifactLock(_))
+    }
+
+    pub(crate) fn conflicting_paths(&self) -> Vec<PathBuf> {
+        let mut paths = match self {
+            Self::ProjectIdentityOwnership { conflicts } => conflicts
+                .iter()
+                .flat_map(|(_, paths)| paths.iter().cloned())
+                .collect(),
+            Self::RouteOwnership(conflicts) => conflicts
+                .conflicts()
+                .iter()
+                .flat_map(|conflict| conflict.claims())
+                .map(|claim| claim.canonical_project_path().to_path_buf())
+                .collect(),
+            _ => Vec::new(),
+        };
+        paths.sort();
+        paths.dedup();
+
+        paths
+    }
 }
 
 impl From<ArtifactLockError> for RegistryPlanError {

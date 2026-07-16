@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Root-wide discovery now isolates readable invalid projects and every exact
+  ownership-collision claimant while continuing to reconcile unrelated valid
+  projects. Hostile filesystem input still blocks publication, and Stackctl
+  never invents a project name or route to repair a collision.
 - The documented happy path is now one-time `stackctl setup` followed by
   `stackctl open`. Config validation, service and daemon status, URL inspection,
   and logs remain optional diagnostics instead of required maintenance steps.

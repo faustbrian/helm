@@ -19,7 +19,7 @@ impl RegistryConflict {
         &self.domain
     }
 
-    pub(super) fn claims(&self) -> &[RouteClaim] {
+    pub(crate) fn claims(&self) -> &[RouteClaim] {
         &self.claims
     }
 }
@@ -36,7 +36,6 @@ impl RegistryConflicts {
     }
 
     /// Returns every conflict in deterministic domain order.
-    #[cfg(test)]
     pub(crate) fn conflicts(&self) -> &[RegistryConflict] {
         &self.conflicts
     }

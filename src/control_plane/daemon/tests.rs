@@ -5,8 +5,8 @@ use super::{
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionExecutionOptions,
     MigrationDecisionQueue, PostgresPruneExecutionOptions, PostgresPruneQueue,
     ProjectBackupExecutionOptions, ProjectBackupQueue, ProjectCommandExecutionOptions,
-    ProjectCommandQueue, ProjectDiscoveryOptions, ProjectLogBuffer, ProjectLogRequest,
-    ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
+    ProjectCommandQueue, ProjectDiscoveryIssue, ProjectDiscoveryOptions, ProjectLogBuffer,
+    ProjectLogRequest, ProjectLogSessionRegistry, ProjectLogTarget, ProjectRestoreExecutionOptions,
     ProjectRestoreExecutionResult, ProjectRestoreQueue, ProjectRestoreTargetPlan,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
     ResourceHealth, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
@@ -7449,8 +7449,8 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         ProjectDiscoveryOptions::bounded_defaults(),
         12_346,
     )
-    .expect("configuration collision becomes a blocked diagnostic");
-    assert!(!collision.was_applied());
+    .expect("configuration collision becomes an isolated diagnostic");
+    assert!(collision.was_applied());
     assert_eq!(collision.report().issues().len(), 1);
     assert_eq!(
         collision.report().issues()[0].code(),
@@ -7463,8 +7463,15 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     );
     engine_schedule
         .observe(&collision)
-        .expect("retain plan across collision");
+        .expect("publish registry without collision claimants");
     assert!(engine_schedule.may_reconcile());
+    assert!(
+        engine_schedule
+            .desired_registry()
+            .expect("isolated registry")
+            .projects()
+            .is_empty()
+    );
 
     std::fs::remove_dir_all(&collision_path).expect("remove collision project");
     std::fs::create_dir(&collision_path).expect("identity collision directory");
@@ -7478,8 +7485,8 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         ProjectDiscoveryOptions::bounded_defaults(),
         12_347,
     )
-    .expect("project identity collision becomes a blocked diagnostic");
-    assert!(!identity_collision.was_applied());
+    .expect("project identity collision becomes an isolated diagnostic");
+    assert!(identity_collision.was_applied());
     assert_eq!(identity_collision.report().issues().len(), 1);
     assert_eq!(
         identity_collision.report().issues()[0].code(),
@@ -7490,7 +7497,7 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     assert!(identity_detail.contains("unique explicit 'project' value"));
     engine_schedule
         .observe(&identity_collision)
-        .expect("retain plan across project identity collision");
+        .expect("publish registry without identity collision claimants");
     assert!(engine_schedule.may_reconcile());
 
     std::fs::remove_dir_all(&collision_path).expect("remove identity collision project");
@@ -7504,8 +7511,8 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         ProjectDiscoveryOptions::bounded_defaults(),
         12_348,
     )
-    .expect("security policy becomes a blocked diagnostic");
-    assert!(!security.was_applied());
+    .expect("security policy becomes an isolated diagnostic");
+    assert!(security.was_applied());
     assert_eq!(security.report().issues().len(), 1);
     assert_eq!(
         security.report().issues()[0].code(),
@@ -7513,17 +7520,95 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
     );
     engine_schedule
         .observe(&security)
-        .expect("retain plan across security block");
+        .expect("publish registry without blocked project");
     assert!(engine_schedule.may_reconcile());
 
     drop(control_plane);
     let store = SqliteStateStore::open(&database_path).expect("reopen state store");
     let projects = store.projects().expect("load retained registry");
-    assert_eq!(projects.len(), 1);
-    assert_eq!(projects[0].project_name(), "bill");
+    assert!(projects.is_empty());
 
     drop(store);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
+}
+
+#[test]
+fn invalid_project_configuration_does_not_block_valid_siblings() {
+    let root = temporary_directory("isolated-invalid-project");
+    let valid = root.join("bill");
+    let invalid = root.join("legacy-location");
+    let collision_a = root.join("api");
+    let collision_b = root.join("api-copy");
+    std::fs::create_dir(&valid).expect("valid project directory");
+    std::fs::create_dir(&invalid).expect("invalid project directory");
+    std::fs::create_dir(&collision_a).expect("first collision directory");
+    std::fs::create_dir(&collision_b).expect("second collision directory");
+    std::fs::write(
+        valid.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("valid project config");
+    std::fs::write(
+        valid.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+            "  app:\n    source: preset:laravel\n    resolved: dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("valid project lock");
+    std::fs::write(
+        invalid.join(".stackctl.yaml"),
+        "container_prefix: legacy\nservice:\n  - preset: laravel\n",
+    )
+    .expect("legacy project config");
+    for collision in [&collision_a, &collision_b] {
+        std::fs::write(
+            collision.join(".stackctl.yaml"),
+            "schema_version: 8\nproject: api\nservices:\n  app:\n    preset: laravel\n",
+        )
+        .expect("colliding project config");
+    }
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("open state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("persist watched root");
+    let mut control_plane = ControlPlane::new(store);
+
+    let result = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        10_000,
+    )
+    .expect("isolated project reconciliation");
+
+    assert!(result.was_applied());
+    assert_eq!(result.report().issues().len(), 2);
+    assert_eq!(
+        result
+            .report()
+            .issues()
+            .iter()
+            .map(ProjectDiscoveryIssue::code)
+            .collect::<BTreeSet<_>>(),
+        ["configuration_collision", "configuration_invalid"]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(
+        result
+            .registry()
+            .expect("valid registry")
+            .projects()
+            .iter()
+            .map(|project| project.project_name())
+            .collect::<Vec<_>>(),
+        ["bill"]
+    );
+
+    drop(control_plane);
+    std::fs::remove_dir_all(root).expect("remove fixture");
 }
 
 #[test]

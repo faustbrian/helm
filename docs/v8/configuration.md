@@ -192,6 +192,11 @@ explicit `project` value. Distinct paths producing the same project/service
 domain are also a conflict. Route diagnostics report the domain, names, and all
 canonical paths; Stackctl never creates a fallback.
 
+Invalid project files and every claimant in one ownership collision are
+excluded from the published registry with durable diagnostics. Independently
+valid projects continue reconciling; one stale or copied project cannot take
+the rest of a watched root offline.
+
 If persisted state proves an existing owner, its persistent resources remain
 untouched and the newcomer does not activate. If ownership cannot be proven,
 neither plan activates. The conflict remains visible until the user changes a
