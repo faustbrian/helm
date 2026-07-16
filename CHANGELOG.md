@@ -44,6 +44,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Long shared-service, application, and project-process reconciliation batches
+  now service the user-only IPC socket every twenty-five milliseconds while
+  Engine futures are pending. Ping, status, and queued operations remain
+  responsive during multi-project image and runtime convergence instead of
+  waiting for the entire batch to finish.
 - Project restore operations now persist distinct source and target
   compatibility identities. Migration confirmation resolves the desired
   target plan while reconstructing PostgreSQL rollback environment values from

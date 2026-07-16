@@ -108,6 +108,8 @@ mod queued_project_backup;
 mod queued_project_command;
 mod queued_project_restore;
 mod reconcile_watched_roots;
+#[cfg(unix)]
+mod reconciliation_ipc_heartbeat;
 mod record_discovery_diagnostics;
 mod record_ipc_event;
 mod requires_engine_reconciliation;
@@ -123,7 +125,7 @@ mod retry_backoff_error;
 mod retry_backoff_options;
 mod retry_delay;
 mod retry_failed_installation_deletion_prune;
-mod run_bounded_independent_reconciliation;
+mod run_bounded_independent_reconciliation_with_heartbeat;
 #[cfg(unix)]
 mod run_unix_daemon_watch;
 #[cfg(unix)]
@@ -295,6 +297,10 @@ pub(crate) use queued_project_restore::{
     QueuedDatabaseDumpRestoreOptions, QueuedProjectRestore, QueuedProjectRestoreOptions,
 };
 pub(crate) use reconcile_watched_roots::reconcile_watched_roots;
+#[cfg(unix)]
+pub(crate) use reconciliation_ipc_heartbeat::{
+    ReconciliationIpcHeartbeat, ReconciliationIpcHeartbeatOptions,
+};
 pub(crate) use record_discovery_diagnostics::record_discovery_diagnostics;
 pub(crate) use requires_engine_reconciliation::requires_engine_reconciliation;
 pub(crate) use requires_followup_reconciliation::requires_followup_reconciliation;
@@ -309,7 +315,7 @@ pub(crate) use retry_backoff_error::RetryBackoffError;
 pub(crate) use retry_backoff_options::RetryBackoffOptions;
 pub(crate) use retry_delay::RetryDelay;
 pub(crate) use retry_failed_installation_deletion_prune::retry_failed_installation_deletion_prune;
-pub(crate) use run_bounded_independent_reconciliation::run_bounded_independent_reconciliation;
+pub(crate) use run_bounded_independent_reconciliation_with_heartbeat::run_bounded_independent_reconciliation_with_heartbeat;
 #[cfg(unix)]
 pub(crate) use run_unix_daemon_watch::run_unix_daemon_watch;
 #[cfg(unix)]

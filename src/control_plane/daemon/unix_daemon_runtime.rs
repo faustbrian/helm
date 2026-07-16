@@ -7,13 +7,14 @@ use super::{
     EngineReconciliationPlanOptions, EngineReconciliationSchedule, FilesystemEventWatcher,
     ImageReferenceResolution, IpcEventJournal, MigrationDecisionQueue, PostgresPruneQueue,
     ProjectBackupQueue, ProjectCommandQueue, ProjectLogSessionRegistry, ProjectRestoreQueue,
-    ProjectServiceProvisioningRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
+    ProjectServiceProvisioningRegistry, ReconciliationIpcHeartbeat,
+    ReconciliationIpcHeartbeatOptions, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
     ScheduledCommandClock, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
     UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
     invalidate_engine_connection, materialize_missing_artifact_locks, plan_engine_reconciliation,
     reconcile_watched_roots, record_discovery_diagnostics, requires_engine_reconciliation,
     requires_followup_reconciliation, restore_daemon_operation_queues,
-    restore_discovery_diagnostics, run_bounded_independent_reconciliation,
+    restore_discovery_diagnostics, run_bounded_independent_reconciliation_with_heartbeat,
     validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
@@ -71,6 +72,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PROJECT_SERVICE_PROVISIONING_TIMEOUT: Duration = Duration::from_secs(30);
+const RECONCILIATION_IPC_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(25);
 const INDEPENDENT_RECONCILIATION_CONCURRENCY: NonZeroUsize =
     NonZeroUsize::new(8).expect("independent reconciliation concurrency must be non-zero");
 
@@ -656,7 +658,7 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let Some(engine) = self.engine_connection.engine_mut() else {
+        let Some(mut engine) = self.engine_connection.engine().cloned() else {
             return;
         };
         let project_ids = execution
@@ -685,7 +687,7 @@ impl UnixDaemonRuntime {
             }
         }
         let results = self.engine_runtime.block_on(reconcile_networks(
-            engine,
+            &mut engine,
             NetworksReconcileOptions {
                 requests: &network_requests,
                 installation_id: self.global_network_request.metadata().installation_id(),
@@ -793,7 +795,7 @@ impl UnixDaemonRuntime {
         let removed_ephemeral =
             self.engine_runtime
                 .block_on(remove_stale_ephemeral_services_from_observed(
-                    engine,
+                    &mut engine,
                     &observed_shared_containers,
                     self.global_network_request.metadata().installation_id(),
                     self.global_network_request.metadata().schema_version(),
@@ -834,36 +836,60 @@ impl UnixDaemonRuntime {
             .iter()
             .map(|service| (service.project().as_str().to_owned(), Vec::new()))
             .collect::<BTreeMap<String, Vec<_>>>();
-        let shared_engine = (*engine).clone();
+        let shared_engine = engine.clone();
         let shared_container_observation = observed_shared_containers.as_slice();
         let shared_volume_observation = observed_shared_volumes.as_slice();
         let shared_network_observation = observed_shared_networks.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
-        let shared_results = self
-            .engine_runtime
-            .block_on(run_bounded_independent_reconciliation(
-                prepared_shared.iter(),
-                INDEPENDENT_RECONCILIATION_CONCURRENCY,
-                move |prepared| {
-                    let mut engine = ReconciliationEngine::new(
-                        shared_engine.clone(),
-                        shared_container_observation,
-                        shared_volume_observation,
-                        shared_network_observation,
-                    );
+        let mut ipc_heartbeat =
+            ReconciliationIpcHeartbeat::new(ReconciliationIpcHeartbeatOptions {
+                listener: &self.listener,
+                control_plane: &mut self.control_plane,
+                discovery_options: self.options.discovery_options,
+                event_journal: &mut self.event_journal,
+                project_commands: &mut self.project_commands,
+                project_backups: &mut self.project_backups,
+                postgres_prunes: &mut self.postgres_prunes,
+                project_restores: &mut self.project_restores,
+                migration_decisions: &mut self.migration_decisions,
+                project_logs: &mut self.project_logs,
+                resource_health: &self.resource_health,
+                discovery_diagnostics: &self.discovery_diagnostics,
+                scheduler: &mut self.scheduler,
+                now,
+                now_unix_seconds: observed_at_unix_seconds,
+            });
+        let shared_results =
+            self.engine_runtime
+                .block_on(run_bounded_independent_reconciliation_with_heartbeat(
+                    prepared_shared.iter(),
+                    INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                    RECONCILIATION_IPC_HEARTBEAT_INTERVAL,
+                    move |prepared| {
+                        let mut engine = ReconciliationEngine::new(
+                            shared_engine.clone(),
+                            shared_container_observation,
+                            shared_volume_observation,
+                            shared_network_observation,
+                        );
 
-                    async move {
-                        reconcile_prepared_shared_instance(
-                            &mut engine,
-                            prepared,
-                            installation_id,
-                            schema_version,
-                        )
-                        .await
-                    }
-                },
-            ));
+                        async move {
+                            reconcile_prepared_shared_instance(
+                                &mut engine,
+                                prepared,
+                                installation_id,
+                                schema_version,
+                            )
+                            .await
+                        }
+                    },
+                    || ipc_heartbeat.serve(),
+                ));
+        if let Err(error) = ipc_heartbeat.finish() {
+            tracing::error!(error, "reconciliation IPC heartbeat failed");
+            return;
+        }
         for (prepared, logical) in prepared_shared.iter().zip(shared_results) {
             let logical = match logical {
                 Ok(logical) => logical,
@@ -1107,7 +1133,7 @@ impl UnixDaemonRuntime {
         let revoked_shared_access =
             self.engine_runtime
                 .block_on(revoke_orphaned_shared_access_from_observed(
-                    engine,
+                    &mut engine,
                     &observed_managed_containers,
                     OrphanedSharedAccessOptions {
                         resources: &current_resources,
@@ -1149,7 +1175,7 @@ impl UnixDaemonRuntime {
         let stopped_shared =
             self.engine_runtime
                 .block_on(stop_unreferenced_shared_services_from_observed(
-                    engine,
+                    &mut engine,
                     &observed_managed_containers,
                     UnreferencedSharedServiceOptions {
                         resources: &current_resources,
@@ -1189,7 +1215,7 @@ impl UnixDaemonRuntime {
         let stopped = self
             .engine_runtime
             .block_on(stop_orphaned_project_workloads_from_observed(
-                engine,
+                &mut engine,
                 &observed_managed_containers,
                 OrphanedProjectWorkloadOptions {
                     resources: &durable_resources,
@@ -1228,7 +1254,7 @@ impl UnixDaemonRuntime {
         let retired =
             self.engine_runtime
                 .block_on(garbage_collect_disposable_containers_from_observed(
-                    engine,
+                    &mut engine,
                     &observed_managed_containers,
                     DisposableContainerGarbageCollectionOptions {
                         resources: &durable_resources,
@@ -1281,7 +1307,7 @@ impl UnixDaemonRuntime {
             match self
                 .engine_runtime
                 .block_on(materialize_application_requests(
-                    engine,
+                    &mut engine,
                     engine_plan.applications(),
                 )) {
                 Ok(requests) => requests,
@@ -1311,15 +1337,34 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
-        let application_engine = (*engine).clone();
+        let application_engine = engine.clone();
         let application_observation = observed_managed_containers.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
+        let mut ipc_heartbeat =
+            ReconciliationIpcHeartbeat::new(ReconciliationIpcHeartbeatOptions {
+                listener: &self.listener,
+                control_plane: &mut self.control_plane,
+                discovery_options: self.options.discovery_options,
+                event_journal: &mut self.event_journal,
+                project_commands: &mut self.project_commands,
+                project_backups: &mut self.project_backups,
+                postgres_prunes: &mut self.postgres_prunes,
+                project_restores: &mut self.project_restores,
+                migration_decisions: &mut self.migration_decisions,
+                project_logs: &mut self.project_logs,
+                resource_health: &self.resource_health,
+                discovery_diagnostics: &self.discovery_diagnostics,
+                scheduler: &mut self.scheduler,
+                now,
+                now_unix_seconds: observed_at_unix_seconds,
+            });
         let application_results =
             self.engine_runtime
-                .block_on(run_bounded_independent_reconciliation(
+                .block_on(run_bounded_independent_reconciliation_with_heartbeat(
                     application_requests,
                     INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                    RECONCILIATION_IPC_HEARTBEAT_INTERVAL,
                     move |request| {
                         let mut engine = application_engine.clone();
 
@@ -1338,7 +1383,12 @@ impl UnixDaemonRuntime {
                             (request, result)
                         }
                     },
+                    || ipc_heartbeat.serve(),
                 ));
+        if let Err(error) = ipc_heartbeat.finish() {
+            tracing::error!(error, "reconciliation IPC heartbeat failed");
+            return;
+        }
         let mut required_applications_healthy = true;
         for (application, (request, result)) in
             engine_plan.applications().iter().zip(application_results)
@@ -1408,7 +1458,7 @@ impl UnixDaemonRuntime {
         let project_volume_results =
             self.engine_runtime
                 .block_on(reconcile_project_volumes_from_observed(
-                    &*engine,
+                    &engine,
                     ProjectVolumesReconcileOptions {
                         requests: &project_volume_requests,
                         observed: observed_project_volumes,
@@ -1517,7 +1567,7 @@ impl UnixDaemonRuntime {
         let project_service_results =
             self.engine_runtime
                 .block_on(reconcile_project_services_from_observed(
-                    &*engine,
+                    &engine,
                     ProjectServicesReconcileOptions {
                         requests: &project_service_requests,
                         observed: &observed_managed_containers,
@@ -1579,7 +1629,7 @@ impl UnixDaemonRuntime {
         let provisioning_results =
             self.engine_runtime
                 .block_on(run_provisioning_jobs_from_observed(
-                    &*engine,
+                    &engine,
                     ProvisioningJobsRunOptions {
                         requests: &provisioning_requests,
                         observed: &observed_managed_containers,
@@ -1733,34 +1783,58 @@ impl UnixDaemonRuntime {
             };
             process_requests.push(request);
         }
-        let process_engine = (*engine).clone();
+        let process_engine = engine.clone();
         let process_observation = observed_managed_containers.as_slice();
         let installation_id = self.global_network_request.metadata().installation_id();
         let schema_version = self.global_network_request.metadata().schema_version();
-        let process_results = self
-            .engine_runtime
-            .block_on(run_bounded_independent_reconciliation(
-                process_requests,
-                INDEPENDENT_RECONCILIATION_CONCURRENCY,
-                move |request| {
-                    let mut engine = process_engine.clone();
+        let mut ipc_heartbeat =
+            ReconciliationIpcHeartbeat::new(ReconciliationIpcHeartbeatOptions {
+                listener: &self.listener,
+                control_plane: &mut self.control_plane,
+                discovery_options: self.options.discovery_options,
+                event_journal: &mut self.event_journal,
+                project_commands: &mut self.project_commands,
+                project_backups: &mut self.project_backups,
+                postgres_prunes: &mut self.postgres_prunes,
+                project_restores: &mut self.project_restores,
+                migration_decisions: &mut self.migration_decisions,
+                project_logs: &mut self.project_logs,
+                resource_health: &self.resource_health,
+                discovery_diagnostics: &self.discovery_diagnostics,
+                scheduler: &mut self.scheduler,
+                now,
+                now_unix_seconds: observed_at_unix_seconds,
+            });
+        let process_results =
+            self.engine_runtime
+                .block_on(run_bounded_independent_reconciliation_with_heartbeat(
+                    process_requests,
+                    INDEPENDENT_RECONCILIATION_CONCURRENCY,
+                    RECONCILIATION_IPC_HEARTBEAT_INTERVAL,
+                    move |request| {
+                        let mut engine = process_engine.clone();
 
-                    async move {
-                        let result = reconcile_project_process_from_observed(
-                            &mut engine,
-                            process_observation,
-                            WorkloadReconcileOptions {
-                                request: &request,
-                                installation_id,
-                                schema_version,
-                            },
-                        )
-                        .await;
+                        async move {
+                            let result = reconcile_project_process_from_observed(
+                                &mut engine,
+                                process_observation,
+                                WorkloadReconcileOptions {
+                                    request: &request,
+                                    installation_id,
+                                    schema_version,
+                                },
+                            )
+                            .await;
 
-                        (request, result)
-                    }
-                },
-            ));
+                            (request, result)
+                        }
+                    },
+                    || ipc_heartbeat.serve(),
+                ));
+        if let Err(error) = ipc_heartbeat.finish() {
+            tracing::error!(error, "reconciliation IPC heartbeat failed");
+            return;
+        }
         for (request, result) in process_results {
             match result {
                 Ok(result) => {
@@ -1807,7 +1881,7 @@ impl UnixDaemonRuntime {
         }
         let active_runtime_images = project_runtime_images.into_values().collect::<Vec<_>>();
         let removed_images = self.engine_runtime.block_on(garbage_collect_build_images(
-            engine,
+            &mut engine,
             BuildImageGarbageCollectionOptions {
                 active_image_ids: &active_runtime_images,
                 installation_id: self.global_network_request.metadata().installation_id(),
@@ -1870,7 +1944,7 @@ impl UnixDaemonRuntime {
                 return;
             }
         };
-        let mut provider = match assets.configuration_provider((*engine).clone()) {
+        let mut provider = match assets.configuration_provider(engine.clone()) {
             Ok(provider) => provider,
             Err(error) => {
                 self.engine_reconciliation.complete();
@@ -1899,7 +1973,7 @@ impl UnixDaemonRuntime {
             }
         };
         let gateway = self.engine_runtime.block_on(reconcile_gateway_plane(
-            engine,
+            &mut engine,
             &mut provider,
             gateway_options,
         ));
@@ -1963,7 +2037,7 @@ impl UnixDaemonRuntime {
                     }
                 };
                 let cleaned = self.engine_runtime.block_on(cleanup_stale_project_networks(
-                    engine,
+                    &mut engine,
                     StaleProjectNetworkCleanupOptions {
                         observed_networks: &cleanup_networks,
                         observed_containers: &cleanup_containers,

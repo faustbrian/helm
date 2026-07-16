@@ -115,6 +115,13 @@ installer scripts or execute pipelines such as `curl | sh` or `curl | php`.
 
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.
+
+Large independent reconciliation batches preserve plan-order results while
+polling the daemon IPC boundary every twenty-five milliseconds. The heartbeat
+does not run a second Engine operation inside the active task, but it can answer
+health and status requests and durably queue new work. Requests that require a
+new reconciliation schedule a follow-up scan rather than being lost when the
+current pass commits convergence.
 Stackctl never silently advances a major version.
 
 ## Host dependency boundary

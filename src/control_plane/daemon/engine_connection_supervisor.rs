@@ -71,10 +71,6 @@ where
     }
 
     /// Provides the connected Engine for capability-oriented reconciliation.
-    pub(crate) fn engine_mut(&mut self) -> Option<&mut Connector::Engine> {
-        self.engine.as_mut()
-    }
-
     /// Borrows the connected adapter for independently owned read/exec clones.
     pub(crate) const fn engine(&self) -> Option<&Connector::Engine> {
         self.engine.as_ref()
