@@ -10,8 +10,8 @@ just audit-v8-supply-chain
 The command requires `cargo-audit` 0.22.2 and `cargo-deny` 0.20.2. CI installs
 those exact versions with their published lock files before running the gate.
 The policy checks the four supported Rust targets: macOS and GNU/Linux on
-x86_64 and arm64. Windows-only and unsupported target dependencies do not
-affect Stackctl's supported-target duplicate inventory.
+x86_64 and arm64. Dependencies exclusive to unsupported targets do not affect
+Stackctl's supported-target duplicate inventory.
 
 The gate fails on:
 

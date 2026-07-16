@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Clarified the supported-target dependency inventory without retaining stale
+  references to a removed host platform.
 - Project discovery now stops filesystem enumeration at the configured
   two-level frontier; generated directories below an ineligible depth no
   longer consume the scan budget or startup time. Ordinary files are discarded
