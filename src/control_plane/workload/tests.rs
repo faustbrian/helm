@@ -532,6 +532,8 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
         "workflow_shipit_probe",
         "workflow_billing_probe",
         "workflow-replay-guard",
+        "systemctl restart docker",
+        "engine-restarted-status.json",
         "daemon reconcile",
         "ca_sha256",
         "remove_owned_engine_resources",

@@ -14,7 +14,9 @@ All notable changes to this project are documented in this file.
   framework health, strict CA-file HTTPS, Artisan, worker, scheduler, stable-CA
   reconciliation, daemon restart, two-schema automatic database restore,
   primary-connection migration, durable replay rejection, raw evidence, and
-  exact Engine cleanup.
+  exact Engine cleanup. The Linux CI journey also restarts the Docker Engine
+  and requires the unchanged application, gateway route, and restored data to
+  recover without restarting Stackctl.
 - Added explicit `manual` and `automatic` workflow modes. Manual remains the
   safe default; automatic workflows wait for complete Engine convergence and
   execute ordered restores and migrations once per exact workflow and dump

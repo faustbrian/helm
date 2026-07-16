@@ -527,6 +527,58 @@ HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   --project-root "$PROJECT_DIRECTORY" exec \
   php database/workflow-verify.php workflow-replay-guard \
   > "$OUTPUT_DIRECTORY/restarted-automatic-workflow.txt" 2>&1
+if [[ "${STACKCTL_ACCEPT_ENGINE_RESTART:-false}" == 'true' ]]; then
+  if ! command -v systemctl >/dev/null || ! command -v sudo >/dev/null; then
+    printf 'Engine restart acceptance requires systemctl and sudo\n' >&2
+    exit 69
+  fi
+  printf 'engine_restart_started_at_utc=%s\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$METADATA"
+  sudo -n systemctl restart docker
+
+  engine_deadline=$((SECONDS + 300))
+  while (( SECONDS < engine_deadline )); do
+    if docker info >/dev/null 2>&1 \
+      && HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" daemon status \
+        >> "$STATUS_ATTEMPTS" 2>&1 \
+      && HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+        --project-root "$PROJECT_DIRECTORY" ps --format json \
+        > "$OUTPUT_DIRECTORY/engine-restarted-status.json" \
+        2>> "$STATUS_ATTEMPTS" \
+      && jq -e \
+        '.resources[] | select(.service == "app" and .health.state == "healthy")' \
+        "$OUTPUT_DIRECTORY/engine-restarted-status.json" >/dev/null \
+      && jq -e \
+        '.resources[] | select(.kind == "gateway_route" and .health.state == "healthy")' \
+        "$OUTPUT_DIRECTORY/engine-restarted-status.json" >/dev/null; then
+      break
+    fi
+    if ! kill -0 "$daemon_pid" 2>/dev/null; then
+      printf 'Stackctl daemon exited during Engine restart recovery\n' >&2
+      exit 1
+    fi
+    sleep 2
+  done
+  HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" daemon status \
+    >> "$STATUS_ATTEMPTS" 2>&1
+  jq -e \
+    '.resources[] | select(.service == "app" and .health.state == "healthy")' \
+    "$OUTPUT_DIRECTORY/engine-restarted-status.json" >/dev/null
+  jq -e \
+    '.resources[] | select(.kind == "gateway_route" and .health.state == "healthy")' \
+    "$OUTPUT_DIRECTORY/engine-restarted-status.json" >/dev/null
+  test "$(docker ps -aq \
+    --filter label=dev.stackctl.kind=project_application \
+    --filter label=dev.stackctl.project=acceptance | sed -n '1p')" = "$application_container_id"
+  HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+    --project-root "$PROJECT_DIRECTORY" exec \
+    php database/workflow-verify.php workflow-replay-guard \
+    > "$OUTPUT_DIRECTORY/engine-restarted-automatic-workflow.txt" 2>&1
+  printf 'engine_restart_recovered_at_utc=%s\n' \
+    "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$METADATA"
+else
+  printf 'engine_restart=skipped\n' >> "$METADATA"
+fi
 NO_PROXY="${NO_PROXY:-},.stackctl.localhost" \
   no_proxy="${no_proxy:-},.stackctl.localhost" \
   curl --fail --silent --show-error \

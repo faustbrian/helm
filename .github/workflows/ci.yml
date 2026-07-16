@@ -215,6 +215,7 @@ jobs:
       - name: Exercise a clean isolated-home Laravel installation
         env:
           STACKCTL_ENGINE_SOCKET: /var/run/docker.sock
+          STACKCTL_ACCEPT_ENGINE_RESTART: 'true'
         run: >-
           ./scripts/accept-v8-laravel.sh
           target/release/stackctl
