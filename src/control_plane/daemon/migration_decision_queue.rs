@@ -10,17 +10,6 @@ pub(crate) struct MigrationDecisionQueue {
 }
 
 impl MigrationDecisionQueue {
-    pub(crate) fn new(capacity: usize) -> Result<Self, MigrationDecisionQueueError> {
-        if capacity == 0 {
-            return Err(MigrationDecisionQueueError::InvalidCapacity);
-        }
-
-        Ok(Self {
-            capacity,
-            pending: VecDeque::with_capacity(capacity),
-        })
-    }
-
     pub(crate) fn enqueue(
         &mut self,
         decision: QueuedMigrationDecision,

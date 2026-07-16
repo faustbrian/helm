@@ -12,7 +12,7 @@ pub(crate) fn reconstruct_owned_image(
         supported_schema_version,
     ) {
         ObservedResourceOwnership::Owned(metadata) => {
-            Ok(OwnedImage::new(observed.id().clone(), metadata))
+            Ok(OwnedImage::new(observed.id().clone(), *metadata))
         }
         ownership => Err(ownership),
     }

@@ -74,21 +74,20 @@ fn prepare_checkpoint(
 ) -> Result<(), MigrationError> {
     super::run_migration::validate_inventory(inventory, updated_at_unix_seconds)?;
     let existing = super::run_migration::load_checkpoint(store, inventory)?;
-    if let Some(checkpoint) = existing.as_ref() {
-        if checkpoint.phase() != MigrationPhase::Inventoried {
-            let evidence_matches = checkpoint.backup_reference()
-                == Some(recovery_point.reference())
-                && checkpoint.backup_artifact_sha256() == Some(recovery_point.artifact_sha256())
-                && checkpoint.backup_artifact_size_bytes()
-                    == Some(recovery_point.artifact_size_bytes());
-            if !evidence_matches {
-                return Err(MigrationError::CheckpointMismatch {
-                    migration_id: inventory.migration_id().to_owned(),
-                });
-            }
-
-            return Ok(());
+    if let Some(checkpoint) = existing.as_ref()
+        && checkpoint.phase() != MigrationPhase::Inventoried
+    {
+        let evidence_matches = checkpoint.backup_reference() == Some(recovery_point.reference())
+            && checkpoint.backup_artifact_sha256() == Some(recovery_point.artifact_sha256())
+            && checkpoint.backup_artifact_size_bytes()
+                == Some(recovery_point.artifact_size_bytes());
+        if !evidence_matches {
+            return Err(MigrationError::CheckpointMismatch {
+                migration_id: inventory.migration_id().to_owned(),
+            });
         }
+
+        return Ok(());
     }
     if existing.is_none() {
         store.record_migration(inventory)?;

@@ -36,6 +36,7 @@ impl RegistryConflicts {
     }
 
     /// Returns every conflict in deterministic domain order.
+    #[cfg(test)]
     pub(crate) fn conflicts(&self) -> &[RegistryConflict] {
         &self.conflicts
     }

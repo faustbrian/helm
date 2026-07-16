@@ -5,6 +5,10 @@ use super::VerifiedBackupEvidence;
 #[non_exhaustive]
 pub(crate) enum PruneAuthorization {
     None,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "explicit deletion authorization contract")
+    )]
     Explicit {
         backup: Option<VerifiedBackupEvidence>,
     },

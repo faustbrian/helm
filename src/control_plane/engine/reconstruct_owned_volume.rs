@@ -12,7 +12,7 @@ pub(crate) fn reconstruct_owned_volume(
         supported_schema_version,
     ) {
         ObservedResourceOwnership::Owned(metadata) => {
-            Ok(OwnedVolume::new(observed.name(), metadata))
+            Ok(OwnedVolume::new(observed.name(), *metadata))
         }
         ownership => Err(ownership),
     }

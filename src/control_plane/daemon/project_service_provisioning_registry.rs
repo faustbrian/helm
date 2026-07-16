@@ -32,7 +32,7 @@ impl ProjectServiceProvisioningRegistry {
                 .failed
                 .get(&identity)
                 .is_some_and(|(_, retry_at)| retry_at.is_none_or(|retry_at| now >= retry_at))
-            || (self.failed.get(&identity).is_none()
+            || (!self.failed.contains_key(&identity)
                 && self.completed.get(&identity).is_none_or(|completed| {
                     now.saturating_duration_since(*completed) >= RECHECK_INTERVAL
                 }))

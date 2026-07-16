@@ -16,6 +16,7 @@ mod prepare_mysql_shared_instances;
 mod prepared_mysql_shared_instance;
 mod provision_mysql_logical_resource;
 mod reconcile_mysql_migration_target;
+#[cfg(test)]
 mod reconcile_mysql_project_resources;
 mod reconcile_prepared_mysql_instance;
 mod revoke_mysql_project_access;
@@ -39,6 +40,7 @@ pub(crate) use prepare_mysql_shared_instances::prepare_mysql_shared_instances;
 pub(crate) use prepared_mysql_shared_instance::PreparedMySqlSharedInstance;
 pub(crate) use provision_mysql_logical_resource::provision_mysql_logical_resource;
 pub(crate) use reconcile_mysql_migration_target::reconcile_mysql_migration_target;
+#[cfg(test)]
 pub(crate) use reconcile_mysql_project_resources::reconcile_mysql_project_resources;
 pub(crate) use reconcile_prepared_mysql_instance::reconcile_prepared_mysql_instance;
 pub(crate) use revoke_mysql_project_access::revoke_mysql_project_access;

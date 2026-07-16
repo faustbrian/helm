@@ -68,7 +68,7 @@ mod tests {
             &["app-v1"],
             &["postgresql:17", "valkey:8", "minio:1", "mailpit:1"],
         );
-        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::V8FortySplit, &snapshot)
+        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::FortySplit, &snapshot)
             .expect_err("compatible topology must not pass as split");
 
         assert!(error.to_string().contains("v8-forty-split"));
@@ -78,7 +78,7 @@ mod tests {
     fn canonical_evidence_topologies_pass() {
         let fixtures = [
             (
-                BenchmarkEvidenceScenario::V8One,
+                BenchmarkEvidenceScenario::One,
                 benchmark_snapshot(
                     1,
                     &["app-v1"],
@@ -86,7 +86,7 @@ mod tests {
                 ),
             ),
             (
-                BenchmarkEvidenceScenario::V8FortyCompatible,
+                BenchmarkEvidenceScenario::FortyCompatible,
                 benchmark_snapshot(
                     40,
                     &["app-v1"],
@@ -94,7 +94,7 @@ mod tests {
                 ),
             ),
             (
-                BenchmarkEvidenceScenario::V8FortySplit,
+                BenchmarkEvidenceScenario::FortySplit,
                 benchmark_snapshot(
                     40,
                     &["app-v1", "app-v2"],
@@ -124,7 +124,7 @@ mod tests {
         value["containers"][1]["project_id"] = json!("removed-project");
         let snapshot = serde_json::from_value(value).expect("benchmark snapshot fixture");
 
-        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::V8One, &snapshot)
+        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::One, &snapshot)
             .expect_err("container ownership must equal registered project ownership");
 
         assert!(error.to_string().contains("project ownership"));
@@ -144,7 +144,7 @@ mod tests {
             ],
         );
 
-        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::V8FortySplit, &snapshot)
+        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::FortySplit, &snapshot)
             .expect_err("unrelated service splits must not substitute for PostgreSQL majors");
 
         assert!(error.to_string().contains("shared service profiles"));
@@ -160,7 +160,7 @@ mod tests {
         value["containers"][1]["resource_id"] = json!("scheduler");
         let snapshot = serde_json::from_value(value).expect("benchmark snapshot fixture");
 
-        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::V8One, &snapshot)
+        let error = validate_benchmark_scenario(BenchmarkEvidenceScenario::One, &snapshot)
             .expect_err("a scheduler must not substitute for the canonical worker");
 
         assert!(error.to_string().contains("worker process"));

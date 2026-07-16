@@ -89,7 +89,7 @@ pub(crate) fn discover_project_sources(
         }
     }
 
-    issues.sort_by(|first, second| first.to_string().cmp(&second.to_string()));
+    issues.sort_by_key(|first| first.to_string());
 
     Ok(ProjectDiscoveryReport::new(
         sources.into_values().collect(),

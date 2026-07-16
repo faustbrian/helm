@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Host paths for one private Mailpit SMTP authentication mount.
 #[derive(Debug, Eq, PartialEq)]
@@ -21,14 +23,17 @@ impl StoredMailpitAuthenticationPaths {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
     }
 
+    #[cfg(test)]
     pub(crate) fn mount_directory(&self) -> &Path {
         &self.mount_directory
     }
 
+    #[cfg(test)]
     pub(crate) fn password_file(&self) -> &Path {
         &self.password_file
     }

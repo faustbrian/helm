@@ -221,13 +221,14 @@ pub(crate) use installation_initialization_error::InstallationInitializationErro
 pub(crate) use invalidate_engine_connection::invalidate_engine_connection;
 #[cfg(unix)]
 pub(crate) use ipc::{
-    IpcBenchmarkSnapshot, IpcDataLifecycle, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind,
+    IpcBenchmarkSnapshot, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind,
     IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState,
     IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager, IpcOutcome,
     IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
-    send_unix_request,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResponse, IpcResult, send_unix_request,
 };
+#[cfg(test)]
+pub(crate) use ipc::{IpcDataLifecycle, IpcResourceStatus};
 pub(crate) use is_valid_certificate_generation::is_valid_certificate_generation;
 pub(crate) use migration_decision_execution_options::MigrationDecisionExecutionOptions;
 pub(crate) use migration_decision_execution_result::MigrationDecisionExecutionResult;

@@ -489,103 +489,103 @@ fn live_docker_engine_two_projects_share_one_postgres_with_isolated_databases() 
         let rollback =
             MigrationRollbackPlan::new(project, bill.environment().clone(), vec![retained_target])
                 .expect("plan PostgreSQL recovery rollback");
-        let mut retirement = EnginePostgresSourceRetirement::new(
-            &engine,
-            PostgresSourceRetirementOptions {
-                source_container: &container,
-                administrator: prepared.instance().bootstrap_credential(),
-                source_credential: bill.credential(),
-                source_environment: bill.environment(),
-                installation_id: &installation_id,
-                timeout: Duration::from_secs(30),
-            },
-        )
-        .expect("prepare PostgreSQL source retirement boundary");
-        let mut operations = PostgresMigrationOperations::new(
-            &engine,
-            &mut retirement,
-            PostgresMigrationOperationsOptions {
-                source_container: &container,
-                target_container: target.container(),
-                source_logical_resource: source_logical,
-                target_logical_resource: &target_logical,
-                source_credential: bill.credential(),
-                target_credential: target_resources.credential(),
-                target_plan: target_resources.logical(),
-                administrator: target.bootstrap_credential(),
-                installation_id: &installation_id,
-                source_database_name: bill.logical().database_name(),
-                backup_root: &backup_root,
-                operation_unix_seconds: 11_700,
-                timeout: Duration::from_secs(30),
-                cutover,
-                rollback,
-            },
-        )
-        .expect("prepare live PostgreSQL migration operations");
-        let target_plan = operations
-            .provision_target(&backup_checkpoint)
-            .await
-            .expect("provision isolated PostgreSQL recovery database");
-        let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
-            migration_id: backup_checkpoint.migration_id().to_owned(),
-            project_id: backup_checkpoint.project_id().to_owned(),
-            source_revision: backup_checkpoint.source_revision().to_owned(),
-            target_revision: target_logical.desired_revision().to_owned(),
-            source_compatibility_fingerprint: backup_checkpoint
-                .source_compatibility_fingerprint()
-                .to_owned(),
-            target_compatibility_fingerprint: backup_checkpoint
-                .target_compatibility_fingerprint()
-                .to_owned(),
-            phase: MigrationPhase::TargetProvisioned,
-            backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
-            backup_artifact_sha256: backup_checkpoint
-                .backup_artifact_sha256()
-                .map(str::to_owned),
-            backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
-            target_resource_id: Some(target_plan.target_resource_id().to_owned()),
-            rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
-            updated_at_unix_seconds: 11_600,
-        })
-        .expect("record live PostgreSQL target checkpoint");
-        operations
-            .restore(
-                &restore_checkpoint,
-                backup.reference(),
-                target_plan.target_resource_id(),
-            )
-            .await
-            .expect("restore verified PostgreSQL backup into isolated target");
-        assert_eq!(
-            postgres_command(
+        {
+            let mut retirement = EnginePostgresSourceRetirement::new(
                 &engine,
-                target.container(),
-                target_resources.credential().username(),
-                target_resources.credential().secret(),
-                target_plan.target_resource_id(),
-                "SELECT value FROM stackctl_acceptance;",
+                PostgresSourceRetirementOptions {
+                    source_container: &container,
+                    administrator: prepared.instance().bootstrap_credential(),
+                    source_credential: bill.credential(),
+                    source_environment: bill.environment(),
+                    installation_id: &installation_id,
+                    timeout: Duration::from_secs(30),
+                },
             )
-            .await
-            .expect("read restored PostgreSQL target"),
-            b"bill-value\n",
-            "target restore must reproduce the verified point-in-time backup"
-        );
-        assert_eq!(
-            postgres_command(
+            .expect("prepare PostgreSQL source retirement boundary");
+            let mut operations = PostgresMigrationOperations::new(
                 &engine,
-                &container,
-                shop.credential().username(),
-                shop.credential().secret(),
-                shop.logical().database_name(),
-                "SELECT value FROM stackctl_acceptance;",
+                &mut retirement,
+                PostgresMigrationOperationsOptions {
+                    source_container: &container,
+                    target_container: target.container(),
+                    source_logical_resource: source_logical,
+                    target_logical_resource: &target_logical,
+                    source_credential: bill.credential(),
+                    target_credential: target_resources.credential(),
+                    target_plan: target_resources.logical(),
+                    administrator: target.bootstrap_credential(),
+                    installation_id: &installation_id,
+                    source_database_name: bill.logical().database_name(),
+                    backup_root: &backup_root,
+                    operation_unix_seconds: 11_700,
+                    timeout: Duration::from_secs(30),
+                    cutover,
+                    rollback,
+                },
             )
-            .await
-            .expect("read sibling database after PostgreSQL restore"),
-            b"shop-value\n"
-        );
-        drop(operations);
-        drop(retirement);
+            .expect("prepare live PostgreSQL migration operations");
+            let target_plan = operations
+                .provision_target(&backup_checkpoint)
+                .await
+                .expect("provision isolated PostgreSQL recovery database");
+            let restore_checkpoint = MigrationRecord::new(MigrationRecordOptions {
+                migration_id: backup_checkpoint.migration_id().to_owned(),
+                project_id: backup_checkpoint.project_id().to_owned(),
+                source_revision: backup_checkpoint.source_revision().to_owned(),
+                target_revision: target_logical.desired_revision().to_owned(),
+                source_compatibility_fingerprint: backup_checkpoint
+                    .source_compatibility_fingerprint()
+                    .to_owned(),
+                target_compatibility_fingerprint: backup_checkpoint
+                    .target_compatibility_fingerprint()
+                    .to_owned(),
+                phase: MigrationPhase::TargetProvisioned,
+                backup_reference: backup_checkpoint.backup_reference().map(str::to_owned),
+                backup_artifact_sha256: backup_checkpoint
+                    .backup_artifact_sha256()
+                    .map(str::to_owned),
+                backup_artifact_size_bytes: backup_checkpoint.backup_artifact_size_bytes(),
+                target_resource_id: Some(target_plan.target_resource_id().to_owned()),
+                rollback_reference: backup_checkpoint.rollback_reference().map(str::to_owned),
+                updated_at_unix_seconds: 11_600,
+            })
+            .expect("record live PostgreSQL target checkpoint");
+            operations
+                .restore(
+                    &restore_checkpoint,
+                    backup.reference(),
+                    target_plan.target_resource_id(),
+                )
+                .await
+                .expect("restore verified PostgreSQL backup into isolated target");
+            assert_eq!(
+                postgres_command(
+                    &engine,
+                    target.container(),
+                    target_resources.credential().username(),
+                    target_resources.credential().secret(),
+                    target_plan.target_resource_id(),
+                    "SELECT value FROM stackctl_acceptance;",
+                )
+                .await
+                .expect("read restored PostgreSQL target"),
+                b"bill-value\n",
+                "target restore must reproduce the verified point-in-time backup"
+            );
+            assert_eq!(
+                postgres_command(
+                    &engine,
+                    &container,
+                    shop.credential().username(),
+                    shop.credential().secret(),
+                    shop.logical().database_name(),
+                    "SELECT value FROM stackctl_acceptance;",
+                )
+                .await
+                .expect("read sibling database after PostgreSQL restore"),
+                b"shop-value\n"
+            );
+        }
 
         let second =
             reconcile_prepared_postgres_instance(&mut engine, prepared, &installation_id, 8)

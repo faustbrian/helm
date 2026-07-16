@@ -200,7 +200,7 @@ mod tests {
                 .as_nanos()
         ));
 
-        let error = canonical_watch_dirs(&[missing.clone()]).expect_err("missing root");
+        let error = canonical_watch_dirs(std::slice::from_ref(&missing)).expect_err("missing root");
 
         assert!(error.to_string().contains("watched root"));
         assert!(error.to_string().contains(&missing.display().to_string()));

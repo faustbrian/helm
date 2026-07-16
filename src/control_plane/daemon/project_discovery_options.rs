@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::ProjectDiscoveryError;
 
 /// Explicit resource bounds for one correctness rescan of watched roots.
@@ -9,6 +10,7 @@ pub(crate) struct ProjectDiscoveryOptions {
 }
 
 impl ProjectDiscoveryOptions {
+    #[cfg(test)]
     pub(crate) fn new(
         maximum_depth: usize,
         maximum_directories: usize,

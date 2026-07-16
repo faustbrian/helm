@@ -126,7 +126,6 @@ fn open_private_log_file(path: &Path) -> Result<File, Error> {
 
 fn create_private_log_file(path: &Path) -> Result<File, Error> {
     OpenOptions::new()
-        .write(true)
         .append(true)
         .create_new(true)
         .mode(0o600)

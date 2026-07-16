@@ -4,7 +4,9 @@ use super::{
     LogicalResourceRecord, ManagedEnvironmentRecord, MigrationRecord, ProjectAdoptionPlan,
     ProjectRecord, RecoveryPointRecord, ResourceRecord, StateStoreError,
 };
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Durable control-plane state needed independently of any runtime backend.
 pub(crate) trait StateStore: Send {
@@ -36,11 +38,13 @@ pub(crate) trait StateStore: Send {
     fn watched_roots(&self) -> Result<Vec<PathBuf>, StateStoreError>;
 
     /// Atomically replaces one project and its complete route ownership set.
+    #[cfg(test)]
     fn replace_project(&mut self, project: &ProjectRecord) -> Result<(), StateStoreError> {
         self.replace_projects(std::slice::from_ref(project))
     }
 
     /// Atomically replaces a complete validated batch of discovered projects.
+    #[cfg(test)]
     fn replace_projects(&mut self, projects: &[ProjectRecord]) -> Result<(), StateStoreError>;
 
     /// Replaces the complete valid scan and atomically orphans missing projects.
@@ -54,6 +58,7 @@ pub(crate) trait StateStore: Send {
     fn projects(&self) -> Result<Vec<ProjectRecord>, StateStoreError>;
 
     /// Atomically unregisters a project and orphans its project-owned resources.
+    #[cfg(test)]
     fn orphan_project(
         &mut self,
         canonical_path: &Path,
@@ -61,6 +66,7 @@ pub(crate) trait StateStore: Send {
     ) -> Result<(), StateStoreError>;
 
     /// Upserts observed ownership without implicitly deleting missing resources.
+    #[cfg(test)]
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
 
     /// Replaces active physical identities within each exact ownership scope.
@@ -80,6 +86,7 @@ pub(crate) trait StateStore: Send {
     fn retire_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError>;
 
     /// Upserts logical tenant ownership without deleting missing retained data.
+    #[cfg(test)]
     fn upsert_logical_resources(
         &mut self,
         resources: &[LogicalResourceRecord],
@@ -89,6 +96,7 @@ pub(crate) trait StateStore: Send {
     fn logical_resources(&self) -> Result<Vec<LogicalResourceRecord>, StateStoreError>;
 
     /// Counts active logical consumers of one shared Engine resource.
+    #[cfg(test)]
     fn active_logical_reference_count(
         &self,
         shared_resource_id: &str,
@@ -111,6 +119,7 @@ pub(crate) trait StateStore: Send {
     fn credentials(&self) -> Result<Vec<CredentialRecord>, StateStoreError>;
 
     /// Atomically replaces the daemon-owned environment for one project.
+    #[cfg(test)]
     fn replace_managed_environment(
         &mut self,
         environment: &ManagedEnvironmentRecord,
@@ -120,6 +129,7 @@ pub(crate) trait StateStore: Send {
     fn managed_environments(&self) -> Result<Vec<ManagedEnvironmentRecord>, StateStoreError>;
 
     /// Atomically publishes logical tenant ownership and its project environment.
+    #[cfg(test)]
     fn record_logical_environment(
         &mut self,
         resources: &[LogicalResourceRecord],

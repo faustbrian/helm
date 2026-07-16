@@ -5,9 +5,14 @@ use std::fmt::{Display, Formatter};
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum ProjectBackupQueueError {
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated test constructor"))]
     InvalidCapacity,
-    DuplicateOperation { operation_id: String },
-    CapacityReached { capacity: usize },
+    DuplicateOperation {
+        operation_id: String,
+    },
+    CapacityReached {
+        capacity: usize,
+    },
 }
 
 impl Display for ProjectBackupQueueError {

@@ -5,6 +5,7 @@ use super::{
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
 const LOCAL_CA_DIRECTORY: &str = "/usr/local/share/ca-certificates";
 
 /// Debian-family system trust adapter using `update-ca-certificates`.
@@ -14,6 +15,7 @@ pub(crate) struct DebianCertificateTrustStore<E> {
 }
 
 impl<E> DebianCertificateTrustStore<E> {
+    #[cfg(target_os = "linux")]
     pub(crate) fn new(executor: E) -> Self {
         Self::with_local_ca_directory(executor, LOCAL_CA_DIRECTORY)
     }

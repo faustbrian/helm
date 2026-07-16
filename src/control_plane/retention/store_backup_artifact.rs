@@ -2,14 +2,19 @@ use super::{
     BackupArtifactManifest, BackupResourceIdentity, BackupVerificationError, StoredBackupArtifact,
     verify_stored_backup_artifact,
 };
+#[cfg(test)]
 use crate::control_plane::state::ResourceRecord;
 use sha2::{Digest, Sha256};
-use std::io::{Cursor, Read};
+#[cfg(test)]
+use std::io::Cursor;
+#[cfg(test)]
+use std::io::Read;
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
 
 /// Atomically stores one in-memory artifact through the streaming store.
+#[cfg(test)]
 pub(crate) fn store_backup_artifact(
     resource: &ResourceRecord,
     artifact: &[u8],
@@ -25,6 +30,7 @@ pub(crate) fn store_backup_artifact(
 }
 
 /// Atomically stores bytes for an Engine or logical resource identity.
+#[cfg(test)]
 pub(crate) fn store_backup_artifact_for_identity(
     resource: &BackupResourceIdentity,
     artifact: &[u8],
@@ -41,6 +47,7 @@ pub(crate) fn store_backup_artifact_for_identity(
 
 /// Streams one immutable backup and atomically publishes its manifest pair.
 #[cfg(unix)]
+#[cfg(test)]
 pub(crate) fn store_backup_artifact_from_reader(
     resource: &ResourceRecord,
     artifact: impl Read,
@@ -56,6 +63,7 @@ pub(crate) fn store_backup_artifact_from_reader(
 }
 
 #[cfg(unix)]
+#[cfg(test)]
 fn store_backup_artifact_from_reader_for_identity(
     resource: &BackupResourceIdentity,
     mut artifact: impl Read,
@@ -110,6 +118,7 @@ fn backup_identity_hash(resource: &BackupResourceIdentity) -> String {
 }
 
 #[cfg(unix)]
+#[cfg(test)]
 fn write_private_artifact(
     path: &Path,
     artifact: &mut impl Read,

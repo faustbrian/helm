@@ -116,7 +116,7 @@ pub(crate) fn classify_observed_resource(
     });
 
     match metadata {
-        Ok(metadata) => ObservedResourceOwnership::Owned(metadata),
+        Ok(metadata) => ObservedResourceOwnership::Owned(Box::new(metadata)),
         Err(error) => ObservedResourceOwnership::Malformed {
             detail: error.to_string(),
         },

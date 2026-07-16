@@ -32,10 +32,10 @@ fn rollback_partial_removal(
     match store.contains(identity, certificate_path) {
         Ok(true) => return Ok(()),
         Ok(false) | Err(_) => {
-            if let Err(install_failure) = store.install(identity, certificate_path) {
-                if !store.contains(identity, certificate_path)? {
-                    return Err(install_failure);
-                }
+            if let Err(install_failure) = store.install(identity, certificate_path)
+                && !store.contains(identity, certificate_path)?
+            {
+                return Err(install_failure);
             }
         }
     }

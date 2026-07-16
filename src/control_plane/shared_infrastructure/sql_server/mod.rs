@@ -5,6 +5,7 @@ pub(crate) use prepared_sql_server_shared_instance::PreparedSqlServerSharedInsta
 pub(crate) use provision_sql_server_logical_resource::provision_sql_server_logical_resource;
 pub(crate) use reconcile_prepared_sql_server_instance::reconcile_prepared_sql_server_instance;
 pub(crate) use reconcile_sql_server_migration_target::reconcile_sql_server_migration_target;
+#[cfg(test)]
 pub(crate) use reconcile_sql_server_project_resources::reconcile_sql_server_project_resources;
 pub(crate) use revoke_sql_server_project_access::revoke_sql_server_project_access;
 pub(crate) use sql_server_access_revocation_options::SqlServerAccessRevocationOptions;
@@ -26,6 +27,7 @@ mod prepared_sql_server_shared_instance;
 mod provision_sql_server_logical_resource;
 mod reconcile_prepared_sql_server_instance;
 mod reconcile_sql_server_migration_target;
+#[cfg(test)]
 mod reconcile_sql_server_project_resources;
 mod revoke_sql_server_project_access;
 mod sql_server_access_revocation_options;

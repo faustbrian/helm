@@ -63,6 +63,7 @@ pub(crate) use ipc_output_stream::IpcOutputStream;
 pub(crate) use ipc_payload::IpcPayload;
 pub(crate) use ipc_php_tool::IpcPhpTool;
 pub(crate) use ipc_postgres_prune_plan::IpcPostgresPrunePlan;
+#[cfg(test)]
 pub(crate) use ipc_postgres_prune_plan_options::IpcPostgresPrunePlanOptions;
 pub(crate) use ipc_project_command::IpcProjectCommand;
 pub(crate) use ipc_project_status::IpcProjectStatus;

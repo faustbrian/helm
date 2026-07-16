@@ -15,6 +15,7 @@ impl ProjectRestoreExecutionResult {
         Self { operation, outcome }
     }
 
+    #[cfg(test)]
     pub(crate) const fn outcome(&self) -> &Result<MigrationExecutionResult, String> {
         &self.outcome
     }

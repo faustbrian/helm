@@ -179,7 +179,7 @@ impl UnixDaemonRuntime {
                 })
                 .collect::<Vec<_>>();
             return Some(match matches.as_slice() {
-                [plan] => Ok(ProjectRestoreTargetPlan::Dedicated(plan.clone())),
+                [plan] => Ok(ProjectRestoreTargetPlan::Dedicated(Box::new(plan.clone()))),
                 [] => Err(format!(
                     "recovery point '{}' has no exact dedicated service plan",
                     operation.recovery_point_id()

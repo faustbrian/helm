@@ -32,14 +32,19 @@ pub(crate) use migration_rollback_plan::MigrationRollbackPlan;
 pub(crate) use migration_target_plan::MigrationTargetPlan;
 pub(crate) use mongodb::{
     MongoDbBackupOptions, MongoDbMigrationOperations, MongoDbMigrationOperationsOptions,
-    MongoDbRestoreOptions, MongoDbVerifyTargetOptions, backup_mongodb_database,
-    restore_mongodb_database, verify_mongodb_target,
+    backup_mongodb_database,
+};
+#[cfg(test)]
+pub(crate) use mongodb::{
+    MongoDbRestoreOptions, MongoDbVerifyTargetOptions, restore_mongodb_database,
+    verify_mongodb_target,
 };
 pub(crate) use mysql::{
     MySqlBackupOptions, MySqlDumpRestoreOptions, MySqlMigrationOperations,
-    MySqlMigrationOperationsOptions, MySqlRestoreOptions, backup_mysql_database,
-    restore_mysql_database, restore_mysql_dump,
+    MySqlMigrationOperationsOptions, backup_mysql_database, restore_mysql_dump,
 };
+#[cfg(test)]
+pub(crate) use mysql::{MySqlRestoreOptions, restore_mysql_database};
 pub(crate) use object_store::{
     MinioBackupOptions, MinioRestoreOptions, backup_minio_bucket, restore_minio_bucket,
 };
@@ -57,8 +62,12 @@ pub(crate) use redis::{
 pub(crate) use run_migration::{confirm_migration, execute_migration, rollback_migration};
 pub(crate) use sql_server::{
     SqlServerBackupOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
-    SqlServerRestoreOptions, SqlServerVerifyTargetOptions, backup_sql_server_database,
-    restore_sql_server_database, verify_sql_server_target,
+    backup_sql_server_database,
+};
+#[cfg(test)]
+pub(crate) use sql_server::{
+    SqlServerRestoreOptions, SqlServerVerifyTargetOptions, restore_sql_server_database,
+    verify_sql_server_target,
 };
 pub(crate) use volume::{
     ProjectVolumeBackupOptions, ProjectVolumeRestoreOptions, backup_project_volume,

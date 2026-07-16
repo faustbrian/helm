@@ -117,10 +117,12 @@ impl MongoDbSharedInstancePlan {
         &self.bootstrap_secret_file
     }
 
+    #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
     }
 
+    #[cfg(test)]
     pub(crate) const fn bootstrap_secret_target(&self) -> &'static str {
         BOOTSTRAP_SECRET_TARGET
     }

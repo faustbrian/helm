@@ -14,6 +14,7 @@ pub(crate) use prepare_mongodb_shared_instances::prepare_mongodb_shared_instance
 pub(crate) use prepared_mongodb_shared_instance::PreparedMongoDbSharedInstance;
 pub(crate) use provision_mongodb_logical_resource::provision_mongodb_logical_resource;
 pub(crate) use reconcile_mongodb_migration_target::reconcile_mongodb_migration_target;
+#[cfg(test)]
 pub(crate) use reconcile_mongodb_project_resources::reconcile_mongodb_project_resources;
 pub(crate) use reconcile_prepared_mongodb_instance::reconcile_prepared_mongodb_instance;
 pub(crate) use revoke_mongodb_project_access::revoke_mongodb_project_access;
@@ -37,6 +38,7 @@ mod prepare_mongodb_shared_instances;
 mod prepared_mongodb_shared_instance;
 mod provision_mongodb_logical_resource;
 mod reconcile_mongodb_migration_target;
+#[cfg(test)]
 mod reconcile_mongodb_project_resources;
 mod reconcile_prepared_mongodb_instance;
 mod revoke_mongodb_project_access;

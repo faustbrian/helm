@@ -14,9 +14,9 @@ pub(super) fn validate_benchmark_scenario(
         expected_shared_instances,
         expected_containers,
     ) = match scenario {
-        BenchmarkEvidenceScenario::V8One => ("v8-one", 1, 1, 4, 7),
-        BenchmarkEvidenceScenario::V8FortyCompatible => ("v8-forty-compatible", 40, 1, 4, 85),
-        BenchmarkEvidenceScenario::V8FortySplit => ("v8-forty-split", 40, 2, 5, 86),
+        BenchmarkEvidenceScenario::One => ("v8-one", 1, 1, 4, 7),
+        BenchmarkEvidenceScenario::FortyCompatible => ("v8-forty-compatible", 40, 1, 4, 85),
+        BenchmarkEvidenceScenario::FortySplit => ("v8-forty-split", 40, 2, 5, 86),
     };
 
     let mut application_projects = BTreeSet::new();
@@ -138,7 +138,7 @@ fn validate_shared_profiles(
         ("minio", 1),
         (
             "postgresql",
-            if scenario == BenchmarkEvidenceScenario::V8FortySplit {
+            if scenario == BenchmarkEvidenceScenario::FortySplit {
                 2
             } else {
                 1
@@ -150,7 +150,7 @@ fn validate_shared_profiles(
         .iter()
         .map(|(implementation, majors)| (*implementation, majors.len()))
         .collect::<BTreeMap<_, _>>();
-    let expected_postgres_majors = if scenario == BenchmarkEvidenceScenario::V8FortySplit {
+    let expected_postgres_majors = if scenario == BenchmarkEvidenceScenario::FortySplit {
         BTreeSet::from(["17", "18"])
     } else {
         BTreeSet::from(["17"])

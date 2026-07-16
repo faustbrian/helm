@@ -345,13 +345,13 @@ impl UnixDaemonRuntime {
             let now_unix_seconds = unix_time_seconds();
             match self.run_iteration(now, now_unix_seconds) {
                 Ok(iteration) => {
-                    if let Some(reconciliation) = iteration.reconciliation() {
-                        if let Err(error) = self.engine_reconciliation.observe(reconciliation) {
-                            tracing::error!(
-                                error = %error,
-                                "validated registry could not resolve to an Engine plan"
-                            );
-                        }
+                    if let Some(reconciliation) = iteration.reconciliation()
+                        && let Err(error) = self.engine_reconciliation.observe(reconciliation)
+                    {
+                        tracing::error!(
+                            error = %error,
+                            "validated registry could not resolve to an Engine plan"
+                        );
                     }
                     if !iteration.installation_reconciliation_frozen()
                         && !self.has_active_project_command()

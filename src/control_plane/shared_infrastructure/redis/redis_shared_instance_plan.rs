@@ -18,6 +18,10 @@ pub(crate) struct RedisSharedInstancePlan {
     container: ContainerCreateOptions,
     volume: Option<VolumeCreateOptions>,
     bootstrap_credential: CredentialRecord,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "test-observable startup contract")
+    )]
     command_arguments: Vec<String>,
 }
 
@@ -148,14 +152,17 @@ impl RedisSharedInstancePlan {
         ACL_MOUNT_TARGET
     }
 
+    #[cfg(test)]
     pub(crate) const fn acl_file(&self) -> &'static str {
         ACL_FILE
     }
 
+    #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
     }
 
+    #[cfg(test)]
     pub(crate) fn command_arguments(&self) -> &[String] {
         &self.command_arguments
     }

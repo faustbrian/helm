@@ -2,7 +2,9 @@ use crate::output::{self, LogLevel, Persistence};
 use anyhow::{Context, Result, bail};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const DELETION_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 const DELETION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30 * 60);

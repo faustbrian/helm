@@ -126,8 +126,10 @@ mod tests {
         })
     }
 
+    type CapturedRequests = Arc<Mutex<Vec<(Vec<String>, String)>>>;
+
     struct SequencedExecutor {
-        requests: Arc<Mutex<Vec<(Vec<String>, String)>>>,
+        requests: CapturedRequests,
         statuses: Arc<Mutex<VecDeque<CommandStatus>>>,
         next_execution: AtomicUsize,
     }

@@ -28,14 +28,6 @@ impl CommandSession {
         }
     }
 
-    pub(crate) const fn execution_id(&self) -> &CommandExecutionId {
-        &self.execution_id
-    }
-
-    pub(crate) const fn container_id(&self) -> &ContainerId {
-        &self.container_id
-    }
-
     pub(crate) fn into_parts(
         self,
     ) -> (

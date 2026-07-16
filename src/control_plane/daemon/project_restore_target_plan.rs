@@ -4,7 +4,7 @@ use crate::control_plane::workload::DedicatedProjectServicePlan;
 /// Exact desired Engine plan selected for one restore resource kind.
 pub(crate) enum ProjectRestoreTargetPlan {
     Shared(SharedInstancePlan),
-    Dedicated(DedicatedProjectServicePlan),
+    Dedicated(Box<DedicatedProjectServicePlan>),
 }
 
 impl ProjectRestoreTargetPlan {
@@ -15,9 +15,9 @@ impl ProjectRestoreTargetPlan {
         }
     }
 
-    pub(crate) const fn dedicated(&self) -> Option<&DedicatedProjectServicePlan> {
+    pub(crate) fn dedicated(&self) -> Option<&DedicatedProjectServicePlan> {
         match self {
-            Self::Dedicated(plan) => Some(plan),
+            Self::Dedicated(plan) => Some(plan.as_ref()),
             Self::Shared(_) => None,
         }
     }

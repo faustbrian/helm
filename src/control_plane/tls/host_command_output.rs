@@ -7,6 +7,7 @@ pub(crate) struct HostCommandOutput {
 }
 
 impl HostCommandOutput {
+    #[cfg(test)]
     pub(crate) fn success(stdout: impl Into<String>) -> Self {
         Self {
             success: true,
@@ -15,6 +16,7 @@ impl HostCommandOutput {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn failure(stderr: impl Into<String>) -> Self {
         Self {
             success: false,
@@ -41,9 +43,5 @@ impl HostCommandOutput {
 
     pub(crate) fn stderr(&self) -> &str {
         &self.stderr
-    }
-
-    pub(crate) fn contains(&self, needle: &str) -> bool {
-        self.stdout.contains(needle) || self.stderr.contains(needle)
     }
 }

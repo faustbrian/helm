@@ -20,6 +20,7 @@ impl LogChunk {
         Self { stream, bytes }
     }
 
+    #[cfg(test)]
     pub(crate) const fn stdout(bytes: Vec<u8>) -> Self {
         Self::new(LogStreamKind::Stdout, bytes)
     }

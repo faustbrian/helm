@@ -45,10 +45,12 @@ impl ScheduledProjectCommandPlan {
         self.application_service.as_str()
     }
 
+    #[cfg(test)]
     pub(crate) fn arguments(&self) -> &[String] {
         &self.arguments
     }
 
+    #[cfg(test)]
     pub(crate) const fn environment(&self) -> &BTreeMap<String, String> {
         &self.environment
     }

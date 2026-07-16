@@ -152,7 +152,7 @@ fn live_docker_engine_persistent_volume_deletion_requires_exact_authorization() 
             InstallationResourceDeletionOptions {
                 installation_id: &installation_id,
                 schema_version: 8,
-                authorized_persistent_volumes: &[volume_name.clone()],
+                authorized_persistent_volumes: std::slice::from_ref(&volume_name),
             },
         )
         .await
@@ -1870,7 +1870,10 @@ fn complete_current_installation_labels_reconstruct_owned_metadata() {
 
     let ownership = classify_observed_resource(&metadata.labels(), "install-1", 8);
 
-    assert_eq!(ownership, ObservedResourceOwnership::Owned(metadata));
+    assert_eq!(
+        ownership,
+        ObservedResourceOwnership::Owned(Box::new(metadata))
+    );
 }
 
 #[test]
@@ -2070,7 +2073,9 @@ fn engine_container_summaries_map_to_backend_independent_observations() {
     assert_eq!(observed.id().as_str(), "container-1");
     assert_eq!(
         classify_observed_resource(observed.labels(), "install-1", 8),
-        ObservedResourceOwnership::Owned(project_metadata(ResourceKind::ProjectApplication))
+        ObservedResourceOwnership::Owned(Box::new(project_metadata(
+            ResourceKind::ProjectApplication
+        )))
     );
 }
 

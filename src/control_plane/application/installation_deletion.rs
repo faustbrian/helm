@@ -8,6 +8,14 @@ use crate::control_plane::state::{
 };
 use std::collections::BTreeSet;
 
+type InstallationDeletionSnapshot = (
+    String,
+    Vec<LogicalResourceRecord>,
+    Vec<ResourceRecord>,
+    Vec<CredentialRecord>,
+    Vec<RecoveryPointRecord>,
+);
+
 impl<Store> ControlPlane<Store>
 where
     Store: StateStore,
@@ -131,18 +139,7 @@ where
         Ok(authorized)
     }
 
-    fn installation_deletion_snapshot(
-        &self,
-    ) -> Result<
-        (
-            String,
-            Vec<LogicalResourceRecord>,
-            Vec<ResourceRecord>,
-            Vec<CredentialRecord>,
-            Vec<RecoveryPointRecord>,
-        ),
-        String,
-    > {
+    fn installation_deletion_snapshot(&self) -> Result<InstallationDeletionSnapshot, String> {
         let installation = self
             .installation()
             .map_err(|error| error.to_string())?

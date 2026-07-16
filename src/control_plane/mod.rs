@@ -32,14 +32,15 @@ pub(crate) use configuration::{
 };
 #[cfg(unix)]
 pub(crate) use daemon::{
-    IpcBenchmarkSnapshot, IpcDataLifecycle, IpcDiagnostic, IpcEvent, IpcEventKind,
-    IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState,
-    IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager, IpcOutcome,
-    IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest,
-    IpcResourceHealth, IpcResourceLifecycle, IpcResourceStatus, IpcResponse, IpcResult,
-    UnixDaemonWatchOptions, default_unix_daemon_runtime_directory, run_unix_daemon_watch,
-    send_unix_request,
+    IpcBenchmarkSnapshot, IpcDiagnostic, IpcEvent, IpcEventKind, IpcInstallationDeletionStatus,
+    IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,
+    IpcMigrationDecision, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload,
+    IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
+    IpcResourceLifecycle, IpcResponse, IpcResult, UnixDaemonWatchOptions,
+    default_unix_daemon_runtime_directory, run_unix_daemon_watch, send_unix_request,
 };
+#[cfg(test)]
+pub(crate) use daemon::{IpcDataLifecycle, IpcResourceStatus};
 pub(crate) use desired_state::{
     DesiredProject, DesiredProjectError, DesiredService, resolve_desired_project,
 };
@@ -57,12 +58,11 @@ pub(crate) use registry_conflict::{RegistryConflict, RegistryConflicts};
 pub(crate) use route_claim::RouteClaim;
 pub(crate) use route_identity::RouteIdentity;
 pub(crate) use service_identity::ServiceIdentity;
+#[cfg(test)]
+pub(crate) use service_strategy::KNOWN_SERVICE_PRESETS;
 pub(crate) use service_strategy::{
-    KNOWN_SERVICE_PRESETS, PRESET_ARTIFACT_CATALOG_REVISION, ServiceDeploymentStrategy,
-    ServiceStrategyError, resolve_preset_artifact, resolve_service_deployment_strategy,
-};
-pub(crate) use shared_infrastructure::{
-    CompatibilityFingerprint, CompatibilityFingerprintOptions, IsolationCapability, PersistenceMode,
+    PRESET_ARTIFACT_CATALOG_REVISION, ServiceDeploymentStrategy, ServiceStrategyError,
+    resolve_preset_artifact, resolve_service_deployment_strategy,
 };
 #[cfg(target_os = "linux")]
 pub(crate) use tls::DebianCertificateTrustStore;

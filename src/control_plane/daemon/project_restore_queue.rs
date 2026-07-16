@@ -10,17 +10,6 @@ pub(crate) struct ProjectRestoreQueue {
 }
 
 impl ProjectRestoreQueue {
-    pub(crate) fn new(capacity: usize) -> Result<Self, ProjectRestoreQueueError> {
-        if capacity == 0 {
-            return Err(ProjectRestoreQueueError::InvalidCapacity);
-        }
-
-        Ok(Self {
-            capacity,
-            pending: VecDeque::with_capacity(capacity),
-        })
-    }
-
     pub(crate) fn enqueue(
         &mut self,
         operation: QueuedProjectRestore,

@@ -44,10 +44,10 @@ pub(super) fn validate_rabbitmq_message_store_archive(
         .map_err(|error| {
             operation_error("RabbitMQ recovery message-store archive seek failed", error)
         })?;
-    let mut archive = tar::Archive::new(&mut artifact_file);
-
-    validate_entries(&mut archive, expected_root)?;
-    drop(archive);
+    {
+        let mut archive = tar::Archive::new(&mut artifact_file);
+        validate_entries(&mut archive, expected_root)?;
+    }
     artifact_file
         .seek(SeekFrom::Start(archive_offset))
         .map_err(|error| {

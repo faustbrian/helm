@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Host paths for one private RabbitMQ config and definitions mount.
 #[derive(Debug, Eq, PartialEq)]
@@ -24,18 +26,22 @@ impl StoredRabbitMqPaths {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
     }
 
+    #[cfg(test)]
     pub(crate) fn mount_directory(&self) -> &Path {
         &self.mount_directory
     }
 
+    #[cfg(test)]
     pub(crate) fn config_file(&self) -> &Path {
         &self.config_file
     }
 
+    #[cfg(test)]
     pub(crate) fn definitions_file(&self) -> &Path {
         &self.definitions_file
     }

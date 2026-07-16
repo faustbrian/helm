@@ -8,6 +8,7 @@ pub(crate) struct PostgresMigrationTargetReconcileResult {
     plan: PostgresSharedInstancePlan,
     service: WorkloadReconcileResult,
     volume: ProjectVolumeReconcileResult,
+    #[cfg_attr(not(test), expect(dead_code, reason = "retained migration proof"))]
     health: ContainerHealth,
 }
 
@@ -34,6 +35,7 @@ impl PostgresMigrationTargetReconcileResult {
         self.volume.volume()
     }
 
+    #[cfg(test)]
     pub(crate) const fn health(&self) -> ContainerHealth {
         self.health
     }

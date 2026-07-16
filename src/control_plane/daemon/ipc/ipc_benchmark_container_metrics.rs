@@ -100,26 +100,32 @@ impl IpcBenchmarkContainerMetrics {
         self.resource_id.as_deref()
     }
 
+    #[cfg(test)]
     pub(crate) const fn cpu_usage_basis_points(&self) -> u64 {
         self.cpu_usage_basis_points
     }
 
+    #[cfg(test)]
     pub(crate) const fn memory_usage_bytes(&self) -> u64 {
         self.memory_usage_bytes
     }
 
+    #[cfg(test)]
     pub(crate) const fn process_count(&self) -> u64 {
         self.process_count
     }
 
+    #[cfg(test)]
     pub(crate) const fn network_received_bytes(&self) -> u64 {
         self.network_received_bytes
     }
 
+    #[cfg(test)]
     pub(crate) const fn network_transmitted_bytes(&self) -> u64 {
         self.network_transmitted_bytes
     }
 
+    #[cfg(test)]
     pub(crate) fn published_tcp_ports(&self) -> &[IpcBenchmarkTcpPort] {
         &self.published_tcp_ports
     }

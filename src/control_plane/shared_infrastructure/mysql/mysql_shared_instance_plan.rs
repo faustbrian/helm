@@ -112,6 +112,7 @@ impl MySqlSharedInstancePlan {
         &self.bootstrap_credential
     }
 
+    #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
     }

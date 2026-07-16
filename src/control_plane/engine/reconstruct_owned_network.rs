@@ -12,7 +12,7 @@ pub(crate) fn reconstruct_owned_network(
         supported_schema_version,
     ) {
         ObservedResourceOwnership::Owned(metadata) => {
-            Ok(OwnedNetwork::new(observed.id().clone(), metadata))
+            Ok(OwnedNetwork::new(observed.id().clone(), *metadata))
         }
         ownership => Err(ownership),
     }

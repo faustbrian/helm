@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::IpcPostgresPrunePlanOptions;
 use crate::control_plane::retention::{DataLifecycleStrategy, LogicalPrunePlan};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ pub(crate) struct IpcPostgresPrunePlan {
 }
 
 impl IpcPostgresPrunePlan {
+    #[cfg(test)]
     pub(crate) fn new(options: IpcPostgresPrunePlanOptions) -> Result<Self, String> {
         if !matches!(
             options.strategy,

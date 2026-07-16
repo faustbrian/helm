@@ -12,6 +12,7 @@ pub(crate) struct IpcInstallationDeletionPlan {
 }
 
 impl IpcInstallationDeletionPlan {
+    #[cfg(test)]
     pub(crate) fn new(
         logical_prunes: Vec<IpcPostgresPrunePlan>,
         volume_deletions: Vec<IpcInstallationVolumeDeletion>,

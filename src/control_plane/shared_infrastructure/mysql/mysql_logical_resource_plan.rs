@@ -49,10 +49,6 @@ impl MySqlLogicalResourcePlan {
         })
     }
 
-    pub(crate) const fn flavor(&self) -> MySqlFlavor {
-        self.flavor
-    }
-
     pub(crate) fn schema_name(&self) -> &str {
         &self.schema_name
     }

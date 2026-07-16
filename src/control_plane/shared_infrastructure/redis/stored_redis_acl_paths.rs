@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 /// Host paths for a directory-mounted Redis-compatible ACL snapshot.
 #[derive(Debug, Eq, PartialEq)]
@@ -17,14 +19,17 @@ impl StoredRedisAclPaths {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn mount_directory(&self) -> &Path {
         &self.mount_directory
     }
 
+    #[cfg(test)]
     pub(crate) fn directory(&self) -> &Path {
         &self.directory
     }
 
+    #[cfg(test)]
     pub(crate) fn acl_file(&self) -> &Path {
         &self.acl_file
     }

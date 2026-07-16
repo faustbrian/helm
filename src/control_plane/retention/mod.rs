@@ -8,6 +8,7 @@ mod data_lifecycle_strategy;
 mod data_lifecycle_strategy_error;
 mod deletion_decision;
 mod evaluate_deletion;
+#[cfg(test)]
 mod hashing_reader;
 mod installation_deletion_plan;
 mod installation_deletion_plan_options;
@@ -30,9 +31,13 @@ mod prune_sql_server_logical_resource;
 mod rabbitmq_logical_prune_options;
 mod redis_logical_prune_options;
 mod resolve_data_lifecycle_strategy;
+#[cfg(test)]
 mod restore_error;
+#[cfg(test)]
 mod restore_target;
+#[cfg(test)]
 mod restore_target_error;
+#[cfg(test)]
 mod restore_verified_backup;
 mod sql_server_logical_prune_options;
 mod store_backup_artifact;
@@ -72,11 +77,16 @@ pub(crate) use prune_sql_server_logical_resource::prune_sql_server_logical_resou
 pub(crate) use rabbitmq_logical_prune_options::RabbitMqLogicalPruneOptions;
 pub(crate) use redis_logical_prune_options::RedisLogicalPruneOptions;
 pub(crate) use resolve_data_lifecycle_strategy::resolve_data_lifecycle_strategy;
+#[cfg(test)]
 pub(crate) use restore_error::RestoreError;
+#[cfg(test)]
 pub(crate) use restore_target::RestoreTarget;
+#[cfg(test)]
 pub(crate) use restore_target_error::RestoreTargetError;
+#[cfg(test)]
 pub(crate) use restore_verified_backup::restore_verified_backup;
 pub(crate) use sql_server_logical_prune_options::SqlServerLogicalPruneOptions;
+#[cfg(test)]
 pub(crate) use store_backup_artifact::{
     store_backup_artifact, store_backup_artifact_for_identity, store_backup_artifact_from_reader,
 };
@@ -86,6 +96,7 @@ pub(crate) use verified_backup_evidence::VerifiedBackupEvidence;
 
 /// Seven days before orphaned disposable containers are automatically removed.
 pub(crate) const DEFAULT_ORPHAN_RETENTION_SECONDS: i64 = 7 * 24 * 60 * 60;
+#[cfg(test)]
 pub(crate) use verify_backup_artifact::verify_backup_artifact;
 pub(crate) use verify_recovery_point_artifact::verify_recovery_point_artifact;
 pub(crate) use verify_resource_recovery_point_artifact::verify_resource_recovery_point_artifact;

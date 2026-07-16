@@ -17,6 +17,7 @@ impl ContainerEventCursor {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn nanoseconds(&self) -> u64 {
         self.nanoseconds
     }

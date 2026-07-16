@@ -33,6 +33,7 @@ impl SharedServiceReconcileResult {
         self.volume.as_ref()
     }
 
+    #[cfg(test)]
     pub(crate) const fn action(&self) -> SharedServiceReconcileAction {
         self.action
     }

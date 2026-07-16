@@ -41,6 +41,7 @@ impl IpcBenchmarkSnapshot {
         })
     }
 
+    #[cfg(test)]
     pub(crate) const fn observed_at_unix_seconds(&self) -> i64 {
         self.observed_at_unix_seconds
     }

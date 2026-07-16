@@ -5,13 +5,27 @@ use std::fmt::{Display, Formatter};
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum IpcEventJournalError {
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated test constructor"))]
     InvalidCapacity,
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated test append path"))]
     InvalidOperationId,
     SequenceExhausted,
-    CorruptPersistedEvent { sequence: u64, detail: String },
-    NonMonotonicPersistedEvent { previous: u64, next: u64 },
-    CursorExpired { requested: u64, oldest: u64 },
-    CursorAhead { requested: u64, latest: u64 },
+    CorruptPersistedEvent {
+        sequence: u64,
+        detail: String,
+    },
+    NonMonotonicPersistedEvent {
+        previous: u64,
+        next: u64,
+    },
+    CursorExpired {
+        requested: u64,
+        oldest: u64,
+    },
+    CursorAhead {
+        requested: u64,
+        latest: u64,
+    },
 }
 
 impl Display for IpcEventJournalError {

@@ -45,6 +45,7 @@ impl DesiredProject {
     }
 
     /// Returns exact service names in deterministic order.
+    #[cfg(test)]
     pub(crate) fn service_names(&self) -> Vec<&str> {
         self.services.keys().map(String::as_str).collect()
     }

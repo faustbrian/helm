@@ -120,10 +120,12 @@ impl RabbitMqSharedInstancePlan {
         CONFIG_MOUNT_TARGET
     }
 
+    #[cfg(test)]
     pub(crate) const fn config_file(&self) -> &'static str {
         CONFIG_FILE
     }
 
+    #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
     }
@@ -132,6 +134,7 @@ impl RabbitMqSharedInstancePlan {
         DEFINITIONS_FILE
     }
 
+    #[cfg(test)]
     pub(crate) const fn node_name(&self) -> &'static str {
         NODE_NAME
     }

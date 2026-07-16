@@ -6,6 +6,7 @@ mod certificate_store_lock;
 mod certificate_trust_store;
 mod current_ca_trust_result;
 mod current_ca_trust_status;
+#[cfg(any(target_os = "linux", test))]
 mod debian_certificate_trust_store;
 mod ensure_ca_trusted;
 mod filesystem_certificate_store;
@@ -43,6 +44,7 @@ pub(crate) use certificate_store_lock::CertificateStoreLock;
 pub(crate) use certificate_trust_store::CertificateTrustStore;
 pub(crate) use current_ca_trust_result::CurrentCaTrustResult;
 pub(crate) use current_ca_trust_status::CurrentCaTrustStatus;
+#[cfg(any(target_os = "linux", test))]
 pub(crate) use debian_certificate_trust_store::DebianCertificateTrustStore;
 pub(crate) use ensure_ca_trusted::ensure_ca_trusted;
 pub(crate) use filesystem_certificate_store::FilesystemCertificateStore;

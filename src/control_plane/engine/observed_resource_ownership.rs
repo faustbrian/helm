@@ -4,7 +4,7 @@ use super::ManagedResourceMetadata;
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum ObservedResourceOwnership {
-    Owned(ManagedResourceMetadata),
+    Owned(Box<ManagedResourceMetadata>),
     Unmanaged,
     ForeignInstallation { installation_id: String },
     UnsupportedSchema { found: u32, supported: u32 },

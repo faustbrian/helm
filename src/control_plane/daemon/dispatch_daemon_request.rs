@@ -358,7 +358,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -650,7 +650,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -853,7 +853,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -890,7 +890,7 @@ where
                 };
                 let failed_json = match serialize_event_kind(request.request_id(), &failed) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
                 if let Ok(Some(event)) =
                     control_plane.transition_daemon_operation(DaemonOperationTransitionOptions {
@@ -962,7 +962,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -1059,7 +1059,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -1162,7 +1162,7 @@ where
             let accepted_kind_json =
                 match serialize_event_kind(request.request_id(), &IpcEventKind::Accepted) {
                     Ok(json) => json,
-                    Err(response) => return response,
+                    Err(response) => return *response,
                 };
             let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
                 operation_id: request.request_id().to_owned(),
@@ -1315,7 +1315,7 @@ where
                 let cancelled_json =
                     match serialize_event_kind(target_request_id, &IpcEventKind::Cancelled) {
                         Ok(json) => json,
-                        Err(response) => return response,
+                        Err(response) => return *response,
                     };
                 let cancelled = match control_plane.transition_daemon_operation(
                     DaemonOperationTransitionOptions {
@@ -1833,16 +1833,14 @@ where
         })
         .collect::<Vec<_>>();
     match matches.as_slice() {
-        [logical] => {
-            return QueuedProjectBackup::new(
-                operation_id.to_owned(),
-                project.project_name().to_owned(),
-                service.as_str().to_owned(),
-                logical.logical_resource_id().to_owned(),
-                logical.kind().to_owned(),
-                logical.compatibility_fingerprint().to_owned(),
-            );
-        }
+        [logical] => QueuedProjectBackup::new(
+            operation_id.to_owned(),
+            project.project_name().to_owned(),
+            service.as_str().to_owned(),
+            logical.logical_resource_id().to_owned(),
+            logical.kind().to_owned(),
+            logical.compatibility_fingerprint().to_owned(),
+        ),
         [] => {
             let volumes = control_plane
                 .resources()
@@ -1857,39 +1855,31 @@ where
                 })
                 .collect::<Vec<_>>();
             match volumes.as_slice() {
-                [volume] => {
-                    return QueuedProjectBackup::new(
-                        operation_id.to_owned(),
-                        project.project_name().to_owned(),
-                        service.as_str().to_owned(),
-                        volume.resource_id().to_owned(),
-                        volume.kind().to_owned(),
-                        volume.compatibility_fingerprint().to_owned(),
-                    );
-                }
-                [] => {
-                    return Err(format!(
-                        "project '{}' service '{}' has no active logical data resource or owned persistent volume",
-                        project.project_name(),
-                        service.as_str()
-                    ));
-                }
-                _ => {
-                    return Err(format!(
-                        "project '{}' service '{}' has multiple active persistent volumes",
-                        project.project_name(),
-                        service.as_str()
-                    ));
-                }
+                [volume] => QueuedProjectBackup::new(
+                    operation_id.to_owned(),
+                    project.project_name().to_owned(),
+                    service.as_str().to_owned(),
+                    volume.resource_id().to_owned(),
+                    volume.kind().to_owned(),
+                    volume.compatibility_fingerprint().to_owned(),
+                ),
+                [] => Err(format!(
+                    "project '{}' service '{}' has no active logical data resource or owned persistent volume",
+                    project.project_name(),
+                    service.as_str()
+                )),
+                _ => Err(format!(
+                    "project '{}' service '{}' has multiple active persistent volumes",
+                    project.project_name(),
+                    service.as_str()
+                )),
             }
         }
-        _ => {
-            return Err(format!(
-                "project '{}' service '{}' has multiple active logical data resources",
-                project.project_name(),
-                service.as_str()
-            ));
-        }
+        _ => Err(format!(
+            "project '{}' service '{}' has multiple active logical data resources",
+            project.project_name(),
+            service.as_str()
+        )),
     }
 }
 
@@ -2226,16 +2216,16 @@ fn workload_command(command: &IpcProjectCommand) -> ProjectCommand {
     }
 }
 
-fn serialize_event_kind(request_id: &str, kind: &IpcEventKind) -> Result<String, IpcResponse> {
+fn serialize_event_kind(request_id: &str, kind: &IpcEventKind) -> Result<String, Box<IpcResponse>> {
     serde_json::to_string(kind).map_err(|error| {
-        IpcResponse::failure(
+        Box::new(IpcResponse::failure(
             request_id,
             vec![IpcDiagnostic::new(
                 "event_serialization_failed",
                 error.to_string(),
                 false,
             )],
-        )
+        ))
     })
 }
 

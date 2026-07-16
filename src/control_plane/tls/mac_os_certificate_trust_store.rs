@@ -25,6 +25,7 @@ impl<E> MacOsCertificateTrustStore<E> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn with_user_keychain(executor: E, user_keychain: impl AsRef<Path>) -> Self {
         Self {
             executor,

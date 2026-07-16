@@ -46,7 +46,7 @@ pub(super) fn remove_persisted_daemon_trust() -> Result<()> {
             &crate::control_plane::MacOsCertificateTrustStore::new(ProcessHostCommandExecutor),
         )?);
 
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]

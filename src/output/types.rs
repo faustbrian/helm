@@ -18,12 +18,6 @@ pub(crate) enum LogLevel {
     Success,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum Channel {
-    Out,
-    Err,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Persistence {
     Transient,

@@ -1,8 +1,8 @@
 run: fmt
-    RUSTFLAGS="-Awarnings" cargo run --release
+    cargo run --release
 
 run-dev: fmt
-    RUSTFLAGS="-Awarnings" cargo run
+    cargo run
 
 install:
     cargo install --path .
@@ -14,8 +14,12 @@ build-dev: fmt
     cargo build
 
 lint:
+    ./scripts/audit-v8-lint-policy.sh
     rustup run nightly cargo fmt --check
     cargo clippy --all-targets --all-features
+
+audit-v8-lint-policy:
+    ./scripts/audit-v8-lint-policy.sh
 
 audit-v8-host-dependencies:
     ./scripts/audit-v8-host-dependencies.sh

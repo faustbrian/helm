@@ -5,7 +5,6 @@ use std::fmt::{Display, Formatter};
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub(crate) enum ProjectCommandQueueError {
-    InvalidCapacity,
     DuplicateOperation { operation_id: String },
     CapacityReached { capacity: usize },
 }
@@ -13,9 +12,6 @@ pub(crate) enum ProjectCommandQueueError {
 impl Display for ProjectCommandQueueError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidCapacity => {
-                formatter.write_str("project command queue capacity must be positive")
-            }
             Self::DuplicateOperation { operation_id } => write!(
                 formatter,
                 "project command operation '{operation_id}' is already queued"

@@ -3,12 +3,22 @@ use std::fmt::{Display, Formatter};
 /// Explicit capacity, identity, and cursor failures for live log sessions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProjectLogSessionRegistryError {
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated test constructor"))]
     InvalidCapacity,
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated test constructor"))]
     InvalidIdleTimeout,
-    DuplicateSession { session_id: String },
-    CapacityReached { capacity: usize },
-    UnknownSession { session_id: String },
-    Buffer { detail: String },
+    DuplicateSession {
+        session_id: String,
+    },
+    CapacityReached {
+        capacity: usize,
+    },
+    UnknownSession {
+        session_id: String,
+    },
+    Buffer {
+        detail: String,
+    },
 }
 
 impl Display for ProjectLogSessionRegistryError {

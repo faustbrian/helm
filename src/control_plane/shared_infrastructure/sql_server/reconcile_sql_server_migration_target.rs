@@ -4,8 +4,8 @@ use super::{
     prepare_sql_server_migration_target,
 };
 use crate::control_plane::engine::{
-    CommandExecutor, ContainerDiscovery, ContainerHealth, ContainerLifecycle, HealthObserver,
-    VolumeDiscovery, VolumeManager,
+    CommandExecutor, ContainerDiscovery, ContainerLifecycle, HealthObserver, VolumeDiscovery,
+    VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, SharedInfrastructureReconcileError, SharedInstancePlan,

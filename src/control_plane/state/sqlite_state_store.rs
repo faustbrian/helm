@@ -56,6 +56,7 @@ impl SqliteStateStore {
     }
 
     /// Returns the active journal mode for operational diagnostics.
+    #[cfg(test)]
     pub(crate) fn journal_mode(&self) -> Result<String, StateStoreError> {
         self.connection
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
@@ -462,6 +463,7 @@ impl StateStore for SqliteStateStore {
         Ok(roots.into_iter().map(PathBuf::from).collect())
     }
 
+    #[cfg(test)]
     fn replace_projects(&mut self, projects: &[ProjectRecord]) -> Result<(), StateStoreError> {
         let exact_projects = projects
             .iter()
@@ -550,6 +552,7 @@ impl StateStore for SqliteStateStore {
         Ok(records)
     }
 
+    #[cfg(test)]
     fn orphan_project(
         &mut self,
         canonical_path: &Path,
@@ -580,6 +583,7 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn upsert_resources(&mut self, resources: &[ResourceRecord]) -> Result<(), StateStoreError> {
         let transaction = self
             .connection
@@ -955,6 +959,7 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn upsert_logical_resources(
         &mut self,
         resources: &[LogicalResourceRecord],
@@ -1030,6 +1035,7 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    #[cfg(test)]
     fn active_logical_reference_count(
         &self,
         shared_resource_id: &str,
@@ -1161,6 +1167,7 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    #[cfg(test)]
     fn replace_managed_environment(
         &mut self,
         environment: &ManagedEnvironmentRecord,
@@ -1222,6 +1229,7 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    #[cfg(test)]
     fn record_logical_environment(
         &mut self,
         resources: &[LogicalResourceRecord],
@@ -2120,15 +2128,15 @@ fn replace_project_batch(
                     |row| row.get::<_, String>(0),
                 )
                 .optional()?;
-            if let Some(existing_path) = existing_path {
-                if existing_path != *canonical_path && !batch_paths.contains(existing_path.as_str())
-                {
-                    return Err(StateStoreError::RouteOwnershipConflict {
-                        domain: domain.clone(),
-                        existing_path: PathBuf::from(existing_path),
-                        requested_path: project.canonical_path().to_path_buf(),
-                    });
-                }
+            if let Some(existing_path) = existing_path
+                && existing_path != *canonical_path
+                && !batch_paths.contains(existing_path.as_str())
+            {
+                return Err(StateStoreError::RouteOwnershipConflict {
+                    domain: domain.clone(),
+                    existing_path: PathBuf::from(existing_path),
+                    requested_path: project.canonical_path().to_path_buf(),
+                });
             }
         }
     }

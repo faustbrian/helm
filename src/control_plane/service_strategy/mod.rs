@@ -6,6 +6,7 @@ mod resolve_service_deployment_strategy;
 mod service_deployment_strategy;
 mod service_strategy_error;
 
+#[cfg(test)]
 pub(crate) use known_service_presets::KNOWN_SERVICE_PRESETS;
 pub(crate) use preset_artifact::PresetArtifact;
 pub(crate) use preset_artifact_error::PresetArtifactError;

@@ -58,10 +58,12 @@ impl ProjectCommandPlan {
         &self.arguments
     }
 
+    #[cfg(test)]
     pub(crate) const fn working_directory(&self) -> &'static str {
         PROJECT_WORKING_DIRECTORY
     }
 
+    #[cfg(test)]
     pub(crate) fn action(&self) -> &str {
         &self.action
     }

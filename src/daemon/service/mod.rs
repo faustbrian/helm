@@ -195,6 +195,7 @@ fn uninstall_service_with_verification(
     })
 }
 
+#[cfg_attr(test, allow(dead_code))]
 fn verify_manager_removal(manager: ServiceManager, label: &str) -> Result<()> {
     if service_is_running(manager, label)? {
         bail!(
@@ -257,6 +258,7 @@ fn service_is_running(manager: ServiceManager, label: &str) -> Result<bool> {
     }
 }
 
+#[cfg_attr(test, allow(dead_code))]
 fn service_is_enabled(label: &str) -> Result<bool> {
     run_status(
         "systemctl",

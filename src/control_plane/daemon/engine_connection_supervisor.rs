@@ -46,10 +46,10 @@ where
         if self.engine.is_some() {
             return EngineConnectionOutcome::Connected;
         }
-        if let Some((deadline, retry)) = self.retry_state {
-            if now < deadline {
-                return EngineConnectionOutcome::BackingOff { retry };
-            }
+        if let Some((deadline, retry)) = self.retry_state
+            && now < deadline
+        {
+            return EngineConnectionOutcome::BackingOff { retry };
         }
 
         match self.connector.connect(&self.endpoint).await {

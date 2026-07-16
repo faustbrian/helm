@@ -172,10 +172,12 @@ impl ObjectStoreSharedInstancePlan {
         &self.root_credential
     }
 
+    #[cfg(test)]
     pub(crate) const fn policy_mount_target(&self) -> &'static str {
         POLICY_MOUNT_TARGET
     }
 
+    #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
     }

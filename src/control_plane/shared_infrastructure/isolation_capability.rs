@@ -9,6 +9,5 @@ pub(crate) enum IsolationCapability {
     AclAndPrefix,
     BucketAndPolicy,
     VirtualHostAndUser,
-    ScopedIndex,
     None,
 }

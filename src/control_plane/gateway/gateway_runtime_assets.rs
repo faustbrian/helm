@@ -14,6 +14,10 @@ pub(crate) const CONTAINER_ADMIN_ADDRESS: &str = "localhost:2019";
 /// Verified host assets and exact Engine request for the singleton gateway.
 pub(crate) struct GatewayRuntimeAssets {
     request: ContainerCreateOptions,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "test-observable bootstrap contract")
+    )]
     bootstrap_paths: StoredGatewayBootstrapPaths,
     certificate_action: LocalCertificateReconcileAction,
     certificate_revision: String,
@@ -41,6 +45,7 @@ impl GatewayRuntimeAssets {
         &self.request
     }
 
+    #[cfg(test)]
     pub(crate) const fn bootstrap_paths(&self) -> &StoredGatewayBootstrapPaths {
         &self.bootstrap_paths
     }

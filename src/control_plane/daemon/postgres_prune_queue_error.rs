@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PostgresPruneQueueError {
-    InvalidCapacity,
     CapacityReached { capacity: usize },
     DuplicateOperation { operation_id: String },
 }
@@ -11,9 +10,6 @@ pub(crate) enum PostgresPruneQueueError {
 impl Display for PostgresPruneQueueError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidCapacity => {
-                write!(formatter, "logical prune capacity must be positive")
-            }
             Self::CapacityReached { capacity } => write!(
                 formatter,
                 "logical prune queue reached its capacity of {capacity}"

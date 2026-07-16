@@ -16,6 +16,7 @@ mod prepare_postgres_shared_instances;
 mod prepared_postgres_shared_instance;
 mod provision_postgres_logical_resource;
 mod reconcile_postgres_migration_target;
+#[cfg(test)]
 mod reconcile_postgres_project_resources;
 mod reconcile_prepared_postgres_instance;
 mod revoke_postgres_project_access;
@@ -41,6 +42,7 @@ pub(crate) use prepare_postgres_shared_instances::prepare_postgres_shared_instan
 pub(crate) use prepared_postgres_shared_instance::PreparedPostgresSharedInstance;
 pub(crate) use provision_postgres_logical_resource::provision_postgres_logical_resource;
 pub(crate) use reconcile_postgres_migration_target::reconcile_postgres_migration_target;
+#[cfg(test)]
 pub(crate) use reconcile_postgres_project_resources::reconcile_postgres_project_resources;
 pub(crate) use reconcile_prepared_postgres_instance::reconcile_prepared_postgres_instance;
 pub(crate) use revoke_postgres_project_access::revoke_postgres_project_access;

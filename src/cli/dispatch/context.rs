@@ -6,7 +6,6 @@ use crate::cli::args::Cli;
 
 pub(crate) struct CliDispatchContext<'a> {
     quiet: bool,
-    no_color: bool,
     dry_run: bool,
     non_interactive: bool,
     config_path: Option<&'a Path>,
@@ -17,7 +16,6 @@ impl<'a> CliDispatchContext<'a> {
     pub(crate) fn from_cli(cli: &'a Cli) -> Self {
         Self {
             quiet: cli.quiet,
-            no_color: cli.no_color,
             dry_run: cli.dry_run,
             non_interactive: cli.non_interactive,
             config_path: cli.config_path(),
@@ -27,10 +25,6 @@ impl<'a> CliDispatchContext<'a> {
 
     pub(crate) const fn quiet(&self) -> bool {
         self.quiet
-    }
-
-    pub(crate) const fn no_color(&self) -> bool {
-        self.no_color
     }
 
     pub(crate) const fn dry_run(&self) -> bool {
@@ -75,7 +69,6 @@ mod tests {
         assert!(context.quiet());
         assert!(context.dry_run());
         assert!(context.non_interactive());
-        assert!(context.no_color());
         assert_eq!(context.config_path(), None);
         assert_eq!(
             context.project_root().map(|path| path.to_string_lossy()),
@@ -89,7 +82,6 @@ mod tests {
         let context = CliDispatchContext::from_cli(&cli);
 
         assert!(!context.quiet());
-        assert!(!context.no_color());
         assert!(!context.dry_run());
         assert!(!context.non_interactive());
         assert_eq!(context.config_path(), None);

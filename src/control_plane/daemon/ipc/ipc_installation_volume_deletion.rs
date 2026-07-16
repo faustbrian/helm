@@ -12,10 +12,12 @@ pub(crate) struct IpcInstallationVolumeDeletion {
 }
 
 impl IpcInstallationVolumeDeletion {
+    #[cfg(test)]
     pub(crate) fn resource_id(&self) -> &str {
         &self.resource_id
     }
 
+    #[cfg(test)]
     pub(crate) fn recovery_point_id(&self) -> &str {
         &self.recovery_point_id
     }

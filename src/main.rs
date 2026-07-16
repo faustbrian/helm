@@ -3,27 +3,6 @@
 //! Stackctl coordinates one per-user daemon and a Linux container workload
 //! plane through the selected Docker Engine API.
 
-#![allow(clippy::print_stdout)] // CLI tool needs to print to stdout
-#![allow(clippy::clone_on_ref_ptr)] // Arc clones are explicit at call sites for clarity
-#![allow(clippy::fn_params_excessive_bools)] // CLI options are represented directly as flags
-#![allow(clippy::items_after_statements)] // Local helper functions keep related logic together
-#![allow(dead_code, unused_imports)] // Internal control-plane contracts are selectively composed
-#![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(
-    clippy::mod_module_files,
-    clippy::wildcard_enum_match_arm,
-    clippy::verbose_file_reads,
-    clippy::unseparated_literal_suffix,
-    clippy::unreachable,
-    clippy::string_slice,
-    clippy::shadow_unrelated,
-    clippy::shadow_reuse,
-    clippy::pattern_type_mismatch,
-    clippy::indexing_slicing,
-    clippy::empty_structs_with_brackets,
-    clippy::as_conversions,
-    clippy::print_stderr
-)]
 #![cfg_attr(
     test,
     allow(

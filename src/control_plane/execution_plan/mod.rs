@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)] // The file owns the primary ExecutionPlan type.
 mod execution_plan;
 mod resolve_execution_plan;
 mod service_execution_plan;

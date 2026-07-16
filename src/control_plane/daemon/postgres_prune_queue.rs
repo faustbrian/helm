@@ -10,17 +10,6 @@ pub(crate) struct PostgresPruneQueue {
 }
 
 impl PostgresPruneQueue {
-    pub(crate) fn new(capacity: usize) -> Result<Self, PostgresPruneQueueError> {
-        if capacity == 0 {
-            return Err(PostgresPruneQueueError::InvalidCapacity);
-        }
-
-        Ok(Self {
-            capacity,
-            pending: VecDeque::with_capacity(capacity),
-        })
-    }
-
     pub(crate) fn enqueue(
         &mut self,
         operation: QueuedPostgresPrune,

@@ -370,10 +370,13 @@ fn browser_project_commands_create_wait_inject_and_remove_one_ephemeral_sidecar(
     ));
 
     result.outcome().as_ref().expect("browser command output");
-    assert_eq!(engine.created(), [browser_name.clone()]);
-    assert_eq!(engine.lifecycle_started(), [browser_name.clone()]);
-    assert_eq!(engine.stopped(), [browser_name.clone()]);
-    assert_eq!(engine.removed(), [browser_name.clone()]);
+    assert_eq!(engine.created(), std::slice::from_ref(&browser_name));
+    assert_eq!(
+        engine.lifecycle_started(),
+        std::slice::from_ref(&browser_name)
+    );
+    assert_eq!(engine.stopped(), std::slice::from_ref(&browser_name));
+    assert_eq!(engine.removed(), std::slice::from_ref(&browser_name));
     assert_eq!(engine.containers(), ["container-app"]);
     assert_eq!(
         engine.command_environments()[0].get("DUSK_DRIVER_URL"),
@@ -462,8 +465,8 @@ fn failed_browser_commands_still_remove_the_ephemeral_sidecar() {
     ));
 
     assert!(result.outcome().is_err());
-    assert_eq!(engine.stopped(), [browser_name.clone()]);
-    assert_eq!(engine.removed(), [browser_name]);
+    assert_eq!(engine.stopped(), std::slice::from_ref(&browser_name));
+    assert_eq!(engine.removed(), std::slice::from_ref(&browser_name));
 }
 
 #[test]
@@ -1437,7 +1440,7 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
         FixedRestoreEntropy(0xaa),
         ProjectRestoreExecutionOptions {
             operation,
-            target: ProjectRestoreTargetPlan::Dedicated(target.clone()),
+            target: ProjectRestoreTargetPlan::Dedicated(Box::new(target.clone())),
             installation_id: "install-1".to_owned(),
             network_name: "stackctl".to_owned(),
             schema_version: 8,
@@ -8891,7 +8894,7 @@ fn installation_deletion_queues_one_durable_logical_prune_without_duplicates() {
         .expect("durable deletion operation");
     assert_eq!(operation.operation_id(), operation_id);
     assert!(!operation.payload_json().contains("runtime-only-secret"));
-    assert!(!operation.payload_json().contains(&recovery.reference()));
+    assert!(!operation.payload_json().contains(recovery.reference()));
     let failed_json = serde_json::to_string(&IpcEventKind::Failed {
         code: "engine_unavailable".to_owned(),
         message: "retry explicitly".to_owned(),

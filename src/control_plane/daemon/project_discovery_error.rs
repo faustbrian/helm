@@ -6,6 +6,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 #[non_exhaustive]
 pub(crate) enum ProjectDiscoveryError {
+    #[cfg_attr(not(test), expect(dead_code, reason = "validated custom scan bounds"))]
     InvalidOptions,
     Io {
         action: &'static str,

@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Replaced the decorative all-Clippy manifest plus crate-wide bypass with an
+  enforceable `clippy::all` and explicit safety baseline. Production and test
+  builds now deny unused code instead of hiding it, and CI rejects broad lint
+  suppression or warning-disabled recipes.
 - Replaced the Stackctl-published PHP image with the public versioned
   FrankenPHP image. Declared extensions are now installed into one locally
   cached derived runtime with build-only network access, valid installer

@@ -1,6 +1,8 @@
 use super::{BackupResourceIdentity, BackupVerificationError};
+#[cfg(test)]
 use crate::control_plane::state::ResourceRecord;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
 /// Portable identity and checksum metadata written beside one backup artifact.
@@ -18,6 +20,7 @@ pub(crate) struct BackupArtifactManifest {
 }
 
 impl BackupArtifactManifest {
+    #[cfg(test)]
     pub(crate) fn from_artifact(
         resource: &ResourceRecord,
         artifact: &[u8],

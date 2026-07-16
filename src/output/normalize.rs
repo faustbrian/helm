@@ -3,14 +3,20 @@
 //! Contains output normalization helpers used by Stackctl command workflows.
 
 use super::LogLevel;
+#[cfg(test)]
 mod ansi;
 mod rewrite;
+#[cfg(test)]
 mod timestamps;
+#[cfg(test)]
 pub(super) use ansi::strip_ansi_codes;
 use rewrite::rewrite_message_for_level;
+#[cfg(test)]
 pub(super) use timestamps::is_fractional_unix_timestamp;
+#[cfg(test)]
 use timestamps::is_laravel_timestamp;
 
+#[cfg(test)]
 pub(super) fn strip_leading_bracket_timestamp(message: &str) -> &str {
     if let Some(rest) = message.strip_prefix('[')
         && let Some((inside, tail)) = rest.split_once(']')
@@ -22,6 +28,7 @@ pub(super) fn strip_leading_bracket_timestamp(message: &str) -> &str {
     message
 }
 
+#[cfg(test)]
 pub(super) fn strip_leading_laravel_prefix(message: &str) -> (Option<LogLevel>, &str) {
     let Some(rest) = message.strip_prefix('[') else {
         return (None, message);

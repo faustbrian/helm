@@ -45,6 +45,7 @@ impl MailpitAuthenticationSnapshot {
         &self.revision
     }
 
+    #[cfg(test)]
     pub(crate) const fn project_count(&self) -> usize {
         self.project_count
     }

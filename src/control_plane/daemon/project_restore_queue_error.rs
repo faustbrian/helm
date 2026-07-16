@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 /// Bounded restore-queue admission failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProjectRestoreQueueError {
-    InvalidCapacity,
     CapacityReached { capacity: usize },
     DuplicateOperation { operation_id: String },
 }
@@ -11,7 +10,6 @@ pub(crate) enum ProjectRestoreQueueError {
 impl Display for ProjectRestoreQueueError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidCapacity => formatter.write_str("project restore queue capacity is zero"),
             Self::CapacityReached { capacity } => write!(
                 formatter,
                 "project restore queue capacity {capacity} has been reached"

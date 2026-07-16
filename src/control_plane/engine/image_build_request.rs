@@ -130,6 +130,7 @@ impl ImageBuildRequest {
         &self.dockerfile_path
     }
 
+    #[cfg(test)]
     pub(crate) fn dockerfile_contents(&self) -> &str {
         &self.dockerfile_contents
     }
@@ -146,6 +147,7 @@ impl ImageBuildRequest {
         &self.output_tag
     }
 
+    #[cfg(test)]
     pub(crate) const fn metadata(&self) -> &ManagedResourceMetadata {
         &self.metadata
     }

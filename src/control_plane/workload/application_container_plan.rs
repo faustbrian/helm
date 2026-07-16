@@ -87,6 +87,7 @@ impl ApplicationContainerPlan {
         self.internal_http_port
     }
 
+    #[cfg(test)]
     pub(crate) const fn published_ports(&self) -> &'static [u16] {
         &[]
     }

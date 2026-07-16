@@ -2,6 +2,7 @@ use super::MongoDbSharedInstancePlan;
 use crate::control_plane::engine::{ContainerHealth, OwnedContainer, OwnedVolume};
 use crate::control_plane::state::CredentialRecord;
 use crate::control_plane::workload::{ProjectVolumeReconcileResult, WorkloadReconcileResult};
+#[cfg(test)]
 use std::path::Path;
 
 /// Proven retained Engine resources and stable administrator for one target.
@@ -9,6 +10,7 @@ pub(crate) struct MongoDbMigrationTargetReconcileResult {
     plan: MongoDbSharedInstancePlan,
     service: WorkloadReconcileResult,
     volume: ProjectVolumeReconcileResult,
+    #[cfg_attr(not(test), expect(dead_code, reason = "retained migration proof"))]
     health: ContainerHealth,
 }
 
@@ -35,6 +37,7 @@ impl MongoDbMigrationTargetReconcileResult {
         self.volume.volume()
     }
 
+    #[cfg(test)]
     pub(crate) const fn health(&self) -> ContainerHealth {
         self.health
     }
@@ -43,6 +46,7 @@ impl MongoDbMigrationTargetReconcileResult {
         self.plan.bootstrap_credential()
     }
 
+    #[cfg(test)]
     pub(crate) fn bootstrap_secret_file(&self) -> &Path {
         self.plan.bootstrap_secret_file()
     }

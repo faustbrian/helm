@@ -10,17 +10,6 @@ pub(crate) struct ProjectCommandQueue {
 }
 
 impl ProjectCommandQueue {
-    pub(crate) fn new(capacity: usize) -> Result<Self, ProjectCommandQueueError> {
-        if capacity == 0 {
-            return Err(ProjectCommandQueueError::InvalidCapacity);
-        }
-
-        Ok(Self {
-            capacity,
-            pending: VecDeque::with_capacity(capacity),
-        })
-    }
-
     pub(crate) fn enqueue(
         &mut self,
         operation: QueuedProjectCommand,

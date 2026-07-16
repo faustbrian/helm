@@ -42,6 +42,7 @@ impl UnixIpcListener {
     }
 
     /// Accepts, validates, dispatches, and answers one bounded request.
+    #[cfg(test)]
     pub(crate) fn serve_next<Handler>(&self, handler: Handler) -> Result<IpcRequest, IpcError>
     where
         Handler: FnOnce(&IpcRequest) -> IpcResponse,

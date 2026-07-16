@@ -29,6 +29,7 @@ impl<Loader> CaddyGatewayProvider<Loader> {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn loader(&self) -> &Loader {
         &self.loader
     }

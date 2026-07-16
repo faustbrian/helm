@@ -83,6 +83,7 @@ where
     }
 
     /// Plans all sources, then atomically persists the validated batch.
+    #[cfg(test)]
     pub(crate) fn reconcile_projects(
         &mut self,
         sources: &[ProjectSource],

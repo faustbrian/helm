@@ -10,6 +10,7 @@ pub(crate) use plan_object_store_project_resources::plan_object_store_project_re
 pub(crate) use prepare_object_store_shared_instances::prepare_object_store_shared_instances;
 pub(crate) use prepared_object_store_shared_instance::PreparedObjectStoreSharedInstance;
 pub(crate) use provision_object_store_project_resources::provision_object_store_project_resources;
+#[cfg(test)]
 pub(crate) use reconcile_object_store_project_resources::reconcile_object_store_project_resources;
 pub(crate) use reconcile_prepared_object_store_instance::reconcile_prepared_object_store_instance;
 pub(crate) use revoke_minio_project_access::revoke_minio_project_access;
@@ -27,6 +28,7 @@ mod plan_object_store_project_resources;
 mod prepare_object_store_shared_instances;
 mod prepared_object_store_shared_instance;
 mod provision_object_store_project_resources;
+#[cfg(test)]
 mod reconcile_object_store_project_resources;
 mod reconcile_prepared_object_store_instance;
 mod revoke_minio_project_access;

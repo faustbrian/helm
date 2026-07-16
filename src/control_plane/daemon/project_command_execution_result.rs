@@ -17,10 +17,12 @@ impl ProjectCommandExecutionResult {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn operation_id(&self) -> &str {
         &self.operation_id
     }
 
+    #[cfg(test)]
     pub(crate) const fn outcome(&self) -> &Result<AttachedCommandOutput, EngineError> {
         &self.outcome
     }

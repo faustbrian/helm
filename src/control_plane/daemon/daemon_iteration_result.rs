@@ -25,6 +25,7 @@ impl DaemonIterationResult {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn scan_reason(&self) -> Option<DiscoveryScanReason> {
         self.scan_reason
     }
@@ -33,6 +34,7 @@ impl DaemonIterationResult {
         self.reconciliation.as_ref()
     }
 
+    #[cfg(test)]
     pub(crate) const fn request(&self) -> Option<&IpcRequest> {
         self.request.as_ref()
     }

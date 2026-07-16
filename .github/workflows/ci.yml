@@ -24,6 +24,9 @@ jobs:
       - name: Reject mutable workflow action references
         run: ./scripts/audit-v8-workflow-actions.sh
 
+      - name: Reject disabled compiler and Clippy diagnostics
+        run: ./scripts/audit-v8-lint-policy.sh
+
   fmt:
     name: Format Check
     runs-on: ubuntu-latest

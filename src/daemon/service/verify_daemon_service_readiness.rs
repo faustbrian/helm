@@ -6,16 +6,21 @@ use anyhow::{Result, bail};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg_attr(test, allow(dead_code))]
 const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg_attr(test, allow(dead_code))]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg_attr(test, allow(dead_code))]
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Verifies that the activated singleton accepts the current IPC protocol.
+#[cfg_attr(test, allow(dead_code))]
 pub(super) fn verify() -> Result<()> {
     wait_for_readiness(READINESS_TIMEOUT, POLL_INTERVAL, probe)
 }
 
 /// Performs one bounded correlated readiness probe without retrying.
+#[cfg_attr(test, allow(dead_code))]
 pub(super) fn probe() -> Result<()> {
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
     let request_id = format!(

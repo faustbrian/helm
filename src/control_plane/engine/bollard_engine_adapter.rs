@@ -1847,7 +1847,7 @@ fn labels_match_metadata(
         metadata.schema_version(),
     );
 
-    ownership == ObservedResourceOwnership::Owned(metadata.clone())
+    ownership == ObservedResourceOwnership::Owned(Box::new(metadata.clone()))
 }
 
 pub(super) fn volume_create_request(options: &VolumeCreateOptions) -> VolumeCreateRequest {

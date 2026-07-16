@@ -21,6 +21,10 @@ const POSTGRES_CURRENT_DATA_TARGET: &str = "/var/lib/postgresql";
 pub(crate) struct PostgresSharedInstancePlan {
     container: ContainerCreateOptions,
     volume: Option<VolumeCreateOptions>,
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "test-observable mount contract")
+    )]
     data_mount_target: String,
     bootstrap_credential: CredentialRecord,
 }
@@ -106,6 +110,7 @@ impl PostgresSharedInstancePlan {
         self.volume.as_ref()
     }
 
+    #[cfg(test)]
     pub(crate) fn data_mount_target(&self) -> &str {
         &self.data_mount_target
     }

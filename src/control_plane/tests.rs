@@ -224,14 +224,13 @@ fn every_current_preset_has_one_explicit_safe_deployment_strategy() {
             .to_string(),
         "unknown v8 service preset 'invented'"
     );
-    for removed in ["mailhog"] {
-        assert_eq!(
-            resolve_service_deployment_strategy(removed)
-                .expect_err("removed preset")
-                .to_string(),
-            format!("unknown v8 service preset '{removed}'")
-        );
-    }
+    let removed = "mailhog";
+    assert_eq!(
+        resolve_service_deployment_strategy(removed)
+            .expect_err("removed preset")
+            .to_string(),
+        format!("unknown v8 service preset '{removed}'")
+    );
 }
 
 #[test]
@@ -283,14 +282,13 @@ fn every_non_process_preset_has_a_versioned_artifact_catalog_entry() {
             .reference(),
         "typesense/typesense:26.0"
     );
-    for removed in ["mailhog"] {
-        assert!(
-            resolve_preset_artifact(removed, None)
-                .expect_err("removed preset")
-                .to_string()
-                .contains("has no built-in artifact catalog entry")
-        );
-    }
+    let removed = "mailhog";
+    assert!(
+        resolve_preset_artifact(removed, None)
+            .expect_err("removed preset")
+            .to_string()
+            .contains("has no built-in artifact catalog entry")
+    );
 }
 
 #[test]

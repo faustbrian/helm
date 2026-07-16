@@ -12,6 +12,7 @@ impl ValidatedRouteRegistry {
     }
 
     /// Returns the validated claims in deterministic domain and path order.
+    #[cfg(test)]
     pub(crate) fn claims(&self) -> &[RouteClaim] {
         &self.claims
     }

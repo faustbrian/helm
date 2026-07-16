@@ -1,7 +1,9 @@
 use super::{BackupArtifactManifest, BackupVerificationError, VerifiedBackupEvidence};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
 /// Verifies artifact bytes and returns unforgeable-in-domain deletion evidence.
+#[cfg(test)]
 pub(crate) fn verify_backup_artifact(
     manifest: &BackupArtifactManifest,
     artifact: &[u8],

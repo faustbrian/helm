@@ -31,6 +31,7 @@ impl ProjectLogRequest {
         &self.session_id
     }
 
+    #[cfg(test)]
     pub(crate) fn project_id(&self) -> &str {
         &self.project_id
     }

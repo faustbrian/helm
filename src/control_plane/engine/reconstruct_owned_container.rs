@@ -14,7 +14,7 @@ pub(crate) fn reconstruct_owned_container(
         supported_schema_version,
     ) {
         ObservedResourceOwnership::Owned(metadata) => {
-            Ok(OwnedContainer::new(observed.id().clone(), metadata))
+            Ok(OwnedContainer::new(observed.id().clone(), *metadata))
         }
         ownership => Err(ownership),
     }

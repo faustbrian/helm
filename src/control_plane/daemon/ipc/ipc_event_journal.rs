@@ -1,4 +1,6 @@
-use super::{IpcEvent, IpcEventJournalError, IpcEventKind};
+#[cfg(test)]
+use super::IpcEventKind;
+use super::{IpcEvent, IpcEventJournalError};
 use crate::control_plane::state::DaemonEventRecord;
 use std::collections::VecDeque;
 
@@ -12,6 +14,7 @@ pub(crate) struct IpcEventJournal {
 }
 
 impl IpcEventJournal {
+    #[cfg(test)]
     pub(crate) fn new(capacity: usize) -> Result<Self, IpcEventJournalError> {
         if capacity == 0 {
             return Err(IpcEventJournalError::InvalidCapacity);
@@ -85,6 +88,7 @@ impl IpcEventJournal {
         Ok(event)
     }
 
+    #[cfg(test)]
     pub(crate) fn append(
         &mut self,
         operation_id: impl Into<String>,

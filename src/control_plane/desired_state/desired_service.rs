@@ -61,11 +61,6 @@ impl DesiredService {
         }
     }
 
-    /// Returns the exact validated service identity.
-    pub(crate) fn name(&self) -> &str {
-        self.identity.as_str()
-    }
-
     /// Returns dependencies in deterministic identity order.
     pub(crate) fn dependencies(&self) -> &[ServiceIdentity] {
         &self.dependencies
@@ -99,6 +94,7 @@ impl DesiredService {
         self.bun_image.as_deref()
     }
 
+    #[cfg(test)]
     pub(crate) fn database(&self) -> Option<&str> {
         self.database.as_deref()
     }

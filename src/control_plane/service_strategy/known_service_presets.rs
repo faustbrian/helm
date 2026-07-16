@@ -1,4 +1,5 @@
 /// Every preset and compatibility alias accepted by v8 desired state.
+#[cfg(test)]
 pub(crate) const KNOWN_SERVICE_PRESETS: [&str; 33] = [
     "mongodb",
     "postgres",

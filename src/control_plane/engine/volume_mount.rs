@@ -16,13 +16,6 @@ impl VolumeMount {
         Self::new(source.into(), target.into(), false)
     }
 
-    pub(crate) fn read_only(
-        source: impl Into<String>,
-        target: impl Into<String>,
-    ) -> Result<Self, EngineError> {
-        Self::new(source.into(), target.into(), true)
-    }
-
     fn new(source: String, target: String, read_only: bool) -> Result<Self, EngineError> {
         if source.is_empty()
             || source.contains(['/', '\0'])

@@ -17,6 +17,7 @@ impl SharedVolumeReconcileResult {
         &self.volume
     }
 
+    #[cfg(test)]
     pub(crate) const fn action(&self) -> SharedVolumeReconcileAction {
         self.action
     }

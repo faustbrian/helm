@@ -24,6 +24,7 @@ pub(crate) struct ProjectLogSessionRegistry {
 }
 
 impl ProjectLogSessionRegistry {
+    #[cfg(test)]
     pub(crate) fn new(
         max_sessions: usize,
         buffer_chunks: usize,
@@ -31,6 +32,7 @@ impl ProjectLogSessionRegistry {
         Self::with_idle_timeout(max_sessions, buffer_chunks, DEFAULT_IDLE_TIMEOUT)
     }
 
+    #[cfg(test)]
     pub(crate) fn with_idle_timeout(
         max_sessions: usize,
         buffer_chunks: usize,

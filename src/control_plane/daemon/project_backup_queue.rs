@@ -10,6 +10,7 @@ pub(crate) struct ProjectBackupQueue {
 }
 
 impl ProjectBackupQueue {
+    #[cfg(test)]
     pub(crate) fn new(capacity: usize) -> Result<Self, ProjectBackupQueueError> {
         if capacity == 0 {
             return Err(ProjectBackupQueueError::InvalidCapacity);
