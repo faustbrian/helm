@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Immutable public-image pulls now retry a truncated or transient Engine stream
+  three times with bounded delay before preserving the final exact failure,
+  preventing a single registry transport interruption from aborting setup.
 - Shared-service reconciliation, project-network attachment, and post-shared
   inventory failures now remain visible as typed persistent daemon diagnostics;
   Laravel failure records list owned container identity and state without

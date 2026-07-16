@@ -74,6 +74,7 @@ mod resolve_registry_image_references;
 mod resource_kind;
 mod resource_metrics;
 mod retention_class;
+mod retry_transient_engine_operation;
 mod run_attached_command;
 mod run_streaming_command;
 mod streaming_command_options;

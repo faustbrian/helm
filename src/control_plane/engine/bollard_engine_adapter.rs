@@ -1,5 +1,6 @@
 use super::bounded_engine_operation::bounded_engine_operation;
 use super::managed_resource_metadata::{INSTALLATION_LABEL, MANAGED_LABEL};
+use super::retry_transient_engine_operation::retry_transient_engine_operation;
 use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCompletion, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
@@ -1256,11 +1257,16 @@ impl ImageResolver for BollardEngineAdapter {
                     Err(BollardError::DockerResponseServerError {
                         status_code: 404, ..
                     }) => {
-                        self.docker
-                            .create_image(Some(image_pull_request(reference)), None, None)
-                            .try_collect::<Vec<_>>()
-                            .await
-                            .map_err(|error| backend_error("pull immutable image", error))?;
+                        let mut pull = || async {
+                            self.docker
+                                .create_image(Some(image_pull_request(reference)), None, None)
+                                .try_collect::<Vec<_>>()
+                                .await
+                                .map(|_| ())
+                                .map_err(|error| backend_error("pull immutable image", error))
+                        };
+                        retry_transient_engine_operation(&mut pull, 3, Duration::from_millis(500))
+                            .await?;
                         let image = self
                             .docker
                             .inspect_image(reference.as_str())
