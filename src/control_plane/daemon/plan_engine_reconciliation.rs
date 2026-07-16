@@ -201,21 +201,36 @@ fn resolve_application_dependency<'plan>(
     service: &crate::control_plane::ServiceExecutionPlan,
     workload: &str,
 ) -> Result<&'plan crate::control_plane::ServiceExecutionPlan, EngineReconciliationPlanError> {
-    let applications = services
+    let project_applications = services
         .iter()
         .filter(|candidate| {
             candidate.project() == service.project()
                 && candidate.strategy() == ServiceDeploymentStrategy::ProjectApplication
-                && service
-                    .desired()
-                    .dependencies()
-                    .contains(candidate.service())
         })
         .collect::<Vec<_>>();
-    match applications.as_slice() {
+    let declared_applications = project_applications
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            service
+                .desired()
+                .dependencies()
+                .contains(candidate.service())
+        })
+        .collect::<Vec<_>>();
+    match declared_applications.as_slice() {
         [application] => Ok(application),
+        [] => match project_applications.as_slice() {
+            [application] => Ok(application),
+            _ => Err(invalid(format!(
+                "{workload} '{}-{}' must declare exactly one project application dependency \
+                 when the project does not have exactly one application",
+                service.project().as_str(),
+                service.service().as_str()
+            ))),
+        },
         _ => Err(invalid(format!(
-            "{workload} '{}-{}' must depend on exactly one project application",
+            "{workload} '{}-{}' declares more than one project application dependency",
             service.project().as_str(),
             service.service().as_str()
         ))),

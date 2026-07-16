@@ -126,6 +126,10 @@ verifies each module through PHP before starting the app. Projects with the
 same base digest, platform, extensions, and tool images reuse that derived
 runtime. Workers use the same built image, while schedulers execute inside the
 exact application container.
+When a project declares exactly one application, workers and schedulers inherit
+it implicitly. A project with multiple applications must declare exactly one of
+them in each worker or scheduler's `depends_on` list; Stackctl never guesses
+between multiple application runtimes.
 Images without one of these presets cannot declare extensions implicitly; they
 must contain their requirements already.
 

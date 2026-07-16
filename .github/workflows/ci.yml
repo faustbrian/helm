@@ -97,7 +97,7 @@ jobs:
 
       - name: Publish raw discovery benchmark record
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: discovery-performance-linux-x86_64
           path: target/discovery-performance
@@ -152,7 +152,7 @@ jobs:
 
       - name: Publish raw Engine acceptance record
         if: startsWith(matrix.platform, 'linux-') && always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: engine-acceptance-${{ matrix.platform }}
           path: target/engine-acceptance-${{ matrix.platform }}.txt
@@ -187,7 +187,7 @@ jobs:
 
       - name: Publish raw gateway acceptance record
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: gateway-acceptance-${{ matrix.platform }}
           path: target/gateway-acceptance-${{ matrix.platform }}.txt
@@ -226,7 +226,7 @@ jobs:
 
       - name: Publish raw Laravel acceptance record
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: laravel-acceptance-${{ matrix.platform }}
           path: target/laravel-acceptance-${{ matrix.platform }}

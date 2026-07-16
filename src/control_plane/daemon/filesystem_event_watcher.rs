@@ -1,5 +1,6 @@
 use super::FilesystemEventWatcherError;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::CreateKind;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError};
 
@@ -56,6 +57,7 @@ fn requires_registry_discovery(event: &notify::Result<Event>) -> bool {
         Err(_) => true,
         Ok(event) => {
             event.need_rescan()
+                || matches!(event.kind, EventKind::Create(CreateKind::Folder))
                 || event.paths.iter().any(|path| {
                     path.file_name()
                         .is_some_and(|name| name == ".stackctl.yaml")
@@ -67,6 +69,7 @@ fn requires_registry_discovery(event: &notify::Result<Event>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::signal_change;
+    use notify::event::CreateKind;
     use notify::{Event, EventKind};
     use std::path::PathBuf;
     use std::sync::mpsc::TryRecvError;
@@ -93,5 +96,16 @@ mod tests {
         signal_change(&sender, Ok(event));
 
         assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+    }
+
+    #[test]
+    fn new_directories_schedule_discovery_before_child_watches_are_attached() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        let mut event = Event::new(EventKind::Create(CreateKind::Folder));
+        event.paths.push(PathBuf::from("/projects/bill"));
+
+        signal_change(&sender, Ok(event));
+
+        assert_eq!(receiver.try_recv(), Ok(()));
     }
 }

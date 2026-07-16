@@ -33,6 +33,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Project workers and schedulers now implicitly inherit the sole application
+  runtime. Projects with multiple applications must use `depends_on` to select
+  exactly one, preserving deterministic planning without burdening the common
+  single-application configuration.
+- Fixed native recursive-watcher races by scheduling bounded discovery when a
+  new directory appears before its child watch is attached, and updated the
+  immutable artifact uploader to the current official v7.0.1 commit.
 - Made `config validate` honor the global `--config` and `--project-root`
   selectors before falling back to the current directory, matching every other
   strict-v8 project command and the clean-room invocation contract.

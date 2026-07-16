@@ -41,7 +41,7 @@ These checks ran on macOS arm64 against the audited tree on 2026-07-16.
 | --- | --- |
 | `just lint` | Passed: lint-policy audit, nightly formatting check, and all-target/all-feature Clippy with no warnings |
 | `just build` | Passed: optimized v8 binary built successfully |
-| `cargo test --quiet` | Passed: 882 tests, 0 failed, and 24 explicitly ignored CI-owned live tests |
+| `cargo test --quiet` | Passed: 884 tests, 0 failed, and 24 explicitly ignored CI-owned live tests |
 | `./scripts/audit-v8-host-dependencies.sh` | Passed: no removed host-runtime, unsupported-host, or compatibility boundary was found |
 | `./scripts/audit-v8-workflow-actions.sh` | Passed: every external workflow action uses an immutable 40-character commit |
 | `./scripts/audit-v8-supply-chain.sh` | Passed: 224 locked dependencies scanned; RustSec advisories, bans, licenses, duplicate policy, and sources passed |

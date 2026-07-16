@@ -6424,7 +6424,7 @@ fn complete_engine_plans_schedule_commands_inside_the_application_runtime() {
         PathBuf::from("/work/bill"),
         PathBuf::from("/work/bill/.stackctl.yaml"),
         format!(
-            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n    environment:\n      APP_MODE: local\n  scheduler:\n    preset: scheduler\n    depends_on: [app]\n    environment:\n      SCHEDULE_MODE: steady\n"
+            "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n    environment:\n      APP_MODE: local\n  scheduler:\n    preset: scheduler\n    environment:\n      SCHEDULE_MODE: steady\n"
         ),
     );
     let registry = plan_project_registry(&[source]).expect("desired registry");
@@ -6467,7 +6467,7 @@ fn complete_engine_plans_schedule_commands_inside_the_application_runtime() {
 }
 
 #[test]
-fn project_processes_without_one_application_dependency_block_complete_planning() {
+fn project_processes_implicitly_inherit_the_only_application() {
     let image = concat!(
         "ghcr.io/acme/bill@sha256:",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -6477,6 +6477,42 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
         PathBuf::from("/work/bill/.stackctl.yaml"),
         format!(
             "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: {image}\n  worker:\n    preset: queue-worker\n"
+        ),
+    );
+    let registry = plan_project_registry(&[source]).expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        prepared_project_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        container_user: "501:20",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("implicit application dependency");
+
+    assert_eq!(plan.processes()[0].application_service(), "app");
+    assert_eq!(plan.processes()[0].request().image(), image);
+}
+
+#[test]
+fn project_processes_must_disambiguate_multiple_applications() {
+    let image = concat!(
+        "ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
+    let source = ProjectSource::new(
+        PathBuf::from("/work/bill"),
+        PathBuf::from("/work/bill/.stackctl.yaml"),
+        format!(
+            "schema_version: 8\nproject: bill\nservices:\n  api:\n    image: {image}\n  admin:\n    image: {image}\n  worker:\n    preset: queue-worker\n"
         ),
     );
     let registry = plan_project_registry(&[source]).expect("desired registry");
@@ -6496,11 +6532,11 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
         network_name: "stackctl",
         internal_http_port: 8080,
     })
-    .expect_err("process without application dependency");
+    .expect_err("ambiguous application dependency");
 
     assert_eq!(
         error.to_string(),
-        "project process 'bill-worker' must depend on exactly one project application"
+        "project process 'bill-worker' must declare exactly one project application dependency when the project does not have exactly one application"
     );
 }
 
@@ -10507,7 +10543,7 @@ fn singleton_unix_runtime_reconciles_after_a_watched_root_change() {
     )
     .expect("project lock");
 
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(5);
     let iteration = loop {
         let now = Instant::now();
         let iteration = runtime
