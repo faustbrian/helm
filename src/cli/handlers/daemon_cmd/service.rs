@@ -2,7 +2,7 @@
 
 use crate::cli::args::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
-    DaemonServiceUninstallArgs,
+    DaemonServiceRestartArgs, DaemonServiceUninstallArgs, SetupArgs,
 };
 use crate::daemon::{self, DaemonServiceInstallOptions, ServiceManager};
 use crate::output::{self, LogLevel, Persistence};
@@ -13,13 +13,16 @@ pub(super) fn handle_daemon_service(args: &DaemonServiceArgs) -> Result<()> {
     match &args.command {
         DaemonServiceCommands::Install(install) => handle_install(install),
         DaemonServiceCommands::Status => handle_status(),
-        DaemonServiceCommands::Restart => handle_restart(),
+        DaemonServiceCommands::Restart(restart) => handle_restart(restart),
         DaemonServiceCommands::Print(print) => handle_print(print),
         DaemonServiceCommands::Uninstall(uninstall) => handle_uninstall(uninstall),
     }
 }
 
-fn handle_restart() -> Result<()> {
+fn handle_restart(args: &DaemonServiceRestartArgs) -> Result<()> {
+    if args.if_installed && !daemon::service_status()?.installed {
+        return Ok(());
+    }
     let status = daemon::restart_service()?;
     output::event(
         "daemon",
@@ -36,19 +39,14 @@ fn handle_restart() -> Result<()> {
 }
 
 fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {
-    let status = daemon::install_service(&install_options(args.dir.clone(), args.interval))?;
-    output::event(
-        "daemon",
-        LogLevel::Success,
-        &format!(
-            "Installed and started {} daemon watch service {} at {}",
-            manager_name(status.manager),
-            status.label,
-            status.path.display()
-        ),
-        Persistence::Persistent,
-    );
-    Ok(())
+    crate::cli::handlers::handle_setup(&setup_args(args))
+}
+
+fn setup_args(args: &DaemonServiceInstallArgs) -> SetupArgs {
+    SetupArgs {
+        dir: args.dir.clone(),
+        interval: args.interval,
+    }
 }
 
 fn handle_status() -> Result<()> {
@@ -62,14 +60,14 @@ fn handle_status() -> Result<()> {
         )
     } else if status.running {
         anyhow::bail!(
-            "{} daemon watch service {} is running from {} but is not responding to IPC; rerun `stackctl daemon service install --dir <DIR>`",
+            "{} daemon watch service {} is running from {} but is not responding to IPC; rerun `stackctl setup --dir <DIR>`",
             manager_name(status.manager),
             status.label,
             status.path.display()
         )
     } else if status.installed {
         format!(
-            "{} daemon watch service {} is installed at {} but is not running; rerun `stackctl daemon service install --dir <DIR>`",
+            "{} daemon watch service {} is installed at {} but is not running; rerun `stackctl setup --dir <DIR>`",
             manager_name(status.manager),
             status.label,
             status.path.display()
@@ -194,5 +192,18 @@ mod tests {
             confirm_delete_data: false,
         })
         .expect("default uninstall must preserve data");
+    }
+
+    #[test]
+    fn service_install_uses_complete_setup_arguments() {
+        let install = DaemonServiceInstallArgs {
+            dir: vec![std::path::PathBuf::from("/work")],
+            interval: 17,
+        };
+
+        let setup = setup_args(&install);
+
+        assert_eq!(setup.dir, install.dir);
+        assert_eq!(setup.interval, install.interval);
     }
 }

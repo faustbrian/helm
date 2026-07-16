@@ -33,7 +33,7 @@ pub(crate) use restore::DaemonRestoreArgs;
 pub(crate) use retained::DaemonRetainedArgs;
 pub(crate) use service::{
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
-    DaemonServiceUninstallArgs,
+    DaemonServiceRestartArgs, DaemonServiceUninstallArgs,
 };
 pub(crate) use trust::{DaemonTrustArgs, DaemonTrustCommands};
 

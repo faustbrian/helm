@@ -38,6 +38,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- `stackctl daemon service install` now delegates to the complete transactional
+  setup path, including `.localhost` preflight and idempotent CA trust, so it
+  can no longer create an HTTPS service that skipped trust installation.
+  `just install` now restarts an existing login service through the newly
+  idempotent `service restart --if-installed` update hook.
 - The daemon now refreshes valid but stale generated artifact locks
   automatically after image, preset, version, or catalog changes. Publication
   remains atomic and compare-and-swap protected so a concurrent writer wins;

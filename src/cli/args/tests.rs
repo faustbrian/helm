@@ -98,7 +98,22 @@ fn daemon_service_exposes_an_explicit_restart() {
         panic!("service command");
     };
 
-    assert!(matches!(service.command, DaemonServiceCommands::Restart));
+    let DaemonServiceCommands::Restart(args) = service.command else {
+        panic!("restart command");
+    };
+    assert!(!args.if_installed);
+
+    let cli = Cli::parse_from(["stackctl", "daemon", "service", "restart", "--if-installed"]);
+    let Commands::Daemon(daemon) = cli.command else {
+        panic!("daemon command");
+    };
+    let DaemonCommands::Service(service) = daemon.command else {
+        panic!("service command");
+    };
+    let DaemonServiceCommands::Restart(args) = service.command else {
+        panic!("restart command");
+    };
+    assert!(args.if_installed);
 }
 
 #[test]

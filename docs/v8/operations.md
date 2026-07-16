@@ -146,10 +146,10 @@ The complete v8 host-executable inventory is:
 
 | Executable | Owning feature | Invocation and failure boundary |
 | --- | --- | --- |
-| `security` | Explicit macOS CA trust setup/rotation/removal | Invoked only by `stackctl daemon trust`; a non-zero status leaves the prior active generation selected and returns the exact adapter error. |
-| `sudo`, `update-ca-certificates`, `rm` | Explicit Debian-family CA trust setup/rotation/removal | Invoked only by the trust adapter; privilege denial or a non-zero update aborts the trust transition with no reconciliation fallback. |
-| `launchctl` | Explicit macOS login-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
-| `systemctl` | Explicit Linux user-service install/status/removal | Invoked only by `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
+| `security` | Automatic setup plus advanced macOS CA rotation/removal | Invoked by complete setup or `stackctl daemon trust`; a non-zero status leaves the prior active generation selected and returns the exact adapter error. |
+| `sudo`, `update-ca-certificates`, `rm` | Automatic setup plus advanced Debian-family CA rotation/removal | Invoked by complete setup or the trust adapter; privilege denial or a non-zero update aborts the trust transition with no reconciliation fallback. |
+| `launchctl` | macOS login-service setup/status/removal | Invoked by complete setup or `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
+| `systemctl` | Linux user-service setup/status/removal | Invoked by complete setup or `stackctl daemon service`; failure is reported and does not affect project reconciliation. |
 | `open`, `xdg-open` | Explicit interactive `stackctl open` browser handoff | Invoked only after daemon-authoritative route and readiness checks; `--no-browser` and `--non-interactive` avoid the boundary, and opener failure is returned directly. |
 
 The selected Docker-compatible Engine is contacted over its Unix socket;
@@ -163,6 +163,8 @@ trust and the login service. The daemon creates any missing artifact locks and
 setup waits for complete convergence. If service installation fails, setup removes trust
 only when that invocation added it; existing trust is retained. A trust
 rollback failure is reported together with the service failure.
+The lower-level `stackctl daemon service install --dir <DIR>...` entry point
+delegates to this same complete transaction and cannot bypass CA trust.
 
 Initial CA trust installation also remains transactional through exact trust
 verification and active certificate-generation selection. A failure after new
@@ -204,6 +206,9 @@ kept the process running, and then applies the same complete operational
 readiness gate as installation. It never rewrites the definition or changes
 watched roots. Missing, linked, unresponsive, or unhealthy services fail with
 the exact boundary that rejected the restart.
+`--if-installed` makes restart a successful no-op only when no definition
+exists. The repository's `just install` uses it after replacing the binary, so
+an installed login daemon cannot continue running the previous executable.
 
 Service installation snapshots an existing regular definition before atomic
 replacement. After manager activation and the immediate running-state check,

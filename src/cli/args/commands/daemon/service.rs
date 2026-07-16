@@ -11,16 +11,23 @@ pub(crate) struct DaemonServiceArgs {
 
 #[derive(Subcommand)]
 pub(crate) enum DaemonServiceCommands {
-    /// Install and start the login-time singleton control plane
+    /// Perform complete trusted setup and start the login-time control plane
     Install(DaemonServiceInstallArgs),
     /// Show service installation state
     Status,
     /// Restart the installed service and wait for operational readiness
-    Restart,
+    Restart(DaemonServiceRestartArgs),
     /// Print the rendered service definition without installing it
     Print(DaemonServicePrintArgs),
     /// Stop and remove the installed service definition
     Uninstall(DaemonServiceUninstallArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct DaemonServiceRestartArgs {
+    /// Succeed without action when no login service is installed
+    #[arg(long)]
+    pub(crate) if_installed: bool,
 }
 
 #[derive(Args)]

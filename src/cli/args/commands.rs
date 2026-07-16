@@ -19,7 +19,8 @@ pub(crate) use daemon::{
     DaemonMigrationDecisionArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
     DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonRetainedArgs,
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
-    DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
+    DaemonServiceRestartArgs, DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands,
+    DaemonWatchArgs,
 };
 pub(crate) use lifecycle::UrlArgs;
 pub(crate) use meta::{CompletionsArgs, ConfigArgs, LockArgs};

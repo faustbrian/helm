@@ -23,7 +23,8 @@ pub(crate) use commands::{
     DaemonMigrationDecisionArgs, DaemonMigrationStatusArgs, DaemonPruneArgs, DaemonPruneCommands,
     DaemonPruneExecuteArgs, DaemonPrunePlanArgs, DaemonRestoreArgs, DaemonRetainedArgs,
     DaemonServiceArgs, DaemonServiceCommands, DaemonServiceInstallArgs, DaemonServicePrintArgs,
-    DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands, DaemonWatchArgs,
+    DaemonServiceRestartArgs, DaemonServiceUninstallArgs, DaemonTrustArgs, DaemonTrustCommands,
+    DaemonWatchArgs,
 };
 pub(crate) use config_commands::ConfigCommands;
 pub(crate) use env_commands::EnvCommands;

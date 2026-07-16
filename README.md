@@ -29,12 +29,10 @@ services:
     version: "18"
 ```
 
-Validate it and perform the one-time setup:
+Perform the one-time setup:
 
 ```bash
-stackctl config validate .stackctl.yaml
 stackctl setup --dir ~/Developer
-stackctl daemon reconcile
 stackctl status
 stackctl open
 ```
@@ -45,6 +43,8 @@ The daemon discovers the project and creates its missing immutable artifact
 lock through the selected Docker-compatible Engine before any workload
 mutation. Inspect it with
 `stackctl status`, `stackctl logs`, and `stackctl url`.
+`stackctl config validate .stackctl.yaml` is available as an optional
+read-only diagnostic; normal setup and reconciliation do not require it.
 
 V8 does not upgrade, migrate, adopt, or execute pre-v8 project configuration.
 Use a fresh installation and new `.stackctl.yaml` files.
