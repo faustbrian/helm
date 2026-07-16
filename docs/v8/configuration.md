@@ -96,9 +96,13 @@ UTF-8 requirement, and symbolic-link prohibition as the project file. Projects
 without mutable artifacts may omit it. Mutable or preset artifacts must be
 resolved to immutable identities before their Engine resources can be planned.
 
-`stackctl lock images` publishes `.stackctl.lock.yaml` atomically. Mutable
-explicit images are resolved by the singleton daemon through its selected
-Engine and the result is validated again before publication. Already immutable
+`stackctl lock images` publishes `.stackctl.lock.yaml` atomically. When the
+singleton daemon is available, it resolves mutable explicit images and presets
+through its selected Engine. Before first setup, an absent daemon endpoint uses
+the same narrow typed resolver through the default Docker-compatible Engine
+socket so projects can be locked before operational readiness is required.
+Permission, framing, protocol, and daemon-reported failures never trigger that
+fallback. The result is validated again before publication. Already immutable
 explicit images do not require an Engine lookup. `stackctl lock verify` and
 `stackctl lock diff` operate only on the exact strict-YAML configuration path.
 Preset-only generation uses a revisioned built-in image catalog. The lock

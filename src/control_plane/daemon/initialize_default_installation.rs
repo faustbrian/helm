@@ -27,7 +27,7 @@ where
     Ok(installation)
 }
 
-fn default_docker_socket() -> Result<PathBuf, InstallationInitializationError> {
+pub(crate) fn default_docker_socket() -> Result<PathBuf, InstallationInitializationError> {
     if cfg!(target_os = "macos") {
         let home = std::env::var_os("HOME")
             .ok_or_else(|| InstallationInitializationError::environment("HOME is not set"))?;

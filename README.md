@@ -29,24 +29,24 @@ services:
     version: "18"
 ```
 
-Validate it, perform the one-time setup, and publish the project's immutable
-image lock:
+Validate it, publish the project's immutable image lock, and perform the
+one-time setup:
 
 ```bash
 stackctl config validate .stackctl.yaml
-stackctl setup --dir ~/Developer
 stackctl lock images
+stackctl setup --dir ~/Developer
 stackctl daemon reconcile
 stackctl status
 stackctl open
 ```
 
-Setup validates the roots and `.localhost` resolution before host mutation,
-installs the singleton CA trust, and starts the login service transactionally.
-The daemon then discovers valid projects automatically. If a project uses
-mutable image names or presets, it becomes runnable after `stackctl lock
-images` creates `.stackctl.lock.yaml`. Inspect it with `stackctl status`,
-`stackctl logs`, and `stackctl url`.
+Before setup, `stackctl lock images` uses the running Docker-compatible Engine
+only to resolve mutable references into immutable digests. Setup then validates
+the roots and `.localhost` resolution before host mutation, installs the
+singleton CA trust, and starts the login service transactionally. The daemon
+discovers the already-runnable project automatically. Inspect it with
+`stackctl status`, `stackctl logs`, and `stackctl url`.
 
 V8 does not upgrade, migrate, adopt, or execute pre-v8 project configuration.
 Use a fresh installation and new `.stackctl.yaml` files.

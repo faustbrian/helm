@@ -30,6 +30,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Fresh projects now create immutable artifact locks before the one-time setup,
+  allowing setup to retain its complete operational-readiness guarantee.
 - Workflow modes now define mutually exclusive triggers: manual workflows run
   only through explicit `stackctl run` invocation, while automatic workflows
   run only implicitly through convergence-gated daemon scheduling.
@@ -91,6 +93,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Break the fresh-install image-lock deadlock by resolving through the daemon
+  when available and using the same typed Engine capability directly only when
+  its endpoint is absent. Permission and protocol failures still fail closed.
 - Reject explicit execution of automatic workflows so `stackctl run` cannot
   bypass their deterministic operation identity and durable replay guard.
 - Drop the complete default Linux capability set from the gateway, application,

@@ -223,12 +223,14 @@ pub(crate) use filesystem_event_watcher::FilesystemEventWatcher;
 pub(crate) use filesystem_event_watcher_error::FilesystemEventWatcherError;
 pub(crate) use finalize_installation_deletion::finalize_installation_deletion;
 pub(crate) use image_reference_resolution::ImageReferenceResolution;
-pub(crate) use initialize_default_installation::initialize_default_installation;
+pub(crate) use initialize_default_installation::{
+    default_docker_socket, initialize_default_installation,
+};
 pub(crate) use installation_initialization_error::InstallationInitializationError;
 pub(crate) use invalidate_engine_connection::invalidate_engine_connection;
 #[cfg(unix)]
 pub(crate) use ipc::{
-    IpcBenchmarkSnapshot, IpcDiagnostic, IpcEvent, IpcEventJournal, IpcEventKind,
+    IpcBenchmarkSnapshot, IpcDiagnostic, IpcError, IpcEvent, IpcEventJournal, IpcEventKind,
     IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState,
     IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager, IpcOutcome,
     IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest,

@@ -70,6 +70,7 @@ mod reconstruct_owned_image;
 mod reconstruct_owned_network;
 mod reconstruct_owned_volume;
 mod registry_image_reference;
+mod resolve_registry_image_references;
 mod resource_kind;
 mod resource_metrics;
 mod retention_class;
@@ -153,6 +154,9 @@ pub(crate) use reconstruct_owned_image::reconstruct_owned_image;
 pub(crate) use reconstruct_owned_network::reconstruct_owned_network;
 pub(crate) use reconstruct_owned_volume::reconstruct_owned_volume;
 pub(crate) use registry_image_reference::RegistryImageReference;
+pub(crate) use resolve_registry_image_references::{
+    resolve_registry_image_references, resolve_registry_image_references_with_engine,
+};
 pub(crate) use resource_kind::ResourceKind;
 pub(crate) use resource_metrics::ResourceMetrics;
 pub(crate) use retention_class::RetentionClass;

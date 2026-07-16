@@ -1,14 +1,15 @@
 //! Strict v8 YAML artifact-lock commands through singleton-daemon IPC.
 
+mod resolve_image_references;
+
 use super::log;
 use super::v8_project::resolve_v8_project;
 use crate::cli::args::{Cli, Commands, LockCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
-    ArtifactLock, ArtifactLockImage, IpcOutcome, IpcPayload, IpcRequest, IpcResult,
-    MAX_PROJECT_CONFIG_BYTES, PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock,
-    artifact_source, default_unix_daemon_runtime_directory, parse_artifact_lock,
-    read_bounded_yaml_file, resolve_preset_artifact, send_unix_request,
+    ArtifactLock, ArtifactLockImage, IpcOutcome, IpcResult, MAX_PROJECT_CONFIG_BYTES,
+    PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock, artifact_source, parse_artifact_lock,
+    read_bounded_yaml_file, resolve_preset_artifact,
 };
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
@@ -16,7 +17,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use resolve_image_references::resolve_image_references;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
 const ENGINE_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -37,12 +40,7 @@ pub(crate) fn handle_v8_lock(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
             if context.dry_run() {
                 bail!("--dry-run is not supported when publishing a v8 artifact lock");
             }
-            let lock = generate_lock(project.config(), |references| {
-                resolve_through_daemon(
-                    &default_unix_daemon_runtime_directory()?.join("daemon.sock"),
-                    references,
-                )
-            })?;
+            let lock = generate_lock(project.config(), resolve_image_references)?;
             publish_lock(&lock_path, &lock)?;
             log::info_if_not_quiet(
                 context.quiet(),
@@ -125,29 +123,6 @@ where
     } else {
         lock
     })
-}
-
-fn resolve_through_daemon(
-    socket_path: &Path,
-    references: &BTreeMap<String, String>,
-) -> Result<BTreeMap<String, String>> {
-    let deadline = Instant::now() + ENGINE_CONNECT_TIMEOUT;
-    loop {
-        let response = send_unix_request(
-            socket_path,
-            &IpcRequest::new(
-                next_request_id(),
-                IpcPayload::ResolveImageReferences {
-                    references: references.clone(),
-                },
-            ),
-            REQUEST_TIMEOUT,
-        )?;
-        if !engine_is_reconnecting(response.outcome()) || Instant::now() >= deadline {
-            return resolved_references(response.outcome());
-        }
-        std::thread::sleep(ENGINE_RETRY_INTERVAL);
-    }
 }
 
 fn verify_lock(config: &crate::control_plane::RawProjectConfig, lock_path: &Path) -> Result<()> {

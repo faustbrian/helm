@@ -1,6 +1,6 @@
 use super::ImageReferenceResolution;
 use crate::control_plane::engine::{
-    BollardEngineAdapter, ImageReferenceResolver, RegistryImageReference,
+    BollardEngineAdapter, resolve_registry_image_references_with_engine,
 };
 use std::collections::BTreeMap;
 
@@ -24,23 +24,11 @@ impl ImageReferenceResolution for EngineImageReferenceResolution<'_> {
         &mut self,
         references: &BTreeMap<String, String>,
     ) -> Result<BTreeMap<String, String>, String> {
-        self.runtime.block_on(async {
-            let mut resolved = BTreeMap::new();
-            for (id, source) in references {
-                let reference = RegistryImageReference::new(source).map_err(|error| {
-                    format!("image reference '{id}' cannot be resolved: {error}")
-                })?;
-                let immutable = self
-                    .engine
-                    .resolve_image_reference(&reference)
-                    .await
-                    .map_err(|error| {
-                        format!("image reference '{id}' cannot be resolved: {error}")
-                    })?;
-                resolved.insert(id.clone(), immutable.as_str().to_owned());
-            }
-
-            Ok(resolved)
-        })
+        self.runtime
+            .block_on(resolve_registry_image_references_with_engine(
+                &mut self.engine,
+                references,
+            ))
+            .map_err(|error| error.to_string())
     }
 }

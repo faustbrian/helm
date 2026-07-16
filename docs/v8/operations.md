@@ -88,10 +88,13 @@ repository manifest digest without parsing Docker or Podman CLI output. Making
 that already-pinned image locally available remains the separate
 `ImageResolver` capability.
 
-The CLI submits bounded source mappings over typed local IPC. The singleton
-daemon resolves them using the persisted Engine selection and returns the exact
-same key set. The CLI rejects missing, additional, or mutable results before an
-atomic YAML lock publication.
+The CLI submits bounded source mappings over typed local IPC when the singleton
+daemon is available. Before first setup, only an absent or connection-refused
+daemon endpoint enables direct resolution through the default Engine socket;
+permission, framing, protocol, and daemon-reported errors fail closed. Both
+paths use the typed Engine resolver and must return the exact same key set. The
+CLI rejects missing, additional, or mutable results before an atomic YAML lock
+publication.
 
 Stackctl does not publish or maintain a PHP distribution. Laravel, FrankenPHP,
 and Reverb presets use the public versioned FrankenPHP image, which the project
@@ -148,12 +151,13 @@ The selected Docker-compatible Engine is contacted over its Unix socket;
 Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
 Caddy is an immutable workload-plane image, not a host executable.
 
-`stackctl setup --dir <DIR>...` is the normal one-time installation path. It
-canonicalizes every distinct watched root and verifies `.localhost` loopback
-resolution before changing host state. It then installs singleton CA trust and
-the login service. If service installation fails, setup removes trust only when
-that invocation added it; existing trust is retained. A trust rollback failure
-is reported together with the service failure.
+Run `stackctl lock images` in every mutable or preset-based project before the
+first `stackctl setup --dir <DIR>...`. Setup is the normal one-time installation
+path. It canonicalizes every distinct watched root and verifies `.localhost`
+loopback resolution before changing host state. It then installs singleton CA
+trust and the login service. If service installation fails, setup removes trust
+only when that invocation added it; existing trust is retained. A trust
+rollback failure is reported together with the service failure.
 
 Initial CA trust installation also remains transactional through exact trust
 verification and active certificate-generation selection. A failure after new

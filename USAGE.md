@@ -28,7 +28,10 @@ stackctl lock diff
 Configuration is strict YAML with `schema_version: 8`. Unknown fields,
 duplicate keys, invalid identities, collisions, unsupported tags, and multiple
 documents fail before mutation. Artifact locks are project-local YAML and bind
-configured sources to immutable sha256 digests.
+configured sources to immutable sha256 digests. Run `stackctl lock images`
+before first setup for projects using presets or mutable images. An available
+daemon remains authoritative; an absent endpoint uses the default Engine
+socket only for this bootstrap resolution.
 
 ## Daemon and installation
 
@@ -46,10 +49,11 @@ stackctl daemon benchmark
 stackctl daemon trust install|status|remove|rotate
 ```
 
-`setup` is the normal one-time path. It preflights canonical watched roots and
-`.localhost` resolution, then installs singleton CA trust and the login service
-as one rollback-aware transaction. The nested daemon commands remain explicit
-administrative and diagnostic operations.
+`setup` is the normal one-time path after project artifact locks exist. It
+preflights canonical watched roots and `.localhost` resolution, then installs
+singleton CA trust and the login service as one rollback-aware transaction.
+The nested daemon commands remain explicit administrative and diagnostic
+operations.
 
 `daemon adopt`, `backup`, `backups`, `restore`, `prune`, and `migration`
 provide the explicit retained-data and reversible-migration workflows. Their

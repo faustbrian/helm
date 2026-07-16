@@ -33,12 +33,13 @@ pub(crate) use configuration::{
 };
 #[cfg(unix)]
 pub(crate) use daemon::{
-    IpcBenchmarkSnapshot, IpcDiagnostic, IpcEvent, IpcEventKind, IpcInstallationDeletionStatus,
-    IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState, IpcManagedEnvironment,
-    IpcMigrationDecision, IpcNodePackageManager, IpcOutcome, IpcOutputStream, IpcPayload,
-    IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest, IpcResourceHealth,
-    IpcResourceLifecycle, IpcResponse, IpcResult, UnixDaemonWatchOptions,
-    default_unix_daemon_runtime_directory, run_unix_daemon_watch, send_unix_request,
+    IpcBenchmarkSnapshot, IpcDiagnostic, IpcError, IpcEvent, IpcEventKind,
+    IpcInstallationDeletionStatus, IpcInstallationLifecycle, IpcLogChunk, IpcLogSessionState,
+    IpcManagedEnvironment, IpcMigrationDecision, IpcNodePackageManager, IpcOutcome,
+    IpcOutputStream, IpcPayload, IpcPhpTool, IpcProjectCommand, IpcProjectStatus, IpcRequest,
+    IpcResourceHealth, IpcResourceLifecycle, IpcResponse, IpcResult, UnixDaemonWatchOptions,
+    default_docker_socket, default_unix_daemon_runtime_directory, run_unix_daemon_watch,
+    send_unix_request,
 };
 #[cfg(test)]
 pub(crate) use daemon::{IpcDataLifecycle, IpcResourceStatus};
@@ -46,6 +47,8 @@ pub(crate) use desired_state::{
     DesiredProject, DesiredProjectError, DesiredService, resolve_desired_project,
 };
 use dns_label::DnsLabel;
+#[cfg(unix)]
+pub(crate) use engine::resolve_registry_image_references;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;
 pub(crate) use execution_plan::{ExecutionPlan, ServiceExecutionPlan, resolve_execution_plan};
 pub(crate) use gateway::{
