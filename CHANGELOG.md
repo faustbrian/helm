@@ -43,7 +43,9 @@ All notable changes to this project are documented in this file.
   release assets work directly with `sha256sum --check SHA256SUMS`.
 - Dedicated project services now materialize their exact locked images before
   container reconciliation. Production behavior no longer relies on live tests
-  or another project having pre-pulled the image.
+  or another project having pre-pulled the image. Native Linux dedicated-cache
+  acceptance now invokes the production volume and service reconcilers from a
+  cold image cache instead of manually recreating their Engine mutations.
 - MongoDB logical provisioning now retries its bounded client exit while the
   official image transitions from its temporary initialization server to its
   final server, then preserves the final exact failure as tenant drift.

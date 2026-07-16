@@ -1,17 +1,17 @@
 use super::{plan_dragonfly_project_resources, plan_memcached_project_resources};
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
-    BollardEngineAdapter, ContainerLifecycle, ImageResolver, ImmutableImageReference,
-    InstallationResourceDeletionOptions, ManagedResourceMetadata, ManagedResourceMetadataOptions,
-    NetworkCreateOptions, NetworkManager, ResourceKind, RetentionClass, VolumeManager,
-    delete_owned_installation_resources,
+    BollardEngineAdapter, InstallationResourceDeletionOptions, ManagedResourceMetadata,
+    ManagedResourceMetadataOptions, NetworkCreateOptions, NetworkManager, ResourceKind,
+    RetentionClass, delete_owned_installation_resources,
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialSecret, ProvisioningJobOptions, SharedInfrastructureReconcileError,
     run_provisioning_job,
 };
 use crate::control_plane::workload::{
-    DedicatedProjectServiceOptions, plan_dedicated_project_service,
+    DedicatedProjectServiceOptions, ProjectVolumeReconcileOptions, WorkloadReconcileOptions,
+    plan_dedicated_project_service, reconcile_project_service, reconcile_project_volume,
 };
 use crate::control_plane::{ServiceExecutionPlan, resolve_execution_plan};
 use std::path::PathBuf;
@@ -123,26 +123,34 @@ fn live_docker_engine_dedicated_caches_pass_protocol_readiness() {
             .await
             .map_err(|error| engine_error("create dedicated cache network", error))?;
         for plan in &plans {
-            let image = ImmutableImageReference::new(plan.request().image())
-                .map_err(|error| engine_error("validate dedicated cache image", error))?;
-            engine
-                .ensure_image(&image)
-                .await
-                .map_err(|error| engine_error("resolve dedicated cache image", error))?;
             if let Some(volume) = plan.volume() {
-                engine
-                    .create_volume(volume)
-                    .await
-                    .map_err(|error| engine_error("create dedicated cache volume", error))?;
+                reconcile_project_volume(
+                    &mut engine,
+                    ProjectVolumeReconcileOptions {
+                        request: volume,
+                        installation_id: &installation_id,
+                        schema_version: 8,
+                    },
+                )
+                .await
+                .map_err(|error| SharedInfrastructureReconcileError::Engine {
+                    action: "reconcile dedicated cache volume".to_owned(),
+                    detail: error.to_string(),
+                })?;
             }
-            let container = engine
-                .create(plan.request())
-                .await
-                .map_err(|error| engine_error("create dedicated cache container", error))?;
-            engine
-                .start(&container)
-                .await
-                .map_err(|error| engine_error("start dedicated cache container", error))?;
+            reconcile_project_service(
+                &mut engine,
+                WorkloadReconcileOptions {
+                    request: plan.request(),
+                    installation_id: &installation_id,
+                    schema_version: 8,
+                },
+            )
+            .await
+            .map_err(|error| SharedInfrastructureReconcileError::Engine {
+                action: "reconcile dedicated cache service".to_owned(),
+                detail: error.to_string(),
+            })?;
         }
         for plan in &plans {
             let readiness = plan
