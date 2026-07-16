@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added explicit `manual` and `automatic` workflow modes. Manual remains the
+  safe default; automatic workflows wait for complete Engine convergence and
+  execute ordered restores and migrations once per exact workflow and dump
+  content revision. Durable deterministic operation records prevent unchanged
+  workflows from rerunning after rescans, login, reboot, or daemon restart.
 - Added strict named YAML workflows through `stackctl run`, including durable
   project-local MySQL and MariaDB dump restores, exact ZIP-entry streaming,
   optional logical-schema reset, ordered Laravel migration, and route opening.

@@ -1738,7 +1738,7 @@ const fn ipc_resource_lifecycle(lifecycle: ResourceLifecycle) -> IpcResourceLife
     }
 }
 
-fn prepare_project_command<Store>(
+pub(super) fn prepare_project_command<Store>(
     control_plane: &ControlPlane<Store>,
     operation_id: &str,
     canonical_path: &std::path::Path,
@@ -2068,7 +2068,7 @@ where
     })
 }
 
-fn prepare_database_dump_restore<Store>(
+pub(super) fn prepare_database_dump_restore<Store>(
     control_plane: &ControlPlane<Store>,
     operation_id: &str,
     canonical_path: &std::path::Path,

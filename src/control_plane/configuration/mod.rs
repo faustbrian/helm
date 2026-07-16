@@ -10,6 +10,7 @@ mod raw_project_config;
 mod raw_service_config;
 mod raw_workflow_config;
 mod raw_workflow_migration;
+mod raw_workflow_mode;
 mod raw_workflow_step;
 
 pub(crate) use apply_artifact_lock::apply_artifact_lock;
@@ -24,6 +25,7 @@ pub(crate) use raw_project_config::RawProjectConfig;
 pub(crate) use raw_service_config::RawServiceConfig;
 pub(crate) use raw_workflow_config::RawWorkflowConfig;
 pub(crate) use raw_workflow_migration::RawWorkflowMigration;
+pub(crate) use raw_workflow_mode::RawWorkflowMode;
 pub(crate) use raw_workflow_step::RawWorkflowStep;
 
 #[cfg(test)]

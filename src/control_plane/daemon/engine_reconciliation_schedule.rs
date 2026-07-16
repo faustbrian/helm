@@ -48,7 +48,6 @@ impl EngineReconciliationSchedule {
     }
 
     /// Returns the last complete validated registry, including while blocked.
-    #[cfg(test)]
     pub(crate) const fn desired_registry(&self) -> Option<&DesiredRegistry> {
         self.desired_registry.as_ref()
     }

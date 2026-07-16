@@ -2,7 +2,7 @@ use super::{
     DesiredProject, DesiredProjectError, DesiredService, DesiredServiceOptions,
     resolve_runtime_image_reference::resolve_runtime_image_reference,
 };
-use crate::control_plane::configuration::{RawProjectConfig, RawWorkflowConfig};
+use crate::control_plane::configuration::{RawProjectConfig, RawWorkflowConfig, RawWorkflowMode};
 use crate::control_plane::{
     ProjectIdentity, RouteClaim, ServiceDeploymentStrategy, ServiceIdentity,
     is_valid_environment_variable_key, resolve_service_deployment_strategy,
@@ -134,6 +134,7 @@ pub(crate) fn resolve_desired_project(
         .into_iter()
         .map(|service| RouteClaim::new(project_directory.to_path_buf(), project.clone(), service))
         .collect::<Result<Vec<_>, _>>()?;
+    let workflows = raw.workflows().clone();
 
     Ok(DesiredProject::new(
         project,
@@ -141,6 +142,7 @@ pub(crate) fn resolve_desired_project(
         services,
         startup_order,
         route_claims,
+        workflows,
     ))
 }
 
@@ -158,6 +160,12 @@ fn validate_workflows(
             ));
         }
         for step in workflow.steps() {
+            if workflow.mode() == RawWorkflowMode::Automatic && step.file().is_none() {
+                return Err(invalid_service(
+                    &format!("workflow {name}"),
+                    "automatic workflows cannot open a browser",
+                ));
+            }
             let service = services.get(step.service()).ok_or_else(|| {
                 invalid_service(
                     &format!("workflow {name}"),

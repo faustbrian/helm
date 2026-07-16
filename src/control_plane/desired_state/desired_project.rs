@@ -1,4 +1,5 @@
 use super::DesiredService;
+use crate::control_plane::configuration::RawWorkflowConfig;
 use crate::control_plane::{ProjectIdentity, RouteClaim};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ pub(crate) struct DesiredProject {
     services: BTreeMap<String, DesiredService>,
     startup_order: Vec<String>,
     route_claims: Vec<RouteClaim>,
+    workflows: BTreeMap<String, RawWorkflowConfig>,
 }
 
 impl DesiredProject {
@@ -20,6 +22,7 @@ impl DesiredProject {
         services: BTreeMap<String, DesiredService>,
         startup_order: Vec<String>,
         route_claims: Vec<RouteClaim>,
+        workflows: BTreeMap<String, RawWorkflowConfig>,
     ) -> Self {
         Self {
             identity,
@@ -27,6 +30,7 @@ impl DesiredProject {
             services,
             startup_order,
             route_claims,
+            workflows,
         }
     }
 
@@ -68,5 +72,10 @@ impl DesiredProject {
     /// Returns claims ready for complete-registry collision validation.
     pub(crate) fn route_claims(&self) -> &[RouteClaim] {
         &self.route_claims
+    }
+
+    /// Returns validated workflows in deterministic name order.
+    pub(crate) fn workflows(&self) -> &BTreeMap<String, RawWorkflowConfig> {
+        &self.workflows
     }
 }

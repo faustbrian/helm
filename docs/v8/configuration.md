@@ -226,16 +226,23 @@ Mapping is explicit and strict. Stackctl does not rename a colliding key by
 guessing; invalid keys, duplicate targets, and unresolved collisions fail the
 project plan.
 
-## Explicit project workflows
+## Project workflows
 
-Named workflows capture repeatable, user-invoked development operations in
-the same strict YAML without turning them into unattended daemon hooks. For an
-API project that restores two database dumps, migrates only the primary
-Laravel connection, and then opens the app:
+Named workflows capture repeatable ordered development operations in the same
+strict YAML. `mode: manual` is the default and requires `stackctl run`.
+`mode: automatic` runs only after the daemon has fully converged the project,
+once per deterministic workflow and dump-content revision. Successful steps
+remain durably recorded across rescans, daemon restarts, login, and reboot.
+A changed workflow or dump creates a new revision; a failed revision remains
+failed until its input changes or the workflow is run manually.
+
+For an API project that restores two database dumps and migrates only the
+primary Laravel connection after first convergence:
 
 ```yaml
 workflows:
   sandbox:
+    mode: automatic
     steps:
       - type: database_restore
         service: shipit
@@ -251,11 +258,10 @@ workflows:
         file: database/dumps/billing_staging.sql
         reset: true
 
-      - type: open
-        service: app
 ```
 
-Run it from the project with:
+Manual workflows may additionally declare `open` steps and run from the
+project with:
 
 ```bash
 stackctl config validate
@@ -269,9 +275,10 @@ re-provisions only that project's selected logical schema before streaming the
 dump. A `migrate` block runs `artisan migrate --database=<connection>` inside
 the selected Linux application service only after the restore succeeds.
 
-Workflows are never executed during discovery, login, reboot, reconciliation,
-or file watching. Invoking `stackctl run` is the destructive authorization
-boundary.
+Automatic workflows cannot declare `open`: an unattended daemon must never
+launch a browser. Automatic mode is the explicit destructive authorization
+boundary for one revision. Omitting `mode`, or declaring `mode: manual`, keeps
+all effects behind `stackctl run`.
 
 ## Project trust
 

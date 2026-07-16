@@ -2026,6 +2026,7 @@ fn prune_terminal_daemon_operations(
     transaction.execute(
         "DELETE FROM daemon_operations
          WHERE status IN ('completed', 'failed', 'cancelled')
+           AND operation_id NOT LIKE 'automatic-workflow:%'
            AND operation_id NOT IN (
                SELECT operation_id FROM daemon_operations
                WHERE status IN ('completed', 'failed', 'cancelled')

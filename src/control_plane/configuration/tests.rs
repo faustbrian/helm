@@ -202,6 +202,10 @@ fn exposes_a_versioned_editor_schema_matching_the_strict_yaml_shape() {
         "#/$defs/workflow"
     );
     assert_eq!(
+        schema["$defs"]["workflow"]["properties"]["mode"]["enum"],
+        serde_json::json!(["automatic", "manual"])
+    );
+    assert_eq!(
         schema["$defs"]["databaseRestoreStep"]["properties"]["type"]["const"],
         "database_restore"
     );
@@ -786,6 +790,62 @@ workflows:
     assert!(first.reset());
     assert_eq!(first.migration_service(), Some("app"));
     assert_eq!(first.migration_connection(), Some("mysql"));
+    assert_eq!(
+        workflow.mode(),
+        crate::control_plane::configuration::RawWorkflowMode::Manual
+    );
+}
+
+#[test]
+fn workflows_require_an_explicit_typed_automatic_mode() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  shipit:
+    preset: mysql
+workflows:
+  sandbox:
+    mode: automatic
+    steps:
+      - type: database_restore
+        service: shipit
+        file: database/dumps/sandbox.sql
+        reset: true
+"#;
+
+    let raw = parse_project_config(source, Path::new(CONFIG_PATH)).expect("workflow config");
+    let workflow = raw.workflows().get("sandbox").expect("sandbox workflow");
+
+    assert_eq!(
+        workflow.mode(),
+        crate::control_plane::configuration::RawWorkflowMode::Automatic
+    );
+}
+
+#[test]
+fn automatic_workflows_reject_interactive_open_steps() {
+    let source = r#"
+schema_version: 8
+project: api
+services:
+  app:
+    preset: laravel
+workflows:
+  sandbox:
+    mode: automatic
+    steps:
+      - type: open
+        service: app
+"#;
+
+    let error = desired_from(source).expect_err("interactive automatic workflow");
+
+    assert!(
+        error
+            .to_string()
+            .contains("automatic workflows cannot open a browser")
+    );
 }
 
 #[test]

@@ -178,6 +178,14 @@
         "steps"
       ],
       "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "manual"
+          ],
+          "default": "manual"
+        },
         "steps": {
           "type": "array",
           "minItems": 1,

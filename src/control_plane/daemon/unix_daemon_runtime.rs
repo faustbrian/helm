@@ -107,6 +107,7 @@ pub(crate) struct UnixDaemonRuntime {
     scheduler: DiscoveryScheduler,
     discovery_diagnostics: Vec<IpcDiagnostic>,
     pub(super) scheduled_command_clock: ScheduledCommandClock,
+    pub(super) automatic_workflow_revisions: BTreeMap<(PathBuf, String), Result<String, String>>,
     pub(super) options: UnixDaemonRuntimeOptions,
 }
 
@@ -200,6 +201,7 @@ impl UnixDaemonRuntime {
             scheduler,
             discovery_diagnostics,
             scheduled_command_clock: ScheduledCommandClock::default(),
+            automatic_workflow_revisions: BTreeMap::new(),
             options,
         })
     }
@@ -217,8 +219,11 @@ impl UnixDaemonRuntime {
             self.control_plane.installation_lifecycle()?,
             Some(InstallationLifecycle::Deleting | InstallationLifecycle::Deleted)
         );
-        if self.filesystem_watcher.take_change()? && !reconciliation_frozen {
-            self.record_filesystem_event(now);
+        if self.filesystem_watcher.take_change()? {
+            self.automatic_workflow_revisions.clear();
+            if !reconciliation_frozen {
+                self.record_filesystem_event(now);
+            }
         }
 
         let scan_reason = (!reconciliation_frozen)
@@ -371,6 +376,7 @@ impl UnixDaemonRuntime {
                         }
                     }
                     self.drive_engine_events(now);
+                    self.schedule_automatic_workflows(now_unix_seconds);
                     self.drive_project_commands(now, now_unix_seconds);
                     self.drive_project_backups(now, now_unix_seconds);
                     self.drive_postgres_prunes(now, now_unix_seconds);
