@@ -19,8 +19,9 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
 use crate::control_plane::engine::{
-    AttachedCommandOutput, ContainerDiscovery, ContainerNetworkIsolation, EngineError,
-    NetworkCreateOptions, NetworkDiscovery, OwnedNetwork, ReconciliationEngine, VolumeDiscovery,
+    AttachedCommandOutput, ContainerDiscovery, ContainerHealth, ContainerNetworkIsolation,
+    EngineError, NetworkCreateOptions, NetworkDiscovery, OwnedNetwork, ReconciliationEngine,
+    VolumeDiscovery,
 };
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
@@ -1326,11 +1327,13 @@ impl UnixDaemonRuntime {
                         }
                     },
                 ));
+        let mut required_applications_healthy = true;
         for (application, (request, result)) in
             engine_plan.applications().iter().zip(application_results)
         {
             match result {
                 Ok(result) => {
+                    required_applications_healthy &= result.health() == ContainerHealth::Healthy;
                     if let Err(error) = health_snapshot.record(
                         result.container().id().as_str(),
                         result.health(),
@@ -1989,7 +1992,7 @@ impl UnixDaemonRuntime {
                 for route in engine_plan.gateway().routes() {
                     if let Err(error) = health_snapshot.record(
                         route.domain(),
-                        crate::control_plane::engine::ContainerHealth::Healthy,
+                        ContainerHealth::Healthy,
                         observed_at_unix_seconds,
                     ) {
                         self.engine_reconciliation.complete();
@@ -2031,13 +2034,19 @@ impl UnixDaemonRuntime {
                 }
                 self.resource_health = health_snapshot;
                 self.resource_health.clear_reconciliation_failure();
-                self.scheduled_project_commands = engine_plan.scheduled_commands().to_vec();
-                self.engine_reconciliation.mark_converged();
+                if required_applications_healthy {
+                    self.scheduled_project_commands = engine_plan.scheduled_commands().to_vec();
+                } else {
+                    self.scheduled_project_commands.clear();
+                }
+                self.engine_reconciliation
+                    .finish_reconciliation(required_applications_healthy);
                 tracing::debug!(
                     action = ?gateway.gateway_action(),
                     health = ?gateway.health(),
                     configuration_action = ?gateway.configuration_action(),
                     certificate_action = ?assets.certificate_action(),
+                    required_applications_healthy,
                     "global gateway reconciliation completed"
                 );
             }

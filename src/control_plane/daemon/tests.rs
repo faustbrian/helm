@@ -7280,7 +7280,14 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
             .collect::<Vec<_>>(),
         vec![crate::control_plane::ServiceDeploymentStrategy::ProjectApplication]
     );
-    engine_schedule.mark_converged();
+    engine_schedule.finish_reconciliation(false);
+    assert!(!engine_schedule.is_due());
+    assert!(
+        !engine_schedule.is_converged(),
+        "an unhealthy required application must withhold daemon convergence"
+    );
+    engine_schedule.request();
+    engine_schedule.finish_reconciliation(true);
     assert!(!engine_schedule.is_due());
     assert!(engine_schedule.is_converged());
     engine_schedule.request();

@@ -180,6 +180,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Daemon convergence and automatic workflows now wait until every required
+  application health check succeeds. A transient or fatal Laravel bootstrap can
+  no longer consume the durable once-per-revision migration operation before
+  the application is capable of running Artisan.
 - Laravel container health now boots the framework through a direct non-shell
   Artisan command. FrankenPHP listener responses can no longer mark a fatal
   `bootstrap/app.php` as healthy; trusted HTTPS `/up` remains an end-to-end

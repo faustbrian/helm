@@ -62,10 +62,10 @@ impl EngineReconciliationSchedule {
         self.converged = false;
     }
 
-    /// Records that the current desired execution plan fully converged.
-    pub(crate) fn mark_converged(&mut self) {
+    /// Records whether required applications were healthy at the final boundary.
+    pub(crate) fn finish_reconciliation(&mut self, required_applications_healthy: bool) {
         self.due = false;
-        self.converged = true;
+        self.converged = required_applications_healthy;
     }
 
     pub(crate) const fn is_converged(&self) -> bool {
