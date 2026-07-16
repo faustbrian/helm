@@ -5,7 +5,6 @@ use super::{
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, SharedInstancePlan, generate_credential_secret,
-    shared_identity_hex,
 };
 use crate::control_plane::state::{CredentialLifecycle, StateStore};
 
@@ -29,21 +28,9 @@ where
                 shared.profile().implementation()
             )));
         }
-        let identity = shared
-            .fingerprint()
-            .as_str()
-            .strip_prefix("sha256:")
-            .ok_or_else(|| invalid("MongoDB fingerprint is malformed"))?;
-        let bootstrap_secret_file = options
-            .state_directory
-            .join("shared")
-            .join(options.installation_id)
-            .join(shared_identity_hex(identity))
-            .join("mongodb-secrets/root-password");
         let candidate = instance_plan(
             shared,
             &options,
-            &bootstrap_secret_file,
             generate_credential_secret(entropy).map_err(invalid)?,
         )?;
         let bootstrap = store
@@ -53,7 +40,6 @@ where
         let instance = instance_plan(
             shared,
             &options,
-            &bootstrap_secret_file,
             CredentialSecret::new(bootstrap.secret().to_owned()),
         )?;
         let mut projects = Vec::with_capacity(shared.consumers().len());
@@ -80,11 +66,7 @@ where
                 .map_err(invalid)?,
             );
         }
-        prepared.push(PreparedMongoDbSharedInstance::new(
-            instance,
-            projects,
-            bootstrap_secret_file,
-        ));
+        prepared.push(PreparedMongoDbSharedInstance::new(instance, projects));
     }
 
     Ok(prepared)
@@ -93,7 +75,6 @@ where
 fn instance_plan(
     shared: &SharedInstancePlan,
     options: &MongoDbPreparationOptions<'_>,
-    bootstrap_secret_file: &std::path::Path,
     bootstrap_secret: CredentialSecret,
 ) -> Result<MongoDbSharedInstancePlan, MongoDbPreparationError> {
     MongoDbSharedInstancePlan::new(
@@ -104,7 +85,6 @@ fn instance_plan(
             schema_version: options.schema_version,
             desired_revision: shared.fingerprint().as_str().to_owned(),
             bootstrap_secret,
-            bootstrap_secret_file: bootstrap_secret_file.to_path_buf(),
         },
     )
     .map_err(invalid)

@@ -425,33 +425,16 @@ fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
             .contains("createUser")
     }));
     drop(command_inputs);
-    let identity = shared_identity_hex(
-        shared[0]
-            .fingerprint()
-            .as_str()
-            .strip_prefix("sha256:")
-            .expect("fingerprint identity"),
-    );
-    let secret_file = root
-        .join("shared")
-        .join("install-1")
-        .join(identity)
-        .join("mongodb-secrets/root-password");
     let bootstrap = credentials
         .iter()
         .find(|credential| credential.project_id().is_none())
         .expect("bootstrap credential");
     assert_eq!(
-        std::fs::read_to_string(&secret_file).expect("bootstrap secret file"),
-        bootstrap.secret()
-    );
-    assert_eq!(
-        std::fs::metadata(secret_file)
-            .expect("bootstrap secret metadata")
-            .permissions()
-            .mode()
-            & 0o777,
-        0o600
+        engine.created_containers[0]
+            .environment()
+            .get("MONGO_INITDB_ROOT_PASSWORD")
+            .map(String::as_str),
+        Some(bootstrap.secret())
     );
 
     drop(store);
@@ -2433,7 +2416,7 @@ fn managed_credentials_use_256_bits_of_injected_entropy_and_redact_debug() {
 }
 
 #[test]
-fn mongodb_shared_instances_use_private_secret_files_and_retained_data() {
+fn mongodb_shared_instances_use_redacted_environment_bootstrap_and_retained_data() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
         "database",
@@ -2449,22 +2432,29 @@ fn mongodb_shared_instances_use_private_secret_files_and_retained_data() {
             schema_version: 8,
             desired_revision: "sha256:mongodb-v1".to_owned(),
             bootstrap_secret: CredentialSecret::new("mongo-root".to_owned()),
-            bootstrap_secret_file: "/private/mongodb/root-password".into(),
         },
     )
     .expect("MongoDB instance");
 
     assert_eq!(plan.data_mount_target(), "/data/db");
-    assert_eq!(
-        plan.bootstrap_secret_target(),
-        "/run/stackctl-secrets/mongodb-root-password"
-    );
     assert!(plan.volume().is_some());
     assert_eq!(plan.bootstrap_credential().username(), "stackctl_admin");
+    assert!(plan.container().bind_mounts().is_empty());
+    assert_eq!(
+        plan.container()
+            .environment()
+            .get("MONGO_INITDB_ROOT_PASSWORD")
+            .map(String::as_str),
+        Some("mongo-root")
+    );
+    assert!(
+        !plan
+            .container()
+            .environment()
+            .contains_key("MONGO_INITDB_ROOT_PASSWORD_FILE")
+    );
     let debug = format!("{:?}", plan.container());
-    assert!(debug.contains("/private/mongodb/root-password"));
-    assert!(debug.contains("read_only: true"));
-    assert!(debug.contains("MONGO_INITDB_ROOT_PASSWORD_FILE"));
+    assert!(debug.contains("MONGO_INITDB_ROOT_PASSWORD"));
     assert!(!debug.contains("mongo-root"));
 }
 
@@ -2646,7 +2636,6 @@ fn mongodb_shared_reconciliation_records_the_physical_database_identity() {
             installation_id: "install-1",
             network_name: "stackctl",
             schema_version: 8,
-            state_directory: &root,
         },
     )
     .expect("prepare MongoDB instance");
@@ -2678,7 +2667,7 @@ fn mongodb_shared_reconciliation_records_the_physical_database_identity() {
 }
 
 #[test]
-fn mongodb_migration_target_is_separate_owned_retained_and_secret_file_backed() {
+fn mongodb_migration_target_is_separate_owned_retained_and_environment_bootstrapped() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
         "database",
@@ -2696,7 +2685,6 @@ fn mongodb_migration_target_is_separate_owned_retained_and_secret_file_backed() 
             schema_version: 8,
             desired_revision: "sha256:mongodb-target".to_owned(),
             bootstrap_secret: CredentialSecret::new("target-root".to_owned()),
-            bootstrap_secret_file: "/private/migrations/restore-42/root-password".into(),
         },
     )
     .expect("MongoDB migration target");
@@ -2715,13 +2703,18 @@ fn mongodb_migration_target_is_separate_owned_retained_and_secret_file_backed() 
         target.bootstrap_credential().credential_id(),
         "migration/restore-42/mongodb-bootstrap"
     );
-    assert_eq!(
-        target.bootstrap_secret_file(),
-        PathBuf::from("/private/migrations/restore-42/root-password")
-    );
     assert!(target.volume().is_some());
+    assert!(target.container().bind_mounts().is_empty());
+    assert_eq!(
+        target
+            .container()
+            .environment()
+            .get("MONGO_INITDB_ROOT_PASSWORD")
+            .map(String::as_str),
+        Some("target-root")
+    );
     let debug = format!("{:?}", target.container());
-    assert!(debug.contains("/private/migrations/restore-42/root-password"));
+    assert!(debug.contains("MONGO_INITDB_ROOT_PASSWORD"));
     assert!(!debug.contains("target-root"));
 }
 
@@ -2752,7 +2745,6 @@ fn mongodb_migration_target_reuses_durable_credential_and_secret_path() {
         network_name: "stackctl",
         schema_version: 8,
         desired_revision: "sha256:mongodb-target",
-        state_directory: &root,
     };
 
     let first = prepare_mongodb_migration_target(
@@ -2773,10 +2765,6 @@ fn mongodb_migration_target_reuses_durable_credential_and_secret_path() {
     assert_eq!(first.container(), second.container());
     assert_eq!(first.volume(), second.volume());
     assert_eq!(first.bootstrap_credential(), second.bootstrap_credential());
-    assert_eq!(
-        first.bootstrap_secret_file(),
-        root.join("migrations/restore-42/mongodb-secrets/root-password")
-    );
     assert_eq!(store.credentials().expect("credentials").len(), 1);
 
     drop(store);
@@ -2784,7 +2772,7 @@ fn mongodb_migration_target_reuses_durable_credential_and_secret_path() {
 }
 
 #[test]
-fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_service() {
+fn mongodb_migration_target_reconciliation_converges_retained_service() {
     let root = std::env::temp_dir().join(format!(
         "stackctl-mongodb-migration-reconcile-{}-{}",
         std::process::id(),
@@ -2826,7 +2814,6 @@ fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_
                 network_name: "stackctl",
                 schema_version: 8,
                 desired_revision: "sha256:mongodb-target",
-                state_directory: &root,
             },
         ))
         .expect("MongoDB migration target reconciliation");
@@ -2837,8 +2824,13 @@ fn mongodb_migration_target_reconciliation_stores_secret_and_converges_retained_
     );
     assert_eq!(result.volume().name(), "stackctl-migration-restore-42-data");
     assert_eq!(
-        std::fs::read_to_string(result.bootstrap_secret_file()).expect("stored root secret"),
-        result.bootstrap_credential().secret()
+        result
+            .plan()
+            .container()
+            .environment()
+            .get("MONGO_INITDB_ROOT_PASSWORD")
+            .map(String::as_str),
+        Some(result.bootstrap_credential().secret())
     );
     assert_eq!(
         result.health(),
@@ -7012,7 +7004,6 @@ fn mongodb_instance() -> (MongoDbSharedInstancePlan, OwnedContainer) {
             schema_version: 8,
             desired_revision: "sha256:mongodb-v1".to_owned(),
             bootstrap_secret: CredentialSecret::new("mongo-root".to_owned()),
-            bootstrap_secret_file: "/private/mongodb/root-password".into(),
         },
     )
     .expect("MongoDB instance");

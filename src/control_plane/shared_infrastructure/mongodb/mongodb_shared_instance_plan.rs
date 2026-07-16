@@ -3,7 +3,7 @@ use super::{
 };
 use crate::control_plane::DnsLabel;
 use crate::control_plane::engine::{
-    BindMount, ContainerCreateOptions, ContainerRestartPolicy, ManagedResourceMetadata,
+    ContainerCreateOptions, ContainerRestartPolicy, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass, VolumeCreateOptions, VolumeMount,
 };
 use crate::control_plane::shared_infrastructure::{
@@ -11,17 +11,14 @@ use crate::control_plane::shared_infrastructure::{
 };
 use crate::control_plane::state::{CredentialLifecycle, CredentialRecord, CredentialRecordOptions};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 const DATA_MOUNT_TARGET: &str = "/data/db";
-const BOOTSTRAP_SECRET_TARGET: &str = "/run/stackctl-secrets/mongodb-root-password";
 
 /// Exact Engine resources for one MongoDB compatibility profile.
 pub(crate) struct MongoDbSharedInstancePlan {
     container: ContainerCreateOptions,
     volume: Option<VolumeCreateOptions>,
     bootstrap_credential: CredentialRecord,
-    bootstrap_secret_file: PathBuf,
 }
 
 impl MongoDbSharedInstancePlan {
@@ -53,7 +50,6 @@ impl MongoDbSharedInstancePlan {
                 schema_version: options.schema_version,
                 desired_revision: options.desired_revision,
                 bootstrap_credential,
-                bootstrap_secret_file: options.bootstrap_secret_file,
             },
         )
     }
@@ -96,7 +92,6 @@ impl MongoDbSharedInstancePlan {
                 schema_version: options.schema_version,
                 desired_revision: options.desired_revision,
                 bootstrap_credential,
-                bootstrap_secret_file: options.bootstrap_secret_file,
             },
         )
     }
@@ -113,18 +108,9 @@ impl MongoDbSharedInstancePlan {
         &self.bootstrap_credential
     }
 
-    pub(crate) fn bootstrap_secret_file(&self) -> &Path {
-        &self.bootstrap_secret_file
-    }
-
     #[cfg(test)]
     pub(crate) const fn data_mount_target(&self) -> &'static str {
         DATA_MOUNT_TARGET
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn bootstrap_secret_target(&self) -> &'static str {
-        BOOTSTRAP_SECRET_TARGET
     }
 }
 
@@ -139,7 +125,6 @@ struct InstanceMaterializationOptions {
     schema_version: u32,
     desired_revision: String,
     bootstrap_credential: CredentialRecord,
-    bootstrap_secret_file: PathBuf,
 }
 
 fn validate_profile(shared: &SharedInstancePlan) -> Result<&str, MongoDbPlanError> {
@@ -171,17 +156,6 @@ fn materialize(
     shared: &SharedInstancePlan,
     options: InstanceMaterializationOptions,
 ) -> Result<MongoDbSharedInstancePlan, MongoDbPlanError> {
-    if !options.bootstrap_secret_file.is_absolute() {
-        return Err(MongoDbPlanError::new(format!(
-            "MongoDB bootstrap secret file '{}' must be absolute",
-            options.bootstrap_secret_file.display()
-        )));
-    }
-    let secret_file = options.bootstrap_secret_file.to_str().ok_or_else(|| {
-        MongoDbPlanError::new(
-            "MongoDB bootstrap secret path must be valid UTF-8 for the Engine API",
-        )
-    })?;
     let profile = shared.profile();
     let fingerprint = profile.fingerprint().as_str();
     let retention = match profile.persistence() {
@@ -191,8 +165,6 @@ fn materialize(
     let platform = profile.platform_architecture().ok_or_else(|| {
         MongoDbPlanError::new("MongoDB compatibility profile has no Linux platform")
     })?;
-    let secret_mount = BindMount::read_only(secret_file, BOOTSTRAP_SECRET_TARGET)
-        .map_err(|error| MongoDbPlanError::new(error.to_string()))?;
     let container_metadata = metadata(&options, options.kind, retention, fingerprint)?
         .with_compatibility_profile(profile.implementation(), profile.major_version())
         .map_err(|error| MongoDbPlanError::new(error.to_string()))?;
@@ -210,13 +182,12 @@ fn materialize(
                 options.bootstrap_credential.username().to_owned(),
             ),
             (
-                "MONGO_INITDB_ROOT_PASSWORD_FILE".to_owned(),
-                BOOTSTRAP_SECRET_TARGET.to_owned(),
+                "MONGO_INITDB_ROOT_PASSWORD".to_owned(),
+                options.bootstrap_credential.secret().to_owned(),
             ),
         ]))
     })
     .map_err(|error| MongoDbPlanError::new(error.to_string()))?
-    .with_bind_mount(secret_mount)
     .with_restart_policy(ContainerRestartPolicy::UnlessStopped);
     let volume = if profile.persistence() == PersistenceMode::Persistent {
         let volume_metadata = metadata(&options, ResourceKind::Volume, retention, fingerprint)?;
@@ -235,7 +206,6 @@ fn materialize(
         container,
         volume,
         bootstrap_credential: options.bootstrap_credential,
-        bootstrap_secret_file: options.bootstrap_secret_file,
     })
 }
 

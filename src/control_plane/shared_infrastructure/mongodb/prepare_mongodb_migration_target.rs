@@ -45,11 +45,6 @@ fn instance_plan(
     options: MongoDbMigrationPreparationOptions<'_>,
     bootstrap_secret: CredentialSecret,
 ) -> Result<MongoDbSharedInstancePlan, MongoDbPreparationError> {
-    let bootstrap_secret_file = options
-        .state_directory
-        .join("migrations")
-        .join(options.migration_id)
-        .join("mongodb-secrets/root-password");
     MongoDbSharedInstancePlan::new_migration_target(
         shared,
         MongoDbMigrationInstancePlanOptions {
@@ -60,7 +55,6 @@ fn instance_plan(
             schema_version: options.schema_version,
             desired_revision: options.desired_revision.to_owned(),
             bootstrap_secret,
-            bootstrap_secret_file,
         },
     )
     .map_err(invalid)

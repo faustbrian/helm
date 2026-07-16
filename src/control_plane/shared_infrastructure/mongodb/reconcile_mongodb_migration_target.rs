@@ -8,8 +8,7 @@ use crate::control_plane::engine::{
     VolumeDiscovery, VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
-    CredentialEntropy, CredentialSecret, SharedInfrastructureReconcileError, SharedInstancePlan,
-    store_credential_secret,
+    CredentialEntropy, SharedInfrastructureReconcileError, SharedInstancePlan,
 };
 use crate::control_plane::state::StateStore;
 use crate::control_plane::workload::{
@@ -17,7 +16,7 @@ use crate::control_plane::workload::{
     reconcile_retained_project_service,
 };
 
-/// Persists its secret and converges one isolated retained MongoDB target.
+/// Converges one isolated retained MongoDB target.
 pub(crate) async fn reconcile_mongodb_migration_target<Store, Engine, Entropy>(
     store: &mut Store,
     engine: &mut Engine,
@@ -37,13 +36,6 @@ where
 {
     let plan = prepare_mongodb_migration_target(store, shared, entropy, options)
         .map_err(|error| invalid("prepare MongoDB migration target", error))?;
-    store_credential_secret(
-        &CredentialSecret::new(plan.bootstrap_credential().secret().to_owned()),
-        plan.bootstrap_secret_file(),
-    )
-    .map_err(|error| SharedInfrastructureReconcileError::InvalidRequest {
-        detail: error.to_string(),
-    })?;
     let request =
         plan.volume()
             .ok_or_else(|| SharedInfrastructureReconcileError::InvalidRequest {

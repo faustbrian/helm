@@ -33,6 +33,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- MongoDB bootstrap now uses the official image's direct root-password
+  environment contract instead of a root-only host secret bind that becomes
+  unreadable after the image drops privileges. Engine request debug output
+  continues to expose only environment keys and never credential values.
+- Redis and Valkey live discovery acceptance now supplies the strict immutable
+  artifact lock required by the same configuration path it exercises, instead
+  of failing before Engine reconciliation with an incomplete registry.
 - Laravel clean-room failures now retain secret-free shared-service inventory,
   Engine state, and bounded container logs before exact cleanup, so a database
   startup failure cannot collapse into an unactionable `engine_unavailable`

@@ -1,5 +1,4 @@
 use crate::control_plane::shared_infrastructure::CredentialSecret;
-use std::path::PathBuf;
 
 /// Complete host-independent inputs for one isolated MongoDB target.
 pub(crate) struct MongoDbMigrationInstancePlanOptions {
@@ -10,5 +9,4 @@ pub(crate) struct MongoDbMigrationInstancePlanOptions {
     pub(crate) schema_version: u32,
     pub(crate) desired_revision: String,
     pub(crate) bootstrap_secret: CredentialSecret,
-    pub(crate) bootstrap_secret_file: PathBuf,
 }

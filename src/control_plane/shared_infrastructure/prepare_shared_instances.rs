@@ -121,7 +121,6 @@ where
                     installation_id: options.installation_id,
                     network_name: options.network_name,
                     schema_version: options.schema_version,
-                    state_directory: options.state_directory,
                 },
             )
             .map_err(invalid)?

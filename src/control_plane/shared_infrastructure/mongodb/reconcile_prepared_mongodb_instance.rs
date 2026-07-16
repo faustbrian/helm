@@ -5,12 +5,11 @@ use crate::control_plane::engine::{
     VolumeManager,
 };
 use crate::control_plane::shared_infrastructure::{
-    CredentialSecret, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
+    SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
     SharedServiceReconcileOptions, classify_logical_resource_error, reconcile_shared_service,
-    store_credential_secret,
 };
 
-/// Stores the bootstrap secret, then converges one process and all tenants.
+/// Converges one process and all tenants.
 pub(crate) async fn reconcile_prepared_mongodb_instance<Engine>(
     engine: &mut Engine,
     prepared: &PreparedMongoDbSharedInstance,
@@ -25,18 +24,6 @@ where
         + VolumeDiscovery
         + VolumeManager,
 {
-    let bootstrap = CredentialSecret::new(
-        prepared
-            .instance()
-            .bootstrap_credential()
-            .secret()
-            .to_owned(),
-    );
-    store_credential_secret(&bootstrap, prepared.bootstrap_secret_file()).map_err(|error| {
-        SharedInfrastructureReconcileError::InvalidRequest {
-            detail: error.to_string(),
-        }
-    })?;
     let shared = reconcile_shared_service(
         engine,
         SharedServiceReconcileOptions {

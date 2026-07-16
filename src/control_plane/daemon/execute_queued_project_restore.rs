@@ -452,10 +452,6 @@ where
     Entropy: CredentialEntropy,
 {
     validate(options)?;
-    let state_directory = options
-        .state_database_path
-        .parent()
-        .ok_or_else(|| "restore state database has no parent directory".to_owned())?;
     let mut store = SqliteStateStore::open(&options.state_database_path)
         .map_err(|error| format!("could not open restore state: {error}"))?;
     let project = one(
@@ -528,7 +524,6 @@ where
             network_name: &options.network_name,
             schema_version: options.schema_version,
             desired_revision: source.desired_revision(),
-            state_directory,
         },
     )
     .await

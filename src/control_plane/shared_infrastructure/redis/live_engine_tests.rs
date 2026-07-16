@@ -591,6 +591,17 @@ fn write_configuration(
         ),
     )
     .expect("write Redis acceptance configuration");
+    std::fs::write(
+        directory.join(".stackctl.lock.yaml"),
+        format!(
+            concat!(
+                "schema_version: 1\nimages:\n",
+                "  cache:\n    source: {image}\n    resolved: {image}\n"
+            ),
+            image = options.image,
+        ),
+    )
+    .expect("write Redis acceptance artifact lock");
 }
 
 #[derive(Clone, Copy)]

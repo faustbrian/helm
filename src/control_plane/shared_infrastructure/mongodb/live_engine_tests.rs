@@ -80,7 +80,6 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             installation_id: &installation_id,
             network_name: &network_name,
             schema_version: 8,
-            state_directory: &state_directory,
         },
     )
     .expect("prepare shared MongoDB acceptance resources");
@@ -92,7 +91,6 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
             installation_id: &installation_id,
             network_name: &network_name,
             schema_version: 8,
-            state_directory: &state_directory,
         },
     )
     .expect("replay shared MongoDB acceptance preparation");
@@ -261,7 +259,6 @@ fn live_docker_engine_two_projects_share_one_mongodb_with_isolated_databases() {
                 network_name: &network_name,
                 schema_version: 8,
                 desired_revision: source_logical.desired_revision(),
-                state_directory: &state_directory,
             },
         )
         .await

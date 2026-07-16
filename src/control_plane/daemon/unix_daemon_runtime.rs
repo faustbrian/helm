@@ -762,7 +762,11 @@ impl UnixDaemonRuntime {
                         &mut self.resource_health,
                         now,
                     );
-                    tracing::debug!(
+                    self.resource_health.record_reconciliation_failure(
+                        "engine_inventory_failed",
+                        format!("{action}: {error}"),
+                    );
+                    tracing::warn!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         action,

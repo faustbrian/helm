@@ -2,8 +2,6 @@ use super::MongoDbSharedInstancePlan;
 use crate::control_plane::engine::{ContainerHealth, OwnedContainer, OwnedVolume};
 use crate::control_plane::state::CredentialRecord;
 use crate::control_plane::workload::{ProjectVolumeReconcileResult, WorkloadReconcileResult};
-#[cfg(test)]
-use std::path::Path;
 
 /// Proven retained Engine resources and stable administrator for one target.
 pub(crate) struct MongoDbMigrationTargetReconcileResult {
@@ -44,11 +42,6 @@ impl MongoDbMigrationTargetReconcileResult {
 
     pub(crate) const fn bootstrap_credential(&self) -> &CredentialRecord {
         self.plan.bootstrap_credential()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn bootstrap_secret_file(&self) -> &Path {
-        self.plan.bootstrap_secret_file()
     }
 
     pub(crate) const fn plan(&self) -> &MongoDbSharedInstancePlan {

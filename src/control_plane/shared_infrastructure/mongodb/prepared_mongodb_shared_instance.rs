@@ -3,26 +3,19 @@ use crate::control_plane::shared_infrastructure::SharedServiceReconcileResult;
 use crate::control_plane::state::{
     LogicalResourceRecord, LogicalResourceRecordOptions, ResourceLifecycle,
 };
-use std::path::{Path, PathBuf};
 
-/// One MongoDB process, its bootstrap secret path, and every isolated tenant.
+/// One MongoDB process and every isolated tenant.
 pub(crate) struct PreparedMongoDbSharedInstance {
     instance: MongoDbSharedInstancePlan,
     projects: Vec<MongoDbProjectResources>,
-    bootstrap_secret_file: PathBuf,
 }
 
 impl PreparedMongoDbSharedInstance {
     pub(super) const fn new(
         instance: MongoDbSharedInstancePlan,
         projects: Vec<MongoDbProjectResources>,
-        bootstrap_secret_file: PathBuf,
     ) -> Self {
-        Self {
-            instance,
-            projects,
-            bootstrap_secret_file,
-        }
+        Self { instance, projects }
     }
 
     pub(crate) const fn instance(&self) -> &MongoDbSharedInstancePlan {
@@ -31,10 +24,6 @@ impl PreparedMongoDbSharedInstance {
 
     pub(crate) fn projects(&self) -> &[MongoDbProjectResources] {
         &self.projects
-    }
-
-    pub(crate) fn bootstrap_secret_file(&self) -> &Path {
-        &self.bootstrap_secret_file
     }
 
     pub(crate) fn logical_record(

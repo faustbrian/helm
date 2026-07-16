@@ -310,10 +310,6 @@ where
     Entropy: CredentialEntropy,
 {
     validate(options)?;
-    let state_directory = options
-        .state_database_path
-        .parent()
-        .ok_or_else(|| "migration decision state has no parent directory".to_owned())?;
     let mut store = SqliteStateStore::open(&options.state_database_path)
         .map_err(|error| format!("could not open migration decision state: {error}"))?;
     let checkpoint = one(
@@ -417,7 +413,6 @@ where
             network_name: &options.network_name,
             schema_version: options.schema_version,
             desired_revision: source.desired_revision(),
-            state_directory,
         },
     )
     .await
@@ -440,10 +435,6 @@ where
             schema_version: options.schema_version,
             desired_revision: source.desired_revision().to_owned(),
             bootstrap_secret: CredentialSecret::new(source_administrator.secret().to_owned()),
-            bootstrap_secret_file: state_directory
-                .join("shared")
-                .join(fingerprint_id)
-                .join("mongodb-secrets/root-password"),
         },
     )
     .map_err(|error| error.to_string())?;
