@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Failed automatic restores and migrations now retry their exact durable intent
+  with increasing delays from one minute to a six-hour ceiling. Transient
+  failures recover across rescans and daemon restarts without creating a
+  scan-frequency retry loop or replaying successful workflow revisions.
 - Login-service install, restart, and status now verify only bounded daemon IPC
   responsiveness. Invalid projects, Engine outages, slow image pulls, and
   unhealthy workloads remain visible to the live self-healing daemon instead

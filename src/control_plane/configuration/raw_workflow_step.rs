@@ -2,7 +2,7 @@ use super::RawWorkflowMigration;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// One strict typed operation in a manually invoked workflow.
+/// One strict typed operation in a declared manual or automatic workflow.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum RawWorkflowStep {

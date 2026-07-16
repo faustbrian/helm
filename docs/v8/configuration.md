@@ -247,9 +247,11 @@ strict YAML. `mode: manual` is the default and permits only explicit
 execution after the project has fully converged, once per deterministic
 workflow and dump-content revision. Successful steps remain durably recorded
 across rescans, daemon restarts, login, and reboot. A changed workflow or dump
-creates a new revision; a failed automatic revision remains failed until its
-input changes. Stackctl rejects `stackctl run` for automatic workflows so an
-operator cannot bypass the durable replay guard.
+creates a new revision. Failed automatic steps retry the exact durable intent
+with increasing delays from one minute to a six-hour ceiling, so transient
+database or runtime failures recover without creating a scan-frequency retry
+loop. Stackctl rejects `stackctl run` for automatic workflows so an operator
+cannot bypass the durable replay guard.
 
 For an API project that restores two database dumps and migrates only the
 primary Laravel connection after first convergence:
