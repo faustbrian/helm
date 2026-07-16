@@ -13,6 +13,7 @@ mod lock_commands;
 
 pub(crate) use crate::javascript::PackageManager as PackageManagerArg;
 pub(crate) use commands::Commands;
+pub(crate) use commands::DoctorArgs;
 pub(crate) use commands::LogsArgs;
 pub(crate) use commands::OpenArgs;
 pub(crate) use commands::PhpToolArgs;

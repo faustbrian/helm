@@ -372,7 +372,7 @@ fn handle_daemon_reconcile() -> Result<()> {
 }
 
 #[cfg(unix)]
-fn send_singleton_request(
+pub(super) fn send_singleton_request(
     payload: crate::control_plane::IpcPayload,
 ) -> Result<crate::control_plane::IpcResponse> {
     send_singleton_request_with_timeout(payload, Duration::from_secs(5))

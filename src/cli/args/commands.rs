@@ -23,7 +23,7 @@ pub(crate) use daemon::{
     DaemonWatchArgs,
 };
 pub(crate) use lifecycle::UrlArgs;
-pub(crate) use meta::{CompletionsArgs, ConfigArgs, LockArgs};
+pub(crate) use meta::{CompletionsArgs, ConfigArgs, DoctorArgs, LockArgs};
 pub(crate) use operations::{EnvArgs, LogsArgs, PsArgs};
 pub(crate) use setup::SetupArgs;
 
@@ -32,6 +32,8 @@ pub(crate) use setup::SetupArgs;
 pub(crate) enum Commands {
     /// Verify and install the per-user v8 control plane
     Setup(SetupArgs),
+    /// Diagnose the complete per-user v8 control plane
+    Doctor(DoctorArgs),
     /// Inspect or validate strict v8 YAML configuration
     Config(ConfigArgs),
     /// Manage the immutable v8 artifact lock

@@ -3,6 +3,8 @@
 mod config_schema_cmd;
 mod config_validate_cmd;
 mod daemon_cmd;
+#[cfg(unix)]
+mod doctor_cmd;
 mod log;
 #[cfg(unix)]
 mod retry_daemon_request;
@@ -31,6 +33,8 @@ mod v8_workflow_cmd;
 pub(crate) use config_schema_cmd::handle_config_schema;
 pub(crate) use config_validate_cmd::handle_config_validate;
 pub(crate) use daemon_cmd::handle_daemon;
+#[cfg(unix)]
+pub(crate) use doctor_cmd::handle_doctor;
 pub(crate) use setup_cmd::handle_setup;
 #[cfg(unix)]
 pub(crate) use v8_env_cmd::handle_v8_env;

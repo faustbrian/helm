@@ -23,3 +23,6 @@ pub(crate) struct CompletionsArgs {
     #[arg()]
     pub(crate) shell: clap_complete::Shell,
 }
+
+#[derive(Args)]
+pub(crate) struct DoctorArgs {}

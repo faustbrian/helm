@@ -39,6 +39,7 @@ when no daemon endpoint exists.
 
 ```text
 stackctl setup --dir <DIR>... [--interval <SECONDS>]
+stackctl doctor
 stackctl daemon watch --dir <DIR>... [--once] [--interval <SECONDS>]
 stackctl daemon service install --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon service status
@@ -60,6 +61,11 @@ waits for complete operational convergence.
 the selected service manager, and succeeds only after full operational
 readiness. The other nested daemon commands remain explicit administrative and
 diagnostic operations.
+
+`doctor` is a read-only aggregate check. It reports login-service state, daemon
+IPC, discovery, Engine availability and convergence, reconciliation
+diagnostics, and current OS CA trust in one pass. It does not replace the
+daemon's automatic retries or mutate host state.
 
 `daemon adopt`, `backup`, `backups`, `restore`, `prune`, and `migration`
 provide the explicit retained-data and reversible-migration workflows. Their

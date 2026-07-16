@@ -40,8 +40,8 @@ Setup validates the roots and `.localhost` resolution before host mutation,
 installs the singleton CA trust, and starts the login service transactionally.
 The daemon discovers the project and creates its missing immutable artifact
 lock through the selected Docker-compatible Engine before any workload
-mutation. Optional diagnostics remain available through `stackctl status`,
-`stackctl logs`, and `stackctl url`.
+mutation. Optional diagnostics remain available through `stackctl doctor`,
+`stackctl status`, `stackctl logs`, and `stackctl url`.
 `stackctl open` waits for the selected project route to finish reconciling, so
 normal startup does not require a manual reconcile or a second open command.
 `stackctl config validate .stackctl.yaml` is available as an optional

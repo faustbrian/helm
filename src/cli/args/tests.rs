@@ -20,7 +20,6 @@ fn clean_slate_cli_rejects_removed_pre_v8_commands() {
         "init",
         "preset",
         "profile",
-        "doctor",
         "start",
         "up",
         "apply",
@@ -86,6 +85,13 @@ fn setup_accepts_one_or_more_watched_roots() {
         ]
     );
     assert_eq!(args.interval, 45);
+}
+
+#[test]
+fn doctor_is_available_without_project_configuration() {
+    let cli = Cli::parse_from(["stackctl", "doctor"]);
+
+    assert!(matches!(cli.command, Commands::Doctor(_)));
 }
 
 #[test]
