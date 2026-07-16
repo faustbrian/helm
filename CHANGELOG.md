@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Release checksum manifests now contain portable archive basenames and are
+  reverified from the artifact directory before publication, so downloaded
+  release assets work directly with `sha256sum --check SHA256SUMS`.
 - Dedicated project services now materialize their exact locked images before
   container reconciliation. Production behavior no longer relies on live tests
   or another project having pre-pulled the image.

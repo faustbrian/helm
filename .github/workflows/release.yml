@@ -197,7 +197,13 @@ jobs:
               --signer-workflow "${GITHUB_WORKFLOW_REF%%@*}" \
               --predicate-type 'https://spdx.dev/Document/v2.3'
           done
-          cat dist/*.tar.gz.sha256 | sort -k2 >dist/SHA256SUMS
+          for checksum in dist/*.tar.gz.sha256; do
+            sed 's#  dist/#  #' "${checksum}"
+          done | sort -k2 >dist/SHA256SUMS
+          (
+            cd dist
+            sha256sum --check SHA256SUMS
+          )
 
       - name: Publish GitHub release
         if: github.ref_type == 'tag'

@@ -21,6 +21,7 @@ required_contract=(
   'gh attestation verify'
   'https://slsa.dev/provenance/v1'
   'https://spdx.dev/Document/v2.3'
+  'sha256sum --check SHA256SUMS'
   'gh release create'
 )
 
