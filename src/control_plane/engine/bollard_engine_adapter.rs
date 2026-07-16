@@ -785,7 +785,7 @@ impl CommandExecutor for BollardEngineAdapter {
         request: &'operation CommandRequest,
     ) -> EngineFuture<'operation, CommandSession> {
         Box::pin(async move {
-            let (execution_id, started) =
+            let (execution_id, canonical_container_id, started) =
                 bounded_engine_operation("start container command", request_timeout(), async {
                     let observed = self
                         .docker
@@ -794,6 +794,8 @@ impl CommandExecutor for BollardEngineAdapter {
                         .map_err(|error| {
                             backend_error("verify container command ownership", error)
                         })?;
+                    let canonical_container_id =
+                        canonical_command_container_id(observed.id.as_deref())?;
                     verify_owned_container_labels_for(
                         "execute a command in",
                         container,
@@ -828,7 +830,11 @@ impl CommandExecutor for BollardEngineAdapter {
                         .await
                         .map_err(|error| backend_error("start container command", error))?;
 
-                    Ok((CommandExecutionId::new(created.id), started))
+                    Ok((
+                        CommandExecutionId::new(created.id),
+                        canonical_container_id,
+                        started,
+                    ))
                 })
                 .await?;
 
@@ -843,7 +849,7 @@ impl CommandExecutor for BollardEngineAdapter {
 
                     Ok(CommandSession::new(
                         execution_id,
-                        container.id().clone(),
+                        canonical_container_id,
                         input,
                         output,
                     ))
@@ -892,6 +898,17 @@ impl CommandExecutor for BollardEngineAdapter {
             .await
         })
     }
+}
+
+pub(super) fn canonical_command_container_id(
+    observed_container_id: Option<&str>,
+) -> Result<ContainerId, EngineError> {
+    observed_container_id
+        .filter(|container_id| !container_id.is_empty())
+        .map(ContainerId::new)
+        .ok_or_else(|| EngineError::Backend {
+            detail: "Engine inspected a container command target without a canonical ID".to_owned(),
+        })
 }
 
 impl HealthObserver for BollardEngineAdapter {
@@ -1195,8 +1212,11 @@ pub(super) fn container_event(
     let action = message
         .action
         .filter(|action| !action.is_empty())
-        .map(ContainerEventAction::from_engine_action)
         .ok_or_else(|| malformed_event("missing action"))?;
+    if action.starts_with("exec_") {
+        return Ok(None);
+    }
+    let action = ContainerEventAction::from_engine_action(action);
     let occurred_at_nanoseconds = message
         .time_nano
         .or_else(|| {
@@ -1885,14 +1905,21 @@ pub(super) fn create_request(
                 .map(|binding| format!("{}/tcp", binding.container_port()))
                 .collect()
         }),
-        healthcheck: options.health_check().map(|health_check| HealthConfig {
-            test: Some(health_check.engine_test()),
-            interval: Some(health_check.interval_nanoseconds()),
-            timeout: Some(health_check.timeout_nanoseconds()),
-            retries: Some(health_check.retries()),
-            start_period: Some(health_check.start_period_nanoseconds()),
-            start_interval: None,
-        }),
+        healthcheck: if options.image_health_check_disabled() {
+            Some(HealthConfig {
+                test: Some(vec!["NONE".to_owned()]),
+                ..HealthConfig::default()
+            })
+        } else {
+            options.health_check().map(|health_check| HealthConfig {
+                test: Some(health_check.engine_test()),
+                interval: Some(health_check.interval_nanoseconds()),
+                timeout: Some(health_check.timeout_nanoseconds()),
+                retries: Some(health_check.retries()),
+                start_period: Some(health_check.start_period_nanoseconds()),
+                start_interval: None,
+            })
+        },
         host_config: Some(host_config(options)),
         ..ContainerCreateBody::default()
     };
@@ -1917,28 +1944,34 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         });
     }
 
-    let mounts = options
+    let binds = options
         .bind_mounts()
         .iter()
-        .map(|mount| Mount {
-            source: Some(mount.source().to_owned()),
-            target: Some(mount.target().to_owned()),
-            typ: Some(MountType::BIND),
-            read_only: Some(mount.is_read_only()),
-            ..Mount::default()
+        .map(|mount| {
+            format!(
+                "{}:{}:{}",
+                mount.source(),
+                mount.target(),
+                if mount.is_read_only() { "ro" } else { "rw" }
+            )
         })
-        .chain(options.volume_mounts().iter().map(|mount| Mount {
+        .collect::<Vec<_>>();
+    let mounts = options
+        .volume_mounts()
+        .iter()
+        .map(|mount| Mount {
             source: Some(mount.source().to_owned()),
             target: Some(mount.target().to_owned()),
             typ: Some(MountType::VOLUME),
             read_only: Some(mount.is_read_only()),
             ..Mount::default()
-        }))
+        })
         .collect::<Vec<_>>();
 
     HostConfig {
         network_mode: options.network().map(str::to_owned),
         port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
+        binds: (!binds.is_empty()).then_some(binds),
         mounts: (!mounts.is_empty()).then_some(mounts),
         tmpfs: (!options.tmpfs_mounts().is_empty()).then(|| {
             options

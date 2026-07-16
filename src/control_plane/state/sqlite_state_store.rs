@@ -1258,6 +1258,7 @@ impl StateStore for SqliteStateStore {
     fn reconcile_logical_environment(
         &mut self,
         resources: &[LogicalResourceRecord],
+        active_credential_services: &[&str],
         environment: &ManagedEnvironmentRecord,
         orphaned_at_unix_seconds: i64,
     ) -> Result<(), StateStoreError> {
@@ -1286,6 +1287,7 @@ impl StateStore for SqliteStateStore {
         let desired_services = resources
             .iter()
             .map(LogicalResourceRecord::service_id)
+            .chain(active_credential_services.iter().copied())
             .collect::<BTreeSet<_>>();
         let transaction = self
             .connection

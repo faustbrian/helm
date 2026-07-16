@@ -4,6 +4,7 @@ use super::{
 };
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, SharedInstancePlan, generate_credential_secret,
+    shared_identity_hex,
 };
 use crate::control_plane::state::{CredentialLifecycle, StateStore};
 
@@ -35,7 +36,8 @@ where
         let state_directory = options
             .state_directory
             .join("shared")
-            .join(identity)
+            .join(options.installation_id)
+            .join(shared_identity_hex(identity))
             .join("redis-acl");
         let candidate = instance_plan(
             shared,

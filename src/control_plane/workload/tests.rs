@@ -6,10 +6,11 @@ use super::{
     ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectServicesReconcileOptions,
     ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions,
     RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
-    WorkloadReconcileOptions, application_container_request, garbage_collect_build_images,
-    garbage_collect_disposable_containers, garbage_collect_disposable_containers_from_observed,
-    materialize_application_request, materialize_application_requests, plan_ephemeral_browser,
-    plan_immutable_project_application, project_process_request, reconcile_project_application,
+    WorkloadReconcileOptions, application_container_request, apply_application_runtime_environment,
+    garbage_collect_build_images, garbage_collect_disposable_containers,
+    garbage_collect_disposable_containers_from_observed, materialize_application_request,
+    materialize_application_requests, plan_ephemeral_browser, plan_immutable_project_application,
+    project_process_request, reconcile_project_application,
     reconcile_project_application_from_observed, reconcile_project_process,
     reconcile_project_service, reconcile_project_service_from_observed,
     reconcile_project_services_from_observed, reconcile_project_volume,
@@ -370,6 +371,22 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
         Some(ContainerRestartPolicy::UnlessStopped)
     );
     assert!(request.environment().contains_key("DB_PASSWORD"));
+    assert_eq!(
+        request
+            .health_check()
+            .expect("application listener health check")
+            .engine_test(),
+        [
+            "CMD".to_owned(),
+            "php".to_owned(),
+            "-r".to_owned(),
+            concat!(
+                "$socket = @fsockopen('127.0.0.1', 8080); ",
+                "exit($socket === false ? 1 : 0);"
+            )
+            .to_owned(),
+        ]
+    );
     assert!(!format!("{request:?}").contains("project-secret"));
 }
 
@@ -424,8 +441,27 @@ fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
     assert_eq!(plan.request().network(), Some("stackctl"));
     assert_eq!(plan.request().metadata().resource_id(), Some("app"));
     assert!(plan.request().command().is_empty());
+    assert_eq!(plan.request().environment().get("APP_CONFIG_CACHE"), None);
     assert_eq!(plan.route().domain(), "bill-app.stackctl.localhost");
     assert_eq!(plan.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn laravel_runtime_environment_bypasses_host_configuration_caches() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    preset: laravel\n    version: \"8.5\"\n",
+        "    image: dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    ));
+    let mut environment = BTreeMap::new();
+
+    apply_application_runtime_environment(&application, &mut environment);
+
+    assert_eq!(
+        environment.get("APP_CONFIG_CACHE"),
+        Some(&"/tmp/stackctl-laravel-config.php".to_owned())
+    );
 }
 
 #[test]
@@ -466,6 +502,10 @@ fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
             "--root",
             "/workspace/public"
         ]
+    );
+    assert_eq!(
+        plan.request().environment().get("APP_CONFIG_CACHE"),
+        Some(&"/tmp/stackctl-laravel-config.php".to_owned())
     );
     assert!(
         runtime
@@ -1682,6 +1722,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
     assert_eq!(request.bind_mounts()[0].target(), "/workspace");
     assert_eq!(request.working_directory(), Some("/workspace"));
     assert_eq!(request.command(), ["php", "artisan", "queue:work"]);
+    assert!(request.image_health_check_disabled());
     assert_eq!(
         request.restart_policy(),
         Some(ContainerRestartPolicy::UnlessStopped)

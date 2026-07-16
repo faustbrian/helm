@@ -43,9 +43,10 @@ use super::{
     resolve_execution_shared_instances, revoke_orphaned_shared_access,
     revoke_orphaned_shared_access_from_observed, revoke_rabbitmq_project_access,
     run_provisioning_job, run_provisioning_job_from_observed, run_provisioning_jobs_from_observed,
-    stop_unreferenced_shared_services, stop_unreferenced_shared_services_from_observed,
-    store_credential_secret, store_mailpit_authentication, store_rabbitmq_definitions,
-    store_redis_acl_snapshot, wait_for_mongodb_readiness,
+    shared_identity_hex, stop_unreferenced_shared_services,
+    stop_unreferenced_shared_services_from_observed, store_credential_secret,
+    store_mailpit_authentication, store_rabbitmq_definitions, store_redis_acl_snapshot,
+    wait_for_mongodb_readiness,
 };
 use crate::control_plane::application::{ProjectSource, plan_project_registry};
 use crate::control_plane::engine::{
@@ -424,13 +425,16 @@ fn mongodb_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
             .contains("createUser")
     }));
     drop(command_inputs);
-    let identity = shared[0]
-        .fingerprint()
-        .as_str()
-        .strip_prefix("sha256:")
-        .expect("fingerprint identity");
+    let identity = shared_identity_hex(
+        shared[0]
+            .fingerprint()
+            .as_str()
+            .strip_prefix("sha256:")
+            .expect("fingerprint identity"),
+    );
     let secret_file = root
         .join("shared")
+        .join("install-1")
         .join(identity)
         .join("mongodb-secrets/root-password");
     let bootstrap = credentials
@@ -622,6 +626,7 @@ fn gotenberg_strategy_shares_one_stateless_endpoint_for_two_projects() {
     assert_eq!(shared.len(), 1);
     assert_eq!(shared[0].profile().implementation(), "gotenberg");
     assert_eq!(prepared[0].service_identities().len(), 2);
+    assert!(prepared[0].credential_service_identities().is_empty());
     assert_eq!(prepared[0].environments().len(), 2);
     assert_eq!(
         prepared[0].environments()[0].values().get("GOTENBERG_URL"),
@@ -723,6 +728,7 @@ fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
 
     assert_eq!(shared[0].profile().implementation(), "redis");
     assert_eq!(prepared[0].service_identities().len(), 2);
+    assert_eq!(prepared[0].credential_service_identities().len(), 2);
     assert_eq!(
         prepared[0].environments()[0]
             .values()
@@ -742,13 +748,16 @@ fn redis_strategy_publishes_one_acl_snapshot_for_two_projects() {
         ["redis-cli", "-e", "--user", "stackctl_admin", "ACL", "LOAD"]
     );
     drop(commands);
-    let identity = shared[0]
-        .fingerprint()
-        .as_str()
-        .strip_prefix("sha256:")
-        .expect("fingerprint identity");
+    let identity = shared_identity_hex(
+        shared[0]
+            .fingerprint()
+            .as_str()
+            .strip_prefix("sha256:")
+            .expect("fingerprint identity"),
+    );
     let acl = root
         .join("shared")
+        .join("install-1")
         .join(identity)
         .join("redis-acl/mounted/users.acl");
     let contents = std::fs::read_to_string(acl).expect("ACL contents");
@@ -846,13 +855,16 @@ fn minio_strategy_publishes_isolated_policies_for_two_projects() {
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
     assert_eq!(engine.command_arguments.lock().expect("commands").len(), 8);
-    let identity = shared[0]
-        .fingerprint()
-        .as_str()
-        .strip_prefix("sha256:")
-        .expect("fingerprint identity");
+    let identity = shared_identity_hex(
+        shared[0]
+            .fingerprint()
+            .as_str()
+            .strip_prefix("sha256:")
+            .expect("fingerprint identity"),
+    );
     let policies = root
         .join("shared")
+        .join("install-1")
         .join(identity)
         .join("object-store-policies");
     let bill_policy =
@@ -981,13 +993,16 @@ fn rabbitmq_strategy_publishes_isolated_vhosts_for_two_projects() {
             engine.created_containers[0].name().to_owned(),
         )]
     );
-    let identity = shared[0]
-        .fingerprint()
-        .as_str()
-        .strip_prefix("sha256:")
-        .expect("fingerprint identity");
+    let identity = shared_identity_hex(
+        shared[0]
+            .fingerprint()
+            .as_str()
+            .strip_prefix("sha256:")
+            .expect("fingerprint identity"),
+    );
     let definitions = std::fs::read_to_string(
         root.join("shared")
+            .join("install-1")
             .join(identity)
             .join("rabbitmq-definitions/mounted/definitions.json"),
     )
@@ -1103,14 +1118,17 @@ fn mailpit_strategy_attributes_smtp_and_ui_access_for_two_projects() {
             .expect("commands")
             .is_empty()
     );
-    let identity = shared[0]
-        .fingerprint()
-        .as_str()
-        .strip_prefix("sha256:")
-        .expect("fingerprint identity");
+    let identity = shared_identity_hex(
+        shared[0]
+            .fingerprint()
+            .as_str()
+            .strip_prefix("sha256:")
+            .expect("fingerprint identity"),
+    );
     let authentication = std::fs::read_to_string(
         root.join("shared")
-            .join(identity)
+            .join("install-1")
+            .join(&identity)
             .join("mailpit-authentication/mounted/smtp-passwords"),
     )
     .expect("Mailpit authentication");
@@ -1238,6 +1256,22 @@ fn prepared_postgres_reconciles_one_process_and_every_project_tenant() {
     assert_eq!(logical.physical_resources().len(), 2);
     assert_eq!(logical.physical_resources()[0].kind(), "shared_service");
     assert_eq!(logical.physical_resources()[1].kind(), "volume");
+    assert_eq!(
+        logical.physical_resources()[0].scope_id(),
+        Some(prepared[0].instance().container().name())
+    );
+    assert_eq!(
+        logical.physical_resources()[1].scope_id(),
+        Some(
+            prepared[0]
+                .instance()
+                .volume()
+                .expect("persistent PostgreSQL volume")
+                .metadata()
+                .resource_id()
+                .expect("volume scope")
+        )
+    );
     assert_eq!(logical.logical_resources().len(), 2);
     assert!(logical.logical_resource_drifts().is_empty());
     assert_eq!(logical.logical_resources()[0].project_id(), "bill");
@@ -4794,6 +4828,10 @@ fn redis_project_resources_compose_acl_credential_and_managed_environment() {
     assert_eq!(
         project.environment().values(),
         &BTreeMap::from([
+            (
+                "HORIZON_PREFIX".to_owned(),
+                "stackctl:bill:cache:horizon:".to_owned()
+            ),
             (
                 "REDIS_HOST".to_owned(),
                 instance.container().name().to_owned()

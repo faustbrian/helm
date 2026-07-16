@@ -111,6 +111,7 @@ pub(crate) use run_provisioning_jobs_from_observed::run_provisioning_jobs_from_o
 pub(crate) use run_shared_service_readiness_probe::run_shared_service_readiness_probe;
 pub(crate) use shared_container_name::shared_container_name;
 pub(crate) use shared_demand_plan_error::SharedDemandPlanError;
+pub(crate) use shared_identity_hex::shared_identity_hex;
 pub(crate) use shared_infrastructure_reconcile_error::SharedInfrastructureReconcileError;
 pub(crate) use shared_instance_plan::SharedInstancePlan;
 pub(crate) use shared_instance_reconcile_result::SharedInstanceReconcileResult;
@@ -179,6 +180,7 @@ mod run_provisioning_jobs_from_observed;
 mod run_shared_service_readiness_probe;
 mod shared_container_name;
 mod shared_demand_plan_error;
+mod shared_identity_hex;
 mod shared_infrastructure_reconcile_error;
 mod shared_instance_plan;
 mod shared_instance_reconcile_result;

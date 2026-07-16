@@ -20,6 +20,13 @@ pub(crate) enum PreparedSharedInstance {
 }
 
 impl PreparedSharedInstance {
+    pub(crate) fn credential_service_identities(&self) -> Vec<(String, String)> {
+        match self {
+            Self::Gotenberg(_) => Vec::new(),
+            _ => self.service_identities(),
+        }
+    }
+
     pub(crate) fn service_environments(&self) -> Vec<(String, String, &ManagedEnvironmentRecord)> {
         self.service_identities()
             .into_iter()

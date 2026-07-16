@@ -1,5 +1,5 @@
 use super::{
-    BollardEngineAdapter, CommandExecutor, CommandRequest, ContainerCompletion,
+    BindMount, BollardEngineAdapter, CommandExecutor, CommandRequest, ContainerCompletion,
     ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
     ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth,
     ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
@@ -33,15 +33,16 @@ use std::io::Read;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::bollard_engine_adapter::{
-    build_image_options, command_create_request, container_event, container_health,
-    container_resource_metrics, container_wait_error, create_request, exact_volume_mount_target,
-    image_pull_request, log_chunk, log_request, managed_container_events_request,
-    managed_container_list_request, managed_image_list_request, managed_network_list_request,
-    managed_volume_list_request, network_create_request, observed_container, observed_image,
-    observed_network, observed_volume, published_port_bindings, published_port_list_request,
-    validate_engine_api_version, validate_volume_archive_identity, verify_owned_container_labels,
-    verify_owned_network_labels, verify_owned_volume_labels, volume_archive_subpath_target,
-    volume_archive_subpath_upload_target, volume_archive_upload_target, volume_create_request,
+    build_image_options, canonical_command_container_id, command_create_request, container_event,
+    container_health, container_resource_metrics, container_wait_error, create_request,
+    exact_volume_mount_target, image_pull_request, log_chunk, log_request,
+    managed_container_events_request, managed_container_list_request, managed_image_list_request,
+    managed_network_list_request, managed_volume_list_request, network_create_request,
+    observed_container, observed_image, observed_network, observed_volume, published_port_bindings,
+    published_port_list_request, validate_engine_api_version, validate_volume_archive_identity,
+    verify_owned_container_labels, verify_owned_network_labels, verify_owned_volume_labels,
+    volume_archive_subpath_target, volume_archive_subpath_upload_target,
+    volume_archive_upload_target, volume_create_request,
 };
 use super::bounded_engine_operation::bounded_engine_operation;
 
@@ -727,6 +728,25 @@ fn managed_container_events_are_scoped_and_resume_without_replaying_the_cursor()
 }
 
 #[test]
+fn managed_container_events_ignore_exec_activity() {
+    let event = EventMessage {
+        typ: Some(EventMessageTypeEnum::CONTAINER),
+        action: Some("exec_die".to_owned()),
+        actor: Some(EventActor {
+            id: Some("container-database".to_owned()),
+            ..EventActor::default()
+        }),
+        time_nano: Some(2_500_000_000),
+        ..EventMessage::default()
+    };
+
+    assert_eq!(
+        container_event(event, &ContainerEventCursor::beginning()).expect("valid Engine event"),
+        None
+    );
+}
+
+#[test]
 fn managed_container_event_subscriptions_require_an_installation_identity() {
     let error = managed_container_events_request("", &ContainerEventCursor::beginning())
         .expect_err("empty installation identity");
@@ -889,14 +909,21 @@ fn managed_named_volumes_remain_distinct_from_host_bind_mounts() {
     .with_volume_mount(
         VolumeMount::read_write("stackctl-postgres-data", "/var/lib/postgresql/data")
             .expect("named volume mount"),
+    )
+    .with_bind_mount(
+        BindMount::read_only("/Users/developer/Stackctl/config", "/etc/stackctl/config")
+            .expect("host bind mount"),
     );
 
     let (_, request) = create_request(&options);
-    let mounts = request
-        .host_config
-        .expect("host config")
-        .mounts
-        .expect("mounts");
+    let host = request.host_config.expect("host config");
+    assert_eq!(
+        host.binds,
+        Some(vec![
+            "/Users/developer/Stackctl/config:/etc/stackctl/config:ro".to_owned()
+        ])
+    );
+    let mounts = host.mounts.expect("mounts");
 
     assert_eq!(mounts.len(), 1);
     assert_eq!(mounts[0].typ, Some(bollard::models::MountType::VOLUME));
@@ -1457,28 +1484,15 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
             .collect::<std::collections::BTreeSet<_>>(),
         std::collections::BTreeSet::from(["127.0.0.1".to_owned(), "::1".to_owned()])
     );
-    let mounts = host.mounts.expect("gateway mounts");
-    assert!(mounts.iter().any(|mount| {
-        mount.source.as_deref() == Some("/state/tls/wildcard.crt")
-            && mount.target.as_deref() == Some("/etc/stackctl/tls/wildcard.crt")
-            && mount.read_only == Some(true)
-    }));
-    assert!(mounts.iter().any(|mount| {
-        mount.source.as_deref() == Some("/state/tls/wildcard.key")
-            && mount.target.as_deref() == Some("/etc/stackctl/tls/wildcard.key")
-            && mount.read_only == Some(true)
-    }));
-    assert!(mounts.iter().all(|mount| {
-        !mount
-            .source
-            .as_deref()
-            .is_some_and(|source| source.ends_with("/ca.key"))
-    }));
-    assert!(mounts.iter().any(|mount| {
-        mount.source.as_deref() == Some("/state/gateway/config.json")
-            && mount.target.as_deref() == Some("/etc/stackctl/config.json")
-            && mount.read_only == Some(true)
-    }));
+    let binds = host.binds.expect("gateway binds");
+    assert!(
+        binds.contains(&"/state/tls/wildcard.crt:/etc/stackctl/tls/wildcard.crt:ro".to_owned())
+    );
+    assert!(
+        binds.contains(&"/state/tls/wildcard.key:/etc/stackctl/tls/wildcard.key:ro".to_owned())
+    );
+    assert!(binds.iter().all(|mount| !mount.contains("/ca.key:")));
+    assert!(binds.contains(&"/state/gateway/config.json:/etc/stackctl/config.json:ro".to_owned()));
     assert_eq!(
         host.tmpfs.expect("gateway ephemeral filesystems"),
         std::collections::HashMap::from([
@@ -1578,6 +1592,38 @@ fn container_health_checks_reject_invalid_or_unbounded_settings() {
         excessive_timeout.to_string(),
         "container health check timeout exceeds the Engine duration limit"
     );
+}
+
+#[test]
+fn managed_containers_can_disable_an_inherited_image_health_check() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-bill-worker",
+        concat!(
+            "dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::ProjectProcess),
+    )
+    .expect("container options")
+    .without_image_health_check();
+
+    let (_, request) = create_request(&options);
+
+    assert_eq!(
+        request.healthcheck.expect("disabled health check").test,
+        Some(vec!["NONE".to_owned()])
+    );
+}
+
+#[test]
+fn attached_commands_track_the_canonical_container_id() {
+    assert_eq!(
+        canonical_command_container_id(Some("sha256-container-id"))
+            .expect("canonical container ID")
+            .as_str(),
+        "sha256-container-id"
+    );
+    assert!(canonical_command_container_id(None).is_err());
 }
 
 #[test]

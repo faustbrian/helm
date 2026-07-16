@@ -24,6 +24,7 @@ pub(crate) struct ContainerCreateOptions {
     command: Vec<String>,
     environment: BTreeMap<String, String>,
     health_check: Option<ContainerHealthCheck>,
+    image_health_check_disabled: bool,
     restart_policy: Option<ContainerRestartPolicy>,
 }
 
@@ -65,6 +66,7 @@ impl ContainerCreateOptions {
             command: Vec::new(),
             environment: BTreeMap::new(),
             health_check: None,
+            image_health_check_disabled: false,
             restart_policy: None,
         })
     }
@@ -240,6 +242,13 @@ impl ContainerCreateOptions {
 
     pub(crate) fn with_health_check(mut self, health_check: ContainerHealthCheck) -> Self {
         self.health_check = Some(health_check);
+        self.image_health_check_disabled = false;
+        self
+    }
+
+    pub(crate) fn without_image_health_check(mut self) -> Self {
+        self.health_check = None;
+        self.image_health_check_disabled = true;
         self
     }
 
@@ -309,6 +318,10 @@ impl ContainerCreateOptions {
     pub(crate) const fn health_check(&self) -> Option<&ContainerHealthCheck> {
         self.health_check.as_ref()
     }
+
+    pub(crate) const fn image_health_check_disabled(&self) -> bool {
+        self.image_health_check_disabled
+    }
 }
 
 impl Debug for ContainerCreateOptions {
@@ -330,6 +343,10 @@ impl Debug for ContainerCreateOptions {
             .field("command", &self.command)
             .field("environment_keys", &self.environment.keys())
             .field("health_check", &self.health_check)
+            .field(
+                "image_health_check_disabled",
+                &self.image_health_check_disabled,
+            )
             .field("restart_policy", &self.restart_policy)
             .finish()
     }

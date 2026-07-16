@@ -25,6 +25,37 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Override inherited application-image health checks with a private listener
+  probe, and bypass host-generated Laravel configuration caches inside managed
+  runtimes so current shared-service credentials and prefixes take effect.
+- Preserve credentials for every configured shared or dedicated service while
+  publishing a partially drifted logical-resource snapshot, allowing the next
+  reconciliation pass to repair the tenant instead of requiring adoption.
+- Materialize host bind mounts through Docker's volume-bind API so freshly
+  generated macOS state paths are exported to Docker Desktop without a manual
+  file-sharing warm-up.
+- Generate Laravel Horizon's prefix inside the project ACL namespace so Horizon
+  cannot escape or be rejected by shared Redis and Valkey isolation.
+- Disable inherited application-server health checks for worker containers;
+  worker liveness is their supervised process state, not FrankenPHP's admin
+  port.
+- Track attached commands by Docker's canonical container ID even when the
+  command was started through a stable Stackctl container name, preventing
+  false ownership loss during gateway reloads.
+- Keep all per-user daemon state and generated bind-mount inputs under the
+  predictable, Docker-shareable `~/Stackctl` root on macOS and Linux. Shared
+  compatibility state paths use the same deterministic 160-bit identity segment
+  as Engine names, and generated mount paths are installation-scoped across
+  clean reinstalls.
+- Preserve credentials for active dedicated project services when publishing a
+  project's shared logical resources. Clean reconciliation no longer disables
+  its own RustFS credential and then requires an impossible adoption loop.
+- Persist the stable desired-resource scope on reconciled shared containers and
+  volumes so later idling and access-revocation passes can verify their exact
+  durable ownership instead of blocking a healthy reconciliation.
+- Ignore Docker `exec_*` events in the managed-container event stream so
+  Stackctl's own health checks and provisioning commands cannot recursively
+  schedule full reconciliation and starve daemon IPC or project startup.
 - Install the macOS local CA into the explicit per-user login keychain and
   require its exact SHA-256 fingerprint to be present before reporting it as
   trusted. This prevents certificate self-verification from producing a false

@@ -823,8 +823,28 @@ impl UnixDaemonRuntime {
 
                 return;
             };
+            let active_credential_service_ids = prepared_shared
+                .iter()
+                .flat_map(PreparedSharedInstance::credential_service_identities)
+                .chain(prepared_project_services.iter().filter_map(|service| {
+                    service.credential().map(|_| {
+                        (
+                            service.project_id().to_owned(),
+                            service.service_id().to_owned(),
+                        )
+                    })
+                }))
+                .filter_map(|(credential_project_id, service_id)| {
+                    (credential_project_id == project_id).then_some(service_id)
+                })
+                .collect::<Vec<_>>();
+            let active_credential_services = active_credential_service_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
             if let Err(error) = self.control_plane.reconcile_logical_environment(
                 &logical,
+                &active_credential_services,
                 environment,
                 reconciled_at_unix_seconds,
             ) {

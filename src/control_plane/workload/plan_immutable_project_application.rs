@@ -2,7 +2,8 @@ use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
     ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan, RuntimeEnvironment,
     RuntimeEnvironmentOptions, RuntimeImageBuildOptions, RuntimeImageBuildPlan, WorkloadPlanError,
-    application_container_request, resolve_application_command,
+    application_container_request, apply_application_runtime_environment,
+    resolve_application_command,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::{
@@ -31,9 +32,11 @@ pub(crate) fn plan_immutable_project_application(
             service.service().as_str()
         ))
     })?;
+    let mut declared_environment = service.desired().environment().clone();
+    apply_application_runtime_environment(service, &mut declared_environment);
     let environment = RuntimeEnvironment::new(RuntimeEnvironmentOptions {
         project: service.project().clone(),
-        declared: service.desired().environment().clone(),
+        declared: declared_environment,
         managed: options.managed_environment,
     })
     .map_err(invalid)?;

@@ -35,6 +35,10 @@ pub(crate) fn plan_redis_project_resources(
         ("REDIS_USERNAME".to_owned(), acl.username().to_owned()),
         ("REDIS_PASSWORD".to_owned(), secret.expose().to_owned()),
         ("REDIS_PREFIX".to_owned(), acl.prefix().to_owned()),
+        (
+            "HORIZON_PREFIX".to_owned(),
+            format!("{}horizon:", acl.prefix()),
+        ),
     ]);
     let canonical = serde_json::to_vec(&values).map_err(|error| {
         RedisPlanError::new(format!(

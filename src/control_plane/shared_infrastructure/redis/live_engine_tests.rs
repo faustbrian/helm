@@ -208,7 +208,7 @@ fn run_live_engine_shared_key_value_isolation(options: LiveEngineKeyValueOptions
                 .cloned()
                 .collect::<Vec<_>>();
             publication_control_plane
-                .reconcile_logical_environment(&logical, project.environment(), 11_000)
+                .reconcile_logical_environment(&logical, &[], project.environment(), 11_000)
                 .expect("publish Redis logical resources and environment");
         }
         drop(publication_control_plane);

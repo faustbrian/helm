@@ -46,5 +46,9 @@ pub(crate) fn project_process_request(
     .with_working_directory(PROJECT_SOURCE_TARGET)?
     .with_command(options.plan.command().to_vec())?
     .with_environment(options.plan.environment().values().clone())
-    .map(|request| request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
+    .map(|request| {
+        request
+            .without_image_health_check()
+            .with_restart_policy(ContainerRestartPolicy::UnlessStopped)
+    })
 }

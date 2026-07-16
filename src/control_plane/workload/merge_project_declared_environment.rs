@@ -1,4 +1,4 @@
-use super::WorkloadPlanError;
+use super::{WorkloadPlanError, apply_application_runtime_environment};
 use crate::control_plane::ServiceExecutionPlan;
 use std::collections::BTreeMap;
 
@@ -20,6 +20,7 @@ pub(crate) fn merge_project_declared_environment(
         }
         declared.insert(key.clone(), value.clone());
     }
+    apply_application_runtime_environment(application, &mut declared);
 
     Ok(declared)
 }

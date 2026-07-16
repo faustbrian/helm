@@ -1,8 +1,9 @@
 use super::ApplicationContainerRequestOptions;
 use crate::control_plane::engine::{
-    BindMount, ContainerCreateOptions, ContainerRestartPolicy, EngineError, ResourceKind,
-    RetentionClass,
+    BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
+    ResourceKind, RetentionClass,
 };
+use std::time::Duration;
 
 const PROJECT_SOURCE_TARGET: &str = "/workspace";
 
@@ -58,5 +59,22 @@ pub(crate) fn application_container_request(
         request.with_command(options.command)?
     };
 
-    Ok(request.with_restart_policy(ContainerRestartPolicy::UnlessStopped))
+    let listener_health_check = ContainerHealthCheck::new(
+        vec![
+            "php".to_owned(),
+            "-r".to_owned(),
+            format!(
+                "$socket = @fsockopen('127.0.0.1', {}); exit($socket === false ? 1 : 0);",
+                options.plan.internal_http_port()
+            ),
+        ],
+        Duration::from_secs(10),
+        Duration::from_secs(3),
+        Duration::from_secs(15),
+        5,
+    )?;
+
+    Ok(request
+        .with_health_check(listener_health_check)
+        .with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }

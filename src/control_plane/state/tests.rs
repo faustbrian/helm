@@ -1554,6 +1554,14 @@ fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
         secret: "cache-secret".to_owned(),
         lifecycle: CredentialLifecycle::Active,
     });
+    let dedicated_credential = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "bill/rustfs/primary".to_owned(),
+        project_id: Some("bill".to_owned()),
+        service_id: "rustfs".to_owned(),
+        username: "stackctl_bill".to_owned(),
+        secret: "rustfs-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
     let initial_environment = managed_environment(BTreeMap::from([
         ("DB_PASSWORD".to_owned(), "database-secret".to_owned()),
         ("REDIS_PASSWORD".to_owned(), "cache-secret".to_owned()),
@@ -1573,12 +1581,16 @@ fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
         .insert_credential_if_absent(&cache_credential)
         .expect("persist cache credential");
     store
+        .insert_credential_if_absent(&dedicated_credential)
+        .expect("persist dedicated credential");
+    store
         .record_logical_environment(&[database.clone(), cache.clone()], &initial_environment)
         .expect("publish initial logical environment");
 
     store
         .reconcile_logical_environment(
             std::slice::from_ref(&database),
+            &["rustfs"],
             &current_environment,
             12_345,
         )
@@ -1593,6 +1605,7 @@ fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
     assert_eq!(credentials[0].credential_id(), "bill/cache/primary");
     assert_eq!(credentials[0].lifecycle(), CredentialLifecycle::Disabled);
     assert_eq!(credentials[1], database_credential);
+    assert_eq!(credentials[2], dedicated_credential);
     assert_eq!(
         store.managed_environments().expect("managed environment"),
         vec![current_environment.clone()]
@@ -1611,7 +1624,7 @@ fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
     });
 
     store
-        .reconcile_logical_environment(&[], &empty_environment, 23_456)
+        .reconcile_logical_environment(&[], &[], &empty_environment, 23_456)
         .expect("remove final logical service");
 
     assert_eq!(
@@ -1621,8 +1634,13 @@ fn logical_environment_reconciliation_orphans_omitted_services_atomically() {
         0
     );
     assert_eq!(
-        store.credentials().expect("disabled credentials")[1].lifecycle(),
-        CredentialLifecycle::Disabled
+        store
+            .credentials()
+            .expect("disabled credentials")
+            .iter()
+            .filter(|credential| credential.lifecycle() == CredentialLifecycle::Disabled)
+            .count(),
+        3
     );
     assert_eq!(
         store.managed_environments().expect("empty environment"),

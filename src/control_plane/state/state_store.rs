@@ -130,6 +130,7 @@ pub(crate) trait StateStore: Send {
     fn reconcile_logical_environment(
         &mut self,
         resources: &[LogicalResourceRecord],
+        active_credential_services: &[&str],
         environment: &ManagedEnvironmentRecord,
         orphaned_at_unix_seconds: i64,
     ) -> Result<(), StateStoreError>;

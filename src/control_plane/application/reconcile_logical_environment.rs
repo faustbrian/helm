@@ -9,11 +9,17 @@ where
     pub(crate) fn reconcile_logical_environment(
         &mut self,
         resources: &[LogicalResourceRecord],
+        active_credential_services: &[&str],
         environment: &ManagedEnvironmentRecord,
         orphaned_at_unix_seconds: i64,
     ) -> Result<(), ControlPlaneError> {
         self.state_store
-            .reconcile_logical_environment(resources, environment, orphaned_at_unix_seconds)
+            .reconcile_logical_environment(
+                resources,
+                active_credential_services,
+                environment,
+                orphaned_at_unix_seconds,
+            )
             .map_err(Into::into)
     }
 }
