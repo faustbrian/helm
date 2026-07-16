@@ -42,19 +42,17 @@ services:
     preset: mailpit
 ```
 
-From that project, validate the complete desired state without changing the
-host:
+Optional: validate the complete desired state without changing the host:
 
 ```bash
 stackctl config validate
 ```
 
-Then run the one-time control-plane setup:
+Run the one-time control-plane setup and open the project:
 
 ```bash
 stackctl setup --dir ~/Developer
-stackctl daemon service status
-stackctl daemon status
+stackctl open
 ```
 
 The daemon creates a missing project artifact lock through the selected
@@ -68,13 +66,13 @@ image acquisition, and workload convergence continue in the background and
 self-heal after transient Engine or project failures; one broken project does
 not roll back the healthy login daemon.
 
-Inspect and open the project:
+Status, URL, and log commands are optional diagnostics, not required startup
+steps:
 
 ```bash
 stackctl status
 stackctl url
 stackctl logs --service app --tail 100
-stackctl open
 ```
 
 `stackctl open` waits for its selected application and gateway route to
@@ -94,8 +92,6 @@ run the one-time setup transaction:
 
 ```bash
 stackctl setup --dir ~/Developer
-stackctl daemon service status
-stackctl daemon status
 ```
 
 Setup validates and canonicalizes every watched root and verifies that

@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The documented happy path is now one-time `stackctl setup` followed by
+  `stackctl open`. Config validation, service and daemon status, URL inspection,
+  and logs remain optional diagnostics instead of required maintenance steps.
 - `stackctl open` now waits for its selected application and gateway route to
   self-heal instead of asking the user to rerun the command during normal
   startup. Terminal ownership, logical-resource drift, and destructive
