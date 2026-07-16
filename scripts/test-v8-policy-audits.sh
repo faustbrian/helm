@@ -34,6 +34,7 @@ if PATH=/usr/bin:/bin ./scripts/audit-v8-workflow-actions.sh \
 fi
 
 PATH=/usr/bin:/bin ./scripts/audit-v8-lint-policy.sh
+PATH=/usr/bin:/bin ./scripts/audit-v8-install-workflow.sh
 
 cp .github/workflows/release.yml "${ROOT}/release.yml"
 PATH=/usr/bin:/bin ./scripts/audit-v8-release-workflow.sh \

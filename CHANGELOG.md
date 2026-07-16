@@ -49,6 +49,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The repository `just install` path now installs strictly from `Cargo.lock`
+  and immediately restarts the login service when it is installed. An
+  executable policy audit prevents binary replacement from leaving the old
+  daemon process running or silently resolving a different dependency graph.
 - Long shared-service, application, and project-process reconciliation batches
   now service the user-only IPC socket every twenty-five milliseconds while
   Engine futures are pending. Ping, status, and queued operations remain

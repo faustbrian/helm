@@ -5,7 +5,7 @@ run-dev: fmt
     cargo run
 
 install:
-    cargo install --path .
+    cargo install --path . --locked
     stackctl daemon service restart --if-installed
 
 build: fmt

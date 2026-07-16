@@ -116,6 +116,12 @@ installer scripts or execute pipelines such as `curl | sh` or `curl | php`.
 Patch updates are explicit plans with rollback. Major runtime or data-service
 upgrades create a new compatibility identity and require verified migration.
 
+Repository installs use `just install`. The recipe installs the exact locked
+dependency graph and then runs `stackctl daemon service restart --if-installed`
+with the newly replaced binary. A machine without an installed login service
+needs no special case, while an active installation cannot keep executing the
+old binary until the user remembers a restart.
+
 Large independent reconciliation batches preserve plan-order results while
 polling the daemon IPC boundary every twenty-five milliseconds. The heartbeat
 does not run a second Engine operation inside the active task, but it can answer
