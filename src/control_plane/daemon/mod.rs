@@ -14,6 +14,8 @@ mod daemon_shutdown_signal;
 #[cfg(unix)]
 mod default_unix_daemon_runtime_directory;
 mod discover_project_sources;
+#[cfg(test)]
+mod discovery_performance_tests;
 mod discovery_reconciliation_error;
 mod discovery_reconciliation_result;
 mod discovery_scan_reason;

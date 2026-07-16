@@ -75,6 +75,32 @@ jobs:
       - name: Audit advisories, licenses, duplicates, and sources
         run: ./scripts/audit-v8-supply-chain.sh
 
+  discovery-performance:
+    name: Discovery Performance Regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Benchmark bounded 1, 10, and 40 project discovery
+        env:
+          STACKCTL_DISCOVERY_BUDGET_MULTIPLIER: '4'
+        run: >-
+          ./scripts/benchmark-v8-discovery.sh
+          target/discovery-performance
+
+      - name: Publish raw discovery benchmark record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: discovery-performance-linux-x86_64
+          path: target/discovery-performance
+          if-no-files-found: error
+          retention-days: 30
+
   test:
     name: Tests (${{ matrix.platform }})
     strategy:

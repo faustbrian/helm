@@ -48,6 +48,27 @@ one shared benchmark run ID, and raw output.
 
 Thresholds may be tightened by evidence, not weakened merely to pass.
 
+## Discovery regression benchmark
+
+Project discovery has a separate release-mode synthetic benchmark because it
+must remain fast before the Engine is contacted. It creates 1-, 10-, and
+40-project roots plus 4,000 ordinary files, excludes fixture creation from the
+measurement, warms each fixture three times, and reports 20 samples with p50,
+p95, and maximum latency.
+
+The controlled-host p95 budgets are 50 ms, 75 ms, and 125 ms respectively.
+Ubuntu hosted CI uses a documented 4x noise allowance while retaining the same
+fixture and sample count. Deterministic unit tests separately enforce the
+two-level frontier, project-boundary stop, directory count, pruning, symlink,
+and ordinary-file retention rules; timing is not hidden inside those tests.
+
+Run and retain the raw record with:
+
+```sh
+./scripts/benchmark-v8-discovery.sh \
+  docs/v8/benchmarks/<platform>-<revision>-discovery
+```
+
 ## Evidence
 
 Keep the harness under `scripts/` and result summaries under

@@ -45,36 +45,36 @@ pub(crate) fn discover_project_sources(
         if inspect_project_directory(&directory, options, &mut sources, &mut issues)? {
             continue;
         }
-        let mut entries = fs::read_dir(&directory)
-            .map_err(|source| ProjectDiscoveryError::Io {
-                action: "read watched directory",
-                path: directory.clone(),
-                source,
-            })?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|source| ProjectDiscoveryError::Io {
+        if depth >= options.maximum_depth() {
+            continue;
+        }
+        let entries = fs::read_dir(&directory).map_err(|source| ProjectDiscoveryError::Io {
+            action: "read watched directory",
+            path: directory.clone(),
+            source,
+        })?;
+        let mut child_directories = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|source| ProjectDiscoveryError::Io {
                 action: "read watched directory entry",
                 path: directory.clone(),
                 source,
             })?;
-        entries.sort_by_key(fs::DirEntry::file_name);
-
-        for entry in entries {
-            let path = entry.path();
-            let metadata =
-                fs::symlink_metadata(&path).map_err(|source| ProjectDiscoveryError::Io {
-                    action: "inspect watched directory entry",
-                    path: path.clone(),
-                    source,
-                })?;
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                continue;
-            }
             let file_name = entry.file_name();
             if file_name.as_encoded_bytes().first() == Some(&b'.') {
                 continue;
             }
             if PRUNED_DIRECTORIES.iter().any(|name| file_name == *name) {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .map_err(|source| ProjectDiscoveryError::Io {
+                    action: "inspect watched directory entry type",
+                    path: entry.path(),
+                    source,
+                })?;
+            if file_type.is_symlink() || !file_type.is_dir() {
                 continue;
             }
             directory_count = directory_count.saturating_add(1);
@@ -83,9 +83,11 @@ pub(crate) fn discover_project_sources(
                     maximum: options.maximum_directories(),
                 });
             }
-            if depth < options.maximum_depth() {
-                pending.push_back((path, depth + 1));
-            }
+            child_directories.push(entry.path());
+        }
+        child_directories.sort();
+        for path in child_directories {
+            pending.push_back((path, depth + 1));
         }
     }
 

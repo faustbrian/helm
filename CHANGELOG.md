@@ -19,6 +19,14 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Project discovery now stops filesystem enumeration at the configured
+  two-level frontier; generated directories below an ineligible depth no
+  longer consume the scan budget or startup time. Ordinary files are discarded
+  as they are read, so only the bounded eligible directory frontier is retained
+  for deterministic sorting.
+- Added a release-mode 1-, 10-, and 40-project discovery benchmark with warmup,
+  repeated percentile samples, explicit controlled-host budgets, raw metadata,
+  and a noise-adjusted Ubuntu CI regression gate.
 - Stackctl now filters third-party tracing below warning level and persists
   unannotated daemon warnings and errors in bounded private daily files under
   `~/.stackctl/logs`, so login-service failures remain diagnosable without

@@ -7071,6 +7071,26 @@ fn watched_root_scan_searches_at_most_two_levels_below_the_root() {
 }
 
 #[test]
+fn watched_root_scan_does_not_enumerate_children_beyond_the_depth_frontier() {
+    let root = temporary_directory("discovery-depth-frontier");
+    let frontier = root.join("group/frontier");
+    std::fs::create_dir_all(&frontier).expect("frontier directory");
+    for index in 0..128 {
+        std::fs::create_dir(frontier.join(format!("generated-{index}")))
+            .expect("generated directory beyond frontier");
+    }
+    let options = ProjectDiscoveryOptions::new(2, 2, 1024).expect("discovery options");
+
+    let report = discover_project_sources(std::slice::from_ref(&root), options)
+        .expect("children beyond maximum depth must not consume the budget");
+
+    assert!(report.sources().is_empty());
+    assert!(report.issues().is_empty());
+
+    std::fs::remove_dir_all(&root).expect("remove depth-frontier fixture");
+}
+
+#[test]
 fn watched_root_scan_attaches_a_bounded_project_local_artifact_lock() {
     let root = temporary_directory("artifact-lock-discovery");
     std::fs::write(
