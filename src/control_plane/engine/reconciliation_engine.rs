@@ -1,9 +1,10 @@
 use super::{
     CommandExecutionId, CommandExecutor, CommandRequest, CommandSession, CommandStatus,
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerId, ContainerLifecycle,
-    ContainerNetworkIsolation, ContainerState, EngineFuture, HealthObserver, NetworkDiscovery,
-    ObservedContainer, ObservedNetwork, ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume,
-    VolumeCreateOptions, VolumeDiscovery, VolumeManager,
+    ContainerNetworkIsolation, ContainerState, EngineFuture, HealthObserver, ImageId,
+    ImageResolver, ImmutableImageReference, NetworkDiscovery, ObservedContainer, ObservedNetwork,
+    ObservedVolume, OwnedContainer, OwnedNetwork, OwnedVolume, VolumeCreateOptions,
+    VolumeDiscovery, VolumeManager,
 };
 
 /// Delegates Engine mutations while serving one reconciliation-pass observation.
@@ -137,6 +138,15 @@ impl<Engine: HealthObserver> HealthObserver for ReconciliationEngine<'_, Engine>
         container: &'operation OwnedContainer,
     ) -> EngineFuture<'operation, ContainerHealth> {
         self.engine.observe_health(container)
+    }
+}
+
+impl<Engine: ImageResolver> ImageResolver for ReconciliationEngine<'_, Engine> {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        self.engine.ensure_image(reference)
     }
 }
 

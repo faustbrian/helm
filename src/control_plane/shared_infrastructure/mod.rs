@@ -170,6 +170,7 @@ mod compatibility_profile;
 mod credential_entropy;
 mod credential_generation_error;
 mod credential_secret;
+mod ensure_prepared_shared_image;
 mod generate_credential_secret;
 mod gotenberg;
 mod isolation_capability;

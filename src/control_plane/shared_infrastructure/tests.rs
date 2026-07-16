@@ -308,6 +308,11 @@ fn mysql_strategy_prepares_and_reconciles_one_instance_for_two_projects() {
     assert_eq!(result.physical_resources().len(), 2);
     assert_eq!(result.logical_resources().len(), 2);
     assert_eq!(engine.created_containers.len(), 1);
+    assert_eq!(engine.operations.first().copied(), Some("ensure-image"));
+    assert_eq!(
+        engine.ensured_images.first().map(String::as_str),
+        Some(image)
+    );
     let commands = engine.command_arguments.lock().expect("commands");
     assert_eq!(commands.len(), 3);
     assert_eq!(

@@ -1,3 +1,4 @@
+use super::ensure_prepared_shared_image::ensure_prepared_shared_image;
 use super::{
     PreparedSharedInstance, SharedInfrastructureReconcileError, SharedInstanceReconcileResult,
     reconcile_prepared_gotenberg_instance, reconcile_prepared_mailpit_instance,
@@ -8,7 +9,7 @@ use super::{
 };
 use crate::control_plane::engine::{
     CommandExecutor, ContainerDiscovery, ContainerLifecycle, ContainerNetworkIsolation,
-    HealthObserver, NetworkDiscovery, VolumeDiscovery, VolumeManager,
+    HealthObserver, ImageResolver, NetworkDiscovery, VolumeDiscovery, VolumeManager,
 };
 
 /// Dispatches a prepared instance through its backend-specific convergence strategy.
@@ -24,10 +25,13 @@ where
         + ContainerLifecycle
         + ContainerNetworkIsolation
         + HealthObserver
+        + ImageResolver
         + NetworkDiscovery
         + VolumeDiscovery
         + VolumeManager,
 {
+    ensure_prepared_shared_image(engine, prepared).await?;
+
     match prepared {
         PreparedSharedInstance::Postgres(prepared) => {
             reconcile_prepared_postgres_instance(engine, prepared, installation_id, schema_version)
