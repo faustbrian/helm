@@ -35,4 +35,15 @@ fi
 
 PATH=/usr/bin:/bin ./scripts/audit-v8-lint-policy.sh
 
+cp .github/workflows/release.yml "${ROOT}/release.yml"
+PATH=/usr/bin:/bin ./scripts/audit-v8-release-workflow.sh \
+  "${ROOT}/release.yml"
+sed '/actions\/attest-sbom@/d' "${ROOT}/release.yml" \
+  >"${ROOT}/release-without-sbom.yml"
+if PATH=/usr/bin:/bin ./scripts/audit-v8-release-workflow.sh \
+  "${ROOT}/release-without-sbom.yml" >/dev/null 2>&1; then
+  printf '%s\n' 'release workflow audit accepted missing SBOM attestation' >&2
+  exit 1
+fi
+
 printf '%s\n' 'v8 policy audit regressions passed'

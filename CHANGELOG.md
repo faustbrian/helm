@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a native Linux and macOS x86_64/arm64 binary release workflow with
+  locked builds, exact architecture assertions, SPDX SBOMs, GitHub Sigstore
+  provenance and SBOM attestations, checksum verification, retained raw
+  evidence, and tag-to-package version enforcement. A policy regression keeps
+  every architecture and attestation boundary mandatory.
 - Added `stackctl daemon service restart` with native launchd/systemd restart,
   real-definition validation, manager-state verification, and the same complete
   operational-readiness gate used by installation.

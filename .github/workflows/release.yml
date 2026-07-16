@@ -1,0 +1,225 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v8.*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            file-pattern: 'ELF 64-bit.*x86-64'
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            file-pattern: 'ELF 64-bit.*ARM aarch64'
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            file-pattern: 'Mach-O 64-bit executable x86_64'
+          - platform: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            file-pattern: 'Mach-O 64-bit executable arm64'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Validate release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -nE 's/^version = "([^"]+)"/\1/p' Cargo.toml | head -1)"
+          if [[ -z "${version}" ]]; then
+            printf '%s\n' 'Cargo package version is missing' >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_TYPE}" == tag && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            printf 'release tag %s does not match Cargo version v%s\n' \
+              "${GITHUB_REF_NAME}" "${version}" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "${version}" >>"${GITHUB_OUTPUT}"
+
+      - name: Build locked release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package and inspect binary
+        id: package
+        env:
+          FILE_PATTERN: ${{ matrix.file-pattern }}
+          PLATFORM: ${{ matrix.platform }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ steps.identity.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="stackctl-${VERSION}-${TARGET}"
+          archive="${package}.tar.gz"
+          mkdir -p "dist/${package}"
+          cp "target/${TARGET}/release/stackctl" "dist/${package}/stackctl"
+          cp LICENSE.md README.md "dist/${package}/"
+          file "dist/${package}/stackctl" | tee "dist/${package}.architecture.txt"
+          grep -E "${FILE_PATTERN}" "dist/${package}.architecture.txt"
+          tar -C dist -czf "dist/${archive}" "${package}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "dist/${archive}" >"dist/${archive}.sha256"
+          else
+            shasum -a 256 "dist/${archive}" >"dist/${archive}.sha256"
+          fi
+          {
+            printf 'revision=%s\n' "${GITHUB_SHA}"
+            printf 'platform=%s\n' "${PLATFORM}"
+            printf 'target=%s\n' "${TARGET}"
+            rustc --version --verbose
+          } >"dist/${package}.build.txt"
+          printf 'archive=dist/%s\n' "${archive}" >>"${GITHUB_OUTPUT}"
+          printf 'package=%s\n' "${package}" >>"${GITHUB_OUTPUT}"
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          file: ${{ steps.package.outputs.archive }}
+          format: spdx-json
+          output-file: dist/${{ steps.package.outputs.package }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Attest build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - name: Attest SPDX SBOM
+        id: sbom
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34
+        with:
+          subject-path: ${{ steps.package.outputs.archive }}
+          sbom-path: dist/${{ steps.package.outputs.package }}.spdx.json
+
+      - name: Retain signed evidence bundles
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "${PROVENANCE_BUNDLE}" "dist/${PACKAGE}.provenance.sigstore.json"
+          cp "${SBOM_BUNDLE}" "dist/${PACKAGE}.sbom.sigstore.json"
+          rm -rf "dist/${PACKAGE}"
+
+      - name: Publish architecture release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-and-publish:
+    name: Verify and publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Download architecture release evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify checksums, attestations, and architecture set
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t archives < <(find dist -maxdepth 1 -type f -name '*.tar.gz' -print | sort)
+          if (( ${#archives[@]} != 4 )); then
+            printf 'expected 4 release archives, found %s\n' "${#archives[@]}" >&2
+            exit 1
+          fi
+          for target in \
+            x86_64-unknown-linux-gnu \
+            aarch64-unknown-linux-gnu \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin; do
+            if [[ "$(find dist -maxdepth 1 -name "*-${target}.tar.gz" | wc -l)" -ne 1 ]]; then
+              printf 'release archive set does not contain exactly one %s target\n' \
+                "${target}" >&2
+              exit 1
+            fi
+          done
+          for archive in "${archives[@]}"; do
+            checksum="${archive}.sha256"
+            sha256sum --check "${checksum}"
+            gh attestation verify "${archive}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_WORKFLOW_REF%%@*}" \
+              --predicate-type 'https://slsa.dev/provenance/v1'
+            gh attestation verify "${archive}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_WORKFLOW_REF%%@*}" \
+              --predicate-type 'https://spdx.dev/Document/v2.3'
+          done
+          cat dist/*.tar.gz.sha256 | sort -k2 >dist/SHA256SUMS
+
+      - name: Publish GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/*.tar.gz \
+            dist/*.architecture.txt \
+            dist/*.build.txt \
+            dist/*.spdx.json \
+            dist/*.sigstore.json \
+            dist/SHA256SUMS \
+            --generate-notes \
+            --title "Stackctl ${GITHUB_REF_NAME}"
+
+      - name: Publish verified release evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-release-evidence
+          path: dist
+          if-no-files-found: error
+          retention-days: 90

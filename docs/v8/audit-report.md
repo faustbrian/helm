@@ -66,7 +66,7 @@ recommendation can change:
 | Linux gateway acceptance | HTTP/1.1, HTTP/2, WebSocket, streaming, large bodies, atomic reload, and restart through the pinned public gateway image |
 | Linux Laravel clean room | Public-image runtime derivation, PHP extensions, fatal-bootstrap rejection, strict HTTPS `/up`, command/worker/scheduler operation, automatic two-database restore, replay rejection, Engine restart, daemon restart, stable CA, source visibility, and exact cleanup |
 | Discovery performance | Raw 1/10/40-project release-mode samples under the documented hosted-runner noise budget |
-| Publication workflows | Binary architectures, SBOM, provenance, signatures, and immutable image/platform evidence for the exact release candidate |
+| `Release` | Native Linux and macOS x86_64/arm64 binaries, exact architecture assertions, SPDX SBOM, signed build provenance and SBOM attestations, checksums, and raw evidence for the exact release candidate |
 
 Passing workflow definitions are not evidence. The resulting raw artifacts
 must be retained with the release record.

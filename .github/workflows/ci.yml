@@ -27,6 +27,9 @@ jobs:
       - name: Reject mutable workflow action references
         run: ./scripts/audit-v8-workflow-actions.sh
 
+      - name: Enforce release artifact and attestation contract
+        run: ./scripts/audit-v8-release-workflow.sh
+
       - name: Reject disabled compiler and Clippy diagnostics
         run: ./scripts/audit-v8-lint-policy.sh
 
