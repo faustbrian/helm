@@ -2941,6 +2941,37 @@ fn mongodb_provisioning_streams_both_secrets_and_checks_exit_status() {
 }
 
 #[test]
+fn mongodb_provisioning_retries_the_initialization_handoff() {
+    let (instance, container) = mongodb_instance();
+    let project = plan_mongodb_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MongoDB project resources");
+    let executor = RecordingPostgresExecutor {
+        statuses: Arc::new(Mutex::new(VecDeque::from([1, 0]))),
+        ..RecordingPostgresExecutor::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_mongodb_logical_resource(
+            &executor,
+            &container,
+            project.logical(),
+        ))
+        .expect("provision MongoDB after server handoff");
+
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn mongodb_readiness_uses_stdin_auth_without_exposing_the_bootstrap_secret() {
     let (_, container) = mongodb_instance();
     let administrator = CredentialRecord::new(CredentialRecordOptions {

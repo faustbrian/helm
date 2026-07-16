@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- MongoDB logical provisioning now retries its bounded client exit while the
+  official image transitions from its temporary initialization server to its
+  final server, then preserves the final exact failure as tenant drift.
 - Shared-service reconciliation now materializes every exact locked image before
   creating its volume or container. Production daemon convergence no longer
   depends on an image having been pulled by a prior test or unrelated project.
