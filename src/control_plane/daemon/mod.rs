@@ -57,6 +57,7 @@ mod installation_initialization_error;
 mod invalidate_engine_connection;
 mod ipc;
 mod is_valid_certificate_generation;
+mod materialize_missing_artifact_locks;
 mod migration_decision_execution_options;
 mod migration_decision_execution_result;
 mod migration_decision_queue;
@@ -239,6 +240,7 @@ pub(crate) use ipc::{
 #[cfg(test)]
 pub(crate) use ipc::{IpcDataLifecycle, IpcResourceStatus};
 pub(crate) use is_valid_certificate_generation::is_valid_certificate_generation;
+pub(crate) use materialize_missing_artifact_locks::materialize_missing_artifact_locks;
 pub(crate) use migration_decision_execution_options::MigrationDecisionExecutionOptions;
 pub(crate) use migration_decision_execution_result::MigrationDecisionExecutionResult;
 pub(crate) use migration_decision_queue::MigrationDecisionQueue;

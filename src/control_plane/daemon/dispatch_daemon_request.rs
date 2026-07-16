@@ -4,8 +4,8 @@ use super::{
     ProjectLogTarget, QueuedDatabaseDumpRestoreOptions, QueuedMigrationDecision,
     QueuedPostgresPrune, QueuedProjectBackup, QueuedProjectCommand, QueuedProjectRestore,
     QueuedProjectRestoreOptions, ResourceHealthRegistry, build_postgres_prune_plan,
-    is_valid_certificate_generation, plan_postgres_prune, reconcile_watched_roots,
-    retained_project_status, retry_failed_installation_deletion_prune,
+    is_valid_certificate_generation, materialize_missing_artifact_locks, plan_postgres_prune,
+    reconcile_watched_roots, retained_project_status, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{
@@ -100,7 +100,79 @@ where
                     )],
                 );
             }
-            match reconcile_watched_roots(control_plane, discovery_options, now_unix_seconds) {
+            let mut reconciliation =
+                reconcile_watched_roots(control_plane, discovery_options, now_unix_seconds);
+            if let Ok(result) = &reconciliation
+                && result
+                    .report()
+                    .issues()
+                    .iter()
+                    .any(|issue| issue.code() == "artifact_lock_pending")
+            {
+                let Some(resolver) = image_reference_resolution else {
+                    let message =
+                        "automatic artifact-lock resolution is waiting for the selected Engine";
+                    if let Err(error) = record_ipc_event(
+                        control_plane,
+                        event_journal,
+                        request.request_id(),
+                        IpcEventKind::Failed {
+                            code: "engine_unavailable".to_owned(),
+                            message: message.to_owned(),
+                        },
+                    ) {
+                        return IpcResponse::failure(
+                            request.request_id(),
+                            vec![IpcDiagnostic::new(
+                                "event_journal_failed",
+                                error.to_string(),
+                                false,
+                            )],
+                        );
+                    }
+                    return IpcResponse::failure(
+                        request.request_id(),
+                        vec![IpcDiagnostic::new("engine_unavailable", message, true)],
+                    );
+                };
+                reconciliation =
+                    match materialize_missing_artifact_locks(result.report().sources(), resolver) {
+                        Ok(_) => reconcile_watched_roots(
+                            control_plane,
+                            discovery_options,
+                            now_unix_seconds,
+                        ),
+                        Err(detail) => {
+                            if let Err(error) = record_ipc_event(
+                                control_plane,
+                                event_journal,
+                                request.request_id(),
+                                IpcEventKind::Failed {
+                                    code: "artifact_lock_resolution_failed".to_owned(),
+                                    message: detail.clone(),
+                                },
+                            ) {
+                                return IpcResponse::failure(
+                                    request.request_id(),
+                                    vec![IpcDiagnostic::new(
+                                        "event_journal_failed",
+                                        error.to_string(),
+                                        false,
+                                    )],
+                                );
+                            }
+                            return IpcResponse::failure(
+                                request.request_id(),
+                                vec![IpcDiagnostic::new(
+                                    "artifact_lock_resolution_failed",
+                                    detail,
+                                    true,
+                                )],
+                            );
+                        }
+                    };
+            }
+            match reconciliation {
                 Ok(result) => {
                     if !result.was_applied() {
                         let diagnostics = result

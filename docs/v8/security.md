@@ -128,6 +128,25 @@ retain only the Engine default for now because their upstream entrypoints may
 need to prepare volume ownership before dropping identity; extending the policy
 to them requires per-image real-Engine evidence, not an untested global switch.
 
+### SEC-06: automatic project artifact publication — High, mitigated
+
+Automatic discovery needs to write `.stackctl.lock.yaml` into a project, which
+creates a confused-deputy risk if a watched repository substitutes symbolic
+links or another process publishes a file concurrently. The daemon first
+validates the complete strict project configuration, withholds that project
+from Engine mutation, and resolves only the bounded image-source mapping
+through its selected typed Engine adapter. Publication locks a verified real
+project directory, refuses a symbolic-link destination, serializes and parses
+the generated lock again, fsyncs a same-directory staging file, and uses
+atomic no-clobber creation. An existing path always wins and is never rewritten
+implicitly; stale or malformed locks remain loud configuration failures.
+
+Focused tests prove pending projects cannot enter the registry, automatic
+creation produces immutable source-matched entries, and a concurrent existing
+file remains byte-for-byte owned by its creator. Stackctl does not claim to
+sandbox a hostile process running as the same OS user, which already has the
+authority to replace project files and use that user's Engine socket.
+
 ## Review rules
 
 New container presets, host commands, IPC operations, archive formats, image

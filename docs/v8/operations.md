@@ -88,13 +88,17 @@ repository manifest digest without parsing Docker or Podman CLI output. Making
 that already-pinned image locally available remains the separate
 `ImageResolver` capability.
 
-The CLI submits bounded source mappings over typed local IPC when the singleton
-daemon is available. Before first setup, only an absent or connection-refused
-daemon endpoint enables direct resolution through the default Engine socket;
+For a missing lock, the daemon withholds that project from Engine mutation,
+submits bounded source mappings through its typed Engine adapter, and creates
+the lock atomically without replacing a concurrently created file. It then
+rescans and publishes the complete locked registry. Existing malformed or
+stale locks fail closed and are never rewritten automatically.
+
+The explicit CLI refresh path uses typed local IPC when the singleton daemon is
+available. Before first setup, only an absent or connection-refused daemon
+endpoint enables direct resolution through the default Engine socket;
 permission, framing, protocol, and daemon-reported errors fail closed. Both
-paths use the typed Engine resolver and must return the exact same key set. The
-CLI rejects missing, additional, or mutable results before an atomic YAML lock
-publication.
+paths require the exact same key set and reject mutable results.
 
 Stackctl does not publish or maintain a PHP distribution. Laravel, FrankenPHP,
 and Reverb presets use the public versioned FrankenPHP image, which the project
@@ -151,11 +155,11 @@ The selected Docker-compatible Engine is contacted over its Unix socket;
 Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
 Caddy is an immutable workload-plane image, not a host executable.
 
-Run `stackctl lock images` in every mutable or preset-based project before the
-first `stackctl setup --dir <DIR>...`. Setup is the normal one-time installation
-path. It canonicalizes every distinct watched root and verifies `.localhost`
+Run `stackctl setup --dir <DIR>...` once. Setup is the normal installation path.
+It canonicalizes every distinct watched root and verifies `.localhost`
 loopback resolution before changing host state. It then installs singleton CA
-trust and the login service. If service installation fails, setup removes trust
+trust and the login service. The daemon creates any missing artifact locks and
+setup waits for complete convergence. If service installation fails, setup removes trust
 only when that invocation added it; existing trust is retained. A trust
 rollback failure is reported together with the service failure.
 

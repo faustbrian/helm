@@ -1,4 +1,6 @@
-use super::{ControlPlaneError, DesiredRegistry, ProjectSource, plan_project_registry};
+use super::{ControlPlaneError, DesiredRegistry};
+#[cfg(test)]
+use super::{ProjectSource, plan_project_registry};
 use crate::control_plane::ExecutionPlan;
 use crate::control_plane::project_infrastructure::{
     PreparedProjectService, ProjectServicePreparationError, prepare_project_services,
@@ -96,6 +98,7 @@ where
     }
 
     /// Validates a complete scan before atomically applying adds and removals.
+    #[cfg(test)]
     pub(crate) fn reconcile_discovered_projects(
         &mut self,
         sources: &[ProjectSource],
@@ -110,7 +113,7 @@ where
     }
 }
 
-fn project_records(registry: &DesiredRegistry) -> Vec<ProjectRecord> {
+pub(super) fn project_records(registry: &DesiredRegistry) -> Vec<ProjectRecord> {
     registry
         .projects()
         .iter()

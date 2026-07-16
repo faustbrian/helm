@@ -207,6 +207,16 @@ fn write_configuration(directory: &std::path::Path) {
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("write project configuration");
+    std::fs::write(
+        directory.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+            "  app:\n    source: preset:laravel\n",
+            "    resolved: dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("write project artifact lock");
 }
 
 fn temporary_directory() -> std::path::PathBuf {

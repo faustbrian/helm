@@ -29,6 +29,9 @@ pub(crate) enum ProjectDiscoveryIssue {
     SymlinkArtifactLock {
         path: PathBuf,
     },
+    ArtifactLockPending {
+        path: PathBuf,
+    },
     InvalidConfiguration {
         detail: String,
     },
@@ -49,6 +52,7 @@ impl ProjectDiscoveryIssue {
             Self::ArtifactLockTooLarge { .. } => "artifact_lock_too_large",
             Self::UnreadableArtifactLock { .. } => "artifact_lock_unreadable",
             Self::SymlinkArtifactLock { .. } => "artifact_lock_symlink",
+            Self::ArtifactLockPending { .. } => "artifact_lock_pending",
             Self::InvalidConfiguration { .. } => "configuration_invalid",
             Self::ConfigurationCollision { .. } => "configuration_collision",
             Self::SecurityApprovalBlocked { .. } => "security_approval_blocked",
@@ -95,6 +99,11 @@ impl Display for ProjectDiscoveryIssue {
             Self::SymlinkArtifactLock { path } => write!(
                 formatter,
                 "project artifact lock '{}' must be a regular file, not a symbolic link",
+                path.display()
+            ),
+            Self::ArtifactLockPending { path } => write!(
+                formatter,
+                "project artifact lock '{}' is being resolved automatically",
                 path.display()
             ),
             Self::InvalidConfiguration { detail }

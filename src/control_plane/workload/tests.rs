@@ -533,7 +533,7 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
         "workflow_shipit_probe",
         "workflow_billing_probe",
         "workflow-replay-guard",
-        "lock images",
+        "did not create the artifact lock",
         "artifact_lock_sha256",
         "project.stackctl.lock.yaml",
         "systemctl restart docker",

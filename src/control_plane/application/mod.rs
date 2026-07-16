@@ -12,6 +12,7 @@ mod migrations;
 mod plan_project_registry;
 mod project_command_state;
 mod project_source;
+mod reconcile_discovered_registry;
 mod reconcile_logical_environment;
 mod recovery_points;
 mod registry_plan_error;

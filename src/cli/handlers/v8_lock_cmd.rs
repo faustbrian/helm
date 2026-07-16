@@ -7,15 +7,13 @@ use super::v8_project::resolve_v8_project;
 use crate::cli::args::{Cli, Commands, LockCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
-    ArtifactLock, ArtifactLockImage, IpcOutcome, IpcResult, MAX_PROJECT_CONFIG_BYTES,
-    PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock, artifact_source, parse_artifact_lock,
-    read_bounded_yaml_file, resolve_preset_artifact,
+    ArtifactLock, IpcOutcome, IpcResult, MAX_PROJECT_CONFIG_BYTES,
+    PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock, artifact_source, generate_artifact_lock,
+    parse_artifact_lock, read_bounded_yaml_file, replace_artifact_lock, resolve_preset_artifact,
 };
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -40,8 +38,11 @@ pub(crate) fn handle_v8_lock(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
             if context.dry_run() {
                 bail!("--dry-run is not supported when publishing a v8 artifact lock");
             }
-            let lock = generate_lock(project.config(), resolve_image_references)?;
-            publish_lock(&lock_path, &lock)?;
+            let lock = generate_artifact_lock(project.config(), |references| {
+                resolve_image_references(references).map_err(|error| error.to_string())
+            })
+            .map_err(anyhow::Error::msg)?;
+            replace_artifact_lock(&lock_path, &lock)?;
             log::info_if_not_quiet(
                 context.quiet(),
                 "lock",
@@ -60,69 +61,6 @@ pub(crate) fn handle_v8_lock(cli: &Cli, context: &CliDispatchContext<'_>) -> Res
     }
 
     Ok(true)
-}
-
-fn generate_lock<Resolve>(
-    config: &crate::control_plane::RawProjectConfig,
-    resolve: Resolve,
-) -> Result<ArtifactLock>
-where
-    Resolve: FnOnce(&BTreeMap<String, String>) -> Result<BTreeMap<String, String>>,
-{
-    let mut images = BTreeMap::new();
-    let mut lock_sources = BTreeMap::new();
-    let mut mutable_references = BTreeMap::new();
-    let mut uses_catalog = false;
-
-    for (service_id, service) in config.services() {
-        let source = artifact_source(service)
-            .with_context(|| format!("service '{service_id}' has no lockable artifact source"))?;
-        if let Some(image) = service.image() {
-            if is_immutable_registry_reference(image) {
-                images.insert(
-                    service_id.clone(),
-                    ArtifactLockImage::new(source, image.to_owned()),
-                );
-            } else {
-                lock_sources.insert(service_id.clone(), source);
-                mutable_references.insert(service_id.clone(), image.to_owned());
-            }
-            continue;
-        }
-
-        let preset = service
-            .preset()
-            .with_context(|| format!("service '{service_id}' has neither an image nor a preset"))?;
-        let Some(artifact) = resolve_preset_artifact(preset, service.version())? else {
-            continue;
-        };
-        uses_catalog = true;
-        lock_sources.insert(service_id.clone(), source);
-        mutable_references.insert(service_id.clone(), artifact.reference().to_owned());
-    }
-
-    if !mutable_references.is_empty() {
-        let resolved = resolve(&mutable_references)?;
-        if resolved.keys().ne(mutable_references.keys()) {
-            bail!("daemon returned a different image-reference key set than requested");
-        }
-        for (service_id, resolved) in resolved {
-            if !is_immutable_registry_reference(&resolved) {
-                bail!("daemon returned a mutable image resolution for service '{service_id}'");
-            }
-            let source = lock_sources.get(&service_id).cloned().with_context(|| {
-                format!("daemon returned unrequested service key '{service_id}'")
-            })?;
-            images.insert(service_id, ArtifactLockImage::new(source, resolved));
-        }
-    }
-
-    let lock = ArtifactLock::new(images);
-    Ok(if uses_catalog {
-        lock.with_catalog_revision(PRESET_ARTIFACT_CATALOG_REVISION)
-    } else {
-        lock
-    })
 }
 
 fn verify_lock(config: &crate::control_plane::RawProjectConfig, lock_path: &Path) -> Result<()> {
@@ -244,77 +182,6 @@ fn load_optional_lock(lock_path: &Path) -> Result<Option<ArtifactLock>> {
     }
 }
 
-fn publish_lock(path: &Path, lock: &ArtifactLock) -> Result<()> {
-    let parent = path
-        .parent()
-        .context("artifact lock path has no parent directory")?;
-    let directory_lock = fs::File::open(parent).with_context(|| {
-        format!(
-            "failed to open artifact lock directory {}",
-            parent.display()
-        )
-    })?;
-    directory_lock.lock().with_context(|| {
-        format!(
-            "failed to lock artifact lock directory {}",
-            parent.display()
-        )
-    })?;
-    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        bail!(
-            "refusing to replace symbolic-link artifact lock {}",
-            path.display()
-        );
-    }
-    let yaml = serde_yaml_ng::to_string(lock).context("failed to serialize v8 artifact lock")?;
-    parse_artifact_lock(&yaml, path).context("generated artifact lock failed validation")?;
-    let temporary = temporary_path(path);
-    match fs::remove_file(&temporary) {
-        Ok(()) => fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| {
-                format!(
-                    "failed to sync artifact lock directory {}",
-                    parent.display()
-                )
-            })?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to remove stale temporary lock {}",
-                    temporary.display()
-                )
-            });
-        }
-    }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .with_context(|| format!("failed to create temporary lock {}", temporary.display()))?;
-    let result = (|| -> Result<()> {
-        file.write_all(yaml.as_bytes())?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)
-            .with_context(|| format!("failed to publish artifact lock {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| {
-                format!(
-                    "failed to sync artifact lock directory {}",
-                    parent.display()
-                )
-            })?;
-        Ok(())
-    })();
-    if result.is_err() {
-        drop(fs::remove_file(&temporary));
-    }
-
-    result
-}
-
 fn resolved_references(outcome: &IpcOutcome) -> Result<BTreeMap<String, String>> {
     match outcome {
         IpcOutcome::Success {
@@ -345,16 +212,6 @@ fn engine_is_reconnecting(outcome: &IpcOutcome) -> bool {
     )
 }
 
-fn is_immutable_registry_reference(image: &str) -> bool {
-    image
-        .rsplit_once("@sha256:")
-        .is_some_and(|(repository, digest)| {
-            !repository.is_empty()
-                && digest.len() == 64
-                && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-}
-
 fn next_request_id() -> String {
     format!(
         "artifact-lock-{}-{}",
@@ -363,14 +220,11 @@ fn next_request_id() -> String {
     )
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
-    path.with_extension("yaml.tmp")
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{generate_lock, publish_lock};
-    use crate::control_plane::parse_project_config;
+    use crate::control_plane::{
+        generate_artifact_lock, parse_project_config, replace_artifact_lock,
+    };
     use std::collections::BTreeMap;
     use std::path::Path;
 
@@ -382,7 +236,7 @@ mod tests {
         )
         .expect("project config");
 
-        let lock = generate_lock(&config, |references| {
+        let lock = generate_artifact_lock(&config, |references| {
             assert_eq!(
                 references,
                 &BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.4".to_owned(),)])
@@ -410,7 +264,7 @@ mod tests {
         )
         .expect("project config");
 
-        let lock = generate_lock(&config, |references| {
+        let lock = generate_artifact_lock(&config, |references| {
             assert_eq!(
                 references,
                 &BTreeMap::from([("db".to_owned(), "postgres:17".to_owned())])
@@ -443,7 +297,7 @@ mod tests {
         )
         .expect("project config");
 
-        let lock = generate_lock(&config, |references| {
+        let lock = generate_artifact_lock(&config, |references| {
             assert_eq!(
                 references,
                 &BTreeMap::from([("app".to_owned(), "ghcr.io/stackctl/php:8.5".to_owned(),)])
@@ -480,7 +334,7 @@ mod tests {
             &root.join(".stackctl.yaml"),
         )
         .expect("project config");
-        let lock = generate_lock(&config, |_| {
+        let lock = generate_artifact_lock(&config, |_| {
             Ok(BTreeMap::from([(
                 "app".to_owned(),
                 concat!(
@@ -492,11 +346,38 @@ mod tests {
         })
         .expect("artifact lock");
 
-        publish_lock(&path, &lock).expect("publish artifact lock");
+        replace_artifact_lock(&path, &lock).expect("publish artifact lock");
 
         assert!(path.is_file());
         assert!(!pending.exists());
 
+        std::fs::remove_dir_all(root).expect("remove lock fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn publication_refuses_a_symbolic_link_destination() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "stackctl-artifact-lock-symlink-{}",
+            std::process::id()
+        ));
+        drop(std::fs::remove_dir_all(&root));
+        std::fs::create_dir_all(&root).expect("project directory");
+        let victim = root.join("victim.yaml");
+        std::fs::write(&victim, "owner data\n").expect("victim");
+        let path = root.join(".stackctl.lock.yaml");
+        symlink(&victim, &path).expect("artifact lock symlink");
+        let lock = crate::control_plane::ArtifactLock::new(BTreeMap::new());
+
+        let error = replace_artifact_lock(&path, &lock).expect_err("symlink refusal");
+
+        assert!(error.to_string().contains("symbolic-link artifact lock"));
+        assert_eq!(
+            std::fs::read_to_string(victim).expect("victim retained"),
+            "owner data\n"
+        );
         std::fs::remove_dir_all(root).expect("remove lock fixture");
     }
 }

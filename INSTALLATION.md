@@ -49,21 +49,20 @@ host:
 stackctl config validate
 ```
 
-Then create the project's immutable artifact lock and run the one-time
-control-plane setup:
+Then run the one-time control-plane setup:
 
 ```bash
-stackctl lock images
 stackctl setup --dir ~/Developer
 stackctl daemon service status
 stackctl daemon status
 stackctl daemon reconcile
 ```
 
-Lock generation contacts the running Docker-compatible Engine directly when
-the daemon has not been installed yet. If the daemon is available, it remains
-the authoritative resolver. Setup deliberately waits for complete operational
-convergence, so every mutable or preset image must be locked first.
+The daemon creates a missing project artifact lock through the selected
+Docker-compatible Engine before it permits workload mutation. Setup waits for
+that automatic resolution and complete operational convergence. An existing
+invalid or stale lock is never repaired implicitly; inspect it with
+`stackctl lock diff` and replace it explicitly with `stackctl lock images`.
 
 Wait for the project to converge, then inspect and open it:
 
@@ -81,9 +80,8 @@ or directory name is made unique.
 
 ## Configure the control plane
 
-Create strict `.stackctl.yaml` projects under one or more watched roots, lock
-each project containing mutable or preset images, then run the one-time setup
-transaction:
+Create strict `.stackctl.yaml` projects under one or more watched roots, then
+run the one-time setup transaction:
 
 ```bash
 stackctl setup --dir ~/Developer

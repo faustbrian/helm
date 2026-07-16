@@ -14,10 +14,10 @@ use super::{
     dispatch_daemon_request, execute_project_logs, execute_queued_migration_decision,
     execute_queued_postgres_prune, execute_queued_project_backup, execute_queued_project_command,
     execute_queued_project_restore, execute_scheduled_project_command,
-    finalize_installation_deletion, invalidate_engine_connection, plan_engine_reconciliation,
-    publish_project_command_result, publish_project_restore_result,
-    queue_next_installation_deletion_prune, reconcile_watched_roots,
-    requires_engine_reconciliation, requires_followup_reconciliation,
+    finalize_installation_deletion, invalidate_engine_connection,
+    materialize_missing_artifact_locks, plan_engine_reconciliation, publish_project_command_result,
+    publish_project_restore_result, queue_next_installation_deletion_prune,
+    reconcile_watched_roots, requires_engine_reconciliation, requires_followup_reconciliation,
     restore_daemon_operation_queues, retry_failed_installation_deletion_prune,
 };
 use crate::control_plane::application::{ControlPlane, ProjectSource, plan_project_registry};
@@ -7198,6 +7198,15 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("project config");
+    std::fs::write(
+        project.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+            "  app:\n    source: preset:laravel\n    resolved: dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("project lock");
     let database_path = root.join("state.sqlite3");
     let mut store = SqliteStateStore::open(&database_path).expect("open state store");
     store
@@ -7390,6 +7399,72 @@ fn incomplete_daemon_scan_preserves_the_last_complete_registry() {
 }
 
 #[test]
+fn missing_artifact_lock_blocks_registry_until_automatic_resolution() {
+    let root = temporary_directory("pending-artifact-lock");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
+    )
+    .expect("project config");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("watched root");
+    let mut control_plane = ControlPlane::new(store);
+
+    let result = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        10_000,
+    )
+    .expect("pending lock diagnostic");
+
+    assert!(!result.was_applied());
+    assert_eq!(result.report().issues().len(), 1);
+    assert_eq!(result.report().issues()[0].code(), "artifact_lock_pending");
+    assert_eq!(control_plane.projects().expect("projects"), []);
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn automatic_resolution_creates_a_missing_lock_without_replacing_it() {
+    let root = temporary_directory("automatic-artifact-lock");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    let config_path = project.join(".stackctl.yaml");
+    let yaml = "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n";
+    std::fs::write(&config_path, yaml).expect("project config");
+    let source = ProjectSource::new(project.clone(), config_path, yaml.to_owned());
+    let mut resolver = RecordingImageReferenceResolution::default();
+
+    assert_eq!(
+        materialize_missing_artifact_locks(std::slice::from_ref(&source), &mut resolver)
+            .expect("automatic lock"),
+        1
+    );
+    let lock_path = project.join(".stackctl.lock.yaml");
+    let first = std::fs::read_to_string(&lock_path).expect("generated lock");
+    assert!(first.contains("@sha256:"));
+    std::fs::write(&lock_path, "concurrent owner\n").expect("replace fixture lock");
+    assert_eq!(
+        materialize_missing_artifact_locks(&[source], &mut resolver)
+            .expect("existing lock is retained"),
+        0
+    );
+    assert_eq!(
+        std::fs::read_to_string(lock_path).expect("retained lock"),
+        "concurrent owner\n"
+    );
+    assert_eq!(resolver.requests.len(), 2);
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
 fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     let root = temporary_directory("ipc-reconciliation");
     let project = root.join("bill");
@@ -7409,6 +7484,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
     let mut event_journal = IpcEventJournal::default();
     let mut project_commands = ProjectCommandQueue::default();
     let mut project_logs = ProjectLogSessionRegistry::default();
+    let mut image_resolution = RecordingImageReferenceResolution::default();
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
         control_plane: &mut control_plane,
@@ -7424,7 +7500,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         resource_health: &ResourceHealthRegistry::default(),
         discovery_diagnostics: &[],
         benchmark_snapshot: None,
-        image_reference_resolution: None,
+        image_reference_resolution: Some(&mut image_resolution),
         now_unix_seconds: 10_000,
     });
 
@@ -7432,6 +7508,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
         response,
         IpcResponse::success("reconcile-42", IpcResult::Reconciled { project_count: 1 },)
     );
+    assert_eq!(image_resolution.requests.len(), 1);
 
     let subscription = IpcRequest::new(
         "events-42",
@@ -9951,6 +10028,16 @@ fn singleton_unix_runtime_serves_ipc_and_runs_initial_reconciliation() {
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("project config");
+    std::fs::write(
+        project.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+            "  app:\n    source: preset:laravel\n",
+            "    resolved: dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("project lock");
     let runtime_directory = root.join("runtime");
     let database_path = runtime_directory.join("state.sqlite3");
     std::fs::create_dir(&runtime_directory).expect("runtime directory");
@@ -10409,6 +10496,16 @@ fn singleton_unix_runtime_reconciles_after_a_watched_root_change() {
         "schema_version: 8\nproject: bill\nservices:\n  app:\n    preset: laravel\n",
     )
     .expect("project config");
+    std::fs::write(
+        project.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+            "  app:\n    source: preset:laravel\n",
+            "    resolved: dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("project lock");
 
     let deadline = Instant::now() + Duration::from_secs(2);
     let iteration = loop {
@@ -10611,15 +10708,17 @@ impl ImageReferenceResolution for RecordingImageReferenceResolution {
         self.requests.push(references.clone());
 
         Ok(references
-            .keys()
-            .map(|id| {
+            .iter()
+            .map(|(id, source)| {
+                let repository = source
+                    .rsplit_once(':')
+                    .map_or(source.as_str(), |(repository, _)| repository);
                 (
                     id.clone(),
-                    concat!(
-                        "ghcr.io/stackctl/php@sha256:",
+                    format!(
+                        "{repository}@sha256:{}",
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                    )
-                    .to_owned(),
+                    ),
                 )
             })
             .collect())

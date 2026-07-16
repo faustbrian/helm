@@ -33,15 +33,15 @@ impl ProjectSource {
         &self.canonical_path
     }
 
-    pub(super) fn config_path(&self) -> &Path {
+    pub(crate) fn config_path(&self) -> &Path {
         &self.config_path
     }
 
-    pub(super) fn yaml(&self) -> &str {
+    pub(crate) fn yaml(&self) -> &str {
         &self.yaml
     }
 
-    pub(super) fn artifact_lock_path(&self) -> Option<&Path> {
+    pub(crate) fn artifact_lock_path(&self) -> Option<&Path> {
         self.artifact_lock_path.as_deref()
     }
 

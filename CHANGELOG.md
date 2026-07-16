@@ -33,8 +33,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Fresh projects now create immutable artifact locks before the one-time setup,
-  allowing setup to retain its complete operational-readiness guarantee.
+- Fresh projects now receive immutable artifact locks automatically during
+  daemon discovery. Projects remain withheld from Engine mutation until the
+  lock is atomically created; existing lock files are never implicitly
+  replaced. One-time setup and later project additions therefore need no
+  separate lock command while retaining complete operational readiness.
 - Workflow modes now define mutually exclusive triggers: manual workflows run
   only through explicit `stackctl run` invocation, while automatic workflows
   run only implicitly through convergence-gated daemon scheduling.

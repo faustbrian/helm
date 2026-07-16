@@ -93,14 +93,17 @@ dedicated routable project service with a pinned multi-architecture artifact.
 
 Discovery reads the lock only beside `.stackctl.yaml`, with the same byte bound,
 UTF-8 requirement, and symbolic-link prohibition as the project file. Projects
-without mutable artifacts may omit it. Mutable or preset artifacts must be
-resolved to immutable identities before their Engine resources can be planned.
+without Engine artifacts may omit it. When a valid discovered project needs a
+lock and none exists, the daemon resolves and atomically creates it before
+publishing that project for Engine mutation. Concurrent creation never
+overwrites the winning file. An existing invalid or stale lock remains a loud
+configuration failure and is never repaired implicitly.
 
-`stackctl lock images` publishes `.stackctl.lock.yaml` atomically. When the
-singleton daemon is available, it resolves mutable explicit images and presets
-through its selected Engine. Before first setup, an absent daemon endpoint uses
-the same narrow typed resolver through the default Docker-compatible Engine
-socket so projects can be locked before operational readiness is required.
+`stackctl lock images` explicitly replaces `.stackctl.lock.yaml` atomically and
+is the manual path for deliberately refreshing a stale lock. When the singleton
+daemon is available, it resolves mutable explicit images and presets through
+its selected Engine. Before first setup, an absent daemon endpoint uses the
+same narrow typed resolver through the default Docker-compatible Engine socket.
 Permission, framing, protocol, and daemon-reported failures never trigger that
 fallback. The result is validated again before publication. Already immutable
 explicit images do not require an Engine lookup. `stackctl lock verify` and

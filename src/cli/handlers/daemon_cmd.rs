@@ -439,6 +439,16 @@ mod tests {
             "schema_version: 8\nproject: project-a\nservices:\n  app:\n    preset: laravel\n",
         )
         .expect("write stackctl config");
+        fs::write(
+            project_root.join(".stackctl.lock.yaml"),
+            concat!(
+                "schema_version: 1\ncatalog_revision: 2026-07-15.3\nimages:\n",
+                "  app:\n    source: preset:laravel\n",
+                "    resolved: dunglas/frankenphp@sha256:",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+            ),
+        )
+        .expect("write stackctl lock");
 
         let runtime_directory = std::env::temp_dir().join(format!(
             "s8w-{}-{}",

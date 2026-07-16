@@ -10,10 +10,11 @@ use super::{
     ProjectServiceProvisioningRegistry, ResourceHealthRegistry, RetryBackoff, RetryBackoffOptions,
     ScheduledCommandClock, SingletonLease, UnixDaemonRuntimeError, UnixDaemonRuntimeOptions,
     UnixDaemonShutdownSignal, dispatch_daemon_request, initialize_default_installation,
-    invalidate_engine_connection, plan_engine_reconciliation, reconcile_watched_roots,
-    record_discovery_diagnostics, requires_engine_reconciliation, requires_followup_reconciliation,
-    restore_daemon_operation_queues, restore_discovery_diagnostics,
-    run_bounded_independent_reconciliation, validate_project_workload_adoption,
+    invalidate_engine_connection, materialize_missing_artifact_locks, plan_engine_reconciliation,
+    reconcile_watched_roots, record_discovery_diagnostics, requires_engine_reconciliation,
+    requires_followup_reconciliation, restore_daemon_operation_queues,
+    restore_discovery_diagnostics, run_bounded_independent_reconciliation,
+    validate_project_workload_adoption,
 };
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
@@ -229,7 +230,7 @@ impl UnixDaemonRuntime {
         let scan_reason = (!reconciliation_frozen)
             .then(|| self.scheduler.take_due(now))
             .flatten();
-        let reconciliation = scan_reason
+        let mut reconciliation = scan_reason
             .map(|_reason| {
                 reconcile_watched_roots(
                     &mut self.control_plane,
@@ -238,6 +239,20 @@ impl UnixDaemonRuntime {
                 )
             })
             .transpose()?;
+        if let Some(observed) = &reconciliation
+            && observed
+                .report()
+                .issues()
+                .iter()
+                .any(|issue| issue.code() == "artifact_lock_pending")
+            && self.resolve_missing_artifact_locks(observed, now)
+        {
+            reconciliation = Some(reconcile_watched_roots(
+                &mut self.control_plane,
+                self.options.discovery_options,
+                now_unix_seconds,
+            )?);
+        }
         if let Some(reconciliation) = &reconciliation {
             let diagnostics = reconciliation
                 .report()
@@ -349,6 +364,49 @@ impl UnixDaemonRuntime {
     /// Records a native filesystem notification for debounced convergence.
     pub(crate) fn record_filesystem_event(&mut self, now: Instant) {
         self.scheduler.record_filesystem_event(now);
+    }
+
+    fn resolve_missing_artifact_locks(
+        &mut self,
+        reconciliation: &super::DiscoveryReconciliationResult,
+        now: Instant,
+    ) -> bool {
+        match self
+            .engine_runtime
+            .block_on(self.engine_connection.poll(now))
+        {
+            EngineConnectionOutcome::Unavailable { retry, detail } => {
+                self.resource_health.mark_engine_unavailable();
+                tracing::debug!(
+                    attempt = retry.attempt(),
+                    retry_milliseconds = retry.duration().as_millis(),
+                    error = detail,
+                    "automatic artifact-lock resolution is waiting for the selected Engine"
+                );
+                return false;
+            }
+            EngineConnectionOutcome::Connected => self.resource_health.mark_engine_available(),
+            EngineConnectionOutcome::BackingOff { .. } => return false,
+        }
+        let Some(engine) = self.engine_connection.engine().cloned() else {
+            return false;
+        };
+        let mut resolver = EngineImageReferenceResolution::new(&self.engine_runtime, engine);
+        match materialize_missing_artifact_locks(reconciliation.report().sources(), &mut resolver) {
+            Ok(created) if created > 0 => {
+                tracing::info!(created, "created missing project artifact locks");
+                self.scheduler.record_filesystem_event(now);
+                true
+            }
+            Ok(_) => {
+                self.scheduler.record_filesystem_event(now);
+                true
+            }
+            Err(detail) => {
+                tracing::error!(error = detail, "automatic artifact-lock resolution failed");
+                false
+            }
+        }
     }
 
     /// Runs until SIGINT or SIGTERM requests orderly ownership release.

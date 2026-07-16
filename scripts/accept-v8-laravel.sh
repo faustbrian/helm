@@ -335,19 +335,29 @@ printf '%s\n' \
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   --project-root "$PROJECT_DIRECTORY" config validate \
   > "$OUTPUT_DIRECTORY/config-validation.txt" 2>&1
-HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
-  --project-root "$PROJECT_DIRECTORY" lock images \
-  > "$OUTPUT_DIRECTORY/artifact-lock.txt" 2>&1
+start_daemon
+
+lock_deadline=$((SECONDS + 120))
+while [[ ! -f "$PROJECT_DIRECTORY/.stackctl.lock.yaml" ]] \
+  && (( SECONDS < lock_deadline )); do
+  if ! kill -0 "$daemon_pid" 2>/dev/null; then
+    printf 'Stackctl daemon exited before creating the artifact lock\n' >&2
+    exit 1
+  fi
+  sleep 1
+done
+if [[ ! -f "$PROJECT_DIRECTORY/.stackctl.lock.yaml" ]]; then
+  printf 'Stackctl daemon did not create the artifact lock\n' >&2
+  exit 1
+fi
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   --project-root "$PROJECT_DIRECTORY" lock verify \
-  >> "$OUTPUT_DIRECTORY/artifact-lock.txt" 2>&1
+  > "$OUTPUT_DIRECTORY/artifact-lock.txt" 2>&1
 cp "$PROJECT_DIRECTORY/.stackctl.lock.yaml" \
   "$OUTPUT_DIRECTORY/project.stackctl.lock.yaml"
 printf 'artifact_lock_sha256=%s\n' \
   "$(sha256sum "$PROJECT_DIRECTORY/.stackctl.lock.yaml" | cut -d ' ' -f 1)" \
   >> "$METADATA"
-start_daemon
-
 resource_deadline=$((SECONDS + 300))
 while (( SECONDS < resource_deadline )); do
   if ! kill -0 "$daemon_pid" 2>/dev/null; then
