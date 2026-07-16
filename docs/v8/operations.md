@@ -437,6 +437,11 @@ startup for up to ten minutes. They stop immediately for permanent errors such
 as an unknown service or invalid configuration, so normal convergence no longer
 becomes a user-maintained retry loop.
 
+Daemon startup automatically backs up and transactionally forward-migrates
+supported v8 internal state. State from before v8 and state written by a newer
+unknown Stackctl version fail closed; users are never instructed to delete the
+live database as routine maintenance.
+
 Durable project-command payloads also reject unknown fields. Removed payload
 shapes, including environment-bearing command records, are not silently decoded
 or revised in place.

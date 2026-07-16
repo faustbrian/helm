@@ -4,6 +4,9 @@ use super::credential_persistence::{
 use super::logical_resource_persistence::{
     load_logical_resource_ownership, persist_logical_resources,
 };
+use super::migrate_sqlite_state_schema::{
+    MINIMUM_MIGRATABLE_SCHEMA_VERSION, migrate_sqlite_state_schema,
+};
 use super::persist_managed_environment::persist_managed_environment;
 use super::persist_migration_record::persist_migration_record;
 use super::persisted_migration::PersistedMigration;
@@ -23,7 +26,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub(super) const CURRENT_SCHEMA_VERSION: u32 = 16;
+pub(super) const CURRENT_SCHEMA_VERSION: u32 = 17;
 
 /// The bundled-SQLite adapter for durable per-user control-plane state.
 pub(crate) struct SqliteStateStore {
@@ -65,6 +68,14 @@ impl SqliteStateStore {
 
     fn initialize_schema(&mut self) -> Result<(), StateStoreError> {
         let found = self.schema_version()?;
+
+        if found == MINIMUM_MIGRATABLE_SCHEMA_VERSION {
+            return migrate_sqlite_state_schema(
+                &mut self.connection,
+                found,
+                CURRENT_SCHEMA_VERSION,
+            );
+        }
 
         if found != 0 && found != CURRENT_SCHEMA_VERSION {
             return Err(StateStoreError::UnsupportedSchema {
@@ -193,7 +204,8 @@ impl SqliteStateStore {
                      created_at_unix_seconds INTEGER NOT NULL
                          CHECK(created_at_unix_seconds >= 0),
                      updated_at_unix_seconds INTEGER NOT NULL
-                         CHECK(updated_at_unix_seconds >= created_at_unix_seconds)
+                         CHECK(updated_at_unix_seconds >= created_at_unix_seconds),
+                     retry_count INTEGER NOT NULL DEFAULT 0 CHECK(retry_count >= 0)
                  ) STRICT;
                  CREATE INDEX daemon_operations_active_idx
                      ON daemon_operations(status, created_at_unix_seconds);
@@ -1887,7 +1899,8 @@ impl StateStore for SqliteStateStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let updated = transaction.execute(
             "UPDATE daemon_operations
-             SET status = 'queued', updated_at_unix_seconds = ?1
+             SET status = 'queued', updated_at_unix_seconds = ?1,
+                 retry_count = retry_count + 1
              WHERE operation_id = ?2
                AND kind = ?3
                AND payload_json = ?4

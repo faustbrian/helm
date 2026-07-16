@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Existing v8 state databases now receive a verified recovery snapshot and a
+  transactional forward schema migration during daemon startup. Pre-v8 and
+  unknown future schemas remain unsupported and fail closed.
 - Project commands and log sessions now wait through transient daemon discovery
   and runtime startup instead of requiring the user to rerun them. Permanent
   configuration and selection errors still return immediately.

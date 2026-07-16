@@ -17,6 +17,7 @@ mod logical_resource_record;
 mod logical_resource_record_options;
 mod managed_environment_record;
 mod managed_environment_record_options;
+mod migrate_sqlite_state_schema;
 mod migration_phase;
 mod migration_record;
 mod migration_record_error;

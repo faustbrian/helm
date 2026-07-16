@@ -17,7 +17,7 @@ fn opening_a_new_store_creates_the_clean_v8_schema_atomically() {
 
     let store = SqliteStateStore::open(&database_path).expect("open state store");
 
-    assert_eq!(store.schema_version().expect("schema version"), 16);
+    assert_eq!(store.schema_version().expect("schema version"), 17);
     assert_eq!(store.journal_mode().expect("journal mode"), "wal");
 
     drop(store);
@@ -113,7 +113,7 @@ fn opening_a_store_rejects_a_non_v8_schema() {
         error,
         super::StateStoreError::UnsupportedSchema {
             found: 14,
-            supported: 16
+            supported: 17
         }
     ));
 
@@ -140,12 +140,63 @@ fn recoverable_open_rejects_old_state_without_creating_a_backup() {
         error,
         super::StateStoreError::UnsupportedSchema {
             found: 14,
-            supported: 16
+            supported: 17
         }
     ));
     assert!(!backup_directory.exists());
 
     remove_database(&database_path);
+}
+
+#[test]
+fn recoverable_open_backs_up_and_forward_migrates_v8_state() {
+    let database_path = temporary_database_path("migratable-v8-schema");
+    let backup_directory = database_path.with_extension("backups");
+    let connection = rusqlite::Connection::open(&database_path).expect("open v8 state");
+    connection
+        .execute_batch(
+            "CREATE TABLE daemon_operations (
+                operation_id TEXT PRIMARY KEY NOT NULL,
+                kind TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at_unix_seconds INTEGER NOT NULL,
+                updated_at_unix_seconds INTEGER NOT NULL
+            ) STRICT;
+            PRAGMA user_version = 16;",
+        )
+        .expect("create version 16 state");
+    drop(connection);
+
+    let store = SqliteStateStore::open_with_backups(&database_path, &backup_directory, 50_000)
+        .expect("forward migrate v8 state");
+    assert_eq!(store.schema_version().expect("schema version"), 17);
+    drop(store);
+
+    let connection = rusqlite::Connection::open(&database_path).expect("open migrated state");
+    let retry_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('daemon_operations')
+             WHERE name = 'retry_count'",
+            [],
+            |row| row.get::<_, u32>(0),
+        )
+        .expect("retry column count");
+    assert_eq!(retry_count, 1);
+
+    let backup = backup_directory.join("state-00000000000000050000.sqlite3");
+    let backup_connection = rusqlite::Connection::open(&backup).expect("open state backup");
+    assert_eq!(
+        backup_connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .expect("backup schema version"),
+        16
+    );
+    drop(backup_connection);
+    drop(connection);
+
+    remove_database(&database_path);
+    std::fs::remove_dir_all(&backup_directory).expect("remove backup directory");
 }
 
 #[test]

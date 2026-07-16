@@ -1,3 +1,4 @@
+use super::migrate_sqlite_state_schema::MINIMUM_MIGRATABLE_SCHEMA_VERSION;
 use super::sqlite_state_store::CURRENT_SCHEMA_VERSION;
 use super::{SqliteStateStore, StateStoreError};
 use rusqlite::Connection;
@@ -32,7 +33,7 @@ fn verify_supported_schema(path: &Path) -> Result<(), StateStoreError> {
     verify_connection(&connection, "before schema validation")?;
     let found = connection.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))?;
 
-    if found != 0 && found != CURRENT_SCHEMA_VERSION {
+    if found != 0 && found != MINIMUM_MIGRATABLE_SCHEMA_VERSION && found != CURRENT_SCHEMA_VERSION {
         return Err(StateStoreError::UnsupportedSchema {
             found,
             supported: CURRENT_SCHEMA_VERSION,
