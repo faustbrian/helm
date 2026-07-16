@@ -44,6 +44,9 @@ All notable changes to this project are documented in this file.
 - Initial artifact-lock materialization is deferred through one discovery
   debounce window so the singleton IPC endpoint can answer service-manager
   readiness probes before registry resolution performs Engine work.
+- Automatic artifact-lock materialization now publishes at most one project's
+  lock per event-loop pass, yielding to IPC between projects during large
+  watched-root convergence.
 - The global gateway now returns an explicit HTTP 404 for unknown hostnames
   instead of Caddy's empty default 200, so health checks cannot mistake an
   absent project route for a running application.

@@ -402,21 +402,23 @@ impl UnixDaemonRuntime {
             return false;
         };
         let mut resolver = EngineImageReferenceResolution::new(&self.engine_runtime, engine);
-        match materialize_missing_artifact_locks(reconciliation.report().sources(), &mut resolver) {
-            Ok(created) if created > 0 => {
-                tracing::info!(created, "created missing project artifact locks");
-                self.scheduler.record_filesystem_event(now);
-                true
-            }
-            Ok(_) => {
-                self.scheduler.record_filesystem_event(now);
-                true
-            }
-            Err(detail) => {
-                tracing::error!(error = detail, "automatic artifact-lock resolution failed");
-                false
+        for source in reconciliation.report().sources() {
+            match materialize_missing_artifact_locks(std::slice::from_ref(source), &mut resolver) {
+                Ok(created) if created > 0 => {
+                    tracing::info!(created, "created one project's missing artifact lock");
+                    self.scheduler.record_filesystem_event(now);
+                    return true;
+                }
+                Ok(_) => {}
+                Err(detail) => {
+                    tracing::error!(error = detail, "automatic artifact-lock resolution failed");
+                    return false;
+                }
             }
         }
+
+        self.scheduler.record_filesystem_event(now);
+        true
     }
 
     /// Runs until SIGINT or SIGTERM requests orderly ownership release.
