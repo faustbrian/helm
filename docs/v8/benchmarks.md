@@ -116,6 +116,13 @@ All six scenarios must use the same `STACKCTL_BENCHMARK_RUN_ID` and exact
 `STACKCTL_BENCHMARK_COLLECTOR` value. Empty metrics and baseline inventory files
 are rejected before the output directory is created.
 
+The same harness is available through the manually dispatched
+`Controlled Benchmark Evidence` GitHub workflow. The runner must be a qualified
+dedicated host labeled `self-hosted` and `stackctl-benchmark`; workflow inputs
+name the exact scenario and externally populated host-metrics and baseline
+inventory paths. Dispatch each of the six scenarios with the same run ID. Each
+raw record is published as `benchmark-<run-id>-<scenario>` for ninety days.
+
 `stackctl daemon benchmark` requests each sample from the authoritative daemon.
 The harness passes a typed evidence scenario into every request. Before
 emitting JSON, Stackctl verifies that the authoritative registered project-ID

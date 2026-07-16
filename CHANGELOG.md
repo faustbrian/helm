@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a manually dispatched controlled-benchmark workflow for qualified
+  self-hosted runners. It builds the exact locked candidate, captures any of
+  the six required baseline or v8 scenarios with shared immutable metadata,
+  and publishes the raw record for ninety days without pretending a contended
+  hosted runner is authoritative resource evidence.
 - Added top-level `stackctl doctor` as a read-only aggregate health check for
   the login service, daemon IPC, project discovery, Engine availability and
   convergence, reconciliation diagnostics, and current OS CA trust. It reports

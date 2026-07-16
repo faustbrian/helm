@@ -112,6 +112,10 @@ for name in "${required_environment[@]}"; do
     printf 'required benchmark environment is missing: %s\n' "$name" >&2
     exit 64
   fi
+  if [[ "${!name}" == *$'\n'* || "${!name}" == *$'\r'* ]]; then
+    printf 'benchmark environment contains a line break: %s\n' "$name" >&2
+    exit 64
+  fi
 done
 if [[ ! "$STACKCTL_BENCHMARK_RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   printf 'benchmark run ID must contain only letters, digits, dot, underscore, or hyphen\n' >&2

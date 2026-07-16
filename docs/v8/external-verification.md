@@ -46,6 +46,7 @@ their skipped status.
 | `CI` | Pinned gateway HTTP/1.1, HTTP/2, WebSocket, streaming, large-body, reload, and restart acceptance on native Linux x86_64 and arm64 runners | `gateway-acceptance-linux-*` |
 | `CI` | Isolated-home real Laravel bootstrap failure rejection, framework `/up` health, strict CA-file HTTPS verification, application command, worker liveness, scheduler execution, two-schema automatic restore with primary-only migration, replay rejection across reconcile and daemon restart, live Docker Engine restart with unchanged application and restored data, source visibility, stable CA identity, and exact owned-resource cleanup on native Linux x86_64 and arm64 | `laravel-acceptance-linux-*` |
 | `Release` | Locked native Stackctl binary builds on Linux and macOS x86_64/arm64, executable architecture assertions, SPDX SBOM generation, GitHub Sigstore build-provenance and SBOM attestations, attestation and checksum verification, and exact tag-to-package version matching | `release-*` and `verified-release-evidence` |
+| `Controlled Benchmark Evidence` | Manually dispatched capture of one exact baseline or v8 scenario on a qualified `self-hosted` and `stackctl-benchmark` runner, using one run ID and externally populated host metrics/inventory inputs shared across all six captures | `benchmark-<run-id>-<scenario>` retained for 90 days |
 
 Gateway and Engine acceptance evidence is retained for 30 days, while release
 evidence is retained for 90 days and attached to tagged GitHub releases.
@@ -85,8 +86,11 @@ External verification has two different execution models:
 | Attended physical-host acceptance | Interactive login, persistent reboot, laptop sleep/wake, macOS Keychain and browser trust, Docker Desktop lifecycle, and behavior that hosted runners cannot reproduce faithfully | A person or managed hardware harness must perform and attest the real transition |
 
 The benchmark is not a manual exploratory test. It SHOULD run unattended on a
-dedicated, stable benchmark host. Shared hosted CI runners are unsuitable
-because their undisclosed contention and changing VM baseline make resource
+dedicated, stable benchmark host. The manually dispatched
+`Controlled Benchmark Evidence` workflow automates the existing harness and
+artifact capture when that host is registered with both `self-hosted` and
+`stackctl-benchmark` labels. Shared hosted CI runners are unsuitable because
+their undisclosed contention and changing VM baseline make resource
 comparisons non-reproducible.
 
 Each record must contain the Stackctl revision, release candidate, host image
