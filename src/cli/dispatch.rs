@@ -23,7 +23,7 @@ pub(crate) fn run(cli: Cli) -> Result<()> {
             return match &args.command {
                 ConfigCommands::Schema => handlers::handle_config_schema(),
                 ConfigCommands::Validate { path } => {
-                    handlers::handle_config_validate(path.as_deref(), context.quiet())
+                    handlers::handle_config_validate(path.as_deref(), &context)
                 }
             };
         }

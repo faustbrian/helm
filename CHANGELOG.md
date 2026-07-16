@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Made `config validate` honor the global `--config` and `--project-root`
+  selectors before falling back to the current directory, matching every other
+  strict-v8 project command and the clean-room invocation contract.
 - Removed the undeclared Ripgrep dependency from CI policy audits and added a
   minimal-PATH regression harness that proves immutable action checks reject
   mutable references and empty scans instead of failing open. The lint audit
