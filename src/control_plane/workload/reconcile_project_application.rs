@@ -3,9 +3,9 @@ use super::{
     WorkloadReconcileResult,
 };
 use crate::control_plane::engine::{
-    ContainerDiscovery, ContainerHealth, ContainerLifecycle, ContainerState, EngineError,
-    HealthObserver, ObservedContainer, ObservedResourceOwnership, OwnedContainer, ResourceKind,
-    RetentionClass, reconstruct_owned_container,
+    ContainerDiscovery, ContainerLifecycle, ContainerState, EngineError, HealthObserver,
+    ObservedContainer, ObservedResourceOwnership, OwnedContainer, ResourceKind, RetentionClass,
+    reconstruct_owned_container,
 };
 
 /// Restores one disposable project application without touching other workloads.
@@ -150,24 +150,14 @@ where
         .map_err(|error| engine_error(format!("inspect {}", kind_name(kind)), error))?
     {
         ContainerState::Running => {
-            match engine.observe_health(workload).await.map_err(|error| {
+            let health = engine.observe_health(workload).await.map_err(|error| {
                 engine_error(format!("observe {} health", kind_name(kind)), error)
-            })? {
-                ContainerHealth::Unhealthy { .. } => {
-                    engine.stop(workload).await.map_err(|error| {
-                        engine_error(format!("stop unhealthy {}", kind_name(kind)), error)
-                    })?;
-                    engine.start(workload).await.map_err(|error| {
-                        engine_error(format!("restart unhealthy {}", kind_name(kind)), error)
-                    })?;
-                    observe(engine, workload, kind, WorkloadReconcileAction::Restarted).await
-                }
-                health => Ok(WorkloadReconcileResult::new(
-                    workload.clone(),
-                    WorkloadReconcileAction::Unchanged,
-                    health,
-                )),
-            }
+            })?;
+            Ok(WorkloadReconcileResult::new(
+                workload.clone(),
+                WorkloadReconcileAction::Unchanged,
+                health,
+            ))
         }
         ContainerState::Stopped => {
             engine

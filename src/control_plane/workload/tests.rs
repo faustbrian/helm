@@ -1035,6 +1035,42 @@ fn project_application_reconciliation_keeps_healthy_desired_runtime() {
 }
 
 #[test]
+fn project_application_readiness_failure_does_not_restart_a_live_runtime() {
+    let request = application_request("sha256:desired-v1");
+    let mut engine = RecordingWorkloadEngine {
+        observed: vec![ObservedContainer::new(
+            ContainerId::new("bill-app"),
+            request.metadata().labels(),
+        )],
+        state: ContainerState::Running,
+        health: ContainerHealth::Unhealthy { failing_streak: 4 },
+        ..RecordingWorkloadEngine::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("test runtime");
+
+    let result = runtime
+        .block_on(reconcile_project_application(
+            &mut engine,
+            WorkloadReconcileOptions {
+                request: &request,
+                installation_id: "install-1",
+                schema_version: 8,
+            },
+        ))
+        .expect("report failed application readiness");
+
+    assert_eq!(result.action(), WorkloadReconcileAction::Unchanged);
+    assert_eq!(
+        result.health(),
+        ContainerHealth::Unhealthy { failing_streak: 4 }
+    );
+    assert!(engine.stopped.is_empty());
+    assert!(engine.started.is_empty());
+}
+
+#[test]
 fn project_application_reconciliation_reuses_a_pass_wide_observation() {
     let request = application_request("sha256:desired-v1");
     let observed = [ObservedContainer::new(

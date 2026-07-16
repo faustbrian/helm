@@ -45,6 +45,10 @@ All notable changes to this project are documented in this file.
 - Project status now reports only the active resource for each current service.
   Retained replacement history remains available through retained-data status
   instead of appearing as duplicate stale rows in `stackctl ps`.
+- Application process liveness is now separate from framework readiness. A
+  running container with a failed readiness probe remains running and reports
+  its unhealthy state; only a stopped process is started automatically, so a
+  slow or broken application cannot enter a daemon-driven restart loop.
 - Laravel application health checks now allow a bounded fifteen-second
   framework cold start and run every thirty seconds. This avoids false
   unhealthy replacement loops when a valid Artisan boot exceeds the previous

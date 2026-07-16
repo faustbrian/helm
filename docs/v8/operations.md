@@ -456,6 +456,12 @@ process health, service readiness, authentication, logical-resource drift,
 gateway drift, certificate expiry, name collision, invalid registry state,
 orphaning, and destructive replacement.
 
+Application container state is the liveness boundary. Docker's restart policy
+recovers an exited process, and reconciliation starts a stopped desired
+container. The framework probe is readiness evidence only: an unhealthy result
+is published to status and withholds dependent workflows and route readiness,
+but it never causes Stackctl to restart an otherwise running process.
+
 Project status reports durable lifecycle and live health as separate fields.
 After a project config is removed, `stackctl daemon retained` lists its
 orphaned or retained physical and logical resources by the exact former

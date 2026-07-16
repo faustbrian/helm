@@ -5,6 +5,5 @@ pub(crate) enum WorkloadReconcileAction {
     Unchanged,
     Created,
     Started,
-    Restarted,
     Replaced,
 }
