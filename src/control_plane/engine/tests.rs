@@ -896,6 +896,28 @@ fn managed_container_environment_maps_to_engine_without_debug_leaks() {
 }
 
 #[test]
+fn managed_containers_explicitly_prohibit_privilege_escalation() {
+    let options = ContainerCreateOptions::new(
+        "stackctl-bill-app",
+        concat!(
+            "dunglas/frankenphp@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
+        global_metadata(ResourceKind::ProjectApplication),
+    )
+    .expect("container options");
+
+    let (_, request) = create_request(&options);
+    let host = request.host_config.expect("managed host configuration");
+
+    assert_eq!(host.privileged, Some(false));
+    assert_eq!(
+        host.security_opt,
+        Some(vec!["no-new-privileges=true".to_owned()])
+    );
+}
+
+#[test]
 fn managed_named_volumes_remain_distinct_from_host_bind_mounts() {
     let options = ContainerCreateOptions::new(
         "stackctl-shared-postgres",

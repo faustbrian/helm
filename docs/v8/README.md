@@ -22,6 +22,8 @@ is not complete until its milestone evidence and acceptance tests pass.
   explicit release blockers.
 - [Dependency security policy](dependencies.md): Rust advisory, license,
   duplicate-version, and source gates.
+- [Threat model](security.md): assets, attackers, controls, and open
+  release-blocking security findings.
 
 ## Product invariant
 

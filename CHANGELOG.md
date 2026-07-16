@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Managed container creation now explicitly disables privileged mode and sets
+  Linux `no-new-privileges`, including application, gateway, job, and shared
+  service containers instead of relying on Engine defaults.
 - Added an enforced Rust supply-chain gate covering RustSec advisories, yanked
   dependencies, supported-target duplicate versions, license policy, wildcard
   dependency requirements, and non-crates.io sources. Audit tool versions are

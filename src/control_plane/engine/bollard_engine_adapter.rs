@@ -1969,6 +1969,8 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         .collect::<Vec<_>>();
 
     HostConfig {
+        privileged: Some(false),
+        security_opt: Some(vec!["no-new-privileges=true".to_owned()]),
         network_mode: options.network().map(str::to_owned),
         port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
         binds: (!binds.is_empty()).then_some(binds),
