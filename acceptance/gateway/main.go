@@ -53,7 +53,7 @@ func main() {
 
 func run(arguments []string) error {
 	if len(arguments) == 0 {
-		return errors.New("expected cert, serve, wait, wait-file, probe, or continuity command")
+		return errors.New("expected cert, serve, wait-https, wait-file, probe, or continuity command")
 	}
 	switch arguments[0] {
 	case "cert":
@@ -63,11 +63,11 @@ func run(arguments []string) error {
 		return generateCertificates(arguments[1])
 	case "serve":
 		return serve()
-	case "wait":
-		if len(arguments) != 2 {
-			return errors.New("wait requires one host:port")
+	case "wait-https":
+		if len(arguments) != 3 {
+			return errors.New("wait-https requires HTTPS port and CA path")
 		}
-		return waitForPort(arguments[1])
+		return waitForHTTPS(arguments[1], arguments[2])
 	case "wait-file":
 		if len(arguments) != 2 {
 			return errors.New("wait-file requires one path")
@@ -238,17 +238,37 @@ func readWebSocketFrame(reader io.Reader) ([]byte, error) {
 	return payload, nil
 }
 
-func waitForPort(address string) error {
+func waitForHTTPS(port, caPath string) error {
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return errors.New("could not parse acceptance CA")
+	}
+	client := &http.Client{
+		Transport: &http.Transport{TLSClientConfig: tlsConfig(roots)},
+		Timeout:   time.Second,
+	}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		connection, err := net.DialTimeout("tcp", address, 250*time.Millisecond)
-		if err == nil {
-			_ = connection.Close()
+		response, requestErr := request(
+			client,
+			http.MethodGet,
+			"https://127.0.0.1:"+port+"/ready",
+			nil,
+		)
+		if requestErr == nil && response.StatusCode == http.StatusNoContent {
+			_ = response.Body.Close()
 			return nil
+		}
+		if response != nil {
+			_ = response.Body.Close()
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("gateway did not listen on %s within 30 seconds", address)
+	return fmt.Errorf("gateway did not serve trusted HTTPS on port %s within 30 seconds", port)
 }
 
 func waitForFile(path string) error {

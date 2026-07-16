@@ -21,6 +21,25 @@ use x509_parser::parse_x509_certificate;
 use x509_parser::pem::parse_x509_pem;
 
 #[test]
+fn host_trust_adapters_are_compiled_only_for_their_platform_or_tests() {
+    let module = include_str!("mod.rs");
+    let output = include_str!("host_command_output.rs");
+
+    assert!(module.contains(concat!(
+        "#[cfg(any(target_os = \"macos\", test))]\n",
+        "mod mac_os_certificate_trust_store;"
+    )));
+    assert!(module.contains(concat!(
+        "#[cfg(any(target_os = \"macos\", test))]\n",
+        "pub(crate) use mac_os_certificate_trust_store::MacOsCertificateTrustStore;"
+    )));
+    assert!(output.contains(concat!(
+        "#[cfg(any(target_os = \"macos\", test))]\n",
+        "    pub(crate) fn stdout"
+    )));
+}
+
+#[test]
 fn stackctl_generates_its_own_ca_and_wildcard_gateway_leaf() {
     let now = datetime!(2026-07-13 12:00 UTC);
 

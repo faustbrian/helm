@@ -151,7 +151,7 @@ start_gateway() {
 }
 
 start_gateway
-"${HOST_FIXTURE}" wait "127.0.0.1:${HTTPS_PORT}"
+"${HOST_FIXTURE}" wait-https "${HTTPS_PORT}" "${CERTIFICATES}/ca.pem"
 first_probe="$("${HOST_FIXTURE}" probe "${HTTP_PORT}" "${HTTPS_PORT}" "${CERTIFICATES}/ca.pem" acceptance-initial)"
 sed 's/acceptance-initial/acceptance-reloaded/g' \
     "${ROOT}/config.json" >"${ROOT}/reloaded.json"
@@ -169,7 +169,7 @@ reload_probe="$("${HOST_FIXTURE}" probe "${HTTP_PORT}" "${HTTPS_PORT}" "${CERTIF
 docker rm --force "${GATEWAY}" >/dev/null
 mv "${ROOT}/reloaded.json" "${ROOT}/config.json"
 start_gateway
-"${HOST_FIXTURE}" wait "127.0.0.1:${HTTPS_PORT}"
+"${HOST_FIXTURE}" wait-https "${HTTPS_PORT}" "${CERTIFICATES}/ca.pem"
 restart_probe="$("${HOST_FIXTURE}" probe "${HTTP_PORT}" "${HTTPS_PORT}" "${CERTIFICATES}/ca.pem" acceptance-reloaded)"
 
 {

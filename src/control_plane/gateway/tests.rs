@@ -220,6 +220,8 @@ fn live_gateway_acceptance_contract_covers_protocols_and_restart() {
     assert!(workflow.contains("gateway-acceptance-${{ matrix.platform }}"));
     assert!(fixture.contains("continuity"));
     assert!(script.contains("continuity_probe"));
+    assert!(script.contains("wait-https"));
+    assert!(fixture.contains("gateway did not serve trusted HTTPS"));
 }
 
 #[test]

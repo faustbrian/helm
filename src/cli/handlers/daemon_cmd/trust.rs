@@ -56,7 +56,7 @@ pub(super) fn remove_persisted_daemon_trust() -> Result<()> {
             &crate::control_plane::DebianCertificateTrustStore::new(ProcessHostCommandExecutor),
         )?);
 
-        return Ok(());
+        Ok(())
     }
 }
 

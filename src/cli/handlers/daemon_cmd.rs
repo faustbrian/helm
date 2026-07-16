@@ -403,10 +403,35 @@ fn send_singleton_request_with_timeout(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::cli::args::DaemonWatchArgs;
+    use crate::control_plane::{GatewayError, LocalhostResolver};
+
+    struct LoopbackResolver;
+
+    impl LocalhostResolver for LoopbackResolver {
+        fn resolve(&self, _host: &str) -> Result<Vec<IpAddr>, GatewayError> {
+            Ok(vec![IpAddr::V4(Ipv4Addr::LOCALHOST)])
+        }
+    }
+
+    fn watch_once(args: &DaemonWatchArgs, runtime_directory: &std::path::Path) {
+        use crate::control_plane::{UnixDaemonWatchOptions, run_unix_daemon_watch_with_resolver};
+
+        run_unix_daemon_watch_with_resolver(
+            &UnixDaemonWatchOptions {
+                runtime_directory: runtime_directory.to_path_buf(),
+                watched_roots: args.dir.clone(),
+                once: args.once,
+                periodic_rescan: std::time::Duration::from_secs(args.interval.max(1)),
+            },
+            &LoopbackResolver,
+        )
+        .expect("watch once");
+    }
 
     fn temp_home(name: &str) -> PathBuf {
         let home = std::env::temp_dir().join(format!(
@@ -459,15 +484,14 @@ mod tests {
                 .as_nanos()
         ));
 
-        super::handle_daemon_watch_with_runtime_directory(
+        watch_once(
             &DaemonWatchArgs {
                 dir: vec![watch_root.clone()],
                 once: true,
                 interval: 1,
             },
             &runtime_directory,
-        )
-        .expect("watch once");
+        );
 
         let connection = rusqlite::Connection::open(runtime_directory.join("state.sqlite3"))
             .expect("open v8 state");
@@ -501,15 +525,14 @@ mod tests {
         );
         drop(connection);
 
-        super::handle_daemon_watch_with_runtime_directory(
+        watch_once(
             &DaemonWatchArgs {
                 dir: vec![watch_root.clone()],
                 once: true,
                 interval: 1,
             },
             &runtime_directory,
-        )
-        .expect("watch once after restart");
+        );
         let connection = rusqlite::Connection::open(runtime_directory.join("state.sqlite3"))
             .expect("reopen v8 state");
         let restarted_installation_id = connection

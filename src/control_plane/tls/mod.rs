@@ -24,6 +24,7 @@ mod local_certificate_bundle;
 mod local_certificate_error;
 mod local_certificate_reconcile_action;
 mod local_certificate_reconcile_result;
+#[cfg(any(target_os = "macos", test))]
 mod mac_os_certificate_trust_store;
 mod open_certificate_lock_file;
 mod process_host_command_executor;
@@ -63,6 +64,7 @@ pub(crate) use local_certificate_bundle::LocalCertificateBundle;
 pub(crate) use local_certificate_error::LocalCertificateError;
 pub(crate) use local_certificate_reconcile_action::LocalCertificateReconcileAction;
 pub(crate) use local_certificate_reconcile_result::LocalCertificateReconcileResult;
+#[cfg(any(target_os = "macos", test))]
 pub(crate) use mac_os_certificate_trust_store::MacOsCertificateTrustStore;
 pub(crate) use process_host_command_executor::ProcessHostCommandExecutor;
 pub(crate) use prune_inactive_leaf_certificate_generations::prune_inactive_leaf_certificate_generations;

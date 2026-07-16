@@ -43,7 +43,7 @@ pub(crate) use daemon::{
     send_unix_request,
 };
 #[cfg(test)]
-pub(crate) use daemon::{IpcDataLifecycle, IpcResourceStatus};
+pub(crate) use daemon::{IpcDataLifecycle, IpcResourceStatus, run_unix_daemon_watch_with_resolver};
 pub(crate) use desired_state::{
     DesiredProject, DesiredProjectError, DesiredService, resolve_desired_project,
 };
@@ -52,6 +52,8 @@ use dns_label::DnsLabel;
 pub(crate) use engine::resolve_registry_image_references;
 pub(crate) use environment_variable_key::is_valid_environment_variable_key;
 pub(crate) use execution_plan::{ExecutionPlan, ServiceExecutionPlan, resolve_execution_plan};
+#[cfg(test)]
+pub(crate) use gateway::{GatewayError, LocalhostResolver};
 pub(crate) use gateway::{
     SystemLocalhostResolver, verify_stackctl_localhost_resolution,
     wait_for_gateway_certificate_generation,
