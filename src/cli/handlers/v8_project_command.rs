@@ -17,11 +17,14 @@ use crate::control_plane::{
 };
 use crate::javascript::{PackageManager, detect_node_package_manager};
 
+use super::retry_daemon_request::retry_daemon_request;
 use super::v8_project::resolve_v8_project;
 
 const COMMAND_TIMEOUT_SECONDS: u64 = 3_600;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const STARTUP_RETRY_ATTEMPTS: usize = 600;
+const STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -206,19 +209,22 @@ pub(super) fn execute_project_command(
 ) -> Result<()> {
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
     let operation_id = next_request_id("project-command");
-    let response = send_unix_request(
-        &socket_path,
-        &IpcRequest::new(
-            operation_id.clone(),
-            IpcPayload::RunProjectCommand {
-                canonical_path: project_root,
-                service,
-                command,
-                timeout_seconds: COMMAND_TIMEOUT_SECONDS,
-            },
-        ),
-        REQUEST_TIMEOUT,
-    )?;
+    let response = retry_daemon_request(STARTUP_RETRY_ATTEMPTS, STARTUP_RETRY_INTERVAL, || {
+        send_unix_request(
+            &socket_path,
+            &IpcRequest::new(
+                operation_id.clone(),
+                IpcPayload::RunProjectCommand {
+                    canonical_path: project_root.clone(),
+                    service: service.clone(),
+                    command: command.clone(),
+                    timeout_seconds: COMMAND_TIMEOUT_SECONDS,
+                },
+            ),
+            REQUEST_TIMEOUT,
+        )
+        .map_err(Into::into)
+    })?;
     let accepted_id = accepted_operation_id(&response)?;
     if accepted_id != operation_id {
         bail!("daemon accepted unexpected operation '{accepted_id}'");

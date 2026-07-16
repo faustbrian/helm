@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Project commands and log sessions now wait through transient daemon discovery
+  and runtime startup instead of requiring the user to rerun them. Permanent
+  configuration and selection errors still return immediately.
 - Root-wide discovery now isolates readable invalid projects and every exact
   ownership-collision claimant while continuing to reconcile unrelated valid
   projects. Hostile filesystem input still blocks publication, and Stackctl

@@ -892,12 +892,13 @@ where
             ) {
                 Ok(queued) => queued,
                 Err(message) => {
+                    let retryable = project_command_preparation_is_retryable(&message);
                     return IpcResponse::failure(
                         request.request_id(),
                         vec![IpcDiagnostic::new(
                             "project_command_invalid",
                             message,
-                            false,
+                            retryable,
                         )],
                     );
                 }
@@ -1304,9 +1305,14 @@ where
             ) {
                 Ok(log_request) => log_request,
                 Err(message) => {
+                    let retryable = project_logs_preparation_is_retryable(&message);
                     return IpcResponse::failure(
                         request.request_id(),
-                        vec![IpcDiagnostic::new("project_logs_invalid", message, false)],
+                        vec![IpcDiagnostic::new(
+                            "project_logs_invalid",
+                            message,
+                            retryable,
+                        )],
                     );
                 }
             };
@@ -1453,6 +1459,16 @@ where
             ),
         },
     }
+}
+
+fn project_command_preparation_is_retryable(message: &str) -> bool {
+    message.contains("is not registered by the singleton daemon")
+        || message.contains("wait for reconciliation")
+}
+
+fn project_logs_preparation_is_retryable(message: &str) -> bool {
+    message.contains("is not registered by the singleton daemon")
+        || message.contains("has no active owned container")
 }
 
 fn prepare_project_logs<Store>(

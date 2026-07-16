@@ -8683,7 +8683,7 @@ fn daemon_project_logs_all_skips_declared_services_without_owned_containers() {
             vec![crate::control_plane::IpcDiagnostic::new(
                 "project_logs_invalid",
                 "project 'bill' service 'scheduler' has no active owned container",
-                false,
+                true,
             )],
         )
     );

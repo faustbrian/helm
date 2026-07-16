@@ -4,6 +4,8 @@ mod config_schema_cmd;
 mod config_validate_cmd;
 mod daemon_cmd;
 mod log;
+#[cfg(unix)]
+mod retry_daemon_request;
 mod setup_cmd;
 #[cfg(unix)]
 mod v8_env_cmd;

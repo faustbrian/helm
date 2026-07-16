@@ -15,11 +15,14 @@ use crate::control_plane::{
     IpcRequest, IpcResponse, IpcResult, default_unix_daemon_runtime_directory, send_unix_request,
 };
 
+use super::retry_daemon_request::retry_daemon_request;
 use super::v8_project::resolve_v8_project;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const POLL_CHUNKS: u16 = 128;
+const STARTUP_RETRY_ATTEMPTS: usize = 600;
+const STARTUP_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -87,20 +90,23 @@ fn log_invocation(
 fn execute_log_invocation(invocation: V8LogInvocation) -> Result<()> {
     let socket_path = default_unix_daemon_runtime_directory()?.join("daemon.sock");
     let session_id = next_request_id("project-logs");
-    let response = send_unix_request(
-        &socket_path,
-        &IpcRequest::new(
-            session_id.clone(),
-            IpcPayload::OpenProjectLogs {
-                canonical_path: invocation.project_root,
-                services: invocation.services,
-                all: invocation.all,
-                follow: invocation.follow,
-                tail: invocation.tail,
-            },
-        ),
-        REQUEST_TIMEOUT,
-    )?;
+    let response = retry_daemon_request(STARTUP_RETRY_ATTEMPTS, STARTUP_RETRY_INTERVAL, || {
+        send_unix_request(
+            &socket_path,
+            &IpcRequest::new(
+                session_id.clone(),
+                IpcPayload::OpenProjectLogs {
+                    canonical_path: invocation.project_root.clone(),
+                    services: invocation.services.clone(),
+                    all: invocation.all,
+                    follow: invocation.follow,
+                    tail: invocation.tail,
+                },
+            ),
+            REQUEST_TIMEOUT,
+        )
+        .map_err(Into::into)
+    })?;
     let accepted = accepted_session_id(&response)?;
     if accepted != session_id {
         bail!("daemon accepted unexpected log session '{accepted}'");
