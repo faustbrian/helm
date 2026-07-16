@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io::ErrorKind;
 
-/// Restarts the installed login-time daemon and verifies operational readiness.
+/// Restarts the installed login-time daemon and verifies IPC responsiveness.
 pub(crate) fn restart_service() -> Result<DaemonServiceStatus> {
     #[cfg(test)]
     return restart_service_with_readiness(|| Ok(()));
@@ -55,7 +55,7 @@ pub(super) fn restart_service_with_readiness(
             definition.label
         );
     }
-    verify_readiness().context("restarted daemon did not become operationally ready")?;
+    verify_readiness().context("restarted daemon did not become IPC-responsive")?;
 
     Ok(DaemonServiceStatus {
         manager: definition.manager,

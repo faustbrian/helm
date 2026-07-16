@@ -1,7 +1,6 @@
 //! User-service definitions for login-time daemon watch startup.
 
 mod canonical_watch_dirs;
-mod daemon_readiness_error;
 mod launchd;
 mod restart_service;
 mod service_install_snapshot;
@@ -820,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_service_reports_failed_operational_readiness() {
+    fn restart_service_reports_failed_ipc_responsiveness() {
         let home = temp_home("restart-readiness");
         set_test_service_home(home.to_str().expect("home path"));
         set_test_service_binary("/tmp/stackctl");
@@ -832,18 +831,18 @@ mod tests {
         set_test_service_running(true);
         clear_test_service_commands();
 
-        let error = restart_service_with_readiness(|| anyhow::bail!("project is unhealthy"))
+        let error = restart_service_with_readiness(|| anyhow::bail!("socket is unavailable"))
             .expect_err("failed readiness");
 
         assert!(
             error
                 .to_string()
-                .contains("restarted daemon did not become operationally ready")
+                .contains("restarted daemon did not become IPC-responsive")
         );
         assert!(
             error
                 .chain()
-                .any(|cause| cause.to_string() == "project is unhealthy")
+                .any(|cause| cause.to_string() == "socket is unavailable")
         );
 
         clear_test_service_binary();

@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Login-service install, restart, and status now verify only bounded daemon IPC
+  responsiveness. Invalid projects, Engine outages, slow image pulls, and
+  unhealthy workloads remain visible to the live self-healing daemon instead
+  of stalling updates or rolling back an otherwise healthy login service.
 - The global gateway now publishes only IPv4 loopback sockets. Docker Desktop
   accepted its explicit `::1` publication but reset TLS handshakes, allowing
   daemon readiness and `stackctl open` to pass while default clients failed.

@@ -15,7 +15,7 @@ pub(crate) enum DaemonServiceCommands {
     Install(DaemonServiceInstallArgs),
     /// Show service installation state
     Status,
-    /// Restart the installed service and wait for operational readiness
+    /// Restart the installed service and wait for IPC responsiveness
     Restart(DaemonServiceRestartArgs),
     /// Print the rendered service definition without installing it
     Print(DaemonServicePrintArgs),

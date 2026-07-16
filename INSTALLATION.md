@@ -59,10 +59,15 @@ stackctl daemon reconcile
 ```
 
 The daemon creates a missing project artifact lock through the selected
-Docker-compatible Engine before it permits workload mutation. Setup waits for
-that automatic resolution and complete operational convergence. An existing
-invalid or stale lock is never repaired implicitly; inspect it with
-`stackctl lock diff` and replace it explicitly with `stackctl lock images`.
+Docker-compatible Engine before it permits workload mutation. Valid generated
+locks are refreshed automatically when their image inputs become stale.
+Malformed, oversized, symbolic-link, and project-identity conflicts fail
+closed with a terminal diagnostic instead of being overwritten.
+
+Setup returns once the login daemon is IPC-responsive. Project discovery,
+image acquisition, and workload convergence continue in the background and
+self-heal after transient Engine or project failures; one broken project does
+not roll back the healthy login daemon.
 
 Wait for the project to converge, then inspect and open it:
 

@@ -206,10 +206,12 @@ the same guidance with `PID unavailable`.
 
 `stackctl daemon service restart` requires an existing real service definition,
 uses `launchctl kickstart -k` or `systemctl --user restart`, verifies the manager
-kept the process running, and then applies the same complete operational
-readiness gate as installation. It never rewrites the definition or changes
-watched roots. Missing, linked, unresponsive, or unhealthy services fail with
-the exact boundary that rejected the restart.
+kept the process running, and then requires a bounded correlated IPC
+`Ping`/`Pong`. It never rewrites the definition or changes watched roots.
+Missing, linked, or IPC-unresponsive services fail with the exact boundary
+that rejected the restart. Project discovery, Engine availability, and
+workload health do not block service lifecycle operations; the responsive
+daemon retains their diagnostics and keeps reconciling them automatically.
 `--if-installed` makes restart a successful no-op only when no definition
 exists. The repository's `just install` uses it after replacing the binary, so
 an installed login daemon cannot continue running the previous executable.
@@ -223,6 +225,9 @@ reactivates the exact previous definition when it had been running, then
 requires that restored singleton to answer IPC too. Failure to complete or
 verify that rollback is reported together with the original installation error
 instead of leaving an apparently successful setup.
+Project convergence is deliberately outside this transaction. A malformed
+project, unavailable Engine, slow image pull, or unhealthy workload cannot
+remove a responsive login daemon or force the user to repeat setup.
 Every installation path canonicalizes its watched roots first. Missing paths,
 non-directories, and duplicate canonical roots fail before the definition or
 service manager is changed.
