@@ -41,6 +41,7 @@ pub(crate) fn project_process_request(
         options.metadata,
     )?
     .with_platform(options.platform)?
+    .with_user(options.container_user)?
     .with_network(options.plan.network_name())?
     .with_bind_mount(BindMount::read_write(source, PROJECT_SOURCE_TARGET)?)
     .with_working_directory(PROJECT_SOURCE_TARGET)?

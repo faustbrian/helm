@@ -6,6 +6,7 @@ pub(crate) struct ApplicationContainerRequestOptions {
     pub(crate) plan: ApplicationContainerPlan,
     pub(crate) metadata: ManagedResourceMetadata,
     pub(crate) platform: String,
+    pub(crate) container_user: String,
     pub(crate) command: Vec<String>,
     pub(crate) environment: RuntimeEnvironment,
 }

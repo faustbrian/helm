@@ -113,6 +113,7 @@ pub(crate) fn plan_engine_reconciliation(
             installation_id: options.installation_id,
             schema_version: options.schema_version,
             platform: options.platform,
+            container_user: options.container_user,
             network_name: options.network_name,
             internal_http_port: options.internal_http_port,
         })
@@ -149,6 +150,7 @@ pub(crate) fn plan_engine_reconciliation(
                 installation_id: options.installation_id,
                 schema_version: options.schema_version,
                 platform: options.platform,
+                container_user: options.container_user,
                 network_name: options.network_name,
             })
             .map_err(invalid)?,

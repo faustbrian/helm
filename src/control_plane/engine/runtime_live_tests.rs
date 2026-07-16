@@ -1,6 +1,6 @@
 use super::{
-    BollardEngineAdapter, ContainerCreateOptions, ContainerLifecycle, EngineError, ImageBuilder,
-    ImageResolver, InstallationResourceDeletionOptions, ManagedResourceMetadata,
+    BindMount, BollardEngineAdapter, ContainerCreateOptions, ContainerLifecycle, EngineError,
+    ImageBuilder, ImageResolver, InstallationResourceDeletionOptions, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ResourceKind, RetentionClass,
     delete_owned_installation_resources,
 };
@@ -10,6 +10,7 @@ use crate::control_plane::workload::{
     RuntimeImageBuildOptions, RuntimeImageBuildPlan, run_project_command,
 };
 use std::collections::BTreeMap;
+use std::os::unix::fs::MetadataExt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PHP_IMAGE: &str = concat!(
@@ -41,6 +42,16 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
         .as_nanos();
     let installation_id = format!("ci-{}-{nonce}", std::process::id());
     let container_name = format!("stackctl-{installation_id}-app");
+    let project_directory = std::env::temp_dir().join(format!("stackctl-{installation_id}"));
+    std::fs::create_dir(&project_directory).expect("create acceptance project directory");
+    let project_directory_string = project_directory
+        .to_str()
+        .expect("acceptance project path must be UTF-8");
+    let container_user = format!(
+        "{}:{}",
+        rustix::process::geteuid().as_raw(),
+        rustix::process::getegid().as_raw()
+    );
     let platform = linux_platform();
     let runtime_plan = RuntimeImageBuildPlan::for_application_runtime(RuntimeImageBuildOptions {
         installation_id: &installation_id,
@@ -76,6 +87,7 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
                     concat!(
                         "foreach (['calendar', 'soap', 'xsl'] as $extension) { ",
                         "if (!extension_loaded($extension)) { exit(1); } } ",
+                        "file_put_contents('/workspace/created-by-runtime', 'owned'); ",
                         "echo PHP_OS_FAMILY . ':' . getcwd();"
                     )
                     .to_owned(),
@@ -134,10 +146,16 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
         let request =
             ContainerCreateOptions::new(&container_name, runtime_image.as_str(), metadata)?
                 .with_platform(platform)?
+                .with_user(&container_user)?
+                .with_bind_mount(BindMount::read_write(
+                    project_directory_string,
+                    "/workspace",
+                )?)
+                .with_working_directory("/workspace")?
                 .with_command(vec![
                     "sh".to_owned(),
                     "-c".to_owned(),
-                    "mkdir -p /workspace && exec sleep 300".to_owned(),
+                    "exec sleep 300".to_owned(),
                 ])?;
         let container = engine.create(&request).await?;
         engine.start(&container).await?;
@@ -160,6 +178,19 @@ fn live_docker_engine_application_runtime_executes_declared_tools_and_hook() {
         ))
         .expect("delete application runtime acceptance resources");
     let outputs = acceptance.expect("execute all declared application runtime tools");
+    let created_metadata = std::fs::metadata(project_directory.join("created-by-runtime"))
+        .expect("application command must write through the mounted project source");
+    assert_eq!(
+        created_metadata.uid(),
+        rustix::process::geteuid().as_raw(),
+        "application files must retain invoking-user ownership"
+    );
+    assert_eq!(
+        created_metadata.gid(),
+        rustix::process::getegid().as_raw(),
+        "application files must retain invoking-group ownership"
+    );
+    std::fs::remove_dir_all(&project_directory).expect("remove acceptance project directory");
 
     assert_eq!(outputs.len(), 5);
     assert_eq!(outputs[0].stdout(), b"Linux:/workspace");

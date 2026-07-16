@@ -343,6 +343,7 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
         plan,
         metadata,
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
         command: vec![
             "stackctl-runtime".to_owned(),
             "serve".to_owned(),
@@ -358,6 +359,7 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
 
     assert_eq!(request.name(), "stackctl-bill-app");
     assert_eq!(request.platform(), Some("linux/arm64"));
+    assert_eq!(request.user(), Some("501:20"));
     assert_eq!(request.network(), Some("stackctl-private"));
     assert!(request.port_bindings().is_empty());
     assert_eq!(request.bind_mounts().len(), 1);
@@ -399,6 +401,7 @@ fn application_requests_preserve_an_immutable_images_default_command() {
         plan,
         metadata,
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
         command: Vec::new(),
         environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
     })
@@ -425,6 +428,7 @@ fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -444,6 +448,28 @@ fn resolved_immutable_applications_produce_exact_engine_and_gateway_plans() {
     assert_eq!(plan.request().environment().get("APP_CONFIG_CACHE"), None);
     assert_eq!(plan.route().domain(), "bill-app.stackctl.localhost");
     assert_eq!(plan.route().upstream(), "http://stackctl-bill-app:8080");
+}
+
+#[test]
+fn application_user_identity_changes_the_replacement_revision() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    image: ghcr.io/acme/bill@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    ));
+    let first = plan_immutable_project_application(immutable_application_options(&application))
+        .expect("first user application plan");
+    let mut changed_user = immutable_application_options(&application);
+    changed_user.container_user = "502:20";
+    let second =
+        plan_immutable_project_application(changed_user).expect("changed user application plan");
+
+    assert_ne!(
+        first.request().metadata().desired_revision(),
+        second.request().metadata().desired_revision()
+    );
+    assert_eq!(first.request().user(), Some("501:20"));
+    assert_eq!(second.request().user(), Some("502:20"));
 }
 
 #[test]
@@ -484,6 +510,7 @@ fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -545,6 +572,7 @@ fn declared_tool_images_produce_one_content_addressed_application_runtime() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -627,6 +655,7 @@ fn equal_application_runtimes_are_materialized_once_per_pass() {
             installation_id: "install-1",
             schema_version: 8,
             platform: "linux/arm64",
+            container_user: "501:20",
             network_name: "stackctl",
             internal_http_port: 8080,
         })
@@ -676,6 +705,7 @@ fn extension_aware_application_requests_use_the_built_image_identity() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -804,6 +834,7 @@ fn application_rejects_environment_owned_by_another_project() {
         plan,
         metadata,
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
         command: vec!["stackctl-runtime".to_owned(), "serve".to_owned()],
         environment: runtime_environment("shop", BTreeMap::new(), BTreeMap::new()),
     })
@@ -1703,6 +1734,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
         plan,
         metadata,
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
     })
     .expect("worker request");
 
@@ -1716,6 +1748,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
         "queue-worker"
     );
     assert_eq!(request.platform(), Some("linux/arm64"));
+    assert_eq!(request.user(), Some("501:20"));
     assert_eq!(request.network(), Some("stackctl-private"));
     assert!(request.port_bindings().is_empty());
     assert_eq!(request.bind_mounts()[0].source(), "/work/bill");
@@ -1801,6 +1834,7 @@ fn application_request(desired_revision: &str) -> ContainerCreateOptions {
         .with_resource_id("app")
         .expect("application resource identity"),
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
         command: vec!["stackctl-runtime".to_owned(), "serve".to_owned()],
         environment: runtime_environment("bill", BTreeMap::new(), BTreeMap::new()),
     })
@@ -1892,6 +1926,7 @@ fn process_request(service: &str, desired_revision: &str) -> ContainerCreateOpti
         plan,
         metadata,
         platform: "linux/arm64".to_owned(),
+        container_user: "501:20".to_owned(),
     })
     .expect("process request")
 }
@@ -2138,6 +2173,7 @@ fn immutable_application_options(
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     }

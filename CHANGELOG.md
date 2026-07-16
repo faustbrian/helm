@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Project application and worker containers now run as the daemon user's
+  numeric Linux UID:GID. User identity participates in desired revisions, and
+  real-Engine runtime acceptance verifies mounted-source writes retain host
+  ownership while PHP extensions, Composer, npm, Bun, and hooks still work.
 - Managed container creation now explicitly disables privileged mode and sets
   Linux `no-new-privileges`, including application, gateway, job, and shared
   service containers instead of relying on Engine defaults.

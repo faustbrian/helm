@@ -14,6 +14,7 @@ pub(crate) struct EngineReconciliationPlanOptions<'operation> {
     pub(crate) installation_id: &'operation str,
     pub(crate) schema_version: u32,
     pub(crate) platform: &'operation str,
+    pub(crate) container_user: &'operation str,
     pub(crate) network_name: &'operation str,
     pub(crate) internal_http_port: u16,
 }

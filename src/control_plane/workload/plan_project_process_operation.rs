@@ -73,9 +73,10 @@ pub(crate) fn plan_project_process_operation(
     })
     .map_err(invalid)?;
     let compatibility_fingerprint = fingerprint([
-        "project-process-runtime-v1",
+        "project-process-runtime-v2",
         plan.image_digest(),
         options.platform,
+        options.container_user,
         options
             .application
             .request()
@@ -85,6 +86,7 @@ pub(crate) fn plan_project_process_operation(
     let desired_revision = desired_revision(
         &plan,
         options.platform,
+        options.container_user,
         options
             .application
             .request()
@@ -107,6 +109,7 @@ pub(crate) fn plan_project_process_operation(
         plan,
         metadata,
         platform: options.platform.to_owned(),
+        container_user: options.container_user.to_owned(),
     })
     .map_err(invalid)?;
 
@@ -132,14 +135,16 @@ fn default_command(preset: &str) -> Vec<String> {
 fn desired_revision(
     plan: &ProjectProcessPlan,
     platform: &str,
+    container_user: &str,
     application_runtime_fingerprint: &str,
 ) -> Result<String, WorkloadPlanError> {
     let manifest = serde_json::to_vec(&ProjectProcessRevision {
-        schema_version: 1,
+        schema_version: 2,
         project: plan.project_id(),
         service: plan.service_id(),
         image: plan.image_digest(),
         platform,
+        container_user,
         network: plan.network_name(),
         command: plan.command(),
         managed_environment_revision: plan.environment().managed_revision(),
@@ -158,6 +163,7 @@ struct ProjectProcessRevision<'value> {
     service: &'value str,
     image: &'value str,
     platform: &'value str,
+    container_user: &'value str,
     network: &'value str,
     command: &'value [String],
     managed_environment_revision: &'value str,

@@ -70,19 +70,17 @@ Required evidence: a real-Engine test in which project A cannot connect to
 project B's application endpoint, both remain reachable through the gateway,
 and both can reach only their authorized shared-service identities.
 
-### SEC-02: project source writes from root containers — High
+### SEC-02: project source writes from root containers — High, mitigated
 
-Application and worker containers currently do not select an explicit host
-UID:GID. A root-default public runtime can therefore create or modify bind-
-mounted project files with elevated container identity and retains more Linux
-authority than the application requires. V8 must run source-mounted application
-processes as the invoking numeric UID:GID, provide writable runtime directories
-without weakening the source boundary, and prove macOS and Linux bind-mount
-behavior through real-Engine acceptance.
+Application and worker plans now select the daemon user's numeric UID:GID, and
+that identity participates in replacement-driving desired revisions. Real-Engine
+runtime acceptance mounts a real project directory, writes through PHP, checks
+host UID/GID ownership, and executes PHP extensions, Composer, npm, Bun, and a
+declared hook. Unit coverage proves workers inherit the same identity.
 
-Required evidence: application commands create files with the expected host
-ownership, framework runtime/cache paths remain writable, and the application,
-worker, scheduler, Composer, Node/Bun, and extension paths still operate.
+Remaining evidence: the clean-install Laravel acceptance must prove the web
+runtime, worker, and scheduler remain healthy with framework runtime/cache paths
+writable on both Linux Engine mounts and Docker Desktop filesystem sharing.
 
 ## Review rules
 

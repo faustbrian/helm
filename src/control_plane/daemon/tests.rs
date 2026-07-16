@@ -1354,6 +1354,7 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5452,6 +5453,7 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5501,6 +5503,7 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5643,6 +5646,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5827,6 +5831,7 @@ fn steady_engine_plans_exclude_ephemeral_browser_services() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5877,6 +5882,7 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -5946,6 +5952,7 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6173,6 +6180,7 @@ fn complete_engine_plans_bind_project_processes_to_their_application_runtime() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6227,6 +6235,7 @@ fn complete_engine_plans_schedule_commands_inside_the_application_runtime() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6278,6 +6287,7 @@ fn project_processes_without_one_application_dependency_block_complete_planning(
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6327,6 +6337,7 @@ fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6361,6 +6372,7 @@ fn orphaned_project_workload_scopes_require_adoption_before_engine_planning() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6408,6 +6420,7 @@ fn orphaned_dedicated_service_volumes_require_adoption_before_engine_planning() 
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6453,6 +6466,7 @@ fn complete_engine_plans_include_prepared_attributed_shared_routes() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6489,6 +6503,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })
@@ -6510,6 +6525,7 @@ fn unsupported_strategies_block_complete_engine_planning_before_mutation() {
         installation_id: "install-1",
         schema_version: 8,
         platform: "linux/arm64",
+        container_user: "501:20",
         network_name: "stackctl",
         internal_http_port: 8080,
     })

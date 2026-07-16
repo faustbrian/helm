@@ -534,6 +534,11 @@ impl UnixDaemonRuntime {
             .iter()
             .flat_map(PreparedSharedInstance::routes)
             .collect::<Vec<_>>();
+        let container_user = format!(
+            "{}:{}",
+            rustix::process::geteuid().as_raw(),
+            rustix::process::getegid().as_raw()
+        );
         let engine_plan = match plan_engine_reconciliation(EngineReconciliationPlanOptions {
             execution,
             prepared_shared_services: &prepared_shared_services,
@@ -544,6 +549,7 @@ impl UnixDaemonRuntime {
             installation_id: self.global_network_request.metadata().installation_id(),
             schema_version: self.global_network_request.metadata().schema_version(),
             platform,
+            container_user: &container_user,
             network_name: self.global_network_request.name(),
             internal_http_port: 8080,
         }) {
@@ -1647,11 +1653,6 @@ impl UnixDaemonRuntime {
             return;
         }
 
-        let container_user = format!(
-            "{}:{}",
-            rustix::process::geteuid().as_raw(),
-            rustix::process::getegid().as_raw()
-        );
         let assets = match prepare_gateway_runtime_assets(GatewayRuntimeAssetOptions {
             runtime_directory: &self.runtime_directory,
             installation_id: self.global_network_request.metadata().installation_id(),

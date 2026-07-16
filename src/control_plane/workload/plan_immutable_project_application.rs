@@ -62,16 +62,17 @@ pub(crate) fn plan_immutable_project_application(
         )
     };
     let compatibility_fingerprint = runtime_image.as_ref().map_or_else(
-        || compatibility_fingerprint(image, options.platform),
+        || compatibility_fingerprint(image, options.platform, options.container_user),
         |runtime| runtime.compatibility_fingerprint().to_owned(),
     );
     let command = resolve_application_command(service, options.internal_http_port);
     let desired_revision = desired_revision(ProjectApplicationRevision {
-        schema_version: 1,
+        schema_version: 2,
         project: service.project().as_str(),
         service: service.service().as_str(),
         image,
         platform: options.platform,
+        container_user: options.container_user,
         network_name: options.network_name,
         internal_http_port: options.internal_http_port,
         command: &command,
@@ -107,6 +108,7 @@ pub(crate) fn plan_immutable_project_application(
         plan: container,
         metadata,
         platform: options.platform.to_owned(),
+        container_user: options.container_user.to_owned(),
         command,
         environment,
     })
@@ -119,8 +121,13 @@ pub(crate) fn plan_immutable_project_application(
     ))
 }
 
-fn compatibility_fingerprint(image: &str, platform: &str) -> String {
-    fingerprint(["project-application-runtime-v1", image, platform])
+fn compatibility_fingerprint(image: &str, platform: &str, container_user: &str) -> String {
+    fingerprint([
+        "project-application-runtime-v2",
+        image,
+        platform,
+        container_user,
+    ])
 }
 
 fn desired_revision(manifest: ProjectApplicationRevision<'_>) -> Result<String, WorkloadPlanError> {
@@ -136,6 +143,7 @@ struct ProjectApplicationRevision<'value> {
     service: &'value str,
     image: &'value str,
     platform: &'value str,
+    container_user: &'value str,
     network_name: &'value str,
     internal_http_port: u16,
     command: &'value [String],

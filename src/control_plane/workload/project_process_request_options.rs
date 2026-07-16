@@ -6,4 +6,5 @@ pub(crate) struct ProjectProcessRequestOptions {
     pub(crate) plan: ProjectProcessPlan,
     pub(crate) metadata: ManagedResourceMetadata,
     pub(crate) platform: String,
+    pub(crate) container_user: String,
 }
