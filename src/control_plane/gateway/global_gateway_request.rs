@@ -10,7 +10,7 @@ const GATEWAY_IMAGE: &str = concat!(
     "af5fdcd76f2db5e4e974ee92f96ee8c0fc3edb55bd4ba5032547cbf3f65e486d"
 );
 const GATEWAY_NETWORK: &str = "stackctl";
-const GATEWAY_PROFILE: &str = "caddy-json-v1";
+const GATEWAY_PROFILE: &str = "caddy-json-v2-ipv4-loopback";
 const GATEWAY_RESOURCE_ID: &str = "gateway";
 const GATEWAY_SCHEMA_VERSION: u32 = 8;
 
@@ -48,7 +48,7 @@ pub(crate) fn global_gateway_request(
 
 fn gateway_revision(certificate_revision: &str, container_user: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"stackctl-global-gateway-v1\0");
+    hasher.update(b"stackctl-global-gateway-v2-ipv4-loopback\0");
     hasher.update(GATEWAY_IMAGE.as_bytes());
     hasher.update(b"\0");
     hasher.update(certificate_revision.as_bytes());

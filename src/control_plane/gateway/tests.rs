@@ -359,18 +359,12 @@ fn stackctl_localhost_preflight_wraps_resolver_failures_with_recovery() {
 
 #[test]
 fn gateway_port_preflight_reports_every_owner_and_never_selects_fallback_ports() {
-    let probe = RecordingGatewayPortProbe::with_results([
-        (
-            SocketAddr::from((Ipv4Addr::LOCALHOST, 80)),
-            GatewayPortAvailability::Occupied {
-                owner: Some("container 'legacy-proxy'".to_owned()),
-            },
-        ),
-        (
-            SocketAddr::from((Ipv6Addr::LOCALHOST, 443)),
-            GatewayPortAvailability::Occupied { owner: None },
-        ),
-    ]);
+    let probe = RecordingGatewayPortProbe::with_results([(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 80)),
+        GatewayPortAvailability::Occupied {
+            owner: Some("container 'legacy-proxy'".to_owned()),
+        },
+    )]);
 
     let error = verify_gateway_ports_available(&probe).expect_err("occupied gateway ports");
 
@@ -378,16 +372,13 @@ fn gateway_port_preflight_reports_every_owner_and_never_selects_fallback_ports()
         error.to_string(),
         "gateway cannot bind required loopback ports:\n\
 - 127.0.0.1:80 is occupied by container 'legacy-proxy'\n\
-- [::1]:443 is occupied by an unknown host process or Engine binding\n\
 stop or reconfigure each owner; Stackctl will not choose alternate ports"
     );
     assert_eq!(
         probe.addresses.borrow().as_slice(),
         &[
             SocketAddr::from((Ipv4Addr::LOCALHOST, 80)),
-            SocketAddr::from((Ipv6Addr::LOCALHOST, 80)),
             SocketAddr::from((Ipv4Addr::LOCALHOST, 443)),
-            SocketAddr::from((Ipv6Addr::LOCALHOST, 443)),
         ]
     );
 }

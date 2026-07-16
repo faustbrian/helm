@@ -1,5 +1,5 @@
 use super::{GatewayError, GatewayPortAvailability, GatewayPortProbe};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 
 const REQUIRED_PORTS: [u16; 2] = [80, 443];
 
@@ -10,10 +10,7 @@ pub(crate) fn verify_gateway_ports_available(
     let mut conflicts = Vec::new();
 
     for port in REQUIRED_PORTS {
-        for address in [
-            SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
-            SocketAddr::from((Ipv6Addr::LOCALHOST, port)),
-        ] {
+        for address in [SocketAddr::from((Ipv4Addr::LOCALHOST, port))] {
             if let GatewayPortAvailability::Occupied { owner } = probe.probe(address)? {
                 let owner =
                     owner.unwrap_or_else(|| "an unknown host process or Engine binding".to_owned());

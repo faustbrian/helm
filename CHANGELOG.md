@@ -38,6 +38,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The global gateway now publishes only IPv4 loopback sockets. Docker Desktop
+  accepted its explicit `::1` publication but reset TLS handshakes, allowing
+  daemon readiness and `stackctl open` to pass while default clients failed.
+  Leaving IPv6 unbound gives dual-stack clients an immediate, standards-based
+  fallback to the verified IPv4 listener.
 - `stackctl daemon service install` now delegates to the complete transactional
   setup path, including `.localhost` preflight and idempotent CA trust, so it
   can no longer create an HTTPS service that skipped trust installation.

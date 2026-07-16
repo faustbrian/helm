@@ -1781,7 +1781,7 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
             .flatten()
             .filter_map(|binding| binding.host_ip.clone())
             .collect::<std::collections::BTreeSet<_>>(),
-        std::collections::BTreeSet::from(["127.0.0.1".to_owned(), "::1".to_owned()])
+        std::collections::BTreeSet::from(["127.0.0.1".to_owned()])
     );
     let binds = host.binds.expect("gateway binds");
     assert!(

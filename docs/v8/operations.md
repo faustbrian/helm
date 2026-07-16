@@ -155,6 +155,10 @@ The complete v8 host-executable inventory is:
 The selected Docker-compatible Engine is contacted over its Unix socket;
 Stackctl does not invoke a `docker` or `podman` executable in the v8 runtime.
 Caddy is an immutable workload-plane image, not a host executable.
+The gateway publishes ports 80 and 443 only on `127.0.0.1`. IPv6 remains
+unbound so dual-stack clients immediately fall back instead of selecting an
+Engine-owned `::1` listener that may accept and reset traffic on Docker
+Desktop.
 
 Run `stackctl setup --dir <DIR>...` once. Setup is the normal installation path.
 It canonicalizes every distinct watched root and verifies `.localhost`

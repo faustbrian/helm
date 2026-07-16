@@ -1935,11 +1935,9 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
             .or_insert_with(|| Some(Vec::new()))
             .get_or_insert_with(Vec::new);
         bindings.push(PortBinding {
+            // A refused ::1 connection falls back to IPv4, while Docker
+            // Desktop may accept an IPv6 publication and reset TLS traffic.
             host_ip: Some("127.0.0.1".to_owned()),
-            host_port: Some(binding.host_port().to_string()),
-        });
-        bindings.push(PortBinding {
-            host_ip: Some("::1".to_owned()),
             host_port: Some(binding.host_port().to_string()),
         });
     }
