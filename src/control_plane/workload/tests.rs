@@ -1146,6 +1146,13 @@ fn dedicated_project_service_reconciliation_creates_exact_missing_service() {
     assert_eq!(result.container().metadata().resource_id(), Some("cache"));
     assert_eq!(engine.created, vec![request]);
     assert_eq!(engine.started.len(), 1);
+    assert_eq!(
+        *engine
+            .resolved_images
+            .lock()
+            .expect("resolved service images"),
+        vec![engine.created[0].image().to_owned()]
+    );
 }
 
 #[test]
@@ -2404,6 +2411,20 @@ struct RecordingBatchWorkloadEngine {
     active: Arc<AtomicUsize>,
     maximum_active: Arc<AtomicUsize>,
     delay: Duration,
+    resolved_images: Arc<Mutex<Vec<String>>>,
+}
+
+impl ImageResolver for RecordingBatchWorkloadEngine {
+    fn ensure_image<'operation>(
+        &'operation mut self,
+        reference: &'operation ImmutableImageReference,
+    ) -> EngineFuture<'operation, ImageId> {
+        self.resolved_images
+            .lock()
+            .expect("batch resolved images")
+            .push(reference.as_str().to_owned());
+        Box::pin(async { ImageId::new(format!("sha256:{}", "a".repeat(64))) })
+    }
 }
 
 impl ContainerLifecycle for RecordingBatchWorkloadEngine {

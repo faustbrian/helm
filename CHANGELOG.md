@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Dedicated project services now materialize their exact locked images before
+  container reconciliation. Production behavior no longer relies on live tests
+  or another project having pre-pulled the image.
 - MongoDB logical provisioning now retries its bounded client exit while the
   official image transitions from its temporary initialization server to its
   final server, then preserves the final exact failure as tenant drift.

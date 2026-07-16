@@ -11,6 +11,7 @@ mod build_image_garbage_collection_options;
 mod dedicated_project_service_options;
 mod dedicated_project_service_plan;
 mod disposable_container_garbage_collection_options;
+mod ensure_project_service_image;
 mod ephemeral_browser_options;
 mod ephemeral_browser_plan;
 mod execute_project_volume_reconciliation;

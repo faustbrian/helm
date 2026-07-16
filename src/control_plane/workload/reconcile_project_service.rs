@@ -1,3 +1,4 @@
+use super::ensure_project_service_image::ensure_project_service_image;
 #[cfg(test)]
 use super::reconcile_project_application::reconcile_project_workload;
 use super::reconcile_project_application::reconcile_project_workload_from_observed;
@@ -5,7 +6,8 @@ use super::{WorkloadReconcileError, WorkloadReconcileOptions, WorkloadReconcileR
 #[cfg(test)]
 use crate::control_plane::engine::ContainerDiscovery;
 use crate::control_plane::engine::{
-    ContainerLifecycle, HealthObserver, ObservedContainer, ResourceKind, RetentionClass,
+    ContainerLifecycle, HealthObserver, ImageResolver, ObservedContainer, ResourceKind,
+    RetentionClass,
 };
 
 /// Restores one isolated project infrastructure service by exact identity.
@@ -15,8 +17,10 @@ pub(crate) async fn reconcile_project_service<E>(
     options: WorkloadReconcileOptions<'_>,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
-    E: ContainerDiscovery + ContainerLifecycle + HealthObserver,
+    E: ContainerDiscovery + ContainerLifecycle + HealthObserver + ImageResolver,
 {
+    ensure_project_service_image(engine, options.request).await?;
+
     reconcile_project_workload(
         engine,
         options,
@@ -33,8 +37,10 @@ pub(crate) async fn reconcile_project_service_from_observed<E>(
     options: WorkloadReconcileOptions<'_>,
 ) -> Result<WorkloadReconcileResult, WorkloadReconcileError>
 where
-    E: ContainerLifecycle + HealthObserver,
+    E: ContainerLifecycle + HealthObserver + ImageResolver,
 {
+    ensure_project_service_image(engine, options.request).await?;
+
     reconcile_project_workload_from_observed(
         engine,
         observed,

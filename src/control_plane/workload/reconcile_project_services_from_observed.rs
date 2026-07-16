@@ -2,7 +2,9 @@ use super::{
     ProjectServicesReconcileOptions, WorkloadReconcileError, WorkloadReconcileOptions,
     WorkloadReconcileResult, reconcile_project_service_from_observed,
 };
-use crate::control_plane::engine::{ContainerCreateOptions, ContainerLifecycle, HealthObserver};
+use crate::control_plane::engine::{
+    ContainerCreateOptions, ContainerLifecycle, HealthObserver, ImageResolver,
+};
 use futures_util::stream::{self, StreamExt};
 
 /// Converges independent dedicated services boundedly in desired-plan order.
@@ -14,7 +16,7 @@ pub(crate) async fn reconcile_project_services_from_observed<Engine>(
     Result<WorkloadReconcileResult, WorkloadReconcileError>,
 )>
 where
-    Engine: Clone + ContainerLifecycle + HealthObserver,
+    Engine: Clone + ContainerLifecycle + HealthObserver + ImageResolver,
 {
     stream::iter(options.requests.iter().cloned().map(|request| {
         let mut engine = engine.clone();
