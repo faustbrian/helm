@@ -49,26 +49,31 @@ hostile processes running as the same OS identity.
 | Configuration | Strict YAML, unknown-field rejection, bounded file and collection sizes, no host shell execution, deterministic collision failure | Configuration and daemon registry tests |
 | IPC | User-only directory and `0600` socket, bounded frames, timeouts and queues, typed project/resource ownership checks, secret-free responses | IPC framing, listener, dispatch, queue, and redaction tests |
 | Engine ownership | Exact installation/schema/kind/project/resource labels before adoption, mutation, or deletion | Engine reconstruction, reconciliation, and deletion tests |
-| Containers | No privileged mode, no new privileges, no Engine socket mount, loopback-only gateway publication, immutable resolved images | Engine request tests plus real private-application, Redis, and PostgreSQL acceptance |
+| Containers | No privileged mode, no new privileges, no Engine socket mount, loopback-only gateway publication, immutable resolved images, and one private network per project | Engine request tests plus real private-application, cross-project network-denial, Redis, and PostgreSQL acceptance |
 | Shared services | Stable per-project credentials and service-native logical isolation; removal revokes only the selected tenant | Shared-service unit and real-Engine isolation/lifecycle tests |
 | TLS | Persistent one-user CA, exact fingerprint trust, private keys, atomic rotation and rollback, wildcard route contract | TLS unit/integration tests; OS and browser behavior remains platform evidence |
 | Supply chain | Locked Rust dependencies, RustSec, license/source/duplicate policy, immutable image resolution, pinned CI actions | `scripts/audit-v8-supply-chain.sh`, image policy tests, workflow audit |
 | Backup/destruction | Verified hashes, traversal-safe extraction, exact recovery binding, confirmation tokens, retained-data default | Retention, migration, restore, prune, and installation-deletion tests |
 
-## Open release-blocking risks
+## Audited high-risk findings
 
-### SEC-01: cross-project container network reachability — High
+### SEC-01: cross-project container network reachability — High, mitigated
 
-The current daemon creates one installation-wide Docker network. Service-native
-credentials protect database, cache, queue, and object-store tenants, but one
-compromised application container can still initiate traffic to deterministic
-application and service names belonging to other projects. V8 must prove a
-network topology that prevents unnecessary application-to-application reach
-while preserving gateway routing and authenticated shared-service access.
+The daemon now creates one exact owned network per project. Applications,
+workers, scheduled execution, dedicated services, provisioning jobs, and
+ephemeral browsers use only their project's network. The global gateway joins
+each active project network, and a shared container joins only networks for
+projects that currently consume that compatibility instance. Reconciliation
+also detaches a shared container from active projects that no longer consume
+it, and removes the empty network after a project leaves desired state. Project
+network names are deterministic `stackctl-<project>` identities; they are never
+guessed, normalized, or collision-repaired.
 
-Required evidence: a real-Engine test in which project A cannot connect to
-project B's application endpoint, both remain reachable through the gateway,
-and both can reach only their authorized shared-service identities.
+Unit coverage proves exact project network planning and owned-network
+reconciliation beside the installation network. Native Linux CI and the local
+real-Engine acceptance test create two HTTP applications, a gateway, and a
+shared endpoint; direct project-to-project probes fail, the unauthorized
+project cannot reach the shared endpoint, and the gateway reaches both apps.
 
 ### SEC-02: project source writes from root containers — High, mitigated
 

@@ -3,6 +3,7 @@ use super::{
     PreparedMySqlSharedInstance, PreparedObjectStoreSharedInstance, PreparedPostgresSharedInstance,
     PreparedRabbitMqSharedInstance, PreparedRedisSharedInstance, PreparedSqlServerSharedInstance,
 };
+use crate::control_plane::engine::ContainerCreateOptions;
 use crate::control_plane::gateway::GatewayRoute;
 use crate::control_plane::state::ManagedEnvironmentRecord;
 
@@ -20,6 +21,20 @@ pub(crate) enum PreparedSharedInstance {
 }
 
 impl PreparedSharedInstance {
+    pub(crate) fn container_request(&self) -> &ContainerCreateOptions {
+        match self {
+            Self::Postgres(prepared) => prepared.instance().container(),
+            Self::MySql(prepared) => prepared.instance().container(),
+            Self::Redis(prepared) => prepared.instance().container(),
+            Self::ObjectStore(prepared) => prepared.instance().container(),
+            Self::RabbitMq(prepared) => prepared.instance().container(),
+            Self::Mailpit(prepared) => prepared.instance().container(),
+            Self::MongoDb(prepared) => prepared.instance().container(),
+            Self::SqlServer(prepared) => prepared.instance().container(),
+            Self::Gotenberg(prepared) => prepared.instance().container(),
+        }
+    }
+
     pub(crate) fn credential_service_identities(&self) -> Vec<(String, String)> {
         match self {
             Self::Gotenberg(_) => Vec::new(),

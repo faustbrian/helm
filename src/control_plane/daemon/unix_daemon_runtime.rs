@@ -18,8 +18,8 @@ use super::{
 use crate::control_plane::application::ControlPlane;
 use crate::control_plane::daemon::ipc::{IpcDiagnostic, UnixIpcListener};
 use crate::control_plane::engine::{
-    AttachedCommandOutput, ContainerDiscovery, EngineError, NetworkCreateOptions, NetworkDiscovery,
-    ReconciliationEngine, VolumeDiscovery,
+    AttachedCommandOutput, ContainerDiscovery, ContainerNetworkIsolation, EngineError,
+    NetworkCreateOptions, NetworkDiscovery, OwnedNetwork, ReconciliationEngine, VolumeDiscovery,
 };
 use crate::control_plane::gateway::{
     GatewayError, GatewayPlaneOptions, GatewayReconcileOptions, GatewayRuntimeAssetOptions,
@@ -27,8 +27,10 @@ use crate::control_plane::gateway::{
     store_active_gateway_certificate_generation,
 };
 use crate::control_plane::network::{
-    GlobalNetworkReconcileAction, GlobalNetworkReconcileError, GlobalNetworkReconcileOptions,
-    global_network_request, reconcile_global_network,
+    NetworkReconcileAction, NetworkReconcileError, NetworksReconcileOptions,
+    StaleProjectNetworkCleanupError, StaleProjectNetworkCleanupOptions,
+    cleanup_stale_project_networks, global_network_request, project_network_request,
+    reconcile_networks,
 };
 use crate::control_plane::project_infrastructure::{
     PreparedProjectService, materialize_project_service_configurations,
@@ -60,7 +62,7 @@ use crate::control_plane::workload::{
     stop_orphaned_project_workloads_from_observed, workload_resource_record,
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -564,18 +566,42 @@ impl UnixDaemonRuntime {
         let Some(engine) = self.engine_connection.engine_mut() else {
             return;
         };
-        let result = self.engine_runtime.block_on(reconcile_global_network(
+        let project_ids = execution
+            .services()
+            .iter()
+            .map(|service| service.project().as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        let mut network_requests = vec![self.global_network_request.clone()];
+        for project_id in &project_ids {
+            match project_network_request(
+                self.global_network_request.metadata().installation_id(),
+                self.global_network_request.name(),
+                project_id,
+            ) {
+                Ok(request) => network_requests.push(request),
+                Err(error) => {
+                    self.engine_reconciliation.complete();
+                    tracing::error!(
+                        project = project_id,
+                        error = %error,
+                        "project network planning blocked"
+                    );
+
+                    return;
+                }
+            }
+        }
+        let results = self.engine_runtime.block_on(reconcile_networks(
             engine,
-            GlobalNetworkReconcileOptions {
-                request: &self.global_network_request,
+            NetworksReconcileOptions {
+                requests: &network_requests,
                 installation_id: self.global_network_request.metadata().installation_id(),
                 schema_version: self.global_network_request.metadata().schema_version(),
             },
         ));
-
-        let network = match result {
-            Ok(result) => result,
-            Err(GlobalNetworkReconcileError::EngineUnavailable { action, detail }) => {
+        let results = match results {
+            Ok(results) => results,
+            Err(NetworkReconcileError::EngineUnavailable { action, detail }) => {
                 let retry = invalidate_engine_connection(
                     &mut self.engine_connection,
                     &mut self.resource_health,
@@ -586,23 +612,50 @@ impl UnixDaemonRuntime {
                     retry_milliseconds = retry.duration().as_millis(),
                     action,
                     error = detail,
-                    "global network reconciliation lost the selected Engine; retry scheduled"
+                    "network reconciliation lost the selected Engine; retry scheduled"
                 );
 
                 return;
             }
             Err(error) => {
                 self.engine_reconciliation.complete();
-                tracing::error!(error = %error, "global Engine network reconciliation blocked");
+                tracing::error!(error = %error, "Engine network reconciliation blocked");
 
                 return;
             }
         };
-        if network.action() == GlobalNetworkReconcileAction::Created {
+        let Some((global_network, project_results)) = results.split_first() else {
+            self.engine_reconciliation.complete();
+            tracing::error!("network reconciliation returned no global network");
+
+            return;
+        };
+        if global_network.action() == NetworkReconcileAction::Created {
             tracing::info!(
-                network_id = network.network().id().as_str(),
+                network_id = global_network.network().id().as_str(),
                 "created the global Stackctl Engine network"
             );
+        }
+        let mut project_networks = BTreeMap::<String, OwnedNetwork>::new();
+        for (project_id, result) in project_ids.iter().zip(project_results) {
+            if result.action() == NetworkReconcileAction::Created {
+                tracing::info!(
+                    project = project_id,
+                    network_id = result.network().id().as_str(),
+                    "created a private project Engine network"
+                );
+            }
+            project_networks.insert(project_id.clone(), result.network().clone());
+        }
+        if project_networks.len() != project_ids.len() {
+            self.engine_reconciliation.complete();
+            tracing::error!(
+                expected = project_ids.len(),
+                observed = project_networks.len(),
+                "project network reconciliation returned an incomplete result set"
+            );
+
+            return;
         }
 
         let shared_observation: Result<_, (&str, EngineError)> =
@@ -714,7 +767,7 @@ impl UnixDaemonRuntime {
                     }
                 },
             ));
-        for logical in shared_results {
+        for (prepared, logical) in prepared_shared.iter().zip(shared_results) {
             let logical = match logical {
                 Ok(logical) => logical,
                 Err(SharedInfrastructureReconcileError::LogicalResourceDrift {
@@ -763,6 +816,41 @@ impl UnixDaemonRuntime {
                     return;
                 }
             };
+            let authorized_projects = prepared
+                .service_identities()
+                .into_iter()
+                .map(|(project_id, _)| project_id)
+                .collect::<BTreeSet<_>>();
+            for (project_id, project_network) in &project_networks {
+                let attachment = if authorized_projects.contains(project_id) {
+                    self.engine_runtime
+                        .block_on(engine.reconnect_container_network(
+                            logical.container(),
+                            project_network,
+                            prepared.container_request().name(),
+                        ))
+                } else {
+                    self.engine_runtime.block_on(
+                        engine.disconnect_container_network(logical.container(), project_network),
+                    )
+                };
+                if let Err(error) = attachment {
+                    let retry = invalidate_engine_connection(
+                        &mut self.engine_connection,
+                        &mut self.resource_health,
+                        now,
+                    );
+                    tracing::debug!(
+                        attempt = retry.attempt(),
+                        retry_milliseconds = retry.duration().as_millis(),
+                        project = project_id,
+                        error = %error,
+                        "shared service network attachment lost the selected Engine; retry scheduled"
+                    );
+
+                    return;
+                }
+            }
             let Some(container_resource) = logical.physical_resources().first() else {
                 self.engine_reconciliation.complete();
                 tracing::error!("shared reconciliation returned no physical container");
@@ -1703,6 +1791,101 @@ impl UnixDaemonRuntime {
 
         match gateway {
             Ok(gateway) => {
+                for (project_id, project_network) in &project_networks {
+                    if let Err(error) =
+                        self.engine_runtime
+                            .block_on(engine.reconnect_container_network(
+                                gateway.container(),
+                                project_network,
+                                assets.request().name(),
+                            ))
+                    {
+                        let retry = invalidate_engine_connection(
+                            &mut self.engine_connection,
+                            &mut self.resource_health,
+                            now,
+                        );
+                        tracing::debug!(
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            project = project_id,
+                            error = %error,
+                            "gateway project network attachment lost the selected Engine; retry scheduled"
+                        );
+
+                        return;
+                    }
+                }
+                let cleanup_observation = self.engine_runtime.block_on(async {
+                    let (containers, networks) = futures_util::future::join(
+                        engine.discover_managed(),
+                        engine.discover_managed_networks(),
+                    )
+                    .await;
+
+                    Ok::<_, (&str, EngineError)>((
+                        containers.map_err(|error| ("container discovery", error))?,
+                        networks.map_err(|error| ("network discovery", error))?,
+                    ))
+                });
+                let (cleanup_containers, cleanup_networks) = match cleanup_observation {
+                    Ok(observation) => observation,
+                    Err((action, error)) => {
+                        let retry = invalidate_engine_connection(
+                            &mut self.engine_connection,
+                            &mut self.resource_health,
+                            now,
+                        );
+                        tracing::debug!(
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            action,
+                            error = %error,
+                            "stale project network discovery lost the selected Engine; retry scheduled"
+                        );
+
+                        return;
+                    }
+                };
+                let cleaned = self.engine_runtime.block_on(cleanup_stale_project_networks(
+                    engine,
+                    StaleProjectNetworkCleanupOptions {
+                        observed_networks: &cleanup_networks,
+                        observed_containers: &cleanup_containers,
+                        gateway: gateway.container(),
+                        active_project_ids: &project_ids,
+                        installation_id: self.global_network_request.metadata().installation_id(),
+                        schema_version: self.global_network_request.metadata().schema_version(),
+                    },
+                ));
+                match cleaned {
+                    Ok(cleaned) if cleaned > 0 => {
+                        tracing::info!(cleaned, "removed stale project Engine networks");
+                    }
+                    Ok(_) => {}
+                    Err(StaleProjectNetworkCleanupError::Engine { action, detail }) => {
+                        let retry = invalidate_engine_connection(
+                            &mut self.engine_connection,
+                            &mut self.resource_health,
+                            now,
+                        );
+                        tracing::debug!(
+                            attempt = retry.attempt(),
+                            retry_milliseconds = retry.duration().as_millis(),
+                            action,
+                            error = detail,
+                            "stale project network cleanup lost the selected Engine; retry scheduled"
+                        );
+
+                        return;
+                    }
+                    Err(error) => {
+                        self.engine_reconciliation.complete();
+                        tracing::error!(error = %error, "stale project network cleanup blocked");
+
+                        return;
+                    }
+                }
                 for route in engine_plan.gateway().routes() {
                     if let Err(error) = health_snapshot.record(
                         route.domain(),

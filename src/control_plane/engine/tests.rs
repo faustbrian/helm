@@ -1,13 +1,13 @@
 use super::{
-    BindMount, BollardEngineAdapter, CommandExecutor, CommandRequest, ContainerCompletion,
-    ContainerCreateOptions, ContainerDiscovery, ContainerEvent, ContainerEventAction,
-    ContainerEventCursor, ContainerEventSource, ContainerEventStream, ContainerHealth,
-    ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions, ContainerLogStream,
-    ContainerLogTail, ContainerResourceMetrics, ContainerState, EngineError, EngineFuture,
-    GatewayContainerRequestOptions, HealthObserver, ImageBuildRequest, ImageBuilder,
-    ImageDiscovery, ImageId, ImageManager, ImageReferenceResolver, ImageResolver,
-    ImmutableImageReference, InstallationResourceDeletionOptions, LogChunk, LogSource,
-    ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
+    AttachedCommandOptions, BindMount, BollardEngineAdapter, CommandExecutor, CommandRequest,
+    ContainerCompletion, ContainerCreateOptions, ContainerDiscovery, ContainerEvent,
+    ContainerEventAction, ContainerEventCursor, ContainerEventSource, ContainerEventStream,
+    ContainerHealth, ContainerHealthCheck, ContainerId, ContainerLifecycle, ContainerLogOptions,
+    ContainerLogStream, ContainerLogTail, ContainerNetworkIsolation, ContainerResourceMetrics,
+    ContainerState, EngineError, EngineFuture, GatewayContainerRequestOptions, HealthObserver,
+    ImageBuildRequest, ImageBuilder, ImageDiscovery, ImageId, ImageManager, ImageReferenceResolver,
+    ImageResolver, ImmutableImageReference, InstallationResourceDeletionOptions, LogChunk,
+    LogSource, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
     NetworkDiscovery, NetworkId, NetworkManager, ObservedContainer, ObservedImage, ObservedNetwork,
     ObservedResourceOwnership, ObservedVolume, OwnedContainer, OwnedImage, OwnedNetwork,
     OwnedVolume, PublishedPortBinding, PublishedPortDiscovery, ReconciliationEngine,
@@ -15,7 +15,7 @@ use super::{
     VolumeDiscovery, VolumeManager, VolumeMount, classify_observed_resource,
     delete_owned_installation_resources, gateway_container_request, reconstruct_owned_container,
     reconstruct_owned_image, reconstruct_owned_network, reconstruct_owned_volume,
-    validate_container_completion,
+    run_attached_command_capture, validate_container_completion,
 };
 use bollard::ClientVersion;
 use bollard::container::LogOutput;
@@ -312,6 +312,276 @@ fn live_docker_engine_project_application_uses_private_network_without_host_port
     });
 
     println!("private workload acceptance passed for installation {installation_id}");
+}
+
+#[test]
+#[ignore = "CI owns live Docker Engine cross-project network isolation acceptance"]
+fn live_docker_engine_projects_are_network_isolated_behind_one_gateway() {
+    const BUSYBOX_IMAGE: &str = concat!(
+        "busybox@sha256:",
+        "9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028"
+    );
+
+    let socket = std::env::var_os("STACKCTL_ENGINE_SOCKET")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/var/run/docker.sock"));
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must follow the Unix epoch")
+        .as_nanos();
+    let installation_id = format!("isolation-{}-{nonce}", std::process::id());
+    let global_name = format!("stackctl-{installation_id}");
+    let bill_network_name = format!("{global_name}-bill");
+    let ship_network_name = format!("{global_name}-ship");
+    let bill_name = format!("{installation_id}-bill-app");
+    let ship_name = format!("{installation_id}-ship-app");
+    let shared_name = format!("{installation_id}-shared");
+    let gateway_name = format!("{installation_id}-gateway");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build cross-project isolation acceptance runtime");
+    let mut engine = runtime
+        .block_on(BollardEngineAdapter::connect_unix(&socket))
+        .expect("negotiate the selected Docker Engine API");
+
+    let acceptance = runtime.block_on(async {
+        engine
+            .ensure_image(&ImmutableImageReference::new(BUSYBOX_IMAGE)?)
+            .await?;
+        let _global = engine
+            .create_network(&acceptance_network_request(
+                &installation_id,
+                &global_name,
+                None,
+            )?)
+            .await?;
+        let bill_network = engine
+            .create_network(&acceptance_network_request(
+                &installation_id,
+                &bill_network_name,
+                Some("bill"),
+            )?)
+            .await?;
+        let ship_network = engine
+            .create_network(&acceptance_network_request(
+                &installation_id,
+                &ship_network_name,
+                Some("ship"),
+            )?)
+            .await?;
+        let bill = engine
+            .create(&acceptance_http_container(
+                &installation_id,
+                &bill_name,
+                BUSYBOX_IMAGE,
+                ResourceKind::ProjectApplication,
+                Some("bill"),
+                &bill_network_name,
+                "bill",
+            )?)
+            .await?;
+        let ship = engine
+            .create(&acceptance_http_container(
+                &installation_id,
+                &ship_name,
+                BUSYBOX_IMAGE,
+                ResourceKind::ProjectApplication,
+                Some("ship"),
+                &ship_network_name,
+                "ship",
+            )?)
+            .await?;
+        let shared = engine
+            .create(&acceptance_http_container(
+                &installation_id,
+                &shared_name,
+                BUSYBOX_IMAGE,
+                ResourceKind::SharedService,
+                None,
+                &global_name,
+                "shared",
+            )?)
+            .await?;
+        let gateway = engine
+            .create(&acceptance_idle_container(
+                &installation_id,
+                &gateway_name,
+                BUSYBOX_IMAGE,
+                ResourceKind::Gateway,
+                &global_name,
+            )?)
+            .await?;
+        for container in [&bill, &ship, &shared, &gateway] {
+            engine.start(container).await?;
+        }
+        engine
+            .reconnect_container_network(&shared, &bill_network, &shared_name)
+            .await?;
+        engine
+            .reconnect_container_network(&gateway, &bill_network, &gateway_name)
+            .await?;
+        engine
+            .reconnect_container_network(&gateway, &ship_network, &gateway_name)
+            .await?;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let bill_self = acceptance_http_probe(&engine, &bill, &bill_name).await?;
+        let bill_shared = acceptance_http_probe(&engine, &bill, &shared_name).await?;
+        let bill_to_ship = acceptance_http_probe(&engine, &bill, &ship_name).await;
+        let ship_self = acceptance_http_probe(&engine, &ship, &ship_name).await?;
+        let ship_to_bill = acceptance_http_probe(&engine, &ship, &bill_name).await;
+        let ship_to_shared = acceptance_http_probe(&engine, &ship, &shared_name).await;
+        let gateway_to_bill = acceptance_http_probe(&engine, &gateway, &bill_name).await?;
+        let gateway_to_ship = acceptance_http_probe(&engine, &gateway, &ship_name).await?;
+
+        Ok::<_, EngineError>((
+            bill_self,
+            bill_shared,
+            bill_to_ship,
+            ship_self,
+            ship_to_bill,
+            ship_to_shared,
+            gateway_to_bill,
+            gateway_to_ship,
+        ))
+    });
+    runtime
+        .block_on(delete_owned_installation_resources(
+            &mut engine,
+            InstallationResourceDeletionOptions {
+                installation_id: &installation_id,
+                schema_version: 8,
+                authorized_persistent_volumes: &[],
+            },
+        ))
+        .expect("delete cross-project isolation acceptance resources");
+    let (
+        bill_self,
+        bill_shared,
+        bill_to_ship,
+        ship_self,
+        ship_to_bill,
+        ship_to_shared,
+        gateway_to_bill,
+        gateway_to_ship,
+    ) = acceptance.expect("execute cross-project isolation acceptance");
+
+    assert_eq!(bill_self, b"bill\n");
+    assert_eq!(bill_shared, b"shared\n");
+    assert!(bill_to_ship.is_err(), "bill must not reach ship directly");
+    assert_eq!(ship_self, b"ship\n");
+    assert!(ship_to_bill.is_err(), "ship must not reach bill directly");
+    assert!(
+        ship_to_shared.is_err(),
+        "ship must not reach bill's authorized shared service"
+    );
+    assert_eq!(gateway_to_bill, b"bill\n");
+    assert_eq!(gateway_to_ship, b"ship\n");
+}
+
+fn acceptance_network_request(
+    installation_id: &str,
+    name: &str,
+    project_id: Option<&str>,
+) -> Result<NetworkCreateOptions, EngineError> {
+    let metadata = acceptance_metadata(
+        installation_id,
+        ResourceKind::Network,
+        project_id,
+        "private",
+    )?;
+
+    NetworkCreateOptions::new(name, metadata)
+}
+
+fn acceptance_http_container(
+    installation_id: &str,
+    name: &str,
+    image: &str,
+    kind: ResourceKind,
+    project_id: Option<&str>,
+    network: &str,
+    response: &str,
+) -> Result<ContainerCreateOptions, EngineError> {
+    ContainerCreateOptions::new(
+        name,
+        image,
+        acceptance_metadata(installation_id, kind, project_id, "app")?,
+    )?
+    .with_network(network)?
+    .with_command(vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        format!(
+            "mkdir -p /www && printf '%s\\n' '{response}' > /www/index.html && exec httpd -f -p 8080 -h /www"
+        ),
+    ])
+}
+
+fn acceptance_idle_container(
+    installation_id: &str,
+    name: &str,
+    image: &str,
+    kind: ResourceKind,
+    network: &str,
+) -> Result<ContainerCreateOptions, EngineError> {
+    ContainerCreateOptions::new(
+        name,
+        image,
+        acceptance_metadata(installation_id, kind, None, "gateway")?,
+    )?
+    .with_network(network)?
+    .with_command(vec![
+        "sh".to_owned(),
+        "-c".to_owned(),
+        "exec sleep 300".to_owned(),
+    ])
+}
+
+fn acceptance_metadata(
+    installation_id: &str,
+    kind: ResourceKind,
+    project_id: Option<&str>,
+    resource_id: &str,
+) -> Result<ManagedResourceMetadata, EngineError> {
+    ManagedResourceMetadata::new(ManagedResourceMetadataOptions {
+        installation_id: installation_id.to_owned(),
+        kind,
+        project_id: project_id.map(str::to_owned),
+        compatibility_fingerprint: "isolation-v1".to_owned(),
+        schema_version: 8,
+        desired_revision: "isolation-v1".to_owned(),
+        retention: RetentionClass::Disposable,
+    })?
+    .with_resource_id(resource_id)
+}
+
+async fn acceptance_http_probe(
+    engine: &BollardEngineAdapter,
+    container: &OwnedContainer,
+    hostname: &str,
+) -> Result<Vec<u8>, EngineError> {
+    let command = AttachedCommandOptions::new(
+        CommandRequest::new(
+            vec![
+                "wget".to_owned(),
+                "-q".to_owned(),
+                "-O".to_owned(),
+                "-".to_owned(),
+                "-T".to_owned(),
+                "2".to_owned(),
+                format!("http://{hostname}:8080/"),
+            ],
+            BTreeMap::new(),
+            None,
+        )?,
+        Vec::new(),
+        "probe isolated HTTP endpoint",
+        Duration::from_secs(5),
+    )?;
+
+    run_attached_command_capture(engine, container, &command).await
 }
 
 #[test]

@@ -44,7 +44,7 @@ is running but does not yet claim protocol-level readiness.
 | Mailpit | Shared | Authenticated SMTP username tag and deterministic route | Optional message export | Attribution or access isolation differs |
 | MailHog | Unsupported; use Mailpit | None | None | No maintained multi-architecture artifact contract is available |
 | RabbitMQ | Shared by major/plugin profile | Vhost, user/password, permissions | Broker-wide quiesced maintenance window; credential-free scoped topology plus durable persistent classic-queue message-store backup and network-isolated safety-backed restore; non-durable, non-persistent, quorum, and stream messages fail closed | Plugins, policies, topology, isolation, maintenance tolerance, or required recovery type differs |
-| Soketi | Dedicated routable project service | Stable project app ID/key/secret | Stateless; no service volume | Always project-scoped until cross-project isolation is proven |
+| Soketi | Dedicated routable project service | Stable project app ID/key/secret | Stateless; no service volume | Always project-scoped on its deterministic private network |
 
 Shared physical resources use `stackctl-shared-{hash}` Engine names with a
 deterministic 160-bit compatibility-hash prefix. The shorter name keeps the

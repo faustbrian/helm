@@ -35,8 +35,7 @@ where
         .collect();
 
     Ok(SharedInstanceReconcileResult::new(
-        shared.container().id().as_str(),
-        shared.container().metadata(),
+        shared.container().clone(),
         None,
         logical,
         shared.health(),

@@ -3,6 +3,7 @@ use super::{
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::gateway::GatewaySnapshot;
+use crate::control_plane::network::project_network_name;
 use crate::control_plane::project_infrastructure::ProjectServicePreparationStrategy;
 use crate::control_plane::state::{
     EnvironmentLifecycle, ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions,
@@ -34,6 +35,7 @@ pub(crate) fn plan_engine_reconciliation(
     );
 
     for service in options.execution.services() {
+        let network_name = project_network_name(options.network_name, service.project().as_str());
         let is_shared = matches!(
             service.strategy(),
             ServiceDeploymentStrategy::SharedByCompatibility
@@ -92,7 +94,7 @@ pub(crate) fn plan_engine_reconciliation(
                     installation_id: options.installation_id,
                     schema_version: options.schema_version,
                     platform: options.platform,
-                    network_name: options.network_name,
+                    network_name: &network_name,
                 })
                 .map_err(invalid)?,
             );
@@ -114,7 +116,7 @@ pub(crate) fn plan_engine_reconciliation(
             schema_version: options.schema_version,
             platform: options.platform,
             container_user: options.container_user,
-            network_name: options.network_name,
+            network_name: &network_name,
             internal_http_port: options.internal_http_port,
         })
         .map_err(invalid)?;
@@ -124,6 +126,7 @@ pub(crate) fn plan_engine_reconciliation(
 
     let mut processes = Vec::with_capacity(process_services.len());
     for service in process_services {
+        let network_name = project_network_name(options.network_name, service.project().as_str());
         let application_service = resolve_application_dependency(
             options.execution.services(),
             service,
@@ -151,7 +154,7 @@ pub(crate) fn plan_engine_reconciliation(
                 schema_version: options.schema_version,
                 platform: options.platform,
                 container_user: options.container_user,
-                network_name: options.network_name,
+                network_name: &network_name,
             })
             .map_err(invalid)?,
         );

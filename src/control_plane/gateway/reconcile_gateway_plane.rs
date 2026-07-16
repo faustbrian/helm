@@ -38,6 +38,7 @@ where
     let configuration_action = reconcile_gateway_configuration(provider, options.snapshot).await?;
 
     Ok(GatewayPlaneResult::new(
+        gateway.container().clone(),
         gateway.action(),
         health,
         configuration_action,

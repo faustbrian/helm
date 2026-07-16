@@ -73,8 +73,7 @@ where
     }
 
     Ok(SharedInstanceReconcileResult::new(
-        shared.container().id().as_str(),
-        shared.container().metadata(),
+        shared.container().clone(),
         shared
             .volume()
             .map(|volume| (volume.volume().name(), volume.volume().metadata())),

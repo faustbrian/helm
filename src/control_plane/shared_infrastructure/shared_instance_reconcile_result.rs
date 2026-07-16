@@ -1,5 +1,7 @@
 use super::LogicalResourceDrift;
-use crate::control_plane::engine::{ContainerHealth, ManagedResourceMetadata, RetentionClass};
+use crate::control_plane::engine::{
+    ContainerHealth, ManagedResourceMetadata, OwnedContainer, RetentionClass,
+};
 use crate::control_plane::state::{
     LogicalResourceRecord, ResourceLifecycle, ResourceRecord, ResourceRecordOptions,
     ResourceRetention,
@@ -7,6 +9,7 @@ use crate::control_plane::state::{
 
 /// Durable ownership produced by one complete shared-instance convergence pass.
 pub(crate) struct SharedInstanceReconcileResult {
+    container: OwnedContainer,
     physical_resources: Vec<ResourceRecord>,
     logical_resources: Vec<LogicalResourceRecord>,
     logical_resource_drifts: Vec<LogicalResourceDrift>,
@@ -15,23 +18,30 @@ pub(crate) struct SharedInstanceReconcileResult {
 
 impl SharedInstanceReconcileResult {
     pub(crate) fn new(
-        container_id: &str,
-        container_metadata: &ManagedResourceMetadata,
+        container: OwnedContainer,
         volume: Option<(&str, &ManagedResourceMetadata)>,
         logical_resources: Vec<LogicalResourceRecord>,
         health: ContainerHealth,
     ) -> Self {
-        let mut physical_resources = vec![resource_record(container_id, container_metadata)];
+        let mut physical_resources = vec![resource_record(
+            container.id().as_str(),
+            container.metadata(),
+        )];
         if let Some((volume_name, volume_metadata)) = volume {
             physical_resources.push(resource_record(volume_name, volume_metadata));
         }
 
         Self {
+            container,
             physical_resources,
             logical_resources,
             logical_resource_drifts: Vec::new(),
             health,
         }
+    }
+
+    pub(crate) const fn container(&self) -> &OwnedContainer {
+        &self.container
     }
 
     pub(crate) fn with_logical_resource_drifts(

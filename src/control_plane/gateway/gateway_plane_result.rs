@@ -1,9 +1,10 @@
 use super::{GatewayConfigurationAction, GatewayReconcileAction};
-use crate::control_plane::engine::ContainerHealth;
+use crate::control_plane::engine::{ContainerHealth, OwnedContainer};
 
 /// Converged gateway container, readiness, and route-configuration outcome.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GatewayPlaneResult {
+    container: OwnedContainer,
     gateway_action: GatewayReconcileAction,
     health: ContainerHealth,
     configuration_action: GatewayConfigurationAction,
@@ -11,15 +12,21 @@ pub(crate) struct GatewayPlaneResult {
 
 impl GatewayPlaneResult {
     pub(super) const fn new(
+        container: OwnedContainer,
         gateway_action: GatewayReconcileAction,
         health: ContainerHealth,
         configuration_action: GatewayConfigurationAction,
     ) -> Self {
         Self {
+            container,
             gateway_action,
             health,
             configuration_action,
         }
+    }
+
+    pub(crate) const fn container(&self) -> &OwnedContainer {
+        &self.container
     }
 
     pub(crate) const fn gateway_action(&self) -> GatewayReconcileAction {

@@ -1533,13 +1533,7 @@ impl ContainerNetworkIsolation for BollardEngineAdapter {
                         .verify_network_isolation_ownership(container, network)
                         .await?;
                     if !attached {
-                        return Err(EngineError::InvalidRequest {
-                            detail: format!(
-                                "owned container '{}' is not attached to private network '{}'",
-                                container.id().as_str(),
-                                network.id().as_str()
-                            ),
-                        });
+                        return Ok(());
                     }
                     self.docker
                         .disconnect_network(
@@ -1676,17 +1670,17 @@ fn validate_network_isolation_identity(
                 .next_back()
                 .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
     });
+    let container_project = container.metadata().project_id();
+    let network_project = network.metadata().project_id();
     if container.metadata().installation_id() != network.metadata().installation_id()
         || container.metadata().schema_version() != network.metadata().schema_version()
-        || container.metadata().project_id().is_some()
-        || network.metadata().project_id().is_some()
         || network.metadata().kind() != ResourceKind::Network
+        || container_project.is_some_and(|project| Some(project) != network_project)
         || !valid_alias
     {
         return Err(EngineError::InvalidRequest {
-            detail:
-                "container network isolation requires exact owned global resources and a safe alias"
-                    .to_owned(),
+            detail: "container network isolation requires compatible owned scopes and a safe alias"
+                .to_owned(),
         });
     }
 

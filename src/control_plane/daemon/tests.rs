@@ -49,7 +49,7 @@ use crate::control_plane::state::{
     ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
     ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore, StateStore,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -5461,12 +5461,56 @@ fn complete_engine_plans_include_exact_applications_and_gateway_routes() {
 
     assert_eq!(plan.applications().len(), 1);
     assert_eq!(plan.applications()[0].request().name(), "stackctl-bill-app");
+    assert_eq!(
+        plan.applications()[0].request().network(),
+        Some("stackctl-bill")
+    );
     assert!(plan.applications()[0].runtime_image().is_some());
     assert_eq!(plan.gateway().routes().len(), 1);
     assert_eq!(
         plan.gateway().routes()[0].domain(),
         "bill-app.stackctl.localhost"
     );
+}
+
+#[test]
+fn complete_engine_plans_isolate_each_project_on_its_exact_network() {
+    let application = |project: &str, digest: char| {
+        ProjectSource::new(
+            PathBuf::from(format!("/work/{project}")),
+            PathBuf::from(format!("/work/{project}/.stackctl.yaml")),
+            format!(
+                "schema_version: 8\nproject: {project}\nservices:\n  app:\n    image: ghcr.io/acme/{project}@sha256:{}\n",
+                digest.to_string().repeat(64)
+            ),
+        )
+    };
+    let registry = plan_project_registry(&[application("bill", 'a'), application("ship", 'b')])
+        .expect("desired registry");
+    let execution = resolve_execution_plan(&registry).expect("execution plan");
+
+    let plan = plan_engine_reconciliation(EngineReconciliationPlanOptions {
+        execution: &execution,
+        prepared_shared_services: &[],
+        prepared_project_services: &[],
+        shared_routes: &[],
+        managed_environments: &[],
+        durable_resources: &[],
+        installation_id: "install-1",
+        schema_version: 8,
+        platform: "linux/arm64",
+        container_user: "501:20",
+        network_name: "stackctl",
+        internal_http_port: 8080,
+    })
+    .expect("isolated Engine plan");
+
+    let networks = plan
+        .applications()
+        .iter()
+        .map(|application| application.request().network().expect("project network"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(networks, BTreeSet::from(["stackctl-bill", "stackctl-ship"]));
 }
 
 #[test]
@@ -5520,7 +5564,7 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     );
     assert_eq!(service.metadata().project_id(), Some("bill"));
     assert_eq!(service.metadata().resource_id(), Some("cache"));
-    assert_eq!(service.network(), Some("stackctl"));
+    assert_eq!(service.network(), Some("stackctl-bill"));
     assert_eq!(service.platform(), Some("linux/arm64"));
     assert_eq!(service.command(), ["memcached", "-m", "128"]);
     assert_eq!(
@@ -5532,7 +5576,7 @@ fn complete_engine_plans_include_dedicated_project_services_without_routes() {
     let readiness = dedicated
         .provisioning_job()
         .expect("Memcached protocol readiness job");
-    assert_eq!(readiness.network(), Some("stackctl"));
+    assert_eq!(readiness.network(), Some("stackctl-bill"));
     assert_eq!(readiness.platform(), Some("linux/arm64"));
     assert_eq!(
         readiness.command(),
@@ -5747,7 +5791,7 @@ fn complete_engine_plans_bind_prepared_project_service_state() {
             "garage/stackctl-bill-objectstore"
         ]
     );
-    assert_eq!(readiness.network(), Some("stackctl"));
+    assert_eq!(readiness.network(), Some("stackctl-bill"));
     assert_eq!(readiness.platform(), Some("linux/arm64"));
     assert!(!format!("{readiness:?}").contains("garage-secret"));
     assert_eq!(
@@ -5913,7 +5957,7 @@ fn dedicated_stateful_services_plan_one_retained_project_volume() {
         provisioning.command(),
         ["mb", "--ignore-existing", "localstack/stackctl-bill-aws"]
     );
-    assert_eq!(provisioning.network(), Some("stackctl"));
+    assert_eq!(provisioning.network(), Some("stackctl-bill"));
     assert_eq!(provisioning.platform(), Some("linux/arm64"));
 }
 
@@ -5994,7 +6038,7 @@ fn rustfs_engine_plan_binds_generated_credentials_and_retained_data() {
         job.command(),
         ["mb", "--ignore-existing", "stackctl/stackctl-bill-storage"]
     );
-    assert_eq!(job.network(), Some("stackctl"));
+    assert_eq!(job.network(), Some("stackctl-bill"));
     assert_eq!(job.platform(), Some("linux/arm64"));
     assert!(!format!("{job:?}").contains("rustfs-secret"));
 

@@ -4,6 +4,7 @@ use super::{
 };
 use crate::control_plane::ServiceDeploymentStrategy;
 use crate::control_plane::engine::EngineError;
+use crate::control_plane::network::project_network_name;
 use crate::control_plane::state::{DaemonOperationStatus, DaemonOperationTransitionOptions};
 use crate::control_plane::workload::{
     EphemeralBrowserOptions, EphemeralBrowserPlan, plan_ephemeral_browser,
@@ -156,6 +157,10 @@ impl UnixDaemonRuntime {
                 }
             };
             let platform = super::unix_daemon_runtime::runtime_linux_platform().map_err(invalid)?;
+            let network_name = project_network_name(
+                self.global_network_request.name(),
+                operation.plan().project_id(),
+            );
 
             plan_ephemeral_browser(EphemeralBrowserOptions {
                 service: browser,
@@ -163,7 +168,7 @@ impl UnixDaemonRuntime {
                 installation_id: self.global_network_request.metadata().installation_id(),
                 schema_version: self.global_network_request.metadata().schema_version(),
                 platform,
-                network_name: self.global_network_request.name(),
+                network_name: &network_name,
             })
             .map_err(invalid)
         })())

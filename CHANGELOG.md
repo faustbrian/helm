@@ -40,6 +40,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Isolated every project on its own deterministic Engine network. Applications,
+  workers, dedicated services, provisioning jobs, and browsers no longer share
+  an installation-wide network; the gateway joins every active project network,
+  while shared services attach only to current consumers and detach from active
+  non-consumers. The complete network set reuses one Engine inventory, and
+  data-free networks are removed after projects leave desired state. Real-Engine
+  acceptance proves cross-project and unauthorized shared-endpoint denial while
+  preserving gateway routing.
 - Override inherited application-image health checks with a private listener
   probe, and bypass host-generated Laravel configuration caches inside managed
   runtimes so current shared-service credentials and prefixes take effect.

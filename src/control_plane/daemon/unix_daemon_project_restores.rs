@@ -3,6 +3,7 @@ use super::{
     ProjectRestoreTargetPlan, UnixDaemonRuntime, execute_queued_project_restore,
     publish_project_restore_result,
 };
+use crate::control_plane::network::project_network_name;
 use crate::control_plane::project_infrastructure::materialize_project_service_configurations;
 use crate::control_plane::shared_infrastructure::{
     OsCredentialEntropy, resolve_execution_shared_instances,
@@ -152,6 +153,10 @@ impl UnixDaemonRuntime {
                         prepared.project_id() == service.project().as_str()
                             && prepared.service_id() == service.service().as_str()
                     });
+                    let network_name = project_network_name(
+                        self.global_network_request.name(),
+                        service.project().as_str(),
+                    );
                     plan_dedicated_project_service(DedicatedProjectServiceOptions {
                         service,
                         generated_environment: prepared
@@ -164,7 +169,7 @@ impl UnixDaemonRuntime {
                         installation_id: self.global_network_request.metadata().installation_id(),
                         schema_version: self.global_network_request.metadata().schema_version(),
                         platform,
-                        network_name: self.global_network_request.name(),
+                        network_name: &network_name,
                     })
                     .ok()
                 })
