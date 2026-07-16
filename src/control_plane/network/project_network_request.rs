@@ -1,4 +1,4 @@
-use super::project_network_name;
+use super::{project_network_name, project_network_subnet::project_network_subnet};
 use crate::control_plane::engine::{
     EngineError, ManagedResourceMetadata, ManagedResourceMetadataOptions, NetworkCreateOptions,
     ResourceKind, RetentionClass,
@@ -29,4 +29,5 @@ pub(crate) fn project_network_request(
         project_network_name(global_network_name, project_id),
         metadata,
     )
+    .map(|request| request.with_subnet(project_network_subnet(installation_id, project_id)))
 }

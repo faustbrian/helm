@@ -23,9 +23,9 @@ use bollard::models::{
     ContainerCpuStats, ContainerCreateBody, ContainerNetworkStats,
     ContainerState as EngineContainerState, ContainerStatsResponse, ContainerSummary,
     EndpointSettings, EventMessage, EventMessageTypeEnum, HealthConfig, HealthStatusEnum,
-    HostConfig, Mount, MountPoint, MountType, Network, NetworkConnectRequest, NetworkCreateRequest,
-    NetworkDisconnectRequest, PortBinding, PortSummaryTypeEnum, RestartPolicy,
-    RestartPolicyNameEnum, Volume, VolumeCreateRequest,
+    HostConfig, Ipam, IpamConfig, Mount, MountPoint, MountType, Network, NetworkConnectRequest,
+    NetworkCreateRequest, NetworkDisconnectRequest, PortBinding, PortSummaryTypeEnum,
+    RestartPolicy, RestartPolicyNameEnum, Volume, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     BuildImageOptions, BuildImageOptionsBuilder, CreateContainerOptionsBuilder,
@@ -1864,6 +1864,13 @@ pub(super) fn network_create_request(options: &NetworkCreateOptions) -> NetworkC
         name: options.name().to_owned(),
         driver: Some("bridge".to_owned()),
         labels: Some(options.metadata().labels().into_iter().collect()),
+        ipam: options.subnet().map(|subnet| Ipam {
+            config: Some(vec![IpamConfig {
+                subnet: Some(subnet.to_owned()),
+                ..IpamConfig::default()
+            }]),
+            ..Ipam::default()
+        }),
         ..NetworkCreateRequest::default()
     }
 }

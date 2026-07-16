@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- New project networks use stable project-specific `/24` subnets from a
+  Stackctl-owned private pool instead of consuming Docker's large default
+  address blocks, allowing whole-root and 40-project reconciliation without
+  exhausting the Engine's predefined pools.
 - Generated gateway bootstrap state now updates atomically when the complete
   route revision changes, and invalid automatic workflow inputs are reported
   once per filesystem revision instead of producing a tight error-log loop.

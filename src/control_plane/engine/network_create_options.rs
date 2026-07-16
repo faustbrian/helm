@@ -5,6 +5,7 @@ use super::{EngineError, ManagedResourceMetadata};
 pub(crate) struct NetworkCreateOptions {
     name: String,
     metadata: ManagedResourceMetadata,
+    subnet: Option<String>,
 }
 
 impl NetworkCreateOptions {
@@ -20,7 +21,11 @@ impl NetworkCreateOptions {
             });
         }
 
-        Ok(Self { name, metadata })
+        Ok(Self {
+            name,
+            metadata,
+            subnet: None,
+        })
     }
 
     pub(crate) fn name(&self) -> &str {
@@ -29,5 +34,14 @@ impl NetworkCreateOptions {
 
     pub(crate) const fn metadata(&self) -> &ManagedResourceMetadata {
         &self.metadata
+    }
+
+    pub(crate) fn with_subnet(mut self, subnet: impl Into<String>) -> Self {
+        self.subnet = Some(subnet.into());
+        self
+    }
+
+    pub(crate) fn subnet(&self) -> Option<&str> {
+        self.subnet.as_deref()
     }
 }

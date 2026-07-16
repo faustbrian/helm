@@ -38,6 +38,13 @@ fn project_network_request_has_one_deterministic_owned_identity() {
     assert_eq!(request.metadata().resource_id(), Some("private"));
     assert_eq!(request.metadata().compatibility_fingerprint(), "network-v1");
     assert_eq!(request.metadata().retention(), RetentionClass::Persistent);
+    assert_eq!(request.subnet(), Some("10.154.51.0/24"));
+    assert_eq!(
+        project_network_request("install-1", "stackctl", "bill")
+            .expect("repeated project network request")
+            .subnet(),
+        request.subnet()
+    );
 }
 
 #[test]

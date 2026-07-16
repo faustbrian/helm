@@ -1949,12 +1949,24 @@ fn network_management_is_an_object_safe_owned_resource_strategy() {
 #[test]
 fn network_requests_use_bridge_driver_and_complete_ownership_labels() {
     let metadata = global_metadata(ResourceKind::Network);
-    let options = NetworkCreateOptions::new("stackctl", metadata.clone()).expect("managed network");
+    let options = NetworkCreateOptions::new("stackctl", metadata.clone())
+        .expect("managed network")
+        .with_subnet("10.200.12.0/24");
 
     let request = network_create_request(&options);
 
     assert_eq!(request.name, "stackctl");
     assert_eq!(request.driver.as_deref(), Some("bridge"));
+    assert_eq!(
+        request
+            .ipam
+            .expect("network IPAM")
+            .config
+            .expect("IPAM config")[0]
+            .subnet
+            .as_deref(),
+        Some("10.200.12.0/24")
+    );
     assert_eq!(
         request.labels.expect("network ownership labels"),
         metadata.labels().into_iter().collect()

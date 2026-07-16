@@ -8,6 +8,7 @@ mod network_reconcile_result;
 mod networks_reconcile_options;
 mod project_network_name;
 mod project_network_request;
+mod project_network_subnet;
 mod reconcile_network;
 mod reconcile_networks;
 mod stale_project_network_cleanup_error;
