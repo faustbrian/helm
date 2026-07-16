@@ -33,6 +33,14 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Corrected the command reference to preserve the one-command setup,
+  automatic missing-lock creation, and mutually exclusive manual/automatic
+  workflow contracts. A regression test now rejects the stale manual-lock and
+  manual-only workflow claims that previously survived the implementation.
+- Added the final v8 audit report with fixed findings, exact verification
+  results, CI-only and external evidence ownership, known limitations, and an
+  explicit recommendation not to publish until release-revision evidence is
+  complete.
 - Fresh projects now receive immutable artifact locks automatically during
   daemon discovery. Projects remain withheld from Engine mutation until the
   lock is atomically created; existing lock files are never implicitly

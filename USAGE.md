@@ -28,10 +28,12 @@ stackctl lock diff
 Configuration is strict YAML with `schema_version: 8`. Unknown fields,
 duplicate keys, invalid identities, collisions, unsupported tags, and multiple
 documents fail before mutation. Artifact locks are project-local YAML and bind
-configured sources to immutable sha256 digests. Run `stackctl lock images`
-before first setup for projects using presets or mutable images. An available
-daemon remains authoritative; an absent endpoint uses the default Engine
-socket only for this bootstrap resolution.
+configured sources to immutable sha256 digests. During discovery, the daemon
+creates a missing artifact lock automatically before it permits project Engine
+mutation. It never replaces an existing lock implicitly; use `lock diff` to
+inspect drift and `lock images` for a deliberate refresh. The explicit command
+uses the authoritative daemon when available and the default Engine socket only
+when no daemon endpoint exists.
 
 ## Daemon and installation
 
@@ -50,9 +52,10 @@ stackctl daemon benchmark
 stackctl daemon trust install|status|remove|rotate
 ```
 
-`setup` is the normal one-time path after project artifact locks exist. It
-preflights canonical watched roots and `.localhost` resolution, then installs
-singleton CA trust and the login service as one rollback-aware transaction.
+`setup` is the normal one-time path. It preflights canonical watched roots and
+`.localhost` resolution, then installs singleton CA trust and the login service
+as one rollback-aware transaction. The daemon resolves missing locks and setup
+waits for complete operational convergence.
 `daemon service restart` preserves the installed definition, restarts through
 the selected service manager, and succeeds only after full operational
 readiness. The other nested daemon commands remain explicit administrative and
@@ -96,10 +99,13 @@ than command-line version-manager flags.
 
 ## Named workflows
 
-`stackctl run <WORKFLOW>` executes only a workflow explicitly declared in the
-current `.stackctl.yaml`. Steps run in order and stop at the first failure.
-Database restores are destructive only when the user invokes the workflow;
-project discovery and unattended reconciliation never run them.
+Every workflow explicitly declares its trigger semantics. `mode: manual` is
+the default and runs only through `stackctl run <WORKFLOW>`. `mode: automatic`
+runs only through the daemon after complete Engine convergence.
+It runs once per exact workflow and input revision. The CLI rejects explicit
+invocation of an automatic workflow. Automatic workflows cannot contain an
+interactive `open` step. In both modes, steps run in order and stop at the
+first failure.
 
 The initial workflow surface supports MySQL and MariaDB dump restores from a
 project-local `.sql` file or one exact entry in a project-local `.zip`, an
@@ -111,4 +117,6 @@ stackctl run sandbox
 ```
 
 The daemon streams the dump into the selected owned logical database. It does
-not require `mysql`, `mariadb`, `unzip`, PHP, or Laravel on the host.
+not require `mysql`, `mariadb`, `unzip`, PHP, or Laravel on the host. Automatic
+execution uses a durable content-addressed operation identity, so unchanged
+workflows do not rerun after rescans, daemon restarts, login, or reboot.

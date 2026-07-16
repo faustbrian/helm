@@ -554,6 +554,34 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
 }
 
 #[test]
+fn command_reference_preserves_implicit_v8_automation_contracts() {
+    let usage = include_str!("../../../USAGE.md");
+
+    for stale in [
+        "before first setup",
+        "after project artifact locks exist",
+        "unattended reconciliation never run them",
+    ] {
+        assert!(
+            !usage.contains(stale),
+            "v8 command reference retains stale contract: {stale}"
+        );
+    }
+    for required in [
+        "creates a missing artifact lock automatically",
+        "never replaces an existing lock implicitly",
+        "`mode: manual`",
+        "`mode: automatic`",
+        "once per exact workflow and input revision",
+    ] {
+        assert!(
+            usage.contains(required),
+            "v8 command reference omits automation contract: {required}"
+        );
+    }
+}
+
+#[test]
 fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
     let application = resolved_application(concat!(
         "schema_version: 8\nproject: bill\nservices:\n  app:\n",
