@@ -14,6 +14,7 @@ build-dev: fmt
     cargo build
 
 lint:
+    ./scripts/test-v8-policy-audits.sh
     ./scripts/audit-v8-lint-policy.sh
     rustup run nightly cargo fmt --check
     cargo clippy --all-targets --all-features

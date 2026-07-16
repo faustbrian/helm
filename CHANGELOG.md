@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Removed the undeclared Ripgrep dependency from CI policy audits and added a
+  minimal-PATH regression harness that proves immutable action checks reject
+  mutable references and empty scans instead of failing open.
 - Made daemon reconciliation tests inject deterministic loopback resolution and
   made gateway acceptance wait for a trusted HTTPS response instead of only an
   open TCP socket, removing host-runner coupling and gateway startup races.

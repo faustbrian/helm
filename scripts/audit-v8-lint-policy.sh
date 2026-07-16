@@ -7,7 +7,7 @@ cd "$ROOT_DIRECTORY"
 
 failures=0
 
-if ! rg -q '^unused = \{ level = "deny", priority = -1 \}$' Cargo.toml; then
+if ! grep -qE '^unused = \{ level = "deny", priority = -1 \}$' Cargo.toml; then
   printf '%s\n' 'Cargo.toml must deny unused production and test code' >&2
   failures=1
 fi
@@ -17,11 +17,22 @@ report_matches() {
   local pattern=$2
   shift 2
 
+  local path
   local matches
-  if matches=$(rg -n "$pattern" "$@"); then
-    printf '%s\n%s\n' "$description" "$matches" >&2
-    failures=1
-  fi
+  local grep_status
+  for path in "$@"; do
+    set +e
+    matches="$(grep -R -nE "$pattern" "$path")"
+    grep_status=$?
+    set -e
+    if (( grep_status == 0 )); then
+      printf '%s\n%s\n' "$description" "$matches" >&2
+      failures=1
+    elif (( grep_status > 1 )); then
+      printf 'lint policy audit could not scan: %s\n' "$path" >&2
+      failures=1
+    fi
+  done
 }
 
 report_matches \

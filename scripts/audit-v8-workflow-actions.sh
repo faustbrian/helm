@@ -11,21 +11,46 @@ if [[ ! -d "${workflow_root}" ]]; then
 fi
 
 failed=0
-while IFS=: read -r file line_number declaration; do
-  reference="${declaration#*uses:}"
-  reference="${reference#"${reference%%[![:space:]]*}"}"
+declarations=0
+set +e
+matches="$(
+  grep -R -nE \
+    --include='*.yml' \
+    --include='*.yaml' \
+    '^[[:space:]]*uses:' \
+    "${workflow_root}"
+)"
+grep_status=$?
+set -e
+if (( grep_status > 1 )); then
+  printf 'workflow action audit could not scan: %s\n' "${workflow_root}" >&2
+  exit 1
+fi
 
-  if [[ "${reference}" == ./* ]]; then
-    continue
-  fi
+if [[ -n "${matches}" ]]; then
+  while IFS=: read -r file line_number declaration; do
+    declarations=$((declarations + 1))
+    reference="${declaration#*uses:}"
+    reference="${reference#"${reference%%[![:space:]]*}"}"
 
-  revision="${reference##*@}"
-  if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
-    printf '%s:%s: workflow action must use an immutable 40-character commit: %s\n' \
-      "${file}" "${line_number}" "${reference}" >&2
-    failed=1
-  fi
-done < <(rg --no-heading --line-number '^[[:space:]]*uses:' "${workflow_root}")
+    if [[ "${reference}" == ./* ]]; then
+      continue
+    fi
+
+    revision="${reference##*@}"
+    if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
+      printf '%s:%s: workflow action must use an immutable 40-character commit: %s\n' \
+        "${file}" "${line_number}" "${reference}" >&2
+      failed=1
+    fi
+  done <<<"${matches}"
+fi
+
+if (( declarations == 0 )); then
+  printf 'workflow action audit found no action declarations under: %s\n' \
+    "${workflow_root}" >&2
+  exit 1
+fi
 
 if (( failed != 0 )); then
   exit 1
