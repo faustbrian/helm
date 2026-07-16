@@ -87,10 +87,45 @@ fn streaming_command_drains_stderr_without_exposing_its_contents() {
     assert!(output.is_empty());
 }
 
+#[test]
+fn streaming_command_reports_process_exit_instead_of_broken_input_pipe() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("streaming runtime");
+    let executor = StreamingExecutor::with_closed_input(1);
+    let request = CommandRequest::new(vec!["mysql".to_owned()], BTreeMap::new(), None)
+        .expect("streaming request");
+    let options =
+        StreamingCommandOptions::new(request, "restore MySQL database", Duration::from_secs(5))
+            .expect("streaming options");
+    let mut input = std::io::Cursor::new(vec![b'i'; 2 * 1024 * 1024]);
+    let mut output = Vec::new();
+
+    let error = runtime
+        .block_on(run_streaming_command(
+            &executor,
+            &owned_container(),
+            &options,
+            &mut input,
+            &mut output,
+        ))
+        .expect_err("failed command");
+
+    assert_eq!(
+        error,
+        super::EngineError::ContainerExit {
+            container_id: "postgres-source".to_owned(),
+            status_code: 1,
+        }
+    );
+}
+
 struct StreamingExecutor {
     output: Vec<LogChunk>,
     input: Arc<Mutex<Vec<u8>>>,
     exit_status: i64,
+    close_input: bool,
 }
 
 impl StreamingExecutor {
@@ -102,6 +137,7 @@ impl StreamingExecutor {
                 .collect(),
             input: Arc::new(Mutex::new(Vec::new())),
             exit_status,
+            close_input: false,
         }
     }
 
@@ -110,6 +146,16 @@ impl StreamingExecutor {
             output: vec![LogChunk::new(LogStreamKind::Stderr, stderr)],
             input: Arc::new(Mutex::new(Vec::new())),
             exit_status,
+            close_input: false,
+        }
+    }
+
+    fn with_closed_input(exit_status: i64) -> Self {
+        Self {
+            output: Vec::new(),
+            input: Arc::new(Mutex::new(Vec::new())),
+            exit_status,
+            close_input: true,
         }
     }
 }
@@ -123,17 +169,22 @@ impl CommandExecutor for StreamingExecutor {
         let captured = Arc::clone(&self.input);
         let output = self.output.clone();
         let container_id = container.id().clone();
+        let close_input = self.close_input;
 
         Box::pin(async move {
             let (writer, mut reader) = duplex(1_024);
-            tokio::spawn(async move {
-                let mut input = Vec::new();
-                reader
-                    .read_to_end(&mut input)
-                    .await
-                    .expect("read streaming input");
-                *captured.lock().expect("streaming input lock") = input;
-            });
+            if close_input {
+                drop(reader);
+            } else {
+                tokio::spawn(async move {
+                    let mut input = Vec::new();
+                    reader
+                        .read_to_end(&mut input)
+                        .await
+                        .expect("read streaming input");
+                    *captured.lock().expect("streaming input lock") = input;
+                });
+            }
             let output: ContainerLogStream<'static> =
                 Box::pin(stream::iter(output.into_iter().map(Ok).collect::<Vec<_>>()));
 

@@ -66,7 +66,7 @@ where
             .map_err(|error| backend_error(options, "flush command output", error))
     };
 
-    futures_util::future::try_join(write_input, read_output).await?;
+    let (write_result, read_result) = futures_util::future::join(write_input, read_output).await;
 
     loop {
         match executor
@@ -76,7 +76,12 @@ where
             CommandStatus::Running => {
                 tokio::time::sleep(Duration::from_millis(STATUS_POLL_MILLISECONDS)).await;
             }
-            CommandStatus::Exited(0) => return Ok(()),
+            CommandStatus::Exited(0) => {
+                write_result?;
+                read_result?;
+
+                return Ok(());
+            }
             CommandStatus::Exited(status) => {
                 return Err(EngineError::ContainerExit {
                     container_id: container_id.as_str().to_owned(),

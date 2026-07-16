@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Streaming Engine commands now wait for the exact exec status before
+  reporting transport failures, so a database client that rejects a dump is
+  reported as the failed container command instead of a misleading broken
+  stdin pipe.
 - Project application and worker containers now run as the daemon user's
   numeric Linux UID:GID. User identity participates in desired revisions, and
   real-Engine runtime acceptance verifies mounted-source writes retain host
