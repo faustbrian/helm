@@ -33,6 +33,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- PostgreSQL logical provisioning now retries only `psql` connection-loss exit
+  code 2 while the official image transitions from its temporary
+  initialization server to the final server; SQL rejections remain immediate
+  logical-resource drift.
 - MongoDB bootstrap now uses the official image's direct root-password
   environment contract instead of a root-only host secret bind that becomes
   unreadable after the image drops privileges. Engine request debug output

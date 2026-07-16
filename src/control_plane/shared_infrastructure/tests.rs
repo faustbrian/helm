@@ -5570,6 +5570,60 @@ fn postgres_logical_provisioning_streams_secret_sql_and_checks_exit_status() {
 }
 
 #[test]
+fn postgres_logical_provisioning_retries_the_initialization_server_transition() {
+    let plan = PostgresLogicalResourcePlan::new(
+        "bill",
+        "database",
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("PostgreSQL logical plan");
+    let metadata = crate::control_plane::engine::ManagedResourceMetadata::new(
+        crate::control_plane::engine::ManagedResourceMetadataOptions {
+            installation_id: "install-1".to_owned(),
+            kind: crate::control_plane::engine::ResourceKind::SharedService,
+            project_id: None,
+            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:desired-v1".to_owned(),
+            retention: crate::control_plane::engine::RetentionClass::Persistent,
+        },
+    )
+    .expect("owned metadata");
+    let observed =
+        ObservedContainer::new(ContainerId::new("postgres-container"), metadata.labels());
+    let container =
+        reconstruct_owned_container(&observed, "install-1", 8).expect("owned container handle");
+    let executor = RecordingPostgresExecutor {
+        statuses: Arc::new(Mutex::new(VecDeque::from([2, 0]))),
+        ..RecordingPostgresExecutor::default()
+    };
+    let administrator = CredentialRecord::new(CredentialRecordOptions {
+        credential_id: "shared/postgres/bootstrap".to_owned(),
+        project_id: None,
+        service_id: "postgresql".to_owned(),
+        username: "stackctl_admin".to_owned(),
+        secret: "root-secret".to_owned(),
+        lifecycle: CredentialLifecycle::Active,
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_postgres_logical_resource(
+            &executor,
+            &container,
+            &plan,
+            &administrator,
+        ))
+        .expect("retry the transient PostgreSQL server transition");
+
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn postgres_project_resources_emit_stable_credentials_and_managed_environment() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
@@ -6501,6 +6555,8 @@ impl CredentialEntropy for SequentialEntropy {
 struct RecordingPostgresExecutor {
     stdin: Arc<Mutex<Vec<u8>>>,
     request_debug: Arc<Mutex<String>>,
+    statuses: Arc<Mutex<VecDeque<i64>>>,
+    starts: AtomicUsize,
 }
 
 struct SequencedRedisExecutor {
@@ -6771,6 +6827,7 @@ impl CommandExecutor for RecordingPostgresExecutor {
         request: &'operation CommandRequest,
     ) -> EngineFuture<'operation, CommandSession> {
         let stdin = Arc::clone(&self.stdin);
+        let execution = self.starts.fetch_add(1, Ordering::SeqCst);
         *self.request_debug.lock().expect("request debug lock") = format!("{request:?}");
         let container_id = container.id().clone();
 
@@ -6787,7 +6844,7 @@ impl CommandExecutor for RecordingPostgresExecutor {
             let output: ContainerLogStream<'static> = Box::pin(stream::empty());
 
             Ok(CommandSession::new(
-                CommandExecutionId::new("exec-1"),
+                CommandExecutionId::new(format!("postgres-exec-{execution}")),
                 container_id,
                 Box::pin(writer),
                 output,
@@ -6800,7 +6857,15 @@ impl CommandExecutor for RecordingPostgresExecutor {
         _execution_id: &'operation CommandExecutionId,
         _container_id: &'operation ContainerId,
     ) -> EngineFuture<'operation, CommandStatus> {
-        Box::pin(async { Ok(CommandStatus::Exited(0)) })
+        Box::pin(async move {
+            Ok(CommandStatus::Exited(
+                self.statuses
+                    .lock()
+                    .expect("PostgreSQL status lock")
+                    .pop_front()
+                    .unwrap_or(0),
+            ))
+        })
     }
 }
 

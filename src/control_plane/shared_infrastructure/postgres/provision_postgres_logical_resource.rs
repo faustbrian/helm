@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 const PROVISIONING_TIMEOUT_SECONDS: u64 = 30;
+const CONNECTION_RETRY_ATTEMPTS: usize = 20;
+const CONNECTION_RETRY_MILLISECONDS: u64 = 250;
 
 /// Applies one idempotent database/role plan through attached Engine exec.
 pub(crate) async fn provision_postgres_logical_resource(
@@ -37,5 +39,17 @@ pub(crate) async fn provision_postgres_logical_resource(
         Duration::from_secs(PROVISIONING_TIMEOUT_SECONDS),
     )?;
 
-    run_attached_command(executor, container, &options).await
+    for attempt in 1..=CONNECTION_RETRY_ATTEMPTS {
+        match run_attached_command(executor, container, &options).await {
+            Ok(()) => return Ok(()),
+            Err(EngineError::ContainerExit { status_code: 2, .. })
+                if attempt < CONNECTION_RETRY_ATTEMPTS =>
+            {
+                tokio::time::sleep(Duration::from_millis(CONNECTION_RETRY_MILLISECONDS)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    unreachable!("the final PostgreSQL provisioning attempt always returns")
 }
