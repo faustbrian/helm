@@ -121,9 +121,9 @@ permission to add mocks or weaken acceptance criteria.
   targets. It does not support host application runtimes, pre-v8 configuration,
   migration from older Stackctl state, random domain repair, or per-project CA
   identities.
-- Existing stale or malformed artifact locks fail closed. The daemon creates
-  only a missing lock; changing an existing source requires the explicit
-  `stackctl lock images` refresh path.
+- Malformed and unsafe artifact locks fail closed. Missing and valid-but-stale
+  generated locks are created or compare-and-swap refreshed automatically;
+  `stackctl lock images` remains an advanced forced-refresh path.
 - Physical login, reboot, sleep/wake, interactive trust prompts, Docker Desktop
   lifecycle, and stable comparative host resource measurements cannot be
   claimed from this macOS repository gate or hosted Ubuntu CI alone.

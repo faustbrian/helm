@@ -11,7 +11,16 @@ pub(crate) fn replace_artifact_lock(
     path: &Path,
     lock: &ArtifactLock,
 ) -> Result<(), ArtifactLockPublicationError> {
-    publish(path, lock, true).map(|_| ())
+    publish(path, lock, true, None).map(|_| ())
+}
+
+/// Replaces a generated lock only when its contents still match discovery.
+pub(crate) fn replace_artifact_lock_if_unchanged(
+    path: &Path,
+    expected: &str,
+    lock: &ArtifactLock,
+) -> Result<bool, ArtifactLockPublicationError> {
+    publish(path, lock, true, Some(expected))
 }
 
 /// Atomically creates a missing artifact lock without replacing any path.
@@ -19,13 +28,14 @@ pub(crate) fn publish_missing_artifact_lock(
     path: &Path,
     lock: &ArtifactLock,
 ) -> Result<bool, ArtifactLockPublicationError> {
-    publish(path, lock, false)
+    publish(path, lock, false, None)
 }
 
 fn publish(
     path: &Path,
     lock: &ArtifactLock,
     replace_existing: bool,
+    expected_existing: Option<&str>,
 ) -> Result<bool, ArtifactLockPublicationError> {
     let parent = path
         .parent()
@@ -44,6 +54,17 @@ fn publish(
     }
     if !replace_existing && path.exists() {
         return Ok(false);
+    }
+    if let Some(expected) = expected_existing {
+        let current = fs::read_to_string(path).map_err(|error| {
+            invalid(format!(
+                "failed to verify existing artifact lock {}: {error}",
+                path.display()
+            ))
+        })?;
+        if current != expected {
+            return Ok(false);
+        }
     }
 
     let yaml = serde_yaml_ng::to_string(lock)

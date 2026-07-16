@@ -88,11 +88,12 @@ repository manifest digest without parsing Docker or Podman CLI output. Making
 that already-pinned image locally available remains the separate
 `ImageResolver` capability.
 
-For a missing lock, the daemon withholds that project from Engine mutation,
-submits bounded source mappings through its typed Engine adapter, and creates
-the lock atomically without replacing a concurrently created file. It then
-rescans and publishes the complete locked registry. Existing malformed or
-stale locks fail closed and are never rewritten automatically.
+For a missing or valid-but-stale generated lock, the daemon withholds that
+project from Engine mutation, submits bounded source mappings through its typed
+Engine adapter, and publishes the current lock atomically. Missing-lock
+creation never replaces an existing file. Stale-lock refresh compares the
+exact discovered contents under the project-directory lock, so a concurrent
+writer wins and the daemon rescans. Malformed and unsafe locks fail closed.
 
 The explicit CLI refresh path uses typed local IPC when the singleton daemon is
 available. Before first setup, only an absent or connection-refused daemon

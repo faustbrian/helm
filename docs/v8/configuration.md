@@ -83,8 +83,9 @@ The source field is an exact freshness check. Explicit images use their exact
 configured value; presets use `preset:{name}` or
 `preset:{name}:{version}`. A changed source, unknown service, mutable resolved
 value, unsupported field, duplicate key, tag, or additional YAML document
-fails the complete registry before mutation. Stackctl never repairs a stale
-lock or guesses a replacement.
+fails the complete registry before mutation. A valid lock whose exact source
+mapping is stale is treated as a daemon-managed refresh request; malformed or
+structurally unsafe locks are never guessed or repaired.
 
 Built-in presets resolve through an explicitly revisioned catalog of versioned
 vendor tags. The catalog never uses the unbounded `latest` alias. Mailpit
@@ -94,13 +95,14 @@ dedicated routable project service with a pinned multi-architecture artifact.
 Discovery reads the lock only beside `.stackctl.yaml`, with the same byte bound,
 UTF-8 requirement, and symbolic-link prohibition as the project file. Projects
 without Engine artifacts may omit it. When a valid discovered project needs a
-lock and none exists, the daemon resolves and atomically creates it before
-publishing that project for Engine mutation. Concurrent creation never
-overwrites the winning file. An existing invalid or stale lock remains a loud
-configuration failure and is never repaired implicitly.
+lock, or its valid generated lock no longer matches the configuration, the
+daemon resolves and atomically publishes the current lock before publishing
+that project for Engine mutation. Creation never overwrites an existing file;
+refresh uses an exact-content compare-and-swap so a concurrent edit wins.
+Invalid, oversized, unreadable, or symbolic-link locks remain loud failures.
 
-`stackctl lock images` explicitly replaces `.stackctl.lock.yaml` atomically and
-is the manual path for deliberately refreshing a stale lock. When the singleton
+`stackctl lock images` explicitly replaces `.stackctl.lock.yaml` atomically as
+an advanced forced-refresh and inspection path. When the singleton
 daemon is available, it resolves mutable explicit images and presets through
 its selected Engine. Before first setup, an absent daemon endpoint uses the
 same narrow typed resolver through the default Docker-compatible Engine socket.
@@ -110,8 +112,8 @@ explicit images do not require an Engine lookup. `stackctl lock verify` and
 `stackctl lock diff` operate only on the exact strict-YAML configuration path.
 Preset-only generation uses a revisioned built-in image catalog. The lock
 records that catalog revision, so changing a preset's registry source or
-default version invalidates existing locks instead of silently changing the
-runtime artifact. An unknown preset version fails explicitly. Horizon, queue
+default version triggers a daemon-managed refresh before Engine mutation. An
+unknown preset version fails explicitly. Horizon, queue
 workers, queues, and schedulers inherit their application artifact and never
 receive redundant lock entries.
 

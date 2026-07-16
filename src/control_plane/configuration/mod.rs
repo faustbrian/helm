@@ -30,7 +30,9 @@ pub(crate) use generate_artifact_lock::generate_artifact_lock;
 pub(crate) use parse_artifact_lock::parse_artifact_lock;
 pub(crate) use parse_project_config::parse_project_config;
 pub(crate) use project_config_schema::project_config_schema;
-pub(crate) use publish_artifact_lock::{publish_missing_artifact_lock, replace_artifact_lock};
+pub(crate) use publish_artifact_lock::{
+    publish_missing_artifact_lock, replace_artifact_lock, replace_artifact_lock_if_unchanged,
+};
 pub(crate) use raw_project_config::RawProjectConfig;
 pub(crate) use raw_service_config::RawServiceConfig;
 pub(crate) use raw_workflow_config::RawWorkflowConfig;

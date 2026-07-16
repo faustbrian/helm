@@ -31,6 +31,7 @@ pub(crate) use configuration::{
     apply_artifact_lock, artifact_lock_required, artifact_source, generate_artifact_lock,
     parse_artifact_lock, parse_project_config, project_config_schema,
     publish_missing_artifact_lock, read_bounded_yaml_file, replace_artifact_lock,
+    replace_artifact_lock_if_unchanged,
 };
 #[cfg(unix)]
 pub(crate) use daemon::{

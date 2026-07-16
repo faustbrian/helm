@@ -7559,6 +7559,48 @@ fn missing_artifact_lock_blocks_registry_until_automatic_resolution() {
 }
 
 #[test]
+fn stale_artifact_lock_blocks_registry_until_automatic_refresh() {
+    let root = temporary_directory("stale-artifact-lock");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    std::fs::write(
+        project.join(".stackctl.yaml"),
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/example/app:2\n",
+    )
+    .expect("project config");
+    std::fs::write(
+        project.join(".stackctl.lock.yaml"),
+        concat!(
+            "schema_version: 1\nimages:\n  app:\n",
+            "    source: ghcr.io/example/app:1\n",
+            "    resolved: ghcr.io/example/app@sha256:",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+        ),
+    )
+    .expect("stale artifact lock");
+    let database_path = root.join("state.sqlite3");
+    let mut store = SqliteStateStore::open(&database_path).expect("state store");
+    store
+        .replace_watched_roots(std::slice::from_ref(&root))
+        .expect("watched root");
+    let mut control_plane = ControlPlane::new(store);
+
+    let result = reconcile_watched_roots(
+        &mut control_plane,
+        ProjectDiscoveryOptions::bounded_defaults(),
+        10_000,
+    )
+    .expect("pending lock diagnostic");
+
+    assert!(!result.was_applied());
+    assert_eq!(result.report().issues().len(), 1);
+    assert_eq!(result.report().issues()[0].code(), "artifact_lock_pending");
+    assert_eq!(control_plane.projects().expect("projects"), []);
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
 fn automatic_resolution_creates_a_missing_lock_without_replacing_it() {
     let root = temporary_directory("automatic-artifact-lock");
     let project = root.join("bill");
@@ -7588,6 +7630,74 @@ fn automatic_resolution_creates_a_missing_lock_without_replacing_it() {
         "concurrent owner\n"
     );
     assert_eq!(resolver.requests.len(), 2);
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn automatic_resolution_refreshes_a_stale_generated_lock() {
+    let root = temporary_directory("automatic-stale-artifact-lock");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    let config_path = project.join(".stackctl.yaml");
+    let yaml =
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/example/app:2\n";
+    std::fs::write(&config_path, yaml).expect("project config");
+    let lock_path = project.join(".stackctl.lock.yaml");
+    let stale = concat!(
+        "schema_version: 1\nimages:\n  app:\n",
+        "    source: ghcr.io/example/app:1\n",
+        "    resolved: ghcr.io/example/app@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    );
+    std::fs::write(&lock_path, stale).expect("stale lock");
+    let source = ProjectSource::new(project.clone(), config_path, yaml.to_owned())
+        .with_artifact_lock(lock_path.clone(), stale.to_owned());
+    let mut resolver = RecordingImageReferenceResolution::default();
+
+    assert_eq!(
+        materialize_missing_artifact_locks(&[source], &mut resolver)
+            .expect("automatic lock refresh"),
+        1
+    );
+    let refreshed = std::fs::read_to_string(lock_path).expect("refreshed lock");
+    assert!(refreshed.contains("source: ghcr.io/example/app:2"));
+    assert!(!refreshed.contains("source: ghcr.io/example/app:1"));
+
+    std::fs::remove_dir_all(root).expect("remove fixture");
+}
+
+#[test]
+fn automatic_refresh_preserves_a_concurrently_changed_lock() {
+    let root = temporary_directory("concurrent-stale-artifact-lock");
+    let project = root.join("bill");
+    std::fs::create_dir(&project).expect("project directory");
+    let config_path = project.join(".stackctl.yaml");
+    let yaml =
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n    image: ghcr.io/example/app:2\n";
+    std::fs::write(&config_path, yaml).expect("project config");
+    let lock_path = project.join(".stackctl.lock.yaml");
+    let stale = concat!(
+        "schema_version: 1\nimages:\n  app:\n",
+        "    source: ghcr.io/example/app:1\n",
+        "    resolved: ghcr.io/example/app@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    );
+    let concurrent = "concurrent owner\n";
+    std::fs::write(&lock_path, concurrent).expect("concurrent lock");
+    let source = ProjectSource::new(project.clone(), config_path, yaml.to_owned())
+        .with_artifact_lock(lock_path.clone(), stale.to_owned());
+    let mut resolver = RecordingImageReferenceResolution::default();
+
+    assert_eq!(
+        materialize_missing_artifact_locks(&[source], &mut resolver)
+            .expect("automatic lock refresh"),
+        0
+    );
+    assert_eq!(
+        std::fs::read_to_string(lock_path).expect("preserved lock"),
+        concurrent
+    );
 
     std::fs::remove_dir_all(root).expect("remove fixture");
 }

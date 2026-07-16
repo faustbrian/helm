@@ -45,7 +45,7 @@ impl ProjectSource {
         self.artifact_lock_path.as_deref()
     }
 
-    pub(super) fn artifact_lock_yaml(&self) -> Option<&str> {
+    pub(crate) fn artifact_lock_yaml(&self) -> Option<&str> {
         self.artifact_lock_yaml.as_deref()
     }
 }

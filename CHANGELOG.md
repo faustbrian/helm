@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- The daemon now refreshes valid but stale generated artifact locks
+  automatically after image, preset, version, or catalog changes. Publication
+  remains atomic and compare-and-swap protected so a concurrent writer wins;
+  malformed, oversized, and symbolic-link locks still fail closed.
 - Exact retained project state now reactivates automatically when complete
   discovery registers the same unique project identity. Ownership conflicts
   still fail closed, but ordinary configuration restoration and directory

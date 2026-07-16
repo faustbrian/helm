@@ -141,12 +141,14 @@ from Engine mutation, and resolves only the bounded image-source mapping
 through its selected typed Engine adapter. Publication locks a verified real
 project directory, refuses a symbolic-link destination, serializes and parses
 the generated lock again, fsyncs a same-directory staging file, and uses
-atomic no-clobber creation. An existing path always wins and is never rewritten
-implicitly; stale or malformed locks remain loud configuration failures.
+atomic no-clobber creation. A valid stale generated lock is replaced only when
+its exact contents still match the discovery snapshot under the same directory
+lock. Concurrent edits win. Malformed, oversized, unreadable, and symbolic-link
+locks remain loud configuration failures.
 
 Focused tests prove pending projects cannot enter the registry, automatic
-creation produces immutable source-matched entries, and a concurrent existing
-file remains byte-for-byte owned by its creator. Stackctl does not claim to
+creation and refresh produce immutable source-matched entries, and concurrent
+creation or replacement remains byte-for-byte owned by its writer. Stackctl does not claim to
 sandbox a hostile process running as the same OS user, which already has the
 authority to replace project files and use that user's Engine socket.
 

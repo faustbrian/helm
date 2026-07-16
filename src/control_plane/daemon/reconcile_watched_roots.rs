@@ -4,7 +4,9 @@ use super::{
 };
 use crate::control_plane::application::{ControlPlane, RegistryPlanError, plan_project_registry};
 use crate::control_plane::state::StateStore;
-use crate::control_plane::{artifact_lock_required, parse_project_config};
+use crate::control_plane::{
+    apply_artifact_lock, artifact_lock_required, parse_artifact_lock, parse_project_config,
+};
 
 /// Scans every authoritative root and publishes only a complete valid registry.
 pub(crate) fn reconcile_watched_roots<Store>(
@@ -21,19 +23,8 @@ where
         return Ok(DiscoveryReconciliationResult::blocked(report));
     }
 
-    let registry = match plan_project_registry(report.sources()) {
-        Ok(registry) => registry,
-        Err(error) => {
-            return Ok(DiscoveryReconciliationResult::blocked(
-                report.with_issue(plan_issue(error)),
-            ));
-        }
-    };
     let mut pending_locks = Vec::new();
     for source in report.sources() {
-        if source.artifact_lock_path().is_some() {
-            continue;
-        }
         let config = match parse_project_config(source.yaml(), source.config_path()) {
             Ok(config) => config,
             Err(error) => {
@@ -53,7 +44,22 @@ where
             }
         };
         if required {
-            pending_locks.push(source.canonical_path().join(".stackctl.lock.yaml"));
+            let lock_path = source.artifact_lock_path().map_or_else(
+                || source.canonical_path().join(".stackctl.lock.yaml"),
+                std::path::Path::to_path_buf,
+            );
+            let lock_needs_materialization = match source.artifact_lock_yaml() {
+                None => true,
+                Some(yaml) => parse_artifact_lock(yaml, &lock_path)
+                    .ok()
+                    .is_some_and(|lock| {
+                        let mut resolved = config.clone();
+                        apply_artifact_lock(&mut resolved, &lock, &lock_path).is_err()
+                    }),
+            };
+            if lock_needs_materialization {
+                pending_locks.push(lock_path);
+            }
         }
     }
     if !pending_locks.is_empty() {
@@ -63,6 +69,15 @@ where
         }
         return Ok(DiscoveryReconciliationResult::blocked(blocked));
     }
+
+    let registry = match plan_project_registry(report.sources()) {
+        Ok(registry) => registry,
+        Err(error) => {
+            return Ok(DiscoveryReconciliationResult::blocked(
+                report.with_issue(plan_issue(error)),
+            ));
+        }
+    };
 
     control_plane.reconcile_discovered_registry(&registry, orphaned_at_unix_seconds)?;
 
