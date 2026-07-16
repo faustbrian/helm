@@ -1,11 +1,12 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    BuildImageGarbageCollectionOptions, DisposableContainerGarbageCollectionOptions,
-    EphemeralBrowserOptions, ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions,
-    ProjectCommand, ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan,
-    ProjectProcessPlanOptions, ProjectProcessRequestOptions, ProjectServicesReconcileOptions,
-    ProjectVolumeReconcileAction, ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions,
-    RuntimeEnvironment, RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
+    ApplicationHealthCheck, BuildImageGarbageCollectionOptions,
+    DisposableContainerGarbageCollectionOptions, EphemeralBrowserOptions,
+    ImmutableProjectApplicationOptions, OrphanedProjectWorkloadOptions, ProjectCommand,
+    ProjectCommandPlan, ProjectCommandPlanOptions, ProjectProcessPlan, ProjectProcessPlanOptions,
+    ProjectProcessRequestOptions, ProjectServicesReconcileOptions, ProjectVolumeReconcileAction,
+    ProjectVolumeReconcileOptions, ProjectVolumesReconcileOptions, RuntimeEnvironment,
+    RuntimeEnvironmentOptions, WorkloadReconcileAction, WorkloadReconcileError,
     WorkloadReconcileOptions, application_container_request, apply_application_runtime_environment,
     garbage_collect_build_images, garbage_collect_disposable_containers,
     garbage_collect_disposable_containers_from_observed, materialize_application_request,
@@ -488,6 +489,28 @@ fn laravel_runtime_environment_bypasses_host_configuration_caches() {
         environment.get("APP_CONFIG_CACHE"),
         Some(&"/tmp/stackctl-laravel-config.php".to_owned())
     );
+}
+
+#[test]
+fn laravel_application_health_checks_the_framework_route() {
+    let application = resolved_application(concat!(
+        "schema_version: 8\nproject: bill\nservices:\n  app:\n",
+        "    preset: laravel\n    version: \"8.5\"\n",
+        "    image: dunglas/frankenphp@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+    ));
+
+    let plan = plan_immutable_project_application(immutable_application_options(&application))
+        .expect("Laravel application plan");
+
+    let health_check = plan
+        .request()
+        .health_check()
+        .expect("Laravel framework health check");
+    assert_eq!(health_check.engine_test()[0..3], ["CMD", "php", "-r"]);
+    assert!(health_check.engine_test()[3].contains("GET /up HTTP/1.1"));
+    assert!(health_check.engine_test()[3].contains("preg_match"));
+    assert!(!health_check.engine_test()[3].contains("exit($socket === false ? 1 : 0)"));
 }
 
 #[test]
@@ -2145,6 +2168,7 @@ fn application_options(project: &str, path: &str) -> ApplicationContainerPlanOpt
         source_path: PathBuf::from(path),
         network_name: "stackctl-private".to_owned(),
         internal_http_port: 8080,
+        health_check: ApplicationHealthCheck::Tcp,
     }
 }
 

@@ -1,3 +1,4 @@
+use super::ApplicationHealthCheck;
 use crate::control_plane::{ProjectIdentity, ServiceIdentity};
 use std::path::PathBuf;
 
@@ -10,4 +11,5 @@ pub(crate) struct ApplicationContainerPlanOptions {
     pub(crate) source_path: PathBuf,
     pub(crate) network_name: String,
     pub(crate) internal_http_port: u16,
+    pub(crate) health_check: ApplicationHealthCheck,
 }

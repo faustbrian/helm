@@ -1,8 +1,8 @@
 use super::{
     ApplicationContainerPlan, ApplicationContainerPlanOptions, ApplicationContainerRequestOptions,
-    ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan, RuntimeEnvironment,
-    RuntimeEnvironmentOptions, RuntimeImageBuildOptions, RuntimeImageBuildPlan, WorkloadPlanError,
-    application_container_request, apply_application_runtime_environment,
+    ApplicationHealthCheck, ImmutableProjectApplicationOptions, ImmutableProjectApplicationPlan,
+    RuntimeEnvironment, RuntimeEnvironmentOptions, RuntimeImageBuildOptions, RuntimeImageBuildPlan,
+    WorkloadPlanError, application_container_request, apply_application_runtime_environment,
     resolve_application_command,
 };
 use crate::control_plane::ServiceDeploymentStrategy;
@@ -66,8 +66,9 @@ pub(crate) fn plan_immutable_project_application(
         |runtime| runtime.compatibility_fingerprint().to_owned(),
     );
     let command = resolve_application_command(service, options.internal_http_port);
+    let health_check = ApplicationHealthCheck::for_preset(service.desired().preset());
     let desired_revision = desired_revision(ProjectApplicationRevision {
-        schema_version: 2,
+        schema_version: 3,
         project: service.project().as_str(),
         service: service.service().as_str(),
         image,
@@ -76,6 +77,7 @@ pub(crate) fn plan_immutable_project_application(
         network_name: options.network_name,
         internal_http_port: options.internal_http_port,
         command: &command,
+        health_check,
         managed_environment_revision: environment.managed_revision(),
         environment: environment.values(),
         php_extensions: service.desired().php_extensions(),
@@ -101,6 +103,7 @@ pub(crate) fn plan_immutable_project_application(
         source_path: service.project_directory().to_path_buf(),
         network_name: options.network_name.to_owned(),
         internal_http_port: options.internal_http_port,
+        health_check,
     })
     .map_err(invalid)?;
     let route = container.gateway_route().clone();
@@ -147,6 +150,7 @@ struct ProjectApplicationRevision<'value> {
     network_name: &'value str,
     internal_http_port: u16,
     command: &'value [String],
+    health_check: ApplicationHealthCheck,
     managed_environment_revision: &'value str,
     environment: &'value BTreeMap<String, String>,
     php_extensions: &'value [String],

@@ -87,6 +87,17 @@ Remaining evidence: the clean-install Laravel acceptance must prove the web
 runtime, worker, and scheduler remain healthy with framework runtime/cache paths
 writable on both Linux Engine mounts and Docker Desktop filesystem sharing.
 
+### SEC-03: listener-only Laravel readiness — High, mitigated
+
+Application health previously proved only that FrankenPHP accepted a TCP
+connection. A PHP fatal or failed Laravel bootstrap could therefore leave the
+container and gateway looking healthy while every framework request failed.
+Laravel plans now issue a private HTTP request to `/up` and accept only a 2xx
+status. The health contract participates in the replacement-driving desired
+revision, while non-HTTP application presets retain their protocol-appropriate
+listener check. Unit coverage proves the Laravel preset cannot regress to the
+listener-only probe; native Engine Laravel acceptance remains a release gate.
+
 ## Review rules
 
 New container presets, host commands, IPC operations, archive formats, image

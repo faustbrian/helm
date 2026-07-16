@@ -75,6 +75,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Laravel application readiness now requires a successful framework `/up` HTTP
+  response instead of accepting a listening TCP socket. A PHP fatal or rejected
+  framework boot can no longer be reported as a healthy project route.
 - Isolated every project on its own deterministic Engine network. Applications,
   workers, dedicated services, provisioning jobs, and browsers no longer share
   an installation-wide network; the gateway joins every active project network,

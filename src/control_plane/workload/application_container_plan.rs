@@ -1,5 +1,5 @@
 use super::validate_image_digest::validate_image_digest;
-use super::{ApplicationContainerPlanOptions, WorkloadPlanError};
+use super::{ApplicationContainerPlanOptions, ApplicationHealthCheck, WorkloadPlanError};
 use crate::control_plane::RouteIdentity;
 use crate::control_plane::gateway::GatewayRoute;
 use std::path::{Path, PathBuf};
@@ -13,6 +13,7 @@ pub(crate) struct ApplicationContainerPlan {
     source_path: PathBuf,
     network_name: String,
     internal_http_port: u16,
+    health_check: ApplicationHealthCheck,
     gateway_route: GatewayRoute,
 }
 
@@ -59,6 +60,7 @@ impl ApplicationContainerPlan {
             source_path: options.source_path,
             network_name: options.network_name,
             internal_http_port: options.internal_http_port,
+            health_check: options.health_check,
             gateway_route,
         })
     }
@@ -85,6 +87,10 @@ impl ApplicationContainerPlan {
 
     pub(crate) const fn internal_http_port(&self) -> u16 {
         self.internal_http_port
+    }
+
+    pub(crate) const fn health_check(&self) -> ApplicationHealthCheck {
+        self.health_check
     }
 
     #[cfg(test)]
