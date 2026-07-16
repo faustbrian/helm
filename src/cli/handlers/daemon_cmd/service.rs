@@ -13,9 +13,26 @@ pub(super) fn handle_daemon_service(args: &DaemonServiceArgs) -> Result<()> {
     match &args.command {
         DaemonServiceCommands::Install(install) => handle_install(install),
         DaemonServiceCommands::Status => handle_status(),
+        DaemonServiceCommands::Restart => handle_restart(),
         DaemonServiceCommands::Print(print) => handle_print(print),
         DaemonServiceCommands::Uninstall(uninstall) => handle_uninstall(uninstall),
     }
+}
+
+fn handle_restart() -> Result<()> {
+    let status = daemon::restart_service()?;
+    output::event(
+        "daemon",
+        LogLevel::Success,
+        &format!(
+            "Restarted {} daemon watch service {}; it is running and responsive from {}",
+            manager_name(status.manager),
+            status.label,
+            status.path.display()
+        ),
+        Persistence::Persistent,
+    );
+    Ok(())
 }
 
 fn handle_install(args: &DaemonServiceInstallArgs) -> Result<()> {

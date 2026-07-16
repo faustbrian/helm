@@ -40,6 +40,7 @@ stackctl setup --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon watch --dir <DIR>... [--once] [--interval <SECONDS>]
 stackctl daemon service install --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon service status
+stackctl daemon service restart
 stackctl daemon service print --dir <DIR>... [--interval <SECONDS>]
 stackctl daemon service uninstall --keep-data
 stackctl daemon service uninstall --delete-data --confirm-delete-data
@@ -52,8 +53,10 @@ stackctl daemon trust install|status|remove|rotate
 `setup` is the normal one-time path after project artifact locks exist. It
 preflights canonical watched roots and `.localhost` resolution, then installs
 singleton CA trust and the login service as one rollback-aware transaction.
-The nested daemon commands remain explicit administrative and diagnostic
-operations.
+`daemon service restart` preserves the installed definition, restarts through
+the selected service manager, and succeeds only after full operational
+readiness. The other nested daemon commands remain explicit administrative and
+diagnostic operations.
 
 `daemon adopt`, `backup`, `backups`, `restore`, `prune`, and `migration`
 provide the explicit retained-data and reversible-migration workflows. Their

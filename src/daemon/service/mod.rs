@@ -2,6 +2,7 @@
 
 mod canonical_watch_dirs;
 mod launchd;
+mod restart_service;
 mod service_install_snapshot;
 mod store_definition;
 mod systemd;
@@ -10,6 +11,9 @@ mod verify_daemon_service_readiness;
 use service_install_snapshot::ServiceInstallSnapshot;
 
 pub(crate) use canonical_watch_dirs::canonical_watch_dirs;
+pub(crate) use restart_service::restart_service;
+#[cfg(test)]
+use restart_service::restart_service_with_readiness;
 
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -596,10 +600,10 @@ mod tests {
         DaemonServiceInstallOptions, ServiceManager, clear_test_service_binary,
         clear_test_service_commands, clear_test_service_home, clear_test_service_manager,
         format_launchd_domain, install_service, install_service_with_readiness, print_service,
-        service_status, service_status_with_readiness, set_test_service_binary,
-        set_test_service_command_failure, set_test_service_home, set_test_service_manager,
-        set_test_service_running, take_test_service_commands, uninstall_service,
-        uninstall_service_with_verification,
+        restart_service_with_readiness, service_status, service_status_with_readiness,
+        set_test_service_binary, set_test_service_command_failure, set_test_service_home,
+        set_test_service_manager, set_test_service_running, take_test_service_commands,
+        uninstall_service, uninstall_service_with_verification,
     };
     use std::cell::Cell;
     use std::fs;
@@ -742,6 +746,152 @@ mod tests {
         assert_eq!(
             commands[2],
             "systemctl --user is-active --quiet stackctl-daemon-watch.service"
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn restart_service_uses_systemd_and_requires_daemon_readiness() {
+        let home = temp_home("systemd-restart");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, definition.contents).expect("write definition");
+        set_test_service_running(true);
+        clear_test_service_commands();
+
+        let status = restart_service_with_readiness(|| Ok(())).expect("restart service");
+
+        assert!(status.installed);
+        assert!(status.running);
+        assert!(status.responsive);
+        assert_eq!(
+            take_test_service_commands(),
+            [
+                "systemctl --user restart stackctl-daemon-watch.service",
+                "systemctl --user is-active --quiet stackctl-daemon-watch.service",
+            ]
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn restart_service_uses_launchd_kickstart_for_the_user_domain() {
+        let home = temp_home("launchd-restart");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::Launchd);
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, definition.contents).expect("write definition");
+        set_test_service_running(true);
+        clear_test_service_commands();
+
+        restart_service_with_readiness(|| Ok(())).expect("restart service");
+
+        assert_eq!(
+            take_test_service_commands(),
+            [
+                format!(
+                    "launchctl kickstart -k gui/{}/dev.stackctl.daemon.watch",
+                    rustix::process::geteuid().as_raw()
+                ),
+                format!(
+                    "launchctl print gui/{}/dev.stackctl.daemon.watch",
+                    rustix::process::geteuid().as_raw()
+                ),
+            ]
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn restart_service_reports_failed_operational_readiness() {
+        let home = temp_home("restart-readiness");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        fs::write(&definition.path, definition.contents).expect("write definition");
+        set_test_service_running(true);
+        clear_test_service_commands();
+
+        let error = restart_service_with_readiness(|| anyhow::bail!("project is unhealthy"))
+            .expect_err("failed readiness");
+
+        assert!(
+            error
+                .to_string()
+                .contains("restarted daemon did not become operationally ready")
+        );
+        assert!(
+            error
+                .chain()
+                .any(|cause| cause.to_string() == "project is unhealthy")
+        );
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[test]
+    fn restart_service_rejects_a_missing_definition_without_manager_mutation() {
+        let home = temp_home("missing-restart");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        clear_test_service_commands();
+
+        let error = restart_service_with_readiness(|| Ok(())).expect_err("missing service");
+
+        assert!(error.to_string().contains("is not installed"));
+        assert!(take_test_service_commands().is_empty());
+
+        clear_test_service_binary();
+        clear_test_service_home();
+        clear_test_service_manager();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restart_service_refuses_a_linked_definition() {
+        use std::os::unix::fs::symlink;
+
+        let home = temp_home("linked-restart");
+        set_test_service_home(home.to_str().expect("home path"));
+        set_test_service_binary("/tmp/stackctl");
+        set_test_service_manager(ServiceManager::SystemdUser);
+        let definition = print_service(&service_options()).expect("service definition");
+        fs::create_dir_all(definition.path.parent().expect("definition parent"))
+            .expect("create definition parent");
+        let victim = home.join("victim.service");
+        fs::write(&victim, "foreign service\n").expect("write victim");
+        symlink(&victim, &definition.path).expect("link definition");
+        clear_test_service_commands();
+
+        let error = restart_service_with_readiness(|| Ok(())).expect_err("linked definition");
+
+        assert!(error.to_string().contains("is not a real file"));
+        assert!(take_test_service_commands().is_empty());
+        assert_eq!(
+            fs::read_to_string(&victim).expect("read victim"),
+            "foreign service\n"
         );
 
         clear_test_service_binary();

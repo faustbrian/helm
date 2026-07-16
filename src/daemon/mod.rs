@@ -4,5 +4,5 @@ mod service;
 
 pub(crate) use service::{
     DaemonServiceInstallOptions, ServiceManager, canonical_watch_dirs, install_service,
-    print_service, service_status, uninstall_service,
+    print_service, restart_service, service_status, uninstall_service,
 };

@@ -4,7 +4,9 @@ use std::path::Path;
 
 use clap::{CommandFactory, Parser};
 
-use crate::cli::args::{Cli, Commands, ConfigCommands, EnvCommands, LockCommands};
+use crate::cli::args::{
+    Cli, Commands, ConfigCommands, DaemonCommands, DaemonServiceCommands, EnvCommands, LockCommands,
+};
 
 #[test]
 fn clean_slate_cli_rejects_removed_pre_v8_commands() {
@@ -87,6 +89,19 @@ fn setup_accepts_one_or_more_watched_roots() {
 }
 
 #[test]
+fn daemon_service_exposes_an_explicit_restart() {
+    let cli = Cli::parse_from(["stackctl", "daemon", "service", "restart"]);
+    let Commands::Daemon(daemon) = cli.command else {
+        panic!("daemon command");
+    };
+    let DaemonCommands::Service(service) = daemon.command else {
+        panic!("service command");
+    };
+
+    assert!(matches!(service.command, DaemonServiceCommands::Restart));
+}
+
+#[test]
 fn run_requires_one_exact_named_workflow() {
     let cli = Cli::parse_from(["stackctl", "run", "sandbox"]);
     let Commands::Run(args) = cli.command else {
@@ -104,7 +119,7 @@ fn daemon_retained_accepts_machine_readable_output() {
     let Commands::Daemon(args) = cli.command else {
         panic!("daemon command");
     };
-    let crate::cli::args::DaemonCommands::Retained(args) = args.command else {
+    let DaemonCommands::Retained(args) = args.command else {
         panic!("retained command");
     };
     assert_eq!(args.format, "json");

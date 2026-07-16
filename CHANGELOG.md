@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added `stackctl daemon service restart` with native launchd/systemd restart,
+  real-definition validation, manager-state verification, and the same complete
+  operational-readiness gate used by installation.
 - Added a v8 failure inventory connecting every observed release-readiness
   failure to its root cause, missing test layer, regression evidence, and
   honestly pending CI or physical-host proof.

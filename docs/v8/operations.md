@@ -193,6 +193,13 @@ foreground-process termination as distinct inspection and stop paths. Invalid
 or transient PID metadata never weakens the operating-system lock and produces
 the same guidance with `PID unavailable`.
 
+`stackctl daemon service restart` requires an existing real service definition,
+uses `launchctl kickstart -k` or `systemctl --user restart`, verifies the manager
+kept the process running, and then applies the same complete operational
+readiness gate as installation. It never rewrites the definition or changes
+watched roots. Missing, linked, unresponsive, or unhealthy services fail with
+the exact boundary that rejected the restart.
+
 Service installation snapshots an existing regular definition before atomic
 replacement. After manager activation and the immediate running-state check,
 Stackctl requires a bounded, correlated IPC `Ping`/`Pong` from the singleton.
