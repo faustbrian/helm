@@ -189,9 +189,9 @@ All notable changes to this project are documented in this file.
   create private Caddy state without persistent storage or root-owned
   permission errors.
 - The native Laravel journey now waits for its automatic database restore and
-  migration before requiring database-backed workers and schedules to remain
-  stable, removing a circular acceptance prerequisite and transient restart
-  false positive.
+  migration before requiring database-backed web middleware, workers, and
+  schedules to remain stable, removing circular acceptance prerequisites and
+  transient restart false positives.
 - Gateway and application containers now drop Docker's broad default Linux
   capability set while retaining only `NET_BIND_SERVICE`. This permits the
   capability-marked public Caddy and FrankenPHP binaries to execute, without

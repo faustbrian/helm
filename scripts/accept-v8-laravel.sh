@@ -487,14 +487,6 @@ NO_PROXY="${NO_PROXY:-},.stackctl.localhost" \
   --dump-header "$OUTPUT_DIRECTORY/up-headers.txt" \
   --output "$OUTPUT_DIRECTORY/up-body.txt" \
   https://acceptance-app.stackctl.localhost/up
-NO_PROXY="${NO_PROXY:-},.stackctl.localhost" \
-  no_proxy="${no_proxy:-},.stackctl.localhost" \
-  curl --fail --silent --show-error \
-  --cacert "$CA_CERTIFICATE" \
-  --output "$OUTPUT_DIRECTORY/application-body.html" \
-  https://acceptance-app.stackctl.localhost/
-grep -q 'Laravel' "$OUTPUT_DIRECTORY/application-body.html"
-
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   --project-root "$PROJECT_DIRECTORY" exec \
   php artisan about --only=environment --no-ansi \
@@ -515,6 +507,13 @@ while (( SECONDS < workflow_deadline )); do
   sleep 2
 done
 grep -q 'automatic workflow verified' "$OUTPUT_DIRECTORY/automatic-workflow.txt"
+NO_PROXY="${NO_PROXY:-},.stackctl.localhost" \
+  no_proxy="${no_proxy:-},.stackctl.localhost" \
+  curl --fail --silent --show-error \
+  --cacert "$CA_CERTIFICATE" \
+  --output "$OUTPUT_DIRECTORY/application-body.html" \
+  https://acceptance-app.stackctl.localhost/
+grep -q 'Laravel' "$OUTPUT_DIRECTORY/application-body.html"
 
 runtime_deadline=$((SECONDS + 180))
 while (( SECONDS < runtime_deadline )); do

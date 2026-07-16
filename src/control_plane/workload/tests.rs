@@ -576,6 +576,11 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
             < script.find("runtime_deadline=$((SECONDS + 180))"),
         "database-backed project processes must be checked after the automatic workflow"
     );
+    assert!(
+        script.find("grep -q 'automatic workflow verified'")
+            < script.find("grep -q 'Laravel' \"$OUTPUT_DIRECTORY/application-body.html\""),
+        "database-backed Laravel pages must be checked after the automatic workflow"
+    );
     assert!(workflow.contains("Laravel Clean Room"));
     assert!(workflow.contains("platform: linux-x86_64"));
     assert!(workflow.contains("platform: linux-arm64"));
