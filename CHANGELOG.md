@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Reconciled the v8 audit, completion, failure, platform, and verification
+  records with the first fully successful multi-architecture implementation CI
+  matrix and the current 890-test local baseline, while keeping final release
+  artifacts and physical-host evidence explicitly pending.
 - Failed project commands now publish their bounded binary-safe standard output
   and standard error before the terminal failure event. Error display and debug
   formatting retain only the container identity, exit status, and output byte

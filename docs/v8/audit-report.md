@@ -5,15 +5,18 @@
 Do not publish v8 as a supported release yet.
 
 The repository-owned implementation and regression work described below is in
-place, and no known Critical or High implementation finding remains open.
-Release readiness is still unproven until the exact release revision passes all
-defined CI acceptance jobs and the platform owners attach the required
-physical-host and controlled-benchmark records. Preview documentation must not
-be presented as a support claim.
+place, and no known Critical or High implementation finding remains open. The
+complete machine CI matrix passed for production baseline `66fe42d` in
+[run 29492676949](https://github.com/faustbrian/stackctl/actions/runs/29492676949).
+The final release workflow remains required before selecting a release
+candidate. Physical-host and controlled-benchmark records remain separate
+requirements for supported platform claims. Preview documentation must not be
+presented as a support claim.
 
-This report audits the implementation baseline through `c95d260`, including
-the automatic-lock correction, plus the command-reference and report changes
-that contain this document. Evidence ownership follows
+This report audits the implementation baseline through `66fe42d`. A later
+documentation-only commit does not replace the exact-head CI or release record;
+the workflow result attached to the selected revision remains authoritative.
+Evidence ownership follows
 [External verification](external-verification.md); absence of an external host
 never converts a pending check into a pass.
 
@@ -24,14 +27,22 @@ is maintained in the [failure inventory](failure-inventory.md).
 
 | Severity | Findings fixed in the repository |
 | --- | --- |
-| Critical | FI-01 automatic declarative restores; FI-02 reset rollback; FI-21 one-command setup and automatic missing artifact locks |
-| High | FI-03 exact streamed-command failures; FI-04 responsive queued restores; FI-05 operational service readiness; FI-06 Laravel `/up` health; FI-07 bounded discovery; FI-08 public runtime images; FI-09 current Laravel environment; FI-10 `~/.stackctl` state; FI-11 stable exact CA trust; FI-12 bounded stable resource names; FI-13 workload identity and project networks; FI-15 persistent diagnostics; FI-17 clean Laravel acceptance; FI-18 bounded YAML; FI-19 dropped workload capabilities; FI-20 mutually exclusive workflow triggers |
-| Medium | FI-14 host-port diagnosis; FI-16 warning and dependency gates; FI-22 singleton-owner diagnostics; FI-23 explicit service restart |
+| Critical | FI-01, FI-02, FI-21, FI-29, FI-30, FI-32, FI-37, FI-39, FI-41, FI-42, and FI-46 |
+| High | FI-03 through FI-13; FI-15; FI-17 through FI-20; FI-24 through FI-28; FI-31; FI-33 through FI-36; FI-38; FI-40; FI-43; FI-45; and FI-47 |
+| Medium | FI-14, FI-16, FI-22, FI-23, FI-44, and FI-48 |
 
 The threat analysis and mitigations, including automatic project artifact
 publication, are in the [threat model](security.md). The evidence-backed state
 of each product acceptance criterion is in the
 [completion audit](completion-audit.md).
+
+## Remaining findings
+
+No known Critical or High implementation defect remains open. FI-11 and the
+platform portions of FI-10, FI-14, and FI-23 retain physical-host evidence
+requirements; FI-36, FI-40, and FI-45 retain final release-workflow evidence;
+these are recorded evidence gaps, not inferred passes. A new failed
+acceptance record reopens the corresponding finding immediately.
 
 ## Local verification
 
@@ -41,11 +52,11 @@ These checks ran on macOS arm64 against the audited tree on 2026-07-16.
 | --- | --- |
 | `just lint` | Passed: lint-policy audit, nightly formatting check, and all-target/all-feature Clippy with no warnings |
 | `just build` | Passed: optimized v8 binary built successfully |
-| `cargo test --quiet` | Passed: 884 tests, 0 failed, and 24 explicitly ignored CI-owned live tests |
+| `cargo test --locked` | Passed: 890 tests, 0 failed, and 24 explicitly ignored CI-owned live tests |
 | `./scripts/audit-v8-host-dependencies.sh` | Passed: no removed host-runtime, unsupported-host, or compatibility boundary was found |
 | `./scripts/audit-v8-workflow-actions.sh` | Passed: every external workflow action uses an immutable 40-character commit |
 | `./scripts/audit-v8-supply-chain.sh` | Passed: 224 locked dependencies scanned; RustSec advisories, bans, licenses, duplicate policy, and sources passed |
-| `./scripts/benchmark-v8-discovery.sh target/audit-discovery-c95d260` | Passed: p95 was 1.463 ms for 1 project, 1.563 ms for 10, and 2.081 ms for 40 against 50/75/125 ms budgets |
+| `./scripts/benchmark-v8-discovery.sh target/audit-discovery-66fe42d` | Passed: p95 was 1.811 ms for 1 project, 1.960 ms for 10, and 2.636 ms for 40 against 50/75/125 ms budgets |
 | `bash -n scripts/accept-v8-laravel.sh` | Passed: clean-room acceptance script syntax is valid |
 | `git diff --check` | Passed: no patch whitespace errors |
 
@@ -56,8 +67,12 @@ host-level 40-project resource comparison.
 
 ## CI-only verification
 
-The exact release revision must complete and archive these records before the
-recommendation can change:
+The implementation CI matrix passed on both Linux architectures and both macOS
+architectures in
+[run 29492676949](https://github.com/faustbrian/stackctl/actions/runs/29492676949),
+including both Laravel clean-room, Engine, gateway, discovery, policy, and
+security jobs. The selected release revision must repeat and archive these
+records before the recommendation can change:
 
 | CI record | Required behavior |
 | --- | --- |
