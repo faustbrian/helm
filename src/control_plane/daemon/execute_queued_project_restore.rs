@@ -364,7 +364,10 @@ where
         project_id: options.operation.project_id().to_owned(),
         service_id: options.operation.service_id().to_owned(),
         kind: options.operation.kind().to_owned(),
-        compatibility_fingerprint: options.operation.compatibility_fingerprint().to_owned(),
+        compatibility_fingerprint: options
+            .operation
+            .target_compatibility_fingerprint()
+            .to_owned(),
         desired_revision: target_resources.environment().revision().to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
@@ -545,7 +548,10 @@ where
         project_id: options.operation.project_id().to_owned(),
         service_id: options.operation.service_id().to_owned(),
         kind: options.operation.kind().to_owned(),
-        compatibility_fingerprint: options.operation.compatibility_fingerprint().to_owned(),
+        compatibility_fingerprint: options
+            .operation
+            .target_compatibility_fingerprint()
+            .to_owned(),
         desired_revision: target_resources.environment().revision().to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
@@ -897,7 +903,10 @@ where
         project_id: options.operation.project_id().to_owned(),
         service_id: options.operation.service_id().to_owned(),
         kind: options.operation.kind().to_owned(),
-        compatibility_fingerprint: options.operation.compatibility_fingerprint().to_owned(),
+        compatibility_fingerprint: options
+            .operation
+            .target_compatibility_fingerprint()
+            .to_owned(),
         desired_revision: target_resources.environment().revision().to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
@@ -1024,7 +1033,10 @@ fn logical_target(
         project_id: options.operation.project_id().to_owned(),
         service_id: options.operation.service_id().to_owned(),
         kind: options.operation.kind().to_owned(),
-        compatibility_fingerprint: options.operation.compatibility_fingerprint().to_owned(),
+        compatibility_fingerprint: options
+            .operation
+            .target_compatibility_fingerprint()
+            .to_owned(),
         desired_revision: resources.environment().revision().to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
@@ -1069,7 +1081,7 @@ fn validate(options: &ProjectRestoreExecutionOptions) -> Result<(), String> {
         || options.updated_at_unix_seconds < 0
         || options.timeout.is_zero()
         || options.shared_target()?.fingerprint().as_str()
-            != options.operation.compatibility_fingerprint()
+            != options.operation.target_compatibility_fingerprint()
     {
         return Err("project restore execution options are incomplete or incompatible".to_owned());
     }

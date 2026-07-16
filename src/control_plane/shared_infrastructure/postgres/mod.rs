@@ -1,4 +1,5 @@
 mod plan_postgres_project_resources;
+mod plan_postgres_project_resources_for_host;
 mod postgres_access_revocation_options;
 mod postgres_logical_resource_plan;
 mod postgres_migration_instance_plan_options;
@@ -25,6 +26,7 @@ mod wait_for_postgres_readiness;
 pub(super) const POSTGRES_BOOTSTRAP_USERNAME: &str = "stackctl_admin";
 
 pub(crate) use plan_postgres_project_resources::plan_postgres_project_resources;
+pub(crate) use plan_postgres_project_resources_for_host::plan_postgres_project_resources_for_host;
 pub(crate) use postgres_access_revocation_options::PostgresAccessRevocationOptions;
 pub(crate) use postgres_logical_resource_plan::PostgresLogicalResourcePlan;
 pub(crate) use postgres_migration_instance_plan_options::PostgresMigrationInstancePlanOptions;

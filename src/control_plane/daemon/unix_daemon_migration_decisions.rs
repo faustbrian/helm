@@ -156,18 +156,17 @@ impl UnixDaemonRuntime {
         let matches = shared
             .into_iter()
             .filter(|plan| {
-                plan.profile().implementation() == "postgresql"
-                    && plan.fingerprint().as_str() == checkpoint.source_compatibility_fingerprint()
+                plan.fingerprint().as_str() == checkpoint.target_compatibility_fingerprint()
             })
             .collect::<Vec<_>>();
         Some(match matches.as_slice() {
             [shared] => Ok(shared.clone()),
             [] => Err(format!(
-                "migration '{}' has no exact source compatibility plan",
+                "migration '{}' has no exact target compatibility plan",
                 operation.migration_id()
             )),
             _ => Err(format!(
-                "migration '{}' matched multiple source compatibility plans",
+                "migration '{}' matched multiple target compatibility plans",
                 operation.migration_id()
             )),
         })

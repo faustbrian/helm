@@ -175,11 +175,11 @@ impl UnixDaemonRuntime {
                 })
                 .filter(|plan| {
                     plan.request().metadata().compatibility_fingerprint()
-                        == operation.compatibility_fingerprint()
+                        == operation.target_compatibility_fingerprint()
                         && plan.volume().is_some_and(|volume| {
                             volume.name() == operation.logical_resource_id()
                                 && volume.metadata().compatibility_fingerprint()
-                                    == operation.compatibility_fingerprint()
+                                    == operation.target_compatibility_fingerprint()
                         })
                 })
                 .collect::<Vec<_>>();
@@ -220,7 +220,7 @@ impl UnixDaemonRuntime {
             .into_iter()
             .filter(|plan| {
                 plan.profile().implementation() == implementation
-                    && plan.fingerprint().as_str() == operation.compatibility_fingerprint()
+                    && plan.fingerprint().as_str() == operation.target_compatibility_fingerprint()
             })
             .collect::<Vec<_>>();
         Some(match matches.as_slice() {

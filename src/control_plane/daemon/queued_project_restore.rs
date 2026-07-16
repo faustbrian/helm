@@ -10,7 +10,8 @@ pub(crate) struct QueuedProjectRestore {
     service_id: String,
     logical_resource_id: String,
     kind: String,
-    compatibility_fingerprint: String,
+    source_compatibility_fingerprint: String,
+    target_compatibility_fingerprint: String,
     dump: Option<QueuedDatabaseDump>,
 }
 
@@ -23,7 +24,8 @@ impl QueuedProjectRestore {
             service_id: options.service_id,
             logical_resource_id: options.logical_resource_id,
             kind: options.kind,
-            compatibility_fingerprint: options.compatibility_fingerprint,
+            source_compatibility_fingerprint: options.source_compatibility_fingerprint,
+            target_compatibility_fingerprint: options.target_compatibility_fingerprint,
             dump: None,
         };
         operation.validate()?;
@@ -41,7 +43,8 @@ impl QueuedProjectRestore {
             service_id: options.restore.service_id,
             logical_resource_id: options.restore.logical_resource_id,
             kind: options.restore.kind,
-            compatibility_fingerprint: options.restore.compatibility_fingerprint,
+            source_compatibility_fingerprint: options.restore.source_compatibility_fingerprint,
+            target_compatibility_fingerprint: options.restore.target_compatibility_fingerprint,
             dump: Some(QueuedDatabaseDump {
                 file: options.file,
                 archive_entry: options.archive_entry,
@@ -78,7 +81,11 @@ impl QueuedProjectRestore {
     }
 
     pub(crate) fn compatibility_fingerprint(&self) -> &str {
-        &self.compatibility_fingerprint
+        &self.source_compatibility_fingerprint
+    }
+
+    pub(crate) fn target_compatibility_fingerprint(&self) -> &str {
+        &self.target_compatibility_fingerprint
     }
 
     pub(crate) fn dump_file(&self) -> Option<&Path> {
@@ -117,7 +124,8 @@ impl QueuedProjectRestore {
             || self.service_id.is_empty()
             || self.logical_resource_id.is_empty()
             || self.kind.is_empty()
-            || self.compatibility_fingerprint.is_empty()
+            || self.source_compatibility_fingerprint.is_empty()
+            || self.target_compatibility_fingerprint.is_empty()
         {
             return Err("project restore identity fields must not be empty".to_owned());
         }
@@ -163,7 +171,8 @@ pub(crate) struct QueuedProjectRestoreOptions {
     pub(crate) service_id: String,
     pub(crate) logical_resource_id: String,
     pub(crate) kind: String,
-    pub(crate) compatibility_fingerprint: String,
+    pub(crate) source_compatibility_fingerprint: String,
+    pub(crate) target_compatibility_fingerprint: String,
 }
 
 pub(crate) struct QueuedDatabaseDumpRestoreOptions {
@@ -189,7 +198,8 @@ struct PersistedProjectRestore {
     service_id: String,
     logical_resource_id: String,
     kind: String,
-    compatibility_fingerprint: String,
+    source_compatibility_fingerprint: String,
+    target_compatibility_fingerprint: String,
     #[serde(default)]
     dump: Option<QueuedDatabaseDump>,
 }
@@ -202,7 +212,8 @@ impl From<&QueuedProjectRestore> for PersistedProjectRestore {
             service_id: operation.service_id.clone(),
             logical_resource_id: operation.logical_resource_id.clone(),
             kind: operation.kind.clone(),
-            compatibility_fingerprint: operation.compatibility_fingerprint.clone(),
+            source_compatibility_fingerprint: operation.source_compatibility_fingerprint.clone(),
+            target_compatibility_fingerprint: operation.target_compatibility_fingerprint.clone(),
             dump: operation.dump.clone(),
         }
     }
@@ -217,7 +228,8 @@ impl PersistedProjectRestore {
             service_id: self.service_id,
             logical_resource_id: self.logical_resource_id,
             kind: self.kind,
-            compatibility_fingerprint: self.compatibility_fingerprint,
+            source_compatibility_fingerprint: self.source_compatibility_fingerprint,
+            target_compatibility_fingerprint: self.target_compatibility_fingerprint,
         };
         match self.dump {
             Some(dump) => {

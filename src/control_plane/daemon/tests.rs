@@ -810,7 +810,8 @@ fn daemon_restart_restores_only_queued_project_restores() {
             service_id: "database".to_owned(),
             logical_resource_id: "stackctl_bill_database".to_owned(),
             kind: "postgres_database_and_role".to_owned(),
-            compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+            target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         })
         .expect("restore intent");
         let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
@@ -875,7 +876,8 @@ fn mysql_restore_intent_is_supported_and_secret_free() {
         service_id: "database".to_owned(),
         logical_resource_id: "stackctl_bill_database".to_owned(),
         kind: "mysql_database".to_owned(),
-        compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+        source_compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+        target_compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
     })
     .expect("MySQL restore intent");
 
@@ -897,7 +899,8 @@ fn mysql_dump_restore_intent_survives_daemon_restart_without_secrets() {
                 service_id: "shipit".to_owned(),
                 logical_resource_id: "stackctl_api_shipit".to_owned(),
                 kind: "mysql_database".to_owned(),
-                compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+                source_compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
+                target_compatibility_fingerprint: format!("sha256:{}", "b".repeat(64)),
             },
             file: PathBuf::from("/work/api/database/dumps/sandbox.sql.zip"),
             archive_entry: Some("sandbox.sql".to_owned()),
@@ -975,7 +978,8 @@ fn project_restore_result_publishes_operator_gated_cutover_evidence() {
         service_id: "database".to_owned(),
         logical_resource_id: "stackctl_bill_database".to_owned(),
         kind: "postgres_database_and_role".to_owned(),
-        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
     })
     .expect("restore intent");
     let operation = DaemonOperationRecord::new(DaemonOperationRecordOptions {
@@ -1513,7 +1517,8 @@ fn queued_project_volume_restore_records_safety_and_recreates_exact_target() {
         service_id: "aws".to_owned(),
         logical_resource_id: resource.resource_id().to_owned(),
         kind: resource.kind().to_owned(),
-        compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        source_compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
     })
     .expect("volume restore intent");
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -3440,7 +3445,7 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
     let engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
         &source_container_name,
         "install-1",
-        "postgres-source",
+        &source_container_name,
         &fingerprint,
     )]);
     let source = crate::control_plane::state::LogicalResourceRecord::new(
@@ -3581,7 +3586,8 @@ fn queued_postgres_restore_reconciles_target_and_reaches_reversible_cutover() {
                 service_id: "database".to_owned(),
                 logical_resource_id: source.logical_resource_id().to_owned(),
                 kind: source.kind().to_owned(),
-                compatibility_fingerprint: fingerprint.clone(),
+                source_compatibility_fingerprint: fingerprint.clone(),
+                target_compatibility_fingerprint: fingerprint.clone(),
             })
             .expect("restore intent"),
             target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -3885,7 +3891,8 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                         service_id: "database".to_owned(),
                         logical_resource_id: source.logical_resource_id().to_owned(),
                         kind: source.kind().to_owned(),
-                        compatibility_fingerprint: fingerprint.clone(),
+                        source_compatibility_fingerprint: fingerprint.clone(),
+                        target_compatibility_fingerprint: fingerprint.clone(),
                     },
                     file: dump_path.clone(),
                     archive_entry: None,
@@ -3943,7 +3950,8 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                         service_id: "database".to_owned(),
                         logical_resource_id: source.logical_resource_id().to_owned(),
                         kind: source.kind().to_owned(),
-                        compatibility_fingerprint: fingerprint.clone(),
+                        source_compatibility_fingerprint: fingerprint.clone(),
+                        target_compatibility_fingerprint: fingerprint.clone(),
                     },
                     file: dump_path.clone(),
                     archive_entry: None,
@@ -3999,7 +4007,8 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                         service_id: "database".to_owned(),
                         logical_resource_id: source.logical_resource_id().to_owned(),
                         kind: source.kind().to_owned(),
-                        compatibility_fingerprint: fingerprint.clone(),
+                        source_compatibility_fingerprint: fingerprint.clone(),
+                        target_compatibility_fingerprint: fingerprint.clone(),
                     },
                     file: dump_path,
                     archive_entry: None,
@@ -4042,7 +4051,8 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
                 service_id: "database".to_owned(),
                 logical_resource_id: source.logical_resource_id().to_owned(),
                 kind: source.kind().to_owned(),
-                compatibility_fingerprint: fingerprint,
+                source_compatibility_fingerprint: fingerprint.clone(),
+                target_compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
             target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -4344,7 +4354,8 @@ fn queued_mongodb_restore_reaches_tenant_verified_reversible_cutover() {
                 service_id: "database".to_owned(),
                 logical_resource_id: source.logical_resource_id().to_owned(),
                 kind: source.kind().to_owned(),
-                compatibility_fingerprint: fingerprint,
+                source_compatibility_fingerprint: fingerprint.clone(),
+                target_compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
             target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -4641,7 +4652,8 @@ fn queued_sql_server_restore_reaches_tenant_verified_reversible_cutover() {
                 service_id: "database".to_owned(),
                 logical_resource_id: source.logical_resource_id().to_owned(),
                 kind: source.kind().to_owned(),
-                compatibility_fingerprint: fingerprint,
+                source_compatibility_fingerprint: fingerprint.clone(),
+                target_compatibility_fingerprint: fingerprint,
             })
             .expect("restore intent"),
             target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -4893,7 +4905,8 @@ fn queued_redis_restore_records_one_safety_snapshot_and_replays_in_place() {
                     service_id: "cache".to_owned(),
                     logical_resource_id: logical.logical_resource_id().to_owned(),
                     kind: logical.kind().to_owned(),
-                    compatibility_fingerprint: fingerprint.clone(),
+                    source_compatibility_fingerprint: fingerprint.clone(),
+                    target_compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
                 target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -5081,7 +5094,8 @@ fn queued_minio_restore_records_one_safety_snapshot_and_replays_in_place() {
                     service_id: "files".to_owned(),
                     logical_resource_id: logical.logical_resource_id().to_owned(),
                     kind: logical.kind().to_owned(),
-                    compatibility_fingerprint: fingerprint.clone(),
+                    source_compatibility_fingerprint: fingerprint.clone(),
+                    target_compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
                 target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -5289,7 +5303,8 @@ fn queued_rabbitmq_restore_records_one_safety_snapshot_and_replays_in_place() {
                     service_id: "database".to_owned(),
                     logical_resource_id: logical.logical_resource_id().to_owned(),
                     kind: logical.kind().to_owned(),
-                    compatibility_fingerprint: fingerprint.clone(),
+                    source_compatibility_fingerprint: fingerprint.clone(),
+                    target_compatibility_fingerprint: fingerprint.clone(),
                 })
                 .expect("restore intent"),
                 target: ProjectRestoreTargetPlan::Shared(shared.clone()),
@@ -5549,7 +5564,8 @@ fn project_restore_queue_accepts_redis_and_valkey_prefixes() {
             service_id: "cache".to_owned(),
             logical_resource_id: format!("bill/cache/{}", kind.trim_end_matches("_acl_prefix")),
             kind: kind.to_owned(),
-            compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+            source_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+            target_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
         })
         .expect("Redis-compatible restore intent");
     }
@@ -5564,7 +5580,8 @@ fn project_restore_queue_accepts_minio_buckets() {
         service_id: "files".to_owned(),
         logical_resource_id: "bill/files/object-store".to_owned(),
         kind: "minio_bucket_policy".to_owned(),
-        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        source_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        target_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
     })
     .expect("MinIO restore intent");
 }
@@ -5578,9 +5595,37 @@ fn project_restore_queue_accepts_rabbitmq_vhosts() {
         service_id: "queue".to_owned(),
         logical_resource_id: "bill/queue/rabbitmq".to_owned(),
         kind: "rabbitmq_vhost_user".to_owned(),
-        compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        source_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
+        target_compatibility_fingerprint: format!("sha256:{}", "a".repeat(64)),
     })
     .expect("RabbitMQ restore intent");
+}
+
+#[test]
+fn project_restore_payload_preserves_distinct_source_and_target_fingerprints() {
+    let restore = QueuedProjectRestore::new(super::QueuedProjectRestoreOptions {
+        operation_id: "upgrade-postgres".to_owned(),
+        recovery_point_id: "backup-postgres-17".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        logical_resource_id: "bill/database/postgres".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        source_compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        target_compatibility_fingerprint: "sha256:postgres-18".to_owned(),
+    })
+    .expect("cross-version restore intent");
+
+    let restored = QueuedProjectRestore::from_payload_json(
+        restore.operation_id().to_owned(),
+        &restore.payload_json().expect("restore payload"),
+    )
+    .expect("persisted cross-version restore");
+
+    assert_eq!(restored.compatibility_fingerprint(), "sha256:postgres-17");
+    assert_eq!(
+        restored.target_compatibility_fingerprint(),
+        "sha256:postgres-18"
+    );
 }
 
 #[test]

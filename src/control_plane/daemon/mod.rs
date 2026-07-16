@@ -132,6 +132,8 @@ mod scheduled_command_clock;
 mod singleton_lease;
 mod singleton_lease_error;
 #[cfg(unix)]
+mod unix_daemon_automatic_postgres_upgrades;
+#[cfg(unix)]
 mod unix_daemon_automatic_workflows;
 #[cfg(unix)]
 mod unix_daemon_installation_deletion;

@@ -460,6 +460,7 @@ impl UnixDaemonRuntime {
                         }
                     }
                     self.drive_engine_events(now);
+                    self.schedule_automatic_postgres_upgrades(now_unix_seconds);
                     self.schedule_automatic_workflows(now_unix_seconds);
                     self.drive_project_commands(now, now_unix_seconds);
                     self.drive_project_backups(now, now_unix_seconds);

@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added automatic PostgreSQL major-version upgrades. A declared version or
+  compatibility change now creates one durable verified backup, restores into
+  the new compatibility instance, atomically cuts the project over, and
+  revokes source login while retaining the old database, role, container, and
+  volume for recovery. Failed stages retry with the existing bounded durable
+  backoff instead of requiring an operator command.
 - Added a native Linux and macOS x86_64/arm64 binary release workflow with
   locked builds, exact architecture assertions, SPDX SBOMs, GitHub Sigstore
   provenance and SBOM attestations, checksum verification, retained raw
@@ -38,6 +44,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Project restore operations now persist distinct source and target
+  compatibility identities. Migration confirmation resolves the desired
+  target plan while reconstructing PostgreSQL rollback environment values from
+  the exact retained source container, so cross-major cutovers do not depend
+  on the removed source version remaining in project YAML.
 - Confirmed PostgreSQL migration cutovers now terminate source sessions and
   revoke the source role's login while retaining its database and role as
   rollback material. Confirmation no longer destroys the previous logical

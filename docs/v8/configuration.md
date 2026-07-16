@@ -258,6 +258,13 @@ database or runtime failures recover without creating a scan-frequency retry
 loop. Stackctl rejects `stackctl run` for automatic workflows so an operator
 cannot bypass the durable replay guard.
 
+PostgreSQL compatibility upgrades are daemon-owned rather than named workflow
+steps. Changing the declared PostgreSQL major version or another immutable
+compatibility input is the explicit upgrade declaration. Stackctl then runs a
+verified backup, isolated restore, atomic cutover, and retained-source
+retirement automatically. The old database and instance remain available as
+recovery material; Stackctl does not reinterpret or delete their volume.
+
 For an API project that restores two database dumps and migrates only the
 primary Laravel connection after first convergence:
 

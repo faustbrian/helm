@@ -14,7 +14,7 @@ const AUTOMATIC_COMMAND_TIMEOUT_SECONDS: u64 = 30 * 60;
 const HASH_BUFFER_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AutomaticOperationDisposition {
+pub(super) enum AutomaticOperationDisposition {
     Completed,
     Wait,
     EnqueueNew,
@@ -268,7 +268,7 @@ impl UnixDaemonRuntime {
         false
     }
 
-    fn automatic_operation(
+    pub(super) fn automatic_operation(
         &self,
         operation_id: &str,
     ) -> Result<Option<DaemonOperationRecord>, String> {
@@ -277,7 +277,7 @@ impl UnixDaemonRuntime {
             .map_err(|error| error.to_string())
     }
 
-    fn retry_automatic_operation(
+    pub(super) fn retry_automatic_operation(
         &mut self,
         operation_id: &str,
         kind: &str,
@@ -303,7 +303,7 @@ impl UnixDaemonRuntime {
             .map_err(|error| error.to_string())
     }
 
-    fn persist_automatic_operation(
+    pub(super) fn persist_automatic_operation(
         &mut self,
         operation_id: &str,
         kind: &str,
@@ -331,7 +331,7 @@ impl UnixDaemonRuntime {
     }
 }
 
-fn automatic_operation_disposition(
+pub(super) fn automatic_operation_disposition(
     operation: Option<&DaemonOperationRecord>,
     now_unix_seconds: i64,
 ) -> AutomaticOperationDisposition {

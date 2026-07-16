@@ -1907,7 +1907,7 @@ where
     ))
 }
 
-fn prepare_project_backup<Store>(
+pub(super) fn prepare_project_backup<Store>(
     control_plane: &ControlPlane<Store>,
     operation_id: &str,
     canonical_path: &std::path::Path,
@@ -2132,7 +2132,8 @@ where
             service_id: resource.scope_id().unwrap_or_default().to_owned(),
             logical_resource_id: resource.resource_id().to_owned(),
             kind: resource.kind().to_owned(),
-            compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+            source_compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: resource.compatibility_fingerprint().to_owned(),
         });
     }
     let logical_matches = control_plane
@@ -2171,7 +2172,8 @@ where
         service_id: logical.service_id().to_owned(),
         logical_resource_id: logical.logical_resource_id().to_owned(),
         kind: logical.kind().to_owned(),
-        compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        source_compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+        target_compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
     })
 }
 
@@ -2259,7 +2261,8 @@ where
             service_id: logical.service_id().to_owned(),
             logical_resource_id: logical.logical_resource_id().to_owned(),
             kind: logical.kind().to_owned(),
-            compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+            source_compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
+            target_compatibility_fingerprint: logical.compatibility_fingerprint().to_owned(),
         },
         file: canonical_file,
         archive_entry: archive_entry.map(str::to_owned),

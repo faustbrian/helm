@@ -16,13 +16,12 @@ use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, MongoDbMigrationPreparationOptions,
     MongoDbSharedInstancePlan, MongoDbSharedInstancePlanOptions, MySqlFlavor,
     MySqlMigrationPreparationOptions, MySqlSharedInstancePlan, MySqlSharedInstancePlanOptions,
-    PostgresMigrationPreparationOptions, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, SqlServerMigrationPreparationOptions,
+    PostgresMigrationPreparationOptions, SqlServerMigrationPreparationOptions,
     SqlServerSharedInstancePlan, SqlServerSharedInstancePlanOptions,
     plan_mongodb_project_resources, plan_mysql_project_resources, plan_postgres_project_resources,
-    plan_sql_server_project_resources, reconcile_mongodb_migration_target,
-    reconcile_mysql_migration_target, reconcile_postgres_migration_target,
-    reconcile_sql_server_migration_target,
+    plan_postgres_project_resources_for_host, plan_sql_server_project_resources,
+    reconcile_mongodb_migration_target, reconcile_mysql_migration_target,
+    reconcile_postgres_migration_target, reconcile_sql_server_migration_target,
 };
 use crate::control_plane::state::{
     CredentialLifecycle, LogicalResourceRecord, LogicalResourceRecordOptions, MigrationPhase,
@@ -641,21 +640,14 @@ where
         CredentialSecret::new(source_credential.secret().to_owned()),
     )
     .map_err(|error| error.to_string())?;
-    let source_plan = PostgresSharedInstancePlan::new(
-        &options.shared,
-        PostgresSharedInstancePlanOptions {
-            installation_id: options.installation_id.clone(),
-            network_name: options.network_name.clone(),
-            schema_version: options.schema_version,
-            desired_revision: source.desired_revision().to_owned(),
-            bootstrap_secret: CredentialSecret::new(source_administrator.secret().to_owned()),
-        },
-    )
-    .map_err(|error| error.to_string())?;
-    let source_resources = plan_postgres_project_resources(
+    let source_host = source_container
+        .metadata()
+        .resource_id()
+        .ok_or_else(|| "retained PostgreSQL source has no stable host identity".to_owned())?;
+    let source_resources = plan_postgres_project_resources_for_host(
         source.project_id(),
         source.service_id(),
-        &source_plan,
+        source_host,
         CredentialSecret::new(source_credential.secret().to_owned()),
     )
     .map_err(|error| error.to_string())?;

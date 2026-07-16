@@ -51,6 +51,15 @@ deterministic 160-bit compatibility-hash prefix. The shorter name keeps the
 container and its optional `-data` volume within the 63-character DNS-label
 boundary; complete fingerprints remain in managed ownership metadata.
 
+Changing a PostgreSQL service's declared major version or other compatibility
+identity automatically starts a durable logical migration. Stackctl verifies a
+backup of the active database, restores it into the desired compatibility
+instance, verifies the target, and atomically updates the project's managed
+environment. It then revokes login on the old role but retains the old
+database, role, container, and volume. A failed backup or restore leaves the
+old source active, and every failed stage retries with bounded durable backoff.
+The source version does not need to remain declared in project YAML.
+
 ## Operational contract matrix
 
 | Preset | Credential model | Endpoint model | Readiness contract | Project removal behavior |

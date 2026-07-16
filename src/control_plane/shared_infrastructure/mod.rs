@@ -50,12 +50,14 @@ pub(crate) use plan_shared_instances::plan_shared_instances;
 pub(crate) use postgres::{
     PostgresAccessRevocationOptions, PostgresLogicalResourcePlan,
     PostgresMigrationPreparationOptions, PostgresMigrationTargetReconcileResult,
-    PostgresPreparationOptions, PostgresProjectResources, PostgresSharedInstancePlan,
-    PostgresSharedInstancePlanOptions, PreparedPostgresSharedInstance,
-    plan_postgres_project_resources, prepare_postgres_shared_instances,
-    provision_postgres_logical_resource, reconcile_postgres_migration_target,
-    reconcile_prepared_postgres_instance, revoke_postgres_project_access,
+    PostgresPreparationOptions, PostgresProjectResources, PreparedPostgresSharedInstance,
+    plan_postgres_project_resources, plan_postgres_project_resources_for_host,
+    prepare_postgres_shared_instances, provision_postgres_logical_resource,
+    reconcile_postgres_migration_target, reconcile_prepared_postgres_instance,
+    revoke_postgres_project_access,
 };
+#[cfg(test)]
+pub(crate) use postgres::{PostgresSharedInstancePlan, PostgresSharedInstancePlanOptions};
 pub(crate) use prepare_shared_instances::prepare_shared_instances;
 pub(crate) use prepared_shared_instance::PreparedSharedInstance;
 pub(crate) use provisioning_job_options::ProvisioningJobOptions;
