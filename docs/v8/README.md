@@ -20,6 +20,8 @@ is not complete until its milestone evidence and acceptance tests pass.
   local checks, CI-owned acceptance, and physical-host release evidence.
 - [Completion audit](completion-audit.md): requirement-level evidence and
   explicit release blockers.
+- [Failure inventory](failure-inventory.md): observed failures, root causes,
+  missing test layers, fixes, and remaining evidence.
 - [Dependency security policy](dependencies.md): Rust advisory, license,
   duplicate-version, and source gates.
 - [Threat model](security.md): assets, attackers, controls, and open

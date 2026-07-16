@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Added a v8 failure inventory connecting every observed release-readiness
+  failure to its root cause, missing test layer, regression evidence, and
+  honestly pending CI or physical-host proof.
 - Added native Linux x86_64 and arm64 clean-room Laravel acceptance with an
   isolated home, pinned public runtime inputs, fatal-bootstrap rejection,
   framework health, strict CA-file HTTPS, Artisan, worker, scheduler, stable-CA
