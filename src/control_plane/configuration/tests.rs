@@ -24,6 +24,10 @@ fn artifact_lock_parser_rejects_ambiguous_or_extended_yaml() {
             "schema_version: 1\nimages: {}\nimages: {}\n",
             "duplicate field `images`",
         ),
+        (
+            "schema_version: 1\nimages: &images {}\ncatalog_revision: *images\n",
+            "YAML anchors and aliases are not supported",
+        ),
     ];
 
     for (source, expected) in cases {
@@ -383,8 +387,8 @@ fn desired_state_rejects_mutable_runtime_tool_images() {
 fn desired_state_rejects_runtime_tool_image_dockerfile_injection() {
     let error = desired_from(concat!(
         "schema_version: 8\nservices:\n  app:\n    preset: laravel\n",
-        "    node_image: 'node AS injected\nRUN exploit@sha256:",
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n"
+        "    node_image: \"node AS injected\\nRUN exploit@sha256:",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n"
     ))
     .expect_err("unsafe runtime tool image");
 
@@ -570,6 +574,80 @@ fn rejects_yaml_tags() {
     let error = parse_project_config(source, Path::new(CONFIG_PATH)).expect_err("tagged value");
 
     assert!(error.to_string().contains("YAML tags are not supported"));
+}
+
+#[test]
+fn rejects_yaml_anchors_and_aliases_before_expansion() {
+    let source = concat!(
+        "schema_version: 8\n",
+        "services:\n",
+        "  defaults: &defaults\n",
+        "    preset: laravel\n",
+        "  app: *defaults\n",
+    );
+
+    let error = parse_project_config(source, Path::new(CONFIG_PATH))
+        .expect_err("aliases must not be expanded");
+
+    assert!(
+        error
+            .to_string()
+            .contains("YAML anchors and aliases are not supported")
+    );
+}
+
+#[test]
+fn rejects_yaml_larger_than_the_configuration_boundary() {
+    let source = "x".repeat(1024 * 1024 + 1);
+
+    let error = parse_project_config(&source, Path::new(CONFIG_PATH))
+        .expect_err("oversized source must fail before parsing");
+
+    assert!(
+        error
+            .to_string()
+            .contains("YAML source is 1048577 bytes; maximum is 1048576 bytes")
+    );
+}
+
+#[test]
+fn rejects_yaml_beyond_the_structural_depth_budget() {
+    let nested = format!("{}x{}", "[".repeat(33), "]".repeat(33));
+    let source = format!("schema_version: 8\nservices: {{}}\npayload: {nested}\n");
+
+    let error = parse_project_config(&source, Path::new(CONFIG_PATH))
+        .expect_err("deep YAML must fail before model expansion");
+
+    assert!(error.to_string().contains("YAML nesting depth exceeds 32"));
+}
+
+#[test]
+fn rejects_oversized_yaml_collections_and_strings() {
+    let collection = (0..1001)
+        .map(|index| format!("      - value-{index}\n"))
+        .collect::<String>();
+    let collection_source = format!(
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n    command:\n{collection}"
+    );
+    let collection_error = parse_project_config(&collection_source, Path::new(CONFIG_PATH))
+        .expect_err("oversized collection");
+    assert!(
+        collection_error
+            .to_string()
+            .contains("YAML collection exceeds 1000 entries")
+    );
+
+    let value = "x".repeat(64 * 1024 + 1);
+    let string_source = format!(
+        "schema_version: 8\nservices:\n  app:\n    preset: laravel\n    environment:\n      VALUE: {value}\n"
+    );
+    let string_error =
+        parse_project_config(&string_source, Path::new(CONFIG_PATH)).expect_err("oversized scalar");
+    assert!(
+        string_error
+            .to_string()
+            .contains("YAML scalar exceeds 65536 bytes")
+    );
 }
 
 #[test]

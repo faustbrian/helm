@@ -8,7 +8,9 @@ use anyhow::{Context, Result, bail};
 
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::RawProjectConfig;
-use crate::control_plane::parse_project_config;
+use crate::control_plane::{
+    MAX_PROJECT_CONFIG_BYTES, parse_project_config, read_bounded_yaml_file,
+};
 
 pub(super) struct V8Project {
     root: PathBuf,
@@ -58,7 +60,7 @@ pub(super) fn resolve_v8_project(context: &CliDispatchContext<'_>) -> Result<Opt
     if config_path.file_name().and_then(|value| value.to_str()) != Some(".stackctl.yaml") {
         bail!("strict v8 configuration must be named .stackctl.yaml");
     }
-    let source = fs::read_to_string(&config_path)
+    let source = read_bounded_yaml_file(&config_path, MAX_PROJECT_CONFIG_BYTES)
         .with_context(|| format!("failed to read {}", config_path.display()))?;
     let config = parse_project_config(&source, &config_path)?;
     let root = canonical_directory(&project_root)?;

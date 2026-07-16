@@ -38,7 +38,7 @@ green CI.
 | --- | --- | --- |
 | CLI and diagnostics | `anyhow`, `clap`, `clap_complete`, `colored`, `tracing`, `tracing-subscriber` | Argument parsing, typed command failure context, completion output, and bounded diagnostics |
 | Engine and async I/O | `bollard`, `futures-util`, `tokio` | Typed Docker-compatible Engine API, streams, local IPC, and daemon work |
-| Configuration and state | `rusqlite`, `serde`, `serde_json`, `serde_yaml_ng` | SQLite state plus strict YAML and bounded JSON protocol data |
+| Configuration and state | `rusqlite`, `saphyr-parser`, `serde`, `serde_json`, `serde_yaml_ng` | SQLite state, strict YAML decoding, a parser-only safe pre-expansion YAML event boundary, and bounded JSON protocol data |
 | Filesystem and lifecycle | `notify`, `rustix`, `signal-hook` | Watched-root events, Unix process identity, and shutdown signals |
 | Cryptography and identity | `base64`, `bcrypt`, `getrandom`, `hex`, `rcgen`, `sha2`, `x509-parser` | Credentials, random identities, hashing, and local certificate generation and inspection |
 | Archives and time | `tar`, `time`, `zip` | Verified backup formats, certificate time checks, and declared dump inputs |

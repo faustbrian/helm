@@ -12,6 +12,8 @@ mod raw_workflow_config;
 mod raw_workflow_migration;
 mod raw_workflow_mode;
 mod raw_workflow_step;
+mod read_bounded_yaml_file;
+mod validate_yaml_complexity;
 
 pub(crate) use apply_artifact_lock::apply_artifact_lock;
 pub(crate) use artifact_lock::{ArtifactLock, ArtifactLockImage};
@@ -27,6 +29,8 @@ pub(crate) use raw_workflow_config::RawWorkflowConfig;
 pub(crate) use raw_workflow_migration::RawWorkflowMigration;
 pub(crate) use raw_workflow_mode::RawWorkflowMode;
 pub(crate) use raw_workflow_step::RawWorkflowStep;
+pub(crate) use read_bounded_yaml_file::read_bounded_yaml_file;
+pub(crate) use validate_yaml_complexity::MAX_PROJECT_CONFIG_BYTES;
 
 #[cfg(test)]
 mod tests;

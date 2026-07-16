@@ -1,5 +1,6 @@
 #[cfg(test)]
 use super::ProjectDiscoveryError;
+use crate::control_plane::MAX_PROJECT_CONFIG_BYTES;
 
 /// Explicit resource bounds for one correctness rescan of watched roots.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +32,7 @@ impl ProjectDiscoveryOptions {
         Self {
             maximum_depth: 2,
             maximum_directories: 100_000,
-            maximum_config_bytes: 1024 * 1024,
+            maximum_config_bytes: MAX_PROJECT_CONFIG_BYTES,
         }
     }
 

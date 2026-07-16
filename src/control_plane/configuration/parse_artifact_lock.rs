@@ -1,3 +1,4 @@
+use super::validate_yaml_complexity::validate_yaml_complexity;
 use super::{ArtifactLock, ArtifactLockError};
 use serde::Deserialize;
 use serde_yaml_ng::{Deserializer, Value};
@@ -10,6 +11,8 @@ pub(crate) fn parse_artifact_lock(
     source: &str,
     lock_path: &Path,
 ) -> Result<ArtifactLock, ArtifactLockError> {
+    validate_yaml_complexity(source)
+        .map_err(|detail| ArtifactLockError::new(lock_path.to_path_buf(), detail))?;
     let mut documents = Deserializer::from_str(source);
     let first_document = documents.next().ok_or_else(|| {
         ArtifactLockError::new(

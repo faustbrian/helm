@@ -14,6 +14,7 @@ clap = { version = "4.6.1", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 serde_yaml_ng = "0.10.0"
+saphyr-parser = { version = "0.0.11", default-features = false }
 anyhow = "1.0.103"
 bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
 colored = "3.1.1"
@@ -35,7 +36,7 @@ x509-parser = "0.18.1"
 tar = "0.4"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 notify = "8.2.0"
-rustix = { version = "1.1.4", features = ["process"] }
+rustix = { version = "1.1.4", features = ["fs", "process"] }
 
 [lints.rust]
 # Absolute safety - forbid unsafe code entirely

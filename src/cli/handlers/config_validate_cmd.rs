@@ -7,8 +7,11 @@ pub(crate) fn handle_config_validate(path: Option<&Path>, quiet: bool) -> Result
         Some(path) => path.to_path_buf(),
         None => std::env::current_dir()?.join(".stackctl.yaml"),
     };
-    let source = std::fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let source = crate::control_plane::read_bounded_yaml_file(
+        &path,
+        crate::control_plane::MAX_PROJECT_CONFIG_BYTES,
+    )
+    .with_context(|| format!("failed to read {}", path.display()))?;
     let raw = crate::control_plane::parse_project_config(&source, &path)?;
     let project_directory = path
         .parent()

@@ -88,6 +88,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Bounded every direct project and artifact-lock YAML read to 1 MiB while
+  refusing symbolic links, non-regular files, invalid UTF-8, and path-replacement
+  growth. A pure-Rust pre-expansion parser now rejects anchors, aliases, tags,
+  excessive nesting, node counts, collection sizes, and scalar sizes before
+  Serde materializes untrusted repository input.
 - Laravel application readiness now requires a successful framework `/up` HTTP
   response instead of accepting a listening TCP socket. A PHP fatal or rejected
   framework boot can no longer be reported as a healthy project route.

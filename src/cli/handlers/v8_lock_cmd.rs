@@ -6,9 +6,9 @@ use crate::cli::args::{Cli, Commands, LockCommands};
 use crate::cli::dispatch::context::CliDispatchContext;
 use crate::control_plane::{
     ArtifactLock, ArtifactLockImage, IpcOutcome, IpcPayload, IpcRequest, IpcResult,
-    PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock, artifact_source,
-    default_unix_daemon_runtime_directory, parse_artifact_lock, resolve_preset_artifact,
-    send_unix_request,
+    MAX_PROJECT_CONFIG_BYTES, PRESET_ARTIFACT_CATALOG_REVISION, apply_artifact_lock,
+    artifact_source, default_unix_daemon_runtime_directory, parse_artifact_lock,
+    read_bounded_yaml_file, resolve_preset_artifact, send_unix_request,
 };
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
@@ -151,12 +151,13 @@ fn resolve_through_daemon(
 }
 
 fn verify_lock(config: &crate::control_plane::RawProjectConfig, lock_path: &Path) -> Result<()> {
-    let source = fs::read_to_string(lock_path).with_context(|| {
-        format!(
-            "failed to read {}; run `stackctl lock images`",
-            lock_path.display()
-        )
-    })?;
+    let source =
+        read_bounded_yaml_file(lock_path, MAX_PROJECT_CONFIG_BYTES).with_context(|| {
+            format!(
+                "failed to read {}; run `stackctl lock images`",
+                lock_path.display()
+            )
+        })?;
     let lock = parse_artifact_lock(&source, lock_path)?;
     let mut candidate = config.clone();
     apply_artifact_lock(&mut candidate, &lock, lock_path)?;
@@ -258,7 +259,7 @@ fn expected_sources(
 }
 
 fn load_optional_lock(lock_path: &Path) -> Result<Option<ArtifactLock>> {
-    match fs::read_to_string(lock_path) {
+    match read_bounded_yaml_file(lock_path, MAX_PROJECT_CONFIG_BYTES) {
         Ok(source) => parse_artifact_lock(&source, lock_path)
             .map(Some)
             .map_err(Into::into),

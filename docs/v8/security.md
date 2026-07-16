@@ -98,6 +98,21 @@ revision, while non-HTTP application presets retain their protocol-appropriate
 listener check. Unit coverage proves the Laravel preset cannot regress to the
 listener-only probe; native Engine Laravel acceptance remains a release gate.
 
+### SEC-04: unbounded project YAML expansion — High, mitigated
+
+Watched-root discovery bounded configuration bytes, but direct CLI resolution
+and artifact-lock commands read entire files before parsing. The shared parser
+also materialized anchors and aliases before applying any explicit depth, node,
+collection, or scalar limits. A malicious repository could therefore consume
+disproportionate memory or stack while merely being inspected.
+
+Every direct YAML file read now refuses symbolic links and non-regular files,
+checks metadata, and independently caps the actual read at 1 MiB. Before Serde
+materializes either project configuration or artifact locks, a pure-Rust event
+pass rejects tags, anchors, and aliases and enforces a depth of 32, 10,000 total
+nodes, 1,000 entries per collection, and 64 KiB per scalar. Focused tests cover
+each boundary, invalid UTF-8, symlinks, and lock-file alias rejection.
+
 ## Review rules
 
 New container presets, host commands, IPC operations, archive formats, image

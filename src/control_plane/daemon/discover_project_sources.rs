@@ -1,10 +1,9 @@
 use super::{
     ProjectDiscoveryError, ProjectDiscoveryIssue, ProjectDiscoveryOptions, ProjectDiscoveryReport,
 };
-use crate::control_plane::application::ProjectSource;
+use crate::control_plane::{application::ProjectSource, read_bounded_yaml_file};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const CONFIG_FILE: &str = ".stackctl.yaml";
@@ -120,7 +119,7 @@ fn inspect_project_directory(
                 });
                 return Ok(true);
             }
-            match read_bounded_utf8(&config_path, options.maximum_config_bytes()) {
+            match read_bounded_yaml_file(&config_path, options.maximum_config_bytes()) {
                 Ok(yaml) => {
                     let mut source = ProjectSource::new(directory.to_path_buf(), config_path, yaml);
                     if let Some((lock_path, lock_yaml)) =
@@ -130,7 +129,10 @@ fn inspect_project_directory(
                     }
                     sources.insert(directory.to_path_buf(), source);
                 }
-                Err(issue) => issues.push(issue),
+                Err(error) => issues.push(ProjectDiscoveryIssue::UnreadableConfig {
+                    path: config_path,
+                    detail: error.to_string(),
+                }),
             }
             return Ok(true);
         }
@@ -186,69 +188,14 @@ fn read_optional_artifact_lock(
         return Ok(None);
     }
 
-    match read_bounded_artifact_lock(&path, options.maximum_config_bytes()) {
+    match read_bounded_yaml_file(&path, options.maximum_config_bytes()) {
         Ok(yaml) => Ok(Some((path, yaml))),
-        Err(issue) => {
-            issues.push(issue);
+        Err(error) => {
+            issues.push(ProjectDiscoveryIssue::UnreadableArtifactLock {
+                path,
+                detail: error.to_string(),
+            });
             Ok(None)
         }
     }
-}
-
-fn read_bounded_artifact_lock(
-    path: &Path,
-    maximum: usize,
-) -> Result<String, ProjectDiscoveryIssue> {
-    let file =
-        fs::File::open(path).map_err(|error| ProjectDiscoveryIssue::UnreadableArtifactLock {
-            path: path.to_path_buf(),
-            detail: error.to_string(),
-        })?;
-    let limit = u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1);
-    let mut bytes = Vec::with_capacity(maximum.min(64 * 1024));
-    file.take(limit).read_to_end(&mut bytes).map_err(|error| {
-        ProjectDiscoveryIssue::UnreadableArtifactLock {
-            path: path.to_path_buf(),
-            detail: error.to_string(),
-        }
-    })?;
-    if bytes.len() > maximum {
-        return Err(ProjectDiscoveryIssue::ArtifactLockTooLarge {
-            path: path.to_path_buf(),
-            actual: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-            maximum,
-        });
-    }
-
-    String::from_utf8(bytes).map_err(|error| ProjectDiscoveryIssue::UnreadableArtifactLock {
-        path: path.to_path_buf(),
-        detail: error.to_string(),
-    })
-}
-
-fn read_bounded_utf8(path: &Path, maximum: usize) -> Result<String, ProjectDiscoveryIssue> {
-    let file = fs::File::open(path).map_err(|error| ProjectDiscoveryIssue::UnreadableConfig {
-        path: path.to_path_buf(),
-        detail: error.to_string(),
-    })?;
-    let limit = u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1);
-    let mut bytes = Vec::with_capacity(maximum.min(64 * 1024));
-    file.take(limit).read_to_end(&mut bytes).map_err(|error| {
-        ProjectDiscoveryIssue::UnreadableConfig {
-            path: path.to_path_buf(),
-            detail: error.to_string(),
-        }
-    })?;
-    if bytes.len() > maximum {
-        return Err(ProjectDiscoveryIssue::ConfigTooLarge {
-            path: path.to_path_buf(),
-            actual: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-            maximum,
-        });
-    }
-
-    String::from_utf8(bytes).map_err(|error| ProjectDiscoveryIssue::UnreadableConfig {
-        path: path.to_path_buf(),
-        detail: error.to_string(),
-    })
 }
