@@ -1,6 +1,6 @@
 use super::{
-    PreparedDatabaseDump, ProjectRestoreExecutionOptions, ProjectRestoreExecutionResult,
-    execute_minio_project_restore, execute_project_volume_restore,
+    PreparedDatabaseDump, PreparedDatabaseRollback, ProjectRestoreExecutionOptions,
+    ProjectRestoreExecutionResult, execute_minio_project_restore, execute_project_volume_restore,
     execute_rabbitmq_project_restore, execute_redis_project_restore,
 };
 use crate::control_plane::engine::{
@@ -10,12 +10,14 @@ use crate::control_plane::engine::{
 };
 use crate::control_plane::migration::{
     EnginePostgresSourceRetirement, MigrationCutoverPlan, MigrationRollbackPlan,
-    MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, MySqlDumpRestoreOptions,
-    MySqlMigrationOperations, MySqlMigrationOperationsOptions, PostgresMigrationOperations,
-    PostgresMigrationOperationsOptions, PostgresSourceRetirementOptions,
-    RecoveryPointRestoreOptions, SqlServerMigrationOperations, SqlServerMigrationOperationsOptions,
-    execute_recovery_point_restore, restore_mysql_dump,
+    MongoDbMigrationOperations, MongoDbMigrationOperationsOptions, MySqlBackupOptions,
+    MySqlDumpRestoreOptions, MySqlMigrationOperations, MySqlMigrationOperationsOptions,
+    PostgresMigrationOperations, PostgresMigrationOperationsOptions,
+    PostgresSourceRetirementOptions, RecoveryPointRestoreOptions, SqlServerMigrationOperations,
+    SqlServerMigrationOperationsOptions, backup_mysql_database, execute_recovery_point_restore,
+    restore_mysql_dump,
 };
+use crate::control_plane::retention::open_stored_backup_artifact;
 use crate::control_plane::shared_infrastructure::{
     CredentialEntropy, CredentialSecret, MongoDbMigrationPreparationOptions, MySqlFlavor,
     MySqlLogicalResourcePlan, MySqlMigrationPreparationOptions,
@@ -75,7 +77,7 @@ where
     Entropy: CredentialEntropy,
 {
     if options.operation.dump_file().is_some() {
-        return execute_mysql_dump(engine, options).await;
+        return Box::pin(execute_mysql_dump(engine, options)).await;
     }
     match options.operation.kind() {
         "volume" => execute_project_volume_restore(engine, options).await,
@@ -163,7 +165,51 @@ where
         &options.backup_root,
         options.operation.operation_id(),
     )?;
-    restore_mysql_dump(
+    if !options.operation.resets_database() {
+        restore_mysql_dump(
+            engine,
+            &container,
+            &MySqlDumpRestoreOptions {
+                flavor,
+                logical: &logical,
+                credential: &credential,
+                administrator: &administrator,
+                file: dump.path(),
+                reset: false,
+                timeout: options.timeout,
+            },
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+
+        return Ok(crate::control_plane::migration::MigrationExecutionResult::Confirmed);
+    }
+
+    let mut rollback =
+        PreparedDatabaseRollback::prepare(&options.backup_root, options.operation.operation_id())?;
+    let safety_backup = backup_mysql_database(
+        engine,
+        &container,
+        &MySqlBackupOptions {
+            flavor,
+            logical_resource: &source,
+            credential: &credential,
+            database_name: logical.schema_name(),
+            installation_id: &options.installation_id,
+            created_at_unix_seconds: options.updated_at_unix_seconds,
+            backup_root: rollback.root(),
+            timeout: options.timeout,
+        },
+    )
+    .await
+    .map_err(|error| {
+        format!("database reset safety backup failed before any destructive action: {error}")
+    })?;
+    let stored_safety_backup =
+        open_stored_backup_artifact(safety_backup.reference()).map_err(|error| {
+            format!("verified database reset safety backup is unavailable: {error}")
+        })?;
+    let restore = restore_mysql_dump(
         engine,
         &container,
         &MySqlDumpRestoreOptions {
@@ -172,14 +218,41 @@ where
             credential: &credential,
             administrator: &administrator,
             file: dump.path(),
-            reset: options.operation.resets_database(),
+            reset: true,
             timeout: options.timeout,
         },
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await;
+    let Err(restore_error) = restore else {
+        return Ok(crate::control_plane::migration::MigrationExecutionResult::Confirmed);
+    };
+    let rollback_result = restore_mysql_dump(
+        engine,
+        &container,
+        &MySqlDumpRestoreOptions {
+            flavor,
+            logical: &logical,
+            credential: &credential,
+            administrator: &administrator,
+            file: stored_safety_backup.artifact_file(),
+            reset: true,
+            timeout: options.timeout,
+        },
+    )
+    .await;
+    match rollback_result {
+        Ok(()) => Err(format!(
+            "database dump restore failed; the previous database was restored successfully: {restore_error}"
+        )),
+        Err(rollback_error) => {
+            rollback.preserve();
 
-    Ok(crate::control_plane::migration::MigrationExecutionResult::Confirmed)
+            Err(format!(
+                "database dump restore failed and automatic rollback failed; verified safety backup retained at '{}': restore error: {restore_error}; rollback error: {rollback_error}",
+                safety_backup.reference()
+            ))
+        }
+    }
 }
 
 async fn execute_sql_server<E, Entropy>(

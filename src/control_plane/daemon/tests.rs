@@ -3785,6 +3785,167 @@ fn queued_mysql_restore_reconciles_isolated_target_and_reaches_reversible_cutove
         .expect("recovery point");
     drop(store);
 
+    let dump_path = root.join("sandbox.sql");
+    std::fs::write(&dump_path, b"CREATE TABLE restored (id INT);\n").expect("write explicit dump");
+    let dump_result = runtime.block_on(execute_queued_project_restore(
+        engine.clone(),
+        FixedRestoreEntropy(0x77),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::from_database_dump(
+                super::QueuedDatabaseDumpRestoreOptions {
+                    restore: super::QueuedProjectRestoreOptions {
+                        operation_id: "restore-mysql-dump".to_owned(),
+                        recovery_point_id: String::new(),
+                        project_id: "bill".to_owned(),
+                        service_id: "database".to_owned(),
+                        logical_resource_id: source.logical_resource_id().to_owned(),
+                        kind: source.kind().to_owned(),
+                        compatibility_fingerprint: fingerprint.clone(),
+                    },
+                    file: dump_path.clone(),
+                    archive_entry: None,
+                    reset: true,
+                },
+            )
+            .expect("dump restore intent"),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 50_002,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    assert_eq!(
+        dump_result.outcome(),
+        &Ok(MigrationExecutionResult::Confirmed)
+    );
+    let dump_calls = engine.command_arguments();
+    let safety_dump = &dump_calls[dump_calls.len() - 3];
+    assert_eq!(safety_dump[0], "mysqldump");
+    assert!(!safety_dump.iter().any(|argument| argument == "--databases"));
+    assert_eq!(
+        safety_dump.last(),
+        Some(&source.logical_resource_id().to_owned())
+    );
+    assert_eq!(
+        std::fs::read_dir(backup_root.join("database-dump-rollbacks"))
+            .expect("rollback staging root")
+            .count(),
+        0
+    );
+
+    let rollback_engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &source_container_name,
+        "install-1",
+        "mysql-source",
+        &fingerprint,
+    )])
+    .with_command_exit_codes([0, 0, 1, 0, 0]);
+    let rollback_result = runtime.block_on(execute_queued_project_restore(
+        rollback_engine.clone(),
+        FixedRestoreEntropy(0x77),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::from_database_dump(
+                super::QueuedDatabaseDumpRestoreOptions {
+                    restore: super::QueuedProjectRestoreOptions {
+                        operation_id: "restore-mysql-dump-invalid".to_owned(),
+                        recovery_point_id: String::new(),
+                        project_id: "bill".to_owned(),
+                        service_id: "database".to_owned(),
+                        logical_resource_id: source.logical_resource_id().to_owned(),
+                        kind: source.kind().to_owned(),
+                        compatibility_fingerprint: fingerprint.clone(),
+                    },
+                    file: dump_path.clone(),
+                    archive_entry: None,
+                    reset: true,
+                },
+            )
+            .expect("failing dump restore intent"),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 50_003,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let rollback_error = rollback_result
+        .outcome()
+        .as_ref()
+        .expect_err("invalid dump must remain failed");
+    assert!(rollback_error.contains("previous database was restored successfully"));
+    assert_eq!(rollback_engine.command_arguments().len(), 5);
+    assert_eq!(rollback_engine.command_arguments()[0][0], "mysqldump");
+    assert_eq!(rollback_engine.command_arguments()[1][0], "mysql");
+    assert_eq!(rollback_engine.command_arguments()[2][0], "mysql");
+    assert_eq!(rollback_engine.command_arguments()[3][0], "mysql");
+    assert_eq!(rollback_engine.command_arguments()[4][0], "mysql");
+    assert_eq!(
+        rollback_engine.command_inputs()[4],
+        b"installed\n",
+        "the verified pre-reset snapshot must be the final restore input"
+    );
+
+    let failed_rollback_engine = RecordingProjectCommandEngine::new(vec![observed_shared_service(
+        &source_container_name,
+        "install-1",
+        "mysql-source",
+        &fingerprint,
+    )])
+    .with_command_exit_codes([0, 0, 1, 0, 1]);
+    let failed_rollback = runtime.block_on(execute_queued_project_restore(
+        failed_rollback_engine,
+        FixedRestoreEntropy(0x77),
+        ProjectRestoreExecutionOptions {
+            operation: QueuedProjectRestore::from_database_dump(
+                super::QueuedDatabaseDumpRestoreOptions {
+                    restore: super::QueuedProjectRestoreOptions {
+                        operation_id: "restore-mysql-dump-unrecoverable".to_owned(),
+                        recovery_point_id: String::new(),
+                        project_id: "bill".to_owned(),
+                        service_id: "database".to_owned(),
+                        logical_resource_id: source.logical_resource_id().to_owned(),
+                        kind: source.kind().to_owned(),
+                        compatibility_fingerprint: fingerprint.clone(),
+                    },
+                    file: dump_path,
+                    archive_entry: None,
+                    reset: true,
+                },
+            )
+            .expect("unrecoverable dump restore intent"),
+            target: ProjectRestoreTargetPlan::Shared(shared.clone()),
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            state_database_path: database_path.clone(),
+            backup_root: backup_root.clone(),
+            updated_at_unix_seconds: 50_004,
+            timeout: Duration::from_secs(30),
+        },
+    ));
+
+    let failed_rollback_error = failed_rollback
+        .outcome()
+        .as_ref()
+        .expect_err("failed rollback must retain recovery evidence");
+    assert!(failed_rollback_error.contains("automatic rollback failed"));
+    assert!(failed_rollback_error.contains("verified safety backup retained at"));
+    assert_eq!(
+        std::fs::read_dir(backup_root.join("database-dump-rollbacks"))
+            .expect("preserved rollback root")
+            .count(),
+        1
+    );
+
     let result = runtime.block_on(execute_queued_project_restore(
         engine.clone(),
         FixedRestoreEntropy(0x77),
@@ -10422,6 +10583,7 @@ struct RecordingProjectCommandEngine {
 struct RecordingProjectCommandExecution {
     started: std::sync::atomic::AtomicUsize,
     command_exit_code: std::sync::atomic::AtomicI64,
+    command_exit_codes: std::sync::Mutex<std::collections::VecDeque<i64>>,
     containers: std::sync::Mutex<Vec<String>>,
     command_arguments: std::sync::Mutex<Vec<Vec<String>>>,
     command_environments: std::sync::Mutex<Vec<BTreeMap<String, String>>>,
@@ -10483,6 +10645,15 @@ impl RecordingProjectCommandEngine {
         self.execution
             .command_exit_code
             .store(exit_code, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    fn with_command_exit_codes(self, exit_codes: impl IntoIterator<Item = i64>) -> Self {
+        *self
+            .execution
+            .command_exit_codes
+            .lock()
+            .expect("command exit codes") = exit_codes.into_iter().collect();
         self
     }
 
@@ -10891,8 +11062,15 @@ impl crate::control_plane::engine::CommandExecutor for RecordingProjectCommandEn
     > {
         let exit_code = self
             .execution
-            .command_exit_code
-            .load(std::sync::atomic::Ordering::Relaxed);
+            .command_exit_codes
+            .lock()
+            .expect("command exit codes")
+            .pop_front()
+            .unwrap_or_else(|| {
+                self.execution
+                    .command_exit_code
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            });
         Box::pin(async move {
             tokio::task::yield_now().await;
             Ok(crate::control_plane::engine::CommandStatus::Exited(

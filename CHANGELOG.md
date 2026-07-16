@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Destructive MySQL and MariaDB workflow restores now create a verified,
+  private safety snapshot before resetting a schema, automatically restore it
+  after a rejected dump, and retain it with an exact recovery path if rollback
+  also fails. Logical backups no longer embed the source database name.
 - Daemon service readiness now waits for validated project discovery and full
   Engine/gateway convergence instead of treating a successful ping as proof
   that the development environment is operational.

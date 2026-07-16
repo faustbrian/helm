@@ -88,11 +88,12 @@ fn dump_arguments(options: &MySqlBackupOptions<'_>) -> Vec<String> {
         "--events".to_owned(),
         "--triggers".to_owned(),
         "--hex-blob".to_owned(),
+        "--no-tablespaces".to_owned(),
     ];
     if options.flavor == MySqlFlavor::MySql {
         arguments.push("--set-gtid-purged=OFF".to_owned());
     }
-    arguments.extend(["--databases".to_owned(), options.database_name.to_owned()]);
+    arguments.push(options.database_name.to_owned());
 
     arguments
 }
