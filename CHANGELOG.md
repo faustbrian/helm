@@ -177,6 +177,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Ephemeral gateway runtime filesystems now use sticky world-writable tmpfs
+  roots, allowing the configured numeric host user to create private Caddy
+  state without persistent storage or root-owned permission errors.
 - The native Laravel journey now waits for its automatic database restore and
   migration before requiring database-backed workers and schedules to remain
   stable, removing a circular acceptance prerequisite and transient restart

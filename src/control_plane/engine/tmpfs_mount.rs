@@ -23,7 +23,7 @@ impl TmpfsMount {
 
         Ok(Self {
             target,
-            options: format!("rw,noexec,nosuid,size={size_bytes}"),
+            options: format!("rw,noexec,nosuid,mode=1777,size={size_bytes}"),
         })
     }
 

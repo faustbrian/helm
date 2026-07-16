@@ -1795,15 +1795,15 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
         std::collections::HashMap::from([
             (
                 "/config".to_owned(),
-                "rw,noexec,nosuid,size=16777216".to_owned(),
+                "rw,noexec,nosuid,mode=1777,size=16777216".to_owned(),
             ),
             (
                 "/data".to_owned(),
-                "rw,noexec,nosuid,size=16777216".to_owned(),
+                "rw,noexec,nosuid,mode=1777,size=16777216".to_owned(),
             ),
             (
                 "/tmp".to_owned(),
-                "rw,noexec,nosuid,size=16777216".to_owned(),
+                "rw,noexec,nosuid,mode=1777,size=16777216".to_owned(),
             ),
         ])
     );
