@@ -451,9 +451,6 @@ while (( SECONDS < ready_deadline )); do
       '.resources[] | select(.service == "app" and .kind == "project_application" and .health.state == "healthy")' \
       "$OUTPUT_DIRECTORY/ready-status.json" >/dev/null \
     && jq -e \
-      '.resources[] | select(.service == "worker" and .kind == "project_process" and .lifecycle == "active" and .health.state == "running_unverified")' \
-      "$OUTPUT_DIRECTORY/ready-status.json" >/dev/null \
-    && jq -e \
       '.resources[] | select(.kind == "gateway_route" and .health.state == "healthy")' \
       "$OUTPUT_DIRECTORY/ready-status.json" >/dev/null; then
     break
@@ -464,16 +461,11 @@ while (( SECONDS < ready_deadline )); do
   fi
   sleep 2
 done
-HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" daemon status \
-  >> "$STATUS_ATTEMPTS" 2>&1
 discover_installation_id
 printf 'installation_id=%s\n' "$installation_id" >> "$METADATA"
 
 jq -e \
   '.resources[] | select(.service == "app" and .kind == "project_application" and .health.state == "healthy")' \
-  "$OUTPUT_DIRECTORY/ready-status.json" >/dev/null
-jq -e \
-  '.resources[] | select(.service == "worker" and .kind == "project_process" and .lifecycle == "active" and .health.state == "running_unverified")' \
   "$OUTPUT_DIRECTORY/ready-status.json" >/dev/null
 jq -e \
   '.resources[] | select(.kind == "gateway_route" and .health.state == "healthy")' \
@@ -508,19 +500,6 @@ HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   php artisan about --only=environment --no-ansi \
   > "$OUTPUT_DIRECTORY/artisan.txt" 2>&1
 grep -q 'Environment' "$OUTPUT_DIRECTORY/artisan.txt"
-HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
-  --project-root "$PROJECT_DIRECTORY" logs --all --tail 100 --prefix \
-  > "$OUTPUT_DIRECTORY/project-logs.txt" 2>&1
-
-scheduler_deadline=$((SECONDS + 90))
-while (( SECONDS < scheduler_deadline )); do
-  if [[ -f "$PROJECT_DIRECTORY/storage/logs/stackctl-scheduler" ]]; then
-    break
-  fi
-  sleep 2
-done
-grep -q 'scheduled' "$PROJECT_DIRECTORY/storage/logs/stackctl-scheduler"
-
 workflow_deadline=$((SECONDS + 300))
 while (( SECONDS < workflow_deadline )); do
   if HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
@@ -536,6 +515,32 @@ while (( SECONDS < workflow_deadline )); do
   sleep 2
 done
 grep -q 'automatic workflow verified' "$OUTPUT_DIRECTORY/automatic-workflow.txt"
+
+runtime_deadline=$((SECONDS + 180))
+while (( SECONDS < runtime_deadline )); do
+  if HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+    --project-root "$PROJECT_DIRECTORY" ps --format json \
+    > "$OUTPUT_DIRECTORY/runtime-status.json" 2>> "$STATUS_ATTEMPTS" \
+    && jq -e \
+      '.resources[] | select(.service == "worker" and .kind == "project_process" and .lifecycle == "active" and .health.state == "running_unverified")' \
+      "$OUTPUT_DIRECTORY/runtime-status.json" >/dev/null \
+    && [[ -f "$PROJECT_DIRECTORY/storage/logs/stackctl-scheduler" ]]; then
+    break
+  fi
+  if ! kill -0 "$daemon_pid" 2>/dev/null; then
+    printf 'Stackctl daemon exited before project processes recovered\n' >&2
+    exit 1
+  fi
+  sleep 2
+done
+jq -e \
+  '.resources[] | select(.service == "worker" and .kind == "project_process" and .lifecycle == "active" and .health.state == "running_unverified")' \
+  "$OUTPUT_DIRECTORY/runtime-status.json" >/dev/null
+grep -q 'scheduled' "$PROJECT_DIRECTORY/storage/logs/stackctl-scheduler"
+HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
+  --project-root "$PROJECT_DIRECTORY" logs --all --tail 100 --prefix \
+  > "$OUTPUT_DIRECTORY/project-logs.txt" 2>&1
+
 HOME="$ACCEPTANCE_HOME" "$STACKCTL_BINARY" \
   --project-root "$PROJECT_DIRECTORY" exec \
   php database/workflow-replay-guard.php \

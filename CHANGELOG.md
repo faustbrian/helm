@@ -177,6 +177,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- The native Laravel journey now waits for its automatic database restore and
+  migration before requiring database-backed workers and schedules to remain
+  stable, removing a circular acceptance prerequisite and transient restart
+  false positive.
 - Gateway and application containers now drop Docker's broad default Linux
   capability set while retaining only `NET_BIND_SERVICE`. This permits the
   capability-marked public Caddy and FrankenPHP binaries to execute, without

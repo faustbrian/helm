@@ -548,12 +548,18 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
         "capture_owned_container_failure",
         "owned-container-$container_id-state.json",
         "docker logs --tail 200",
+        "runtime-status.json",
     ] {
         assert!(
             script.contains(contract),
             "Laravel acceptance must cover {contract}"
         );
     }
+    assert!(
+        script.find("grep -q 'automatic workflow verified'")
+            < script.find("runtime_deadline=$((SECONDS + 180))"),
+        "database-backed project processes must be checked after the automatic workflow"
+    );
     assert!(workflow.contains("Laravel Clean Room"));
     assert!(workflow.contains("platform: linux-x86_64"));
     assert!(workflow.contains("platform: linux-arm64"));
