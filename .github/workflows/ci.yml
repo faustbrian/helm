@@ -190,3 +190,41 @@ jobs:
           path: target/gateway-acceptance-${{ matrix.platform }}.txt
           if-no-files-found: error
           retention-days: 30
+
+  laravel-acceptance:
+    name: Laravel Clean Room (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Build the release binary
+        run: cargo build --release --locked
+
+      - name: Exercise a clean isolated-home Laravel installation
+        env:
+          STACKCTL_ENGINE_SOCKET: /var/run/docker.sock
+        run: >-
+          ./scripts/accept-v8-laravel.sh
+          target/release/stackctl
+          target/laravel-acceptance-${{ matrix.platform }}
+
+      - name: Publish raw Laravel acceptance record
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: laravel-acceptance-${{ matrix.platform }}
+          path: target/laravel-acceptance-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 30

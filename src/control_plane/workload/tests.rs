@@ -514,6 +514,33 @@ fn laravel_application_health_checks_the_framework_route() {
 }
 
 #[test]
+fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
+    let script = include_str!("../../../scripts/accept-v8-laravel.sh");
+    let workflow = include_str!("../../../.github/workflows/ci.yml");
+
+    for contract in [
+        "e196bfdfc96903f2e10219749fcbca7c0aefe99f",
+        "Stackctl acceptance bootstrap failure",
+        "https://acceptance-app.stackctl.localhost/up",
+        "--cacert",
+        "php artisan about",
+        "stackctl-scheduler",
+        "daemon reconcile",
+        "ca_sha256",
+        "remove_owned_engine_resources",
+    ] {
+        assert!(
+            script.contains(contract),
+            "Laravel acceptance must cover {contract}"
+        );
+    }
+    assert!(workflow.contains("Laravel Clean Room"));
+    assert!(workflow.contains("platform: linux-x86_64"));
+    assert!(workflow.contains("platform: linux-arm64"));
+    assert!(workflow.contains("laravel-acceptance-${{ matrix.platform }}"));
+}
+
+#[test]
 fn declared_php_extensions_produce_a_content_addressed_application_runtime() {
     let application = resolved_application(concat!(
         "schema_version: 8\nproject: bill\nservices:\n  app:\n",
