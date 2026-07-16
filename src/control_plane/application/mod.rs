@@ -12,6 +12,7 @@ mod migrations;
 mod plan_project_registry;
 mod project_command_state;
 mod project_source;
+mod reactivate_project_if_retained;
 mod reconcile_discovered_registry;
 mod reconcile_logical_environment;
 mod recovery_points;

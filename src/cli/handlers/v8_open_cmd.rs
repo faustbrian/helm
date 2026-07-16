@@ -70,6 +70,16 @@ pub(super) fn ensure_routes_ready(
                     && resource.lifecycle() == IpcResourceLifecycle::Active
             })
             .ok_or_else(|| {
+                if let Some(retained) = status
+                    .resources()
+                    .iter()
+                    .find(|resource| resource.service() == service)
+                {
+                    return anyhow::anyhow!(
+                        "v8 service '{service}' is {} and automatic reactivation did not complete; `stackctl daemon service status` reports the terminal cause",
+                        retained.lifecycle().as_str()
+                    );
+                }
                 anyhow::anyhow!(
                     "v8 service '{service}' has no active reconciled runtime; wait for the daemon"
                 )
@@ -232,5 +242,31 @@ mod tests {
         );
 
         assert!(ensure_routes_ready(&drift, &routes).is_err());
+    }
+
+    #[test]
+    fn open_explains_failed_automatic_reactivation() {
+        let routes = vec![(
+            "app".to_owned(),
+            "https://bill-app.stackctl.localhost".to_owned(),
+        )];
+        let status = IpcProjectStatus::new(
+            "bill".to_owned(),
+            vec!["bill-app.stackctl.localhost".to_owned()],
+            vec![IpcResourceStatus::new(
+                "app".to_owned(),
+                "project_application".to_owned(),
+                IpcResourceLifecycle::Retained,
+                IpcResourceHealth::Unknown,
+                None,
+                false,
+            )],
+        );
+
+        let error = ensure_routes_ready(&status, &routes).expect_err("retained runtime");
+
+        assert!(error.to_string().contains("retained"));
+        assert!(error.to_string().contains("automatic reactivation"));
+        assert!(error.to_string().contains("daemon service status"));
     }
 }

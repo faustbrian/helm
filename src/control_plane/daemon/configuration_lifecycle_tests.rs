@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
-fn watched_configuration_removal_restoration_and_rename_require_exact_adoption() {
+fn watched_configuration_restoration_and_rename_reactivate_exact_owned_state() {
     let root = temporary_directory();
     let original = root.join("bill");
     let renamed = root.join("bill-renamed");
@@ -60,12 +60,6 @@ fn watched_configuration_removal_restoration_and_rename_require_exact_adoption()
     )
     .expect("rediscover restored project configuration");
     assert!(restored.was_applied());
-    assert_eq!(
-        control_plane
-            .adopt_project(&original)
-            .expect("explicitly adopt restored project"),
-        "bill"
-    );
     drop(control_plane);
     assert_active_state(&database_path, &original);
 
@@ -80,17 +74,6 @@ fn watched_configuration_removal_restoration_and_rename_require_exact_adoption()
     )
     .expect("reconcile atomic project directory rename");
     assert!(moved.was_applied());
-    drop(control_plane);
-    assert_retained_state(&database_path, 20_000);
-
-    let store = SqliteStateStore::open(&database_path).expect("reopen rename adoption state");
-    let mut control_plane = ControlPlane::new(store);
-    assert_eq!(
-        control_plane
-            .adopt_project(&renamed)
-            .expect("explicitly adopt renamed project"),
-        "bill"
-    );
     drop(control_plane);
     assert_active_state(&database_path, &renamed);
 

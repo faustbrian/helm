@@ -255,14 +255,17 @@ Removing or invalidating config follows:
 
 ```text
 active -> orphaned -> stopped/credential-disabled -> retained
-       -> adopted | restored | explicitly pruned
+       -> automatically reactivated | restored | explicitly pruned
 ```
 
 An atomic directory rename retires the now-missing canonical path before the
 new path claims the same deterministic routes, all in one SQLite transaction.
 The old project resources become orphaned; registering the renamed path does
-not reactivate them. Explicit adoption is still required, so a rename cannot
-silently transfer retained data or credentials.
+not transfer them to a different identity. Complete discovery automatically
+reactivates them only when the newly registered canonical path has the same
+unique project identity and every retained ownership record passes the atomic
+adoption checks. Identity collisions and ownership drift remain terminal
+failures instead of being guessed or repaired.
 
 For RabbitMQ, daemon reconciliation removes the exact disabled project user
 before an otherwise unreferenced broker is stopped. The vhost and queued
@@ -498,9 +501,11 @@ daemon restarts.
 Daemon status also returns live selected-Engine availability. It exits nonzero
 from startup until the first successful Engine connection and after any
 connection loss, while the daemon continues its bounded automatic reconnects.
-If retained project state requires explicit adoption, status and service
-readiness return `project_adoption_required` with the exact project and
-recovery action instead of reporting only that Engine convergence stalled.
+Exact retained project state is reactivated during complete discovery. If its
+atomic ownership checks reject the transition, status and service readiness
+return the non-retryable terminal diagnostic immediately instead of waiting
+for the full readiness timeout or reporting only that Engine convergence
+stalled.
 Unannotated daemon warnings and errors are written to bounded private daily
 files under `~/.stackctl/logs`, even when a login service has no attached
 terminal. Stackctl retains the newest seven days and rotates one 10 MiB prior

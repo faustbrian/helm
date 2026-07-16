@@ -1,8 +1,9 @@
+use super::daemon_readiness_error::DaemonReadinessError;
 use crate::control_plane::{
     IpcOutcome, IpcPayload, IpcRequest, IpcResult, default_unix_daemon_runtime_directory,
     send_unix_request,
 };
-use anyhow::{Result, bail};
+use anyhow::{Error, Result, bail};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -79,9 +80,26 @@ fn validate_response(outcome: &IpcOutcome) -> Result<()> {
             if let Some(diagnostic) = reconciliation_diagnostic {
                 issues.push(format!("{}: {}", diagnostic.code(), diagnostic.message()));
             }
-            bail!("daemon is not operational: {}", issues.join("; "))
+            let retryable = discovery_diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.retryable())
+                && reconciliation_diagnostic
+                    .as_ref()
+                    .is_none_or(|diagnostic| diagnostic.retryable());
+
+            Err(Error::new(DaemonReadinessError::new(
+                format!("daemon is not operational: {}", issues.join("; ")),
+                retryable,
+            )))
         }
-        outcome => bail!("unexpected daemon readiness response: {outcome:?}"),
+        IpcOutcome::Failure { diagnostics } => Err(Error::new(DaemonReadinessError::new(
+            format!("daemon readiness failed: {diagnostics:?}"),
+            diagnostics.iter().all(|diagnostic| diagnostic.retryable()),
+        ))),
+        outcome => Err(Error::new(DaemonReadinessError::new(
+            format!("unexpected daemon readiness response: {outcome:?}"),
+            false,
+        ))),
     }
 }
 
@@ -96,6 +114,12 @@ fn wait_for_readiness(
             Ok(()) => return Ok(()),
             Err(error) => error,
         };
+        if error
+            .downcast_ref::<DaemonReadinessError>()
+            .is_some_and(|error| !error.retryable())
+        {
+            return Err(error);
+        }
         let now = Instant::now();
         if now >= deadline {
             bail!("daemon did not become IPC-ready within {timeout:?}: {error}");
@@ -151,6 +175,32 @@ mod tests {
         assert!(error.to_string().contains("have not converged"));
         assert!(error.to_string().contains("project_adoption_required"));
         assert!(error.to_string().contains("explicit adoption is required"));
+    }
+
+    #[test]
+    fn readiness_does_not_retry_non_retryable_diagnostics() {
+        let attempts = Cell::new(0_u8);
+        let error = wait_for_readiness(Duration::from_millis(20), Duration::from_millis(1), || {
+            attempts.set(attempts.get() + 1);
+            validate_response(&IpcOutcome::Success {
+                result: IpcResult::DaemonStatus {
+                    discovery_complete: true,
+                    engine_available: true,
+                    engine_converged: false,
+                    discovery_diagnostics: Vec::new(),
+                    reconciliation_diagnostic: Some(IpcDiagnostic::new(
+                        "project_adoption_required",
+                        "run `stackctl daemon adopt /workspace/api`",
+                        false,
+                    )),
+                },
+            })
+        })
+        .expect_err("non-retryable readiness diagnostic");
+
+        assert_eq!(attempts.get(), 1);
+        assert!(error.to_string().contains("project_adoption_required"));
+        assert!(error.to_string().contains("stackctl daemon adopt"));
     }
 
     #[test]

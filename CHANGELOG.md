@@ -38,6 +38,15 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Exact retained project state now reactivates automatically when complete
+  discovery registers the same unique project identity. Ownership conflicts
+  still fail closed, but ordinary configuration restoration and directory
+  moves no longer require `stackctl daemon adopt` before reconciliation.
+- Daemon service installation and restart now stop waiting as soon as a
+  structured non-retryable readiness diagnostic is returned. `stackctl open`
+  also identifies retained runtimes whose automatic reactivation failed and
+  points to the daemon's terminal diagnostic instead of reporting a generic
+  startup delay.
 - Recorded the selected v8 candidate's fully successful exact-revision CI and
   four-target release workflow evidence. Machine-verifiable release gates are
   now distinguished from the still-pending physical-host lifecycle and

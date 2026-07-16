@@ -15,6 +15,11 @@ where
         let records = project_records(registry);
         self.state_store
             .reconcile_project_registry(&records, orphaned_at_unix_seconds)
-            .map_err(Into::into)
+            .map_err(ControlPlaneError::from)?;
+        for project in registry.projects() {
+            self.reactivate_project_if_retained(project.project_directory())?;
+        }
+
+        Ok(())
     }
 }

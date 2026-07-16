@@ -1,6 +1,7 @@
 //! User-service definitions for login-time daemon watch startup.
 
 mod canonical_watch_dirs;
+mod daemon_readiness_error;
 mod launchd;
 mod restart_service;
 mod service_install_snapshot;
