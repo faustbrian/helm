@@ -52,11 +52,13 @@ evidence is retained for 90 days and attached to tagged GitHub releases.
 Release preparation must archive the exact CI artifacts with the release
 record; a link to an expired workflow artifact is not durable evidence.
 
-The first complete implementation-level matrix is
-[CI run 29492676949](https://github.com/faustbrian/stackctl/actions/runs/29492676949).
-It proves that these automated boundaries are executable on both Linux
-architectures and both macOS build targets. It does not replace the required
-repeat on the selected release revision or any physical-host record below.
+The selected candidate `0ca1db6` passed its complete matrix in
+[CI run 29493625150](https://github.com/faustbrian/stackctl/actions/runs/29493625150).
+Its four native archives, architectures, consumer-layout checksums, SPDX SBOMs,
+provenance, and exact-revision attestations passed in
+[release run 29493629778](https://github.com/faustbrian/stackctl/actions/runs/29493629778).
+These close the automated evidence boundary on both Linux architectures and
+both macOS build targets. They do not replace any physical-host record below.
 
 CI may exercise only behavior genuinely provided by its runner. A hosted
 Ubuntu runner can prove Linux compilation, tests, Engine protocol behavior, and

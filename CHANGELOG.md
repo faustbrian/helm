@@ -38,10 +38,15 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Recorded the selected v8 candidate's fully successful exact-revision CI and
+  four-target release workflow evidence. Machine-verifiable release gates are
+  now distinguished from the still-pending physical-host lifecycle and
+  controlled resource-benchmark records required for supported platform
+  claims.
 - Reconciled the v8 audit, completion, failure, platform, and verification
   records with the first fully successful multi-architecture implementation CI
-  matrix and the current 890-test local baseline, while keeping final release
-  artifacts and physical-host evidence explicitly pending.
+  matrix and the current 890-test local baseline. At that checkpoint, final
+  release artifacts and physical-host evidence remained explicitly pending.
 - Failed project commands now publish their bounded binary-safe standard output
   and standard error before the terminal failure event. Error display and debug
   formatting retain only the container identity, exit status, and output byte

@@ -2,20 +2,21 @@
 
 ## Recommendation
 
-Do not publish v8 as a supported release yet.
+The machine-verifiable v8 release candidate is ready. Do not publish macOS or
+Linux as supported platforms yet.
 
-The repository-owned implementation and regression work described below is in
-place, and no known Critical or High implementation finding remains open. The
-complete machine CI matrix passed for production baseline `66fe42d` in
-[run 29492676949](https://github.com/faustbrian/stackctl/actions/runs/29492676949).
-The final release workflow remains required before selecting a release
-candidate. Physical-host and controlled-benchmark records remain separate
-requirements for supported platform claims. Preview documentation must not be
-presented as a support claim.
+No known Critical or High implementation finding remains open. The complete
+machine CI matrix passed for selected candidate `0ca1db6` in
+[run 29493625150](https://github.com/faustbrian/stackctl/actions/runs/29493625150),
+and its four-target release evidence passed in
+[run 29493629778](https://github.com/faustbrian/stackctl/actions/runs/29493629778).
+Physical-host and controlled-benchmark records remain separate requirements
+for supported platform claims. Preview documentation must not be presented as
+a support claim.
 
-This report audits the implementation baseline through `66fe42d`. A later
-documentation-only commit does not replace the exact-head CI or release record;
-the workflow result attached to the selected revision remains authoritative.
+This report audits selected candidate `0ca1db6`. A later evidence-only
+documentation commit does not replace that exact-revision CI or release record;
+the workflow results attached to the selected revision remain authoritative.
 Evidence ownership follows
 [External verification](external-verification.md); absence of an external host
 never converts a pending check into a pass.
@@ -40,8 +41,8 @@ of each product acceptance criterion is in the
 
 No known Critical or High implementation defect remains open. FI-11 and the
 platform portions of FI-10, FI-14, and FI-23 retain physical-host evidence
-requirements; FI-36, FI-40, and FI-45 retain final release-workflow evidence;
-these are recorded evidence gaps, not inferred passes. A new failed
+requirements. The controlled 40-project host resource comparison also remains
+external. These are recorded evidence gaps, not inferred passes. A new failed
 acceptance record reopens the corresponding finding immediately.
 
 ## Local verification
@@ -67,12 +68,13 @@ host-level 40-project resource comparison.
 
 ## CI-only verification
 
-The implementation CI matrix passed on both Linux architectures and both macOS
-architectures in
-[run 29492676949](https://github.com/faustbrian/stackctl/actions/runs/29492676949),
+The selected candidate CI matrix passed all 13 jobs on both Linux
+architectures and both macOS architectures in
+[run 29493625150](https://github.com/faustbrian/stackctl/actions/runs/29493625150),
 including both Laravel clean-room, Engine, gateway, discovery, policy, and
-security jobs. The selected release revision must repeat and archive these
-records before the recommendation can change:
+security jobs. Release
+[run 29493629778](https://github.com/faustbrian/stackctl/actions/runs/29493629778)
+then built and independently verified the candidate's four native archives:
 
 | CI record | Required behavior |
 | --- | --- |
@@ -83,8 +85,11 @@ records before the recommendation can change:
 | Discovery performance | Raw 1/10/40-project release-mode samples under the documented hosted-runner noise budget |
 | `Release` | Native Linux and macOS x86_64/arm64 binaries, exact architecture assertions, SPDX SBOM, signed build provenance and SBOM attestations, checksums, and raw evidence for the exact release candidate |
 
-Passing workflow definitions are not evidence. The resulting raw artifacts
-must be retained with the release record.
+The CI artifacts record exact source revision `0ca1db6`, and the release bundle
+contains consumer-layout checksums, SPDX 2.3 SBOMs, architecture records, and
+GitHub Sigstore provenance and SBOM attestations bound to that revision.
+Passing workflow definitions alone are not evidence; these workflow results
+and their raw artifacts are the authoritative machine-owned records.
 
 ## External verification still required
 
@@ -125,8 +130,9 @@ permission to add mocks or weaken acceptance criteria.
 
 ## Release decision rule
 
-Re-run every local command above on the final tree, archive every CI-owned
-artifact from that exact revision, and attach every support-claim-specific
-external record. Recommend release only if all machine-verifiable gates pass,
-no Critical or High finding is open, and every remaining limitation is an
-explicitly accepted product boundary rather than missing evidence.
+Selected candidate `0ca1db6` satisfies the machine-verifiable release gate: all
+local and exact-revision CI/release checks passed, and no Critical or High
+finding is open. A tagged release may use that candidate evidence. Promote a
+macOS or Linux combination from Preview to supported only after attaching its
+physical-host record and the controlled benchmark record required by that
+support claim.
