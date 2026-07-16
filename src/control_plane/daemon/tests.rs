@@ -7431,6 +7431,7 @@ fn daemon_status_returns_current_discovery_diagnostics() {
     let mut event_journal = IpcEventJournal::default();
     let mut resource_health = ResourceHealthRegistry::default();
     resource_health.mark_engine_unavailable();
+    resource_health.record_operational_readiness(false, false);
     let request = IpcRequest::new("daemon-status", IpcPayload::DaemonStatus);
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
@@ -7456,7 +7457,9 @@ fn daemon_status_returns_current_discovery_diagnostics() {
         IpcResponse::success(
             "daemon-status",
             IpcResult::DaemonStatus {
+                discovery_complete: false,
                 engine_available: false,
+                engine_converged: false,
                 discovery_diagnostics: vec![diagnostic],
             },
         )
@@ -9866,14 +9869,18 @@ fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
     let IpcOutcome::Success {
         result:
             IpcResult::DaemonStatus {
+                discovery_complete,
                 engine_available,
+                engine_converged,
                 discovery_diagnostics,
             },
     } = response.outcome()
     else {
         panic!("daemon status should succeed");
     };
+    assert!(!discovery_complete);
     assert!(!engine_available);
+    assert!(!engine_converged);
     assert_eq!(discovery_diagnostics.len(), 1);
     assert_eq!(discovery_diagnostics[0].code(), "configuration_invalid");
     assert!(

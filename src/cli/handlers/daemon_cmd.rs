@@ -270,7 +270,9 @@ fn handle_daemon_status() -> Result<()> {
         IpcOutcome::Success {
             result:
                 IpcResult::DaemonStatus {
+                    discovery_complete: true,
                     engine_available: true,
+                    engine_converged: true,
                     discovery_diagnostics,
                 },
         } if discovery_diagnostics.is_empty() => {
@@ -285,14 +287,28 @@ fn handle_daemon_status() -> Result<()> {
         IpcOutcome::Success {
             result:
                 IpcResult::DaemonStatus {
+                    discovery_complete,
                     engine_available,
+                    engine_converged,
                     discovery_diagnostics,
                 },
         } => {
             let mut issues = Vec::new();
+            if !discovery_complete {
+                issues.push(
+                    "discovery_incomplete: no complete validated project registry is active"
+                        .to_owned(),
+                );
+            }
             if !engine_available {
                 issues.push(
                     "engine_unavailable: selected container Engine is unavailable".to_owned(),
+                );
+            }
+            if !engine_converged {
+                issues.push(
+                    "engine_not_converged: managed services, gateway, or routes have not fully reconciled"
+                        .to_owned(),
                 );
             }
             issues.extend(

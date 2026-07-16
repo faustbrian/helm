@@ -5,10 +5,23 @@ use crate::control_plane::engine::ContainerHealth;
 use super::{ResourceHealth, ResourceHealthRegistryError};
 
 /// Non-durable health snapshot keyed by exact Engine resource identity.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResourceHealthRegistry {
     engine_unavailable: bool,
+    discovery_complete: bool,
+    engine_converged: bool,
     observations: BTreeMap<String, (ResourceHealth, i64)>,
+}
+
+impl Default for ResourceHealthRegistry {
+    fn default() -> Self {
+        Self {
+            engine_unavailable: true,
+            discovery_complete: false,
+            engine_converged: false,
+            observations: BTreeMap::new(),
+        }
+    }
 }
 
 impl ResourceHealthRegistry {
@@ -103,12 +116,30 @@ impl ResourceHealthRegistry {
         self.engine_unavailable
     }
 
+    pub(crate) const fn discovery_is_complete(&self) -> bool {
+        self.discovery_complete
+    }
+
+    pub(crate) const fn engine_is_converged(&self) -> bool {
+        self.engine_converged
+    }
+
+    pub(crate) fn record_operational_readiness(
+        &mut self,
+        discovery_complete: bool,
+        engine_converged: bool,
+    ) {
+        self.discovery_complete = discovery_complete;
+        self.engine_converged = engine_converged;
+    }
+
     pub(crate) fn mark_engine_available(&mut self) {
         self.engine_unavailable = false;
     }
 
     pub(crate) fn mark_engine_unavailable(&mut self) {
         self.engine_unavailable = true;
+        self.engine_converged = false;
         self.observations.clear();
     }
 

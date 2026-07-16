@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Daemon service readiness now waits for validated project discovery and full
+  Engine/gateway convergence instead of treating a successful ping as proof
+  that the development environment is operational.
 - Streaming Engine commands now wait for the exact exec status before
   reporting transport failures, so a database client that rejects a dump is
   reported as the failed container command instead of a misleading broken

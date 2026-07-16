@@ -7,13 +7,13 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg_attr(test, allow(dead_code))]
-const READINESS_TIMEOUT: Duration = Duration::from_secs(5);
+const READINESS_TIMEOUT: Duration = Duration::from_secs(300);
 #[cfg_attr(test, allow(dead_code))]
-const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg_attr(test, allow(dead_code))]
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// Verifies that the activated singleton accepts the current IPC protocol.
+/// Verifies that the activated singleton has converged its initial desired state.
 #[cfg_attr(test, allow(dead_code))]
 pub(super) fn verify() -> Result<()> {
     wait_for_readiness(READINESS_TIMEOUT, POLL_INTERVAL, probe)
@@ -33,13 +33,49 @@ pub(super) fn probe() -> Result<()> {
     );
     let response = send_unix_request(
         &socket_path,
-        &IpcRequest::new(request_id, IpcPayload::Ping),
+        &IpcRequest::new(request_id, IpcPayload::DaemonStatus),
         PROBE_TIMEOUT,
     )?;
-    match response.outcome() {
+    validate_response(response.outcome())
+}
+
+fn validate_response(outcome: &IpcOutcome) -> Result<()> {
+    match outcome {
         IpcOutcome::Success {
-            result: IpcResult::Pong,
-        } => Ok(()),
+            result:
+                IpcResult::DaemonStatus {
+                    discovery_complete: true,
+                    engine_available: true,
+                    engine_converged: true,
+                    discovery_diagnostics,
+                },
+        } if discovery_diagnostics.is_empty() => Ok(()),
+        IpcOutcome::Success {
+            result:
+                IpcResult::DaemonStatus {
+                    discovery_complete,
+                    engine_available,
+                    engine_converged,
+                    discovery_diagnostics,
+                },
+        } => {
+            let mut issues = Vec::new();
+            if !discovery_complete {
+                issues.push("initial project discovery is incomplete".to_owned());
+            }
+            if !engine_available {
+                issues.push("selected container Engine is unavailable".to_owned());
+            }
+            if !engine_converged {
+                issues.push("managed services, gateway, or routes have not converged".to_owned());
+            }
+            issues.extend(
+                discovery_diagnostics
+                    .iter()
+                    .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message())),
+            );
+            bail!("daemon is not operational: {}", issues.join("; "))
+        }
         outcome => bail!("unexpected daemon readiness response: {outcome:?}"),
     }
 }
@@ -65,13 +101,14 @@ fn wait_for_readiness(
 
 #[cfg(test)]
 mod tests {
-    use super::wait_for_readiness;
+    use super::{validate_response, wait_for_readiness};
+    use crate::control_plane::{IpcDiagnostic, IpcOutcome, IpcResult};
     use anyhow::bail;
     use std::cell::Cell;
     use std::time::Duration;
 
     #[test]
-    fn readiness_retries_transient_failures_until_ping_succeeds() {
+    fn readiness_retries_transient_failures_until_daemon_is_operational() {
         let attempts = Cell::new(0_u8);
 
         wait_for_readiness(Duration::from_millis(20), Duration::from_millis(1), || {
@@ -84,6 +121,49 @@ mod tests {
         .expect("eventual readiness");
 
         assert_eq!(attempts.get(), 3);
+    }
+
+    #[test]
+    fn readiness_rejects_a_responsive_but_unconverged_daemon() {
+        let outcome = IpcOutcome::Success {
+            result: IpcResult::DaemonStatus {
+                discovery_complete: true,
+                engine_available: true,
+                engine_converged: false,
+                discovery_diagnostics: Vec::new(),
+            },
+        };
+
+        let error = validate_response(&outcome).expect_err("unconverged daemon must fail");
+
+        assert!(error.to_string().contains("gateway"));
+        assert!(error.to_string().contains("have not converged"));
+    }
+
+    #[test]
+    fn readiness_preserves_structured_discovery_diagnostics() {
+        let outcome = IpcOutcome::Success {
+            result: IpcResult::DaemonStatus {
+                discovery_complete: false,
+                engine_available: true,
+                engine_converged: false,
+                discovery_diagnostics: vec![IpcDiagnostic::new(
+                    "configuration_collision",
+                    "domain 'api-app.stackctl.localhost' has multiple claimants",
+                    false,
+                )],
+            },
+        };
+
+        let error = validate_response(&outcome).expect_err("invalid discovery must fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("initial project discovery is incomplete")
+        );
+        assert!(error.to_string().contains("configuration_collision"));
+        assert!(error.to_string().contains("multiple claimants"));
     }
 
     #[test]

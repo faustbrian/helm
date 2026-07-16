@@ -61,7 +61,9 @@ fn daemon_status_round_trips_structured_discovery_diagnostics() {
     let response = IpcResponse::success(
         "status-42",
         IpcResult::DaemonStatus {
+            discovery_complete: false,
             engine_available: false,
+            engine_converged: false,
             discovery_diagnostics: vec![diagnostic.clone()],
         },
     );

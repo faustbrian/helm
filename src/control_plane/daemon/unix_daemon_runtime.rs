@@ -285,6 +285,11 @@ impl UnixDaemonRuntime {
                     && reconciliation.is_none(),
             )
         });
+        self.resource_health.record_operational_readiness(
+            self.engine_reconciliation.desired_registry().is_some()
+                && self.discovery_diagnostics.is_empty(),
+            self.engine_reconciliation.is_converged(),
+        );
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
                 control_plane: &mut self.control_plane,
