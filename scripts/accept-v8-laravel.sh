@@ -132,7 +132,7 @@ remove_owned_engine_resources() {
   [[ -z "$remaining" ]] || return 1
 }
 
-capture_shared_service_failure() {
+capture_owned_container_failure() {
   if [[ -z "$installation_id" ]]; then
     discover_installation_id
   fi
@@ -157,13 +157,12 @@ capture_shared_service_failure() {
   while IFS= read -r container_id; do
     [[ -n "$container_id" ]] || continue
     docker inspect --format '{{json .State}}' "$container_id" \
-      > "$OUTPUT_DIRECTORY/shared-service-$container_id-state.json" 2>&1
+      > "$OUTPUT_DIRECTORY/owned-container-$container_id-state.json" 2>&1
     docker logs --tail 200 "$container_id" 2>&1 \
       | sed -E 's/[[:xdigit:]]{64}/[REDACTED]/g' \
-      > "$OUTPUT_DIRECTORY/shared-service-$container_id.log"
+      > "$OUTPUT_DIRECTORY/owned-container-$container_id.log"
   done < <(docker ps -aq \
-    --filter "label=dev.stackctl.installation=$installation_id" \
-    --filter 'label=dev.stackctl.kind=shared_service')
+    --filter "label=dev.stackctl.installation=$installation_id")
 }
 
 finish() {
@@ -172,7 +171,7 @@ finish() {
   set +e
   stop_daemon
   if (( result != 0 )); then
-    capture_shared_service_failure
+    capture_owned_container_failure
   fi
   local cleanup_result=0
   if [[ "$cleanup_authorized" == 'true' ]]; then

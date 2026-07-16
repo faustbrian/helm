@@ -541,6 +541,9 @@ fn live_laravel_acceptance_contract_crosses_the_clean_room_boundaries() {
         "daemon reconcile",
         "ca_sha256",
         "remove_owned_engine_resources",
+        "capture_owned_container_failure",
+        "owned-container-$container_id-state.json",
+        "docker logs --tail 200",
     ] {
         assert!(
             script.contains(contract),

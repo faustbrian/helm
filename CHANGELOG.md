@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Laravel clean-room failures now retain bounded state and logs for every
+  owned container, including the gateway, application, workers, schedulers,
+  and shared services, without capturing container environments.
 - Release checksum manifests now contain portable archive basenames and are
   reverified from the artifact directory before publication, so downloaded
   release assets work directly with `sha256sum --check SHA256SUMS`.
