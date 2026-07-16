@@ -191,10 +191,12 @@ jobs:
             gh attestation verify "${archive}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_WORKFLOW_REF%%@*}" \
+              --source-digest "${GITHUB_SHA}" \
               --predicate-type 'https://slsa.dev/provenance/v1'
             gh attestation verify "${archive}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_WORKFLOW_REF%%@*}" \
+              --source-digest "${GITHUB_SHA}" \
               --predicate-type 'https://spdx.dev/Document/v2.3'
           done
           for checksum in dist/*.tar.gz.sha256; do

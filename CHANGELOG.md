@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Release verification now binds both provenance and SBOM attestations to the
+  exact workflow source digest, preventing a valid artifact from another
+  Stackctl revision from satisfying the release candidate gate.
 - Laravel clean-room failures now retain bounded state and logs for every
   owned container, including the gateway, application, workers, schedulers,
   and shared services, without capturing container environments.
