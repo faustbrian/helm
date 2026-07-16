@@ -33,6 +33,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Shared-service reconciliation, project-network attachment, and post-shared
+  inventory failures now remain visible as typed persistent daemon diagnostics;
+  Laravel failure records list owned container identity and state without
+  capturing container environments.
 - PostgreSQL logical provisioning now retries only `psql` connection-loss exit
   code 2 while the official image transitions from its temporary
   initialization server to the final server; SQL rejections remain immediate

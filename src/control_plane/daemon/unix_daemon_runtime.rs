@@ -884,7 +884,11 @@ impl UnixDaemonRuntime {
                         &mut self.resource_health,
                         now,
                     );
-                    tracing::debug!(
+                    self.resource_health.record_reconciliation_failure(
+                        "shared_service_reconciliation_failed",
+                        error.to_string(),
+                    );
+                    tracing::warn!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         error = %error,
@@ -924,7 +928,11 @@ impl UnixDaemonRuntime {
                         &mut self.resource_health,
                         now,
                     );
-                    tracing::debug!(
+                    self.resource_health.record_reconciliation_failure(
+                        "shared_service_network_failed",
+                        format!("project '{project_id}': {error}"),
+                    );
+                    tracing::warn!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         project = project_id,
@@ -1069,7 +1077,11 @@ impl UnixDaemonRuntime {
                         &mut self.resource_health,
                         now,
                     );
-                    tracing::debug!(
+                    self.resource_health.record_reconciliation_failure(
+                        "managed_container_inventory_failed",
+                        error.to_string(),
+                    );
+                    tracing::warn!(
                         attempt = retry.attempt(),
                         retry_milliseconds = retry.duration().as_millis(),
                         error = %error,

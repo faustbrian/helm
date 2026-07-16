@@ -144,6 +144,11 @@ capture_shared_service_failure() {
 
   docker ps -a --no-trunc \
     --filter "label=dev.stackctl.installation=$installation_id" \
+    --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}\t{{.Labels}}' \
+    > "$OUTPUT_DIRECTORY/owned-containers.txt" 2>&1
+
+  docker ps -a --no-trunc \
+    --filter "label=dev.stackctl.installation=$installation_id" \
     --filter 'label=dev.stackctl.kind=shared_service' \
     --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}' \
     > "$OUTPUT_DIRECTORY/shared-services.txt" 2>&1
