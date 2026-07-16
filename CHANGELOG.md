@@ -177,9 +177,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- The production gateway now passes `run` directly to the official Caddy
-  image's existing entrypoint instead of attempting `caddy caddy run`, which
-  caused the singleton gateway to restart continuously.
+- Gateway and application containers now drop Docker's broad default Linux
+  capability set while retaining only `NET_BIND_SERVICE`. This permits the
+  capability-marked public Caddy and FrankenPHP binaries to execute, without
+  restoring unrelated container administration capabilities.
 - Report the live singleton owner PID when foreground and login-service daemons
   compete, together with exact inspection and stop guidance. Unreadable PID
   metadata no longer reduces the contention error to an unactionable lock path.
@@ -188,9 +189,10 @@ All notable changes to this project are documented in this file.
   its endpoint is absent. Permission and protocol failures still fail closed.
 - Reject explicit execution of automatic workflows so `stackctl run` cannot
   bypass their deterministic operation identity and durable replay guard.
-- Drop the complete default Linux capability set from the gateway, application,
-  worker, Horizon, and scheduler containers in addition to disabling privileged
-  mode and privilege escalation. Infrastructure images keep their upstream
+- Drop the complete default Linux capability set from user-facing containers
+  in addition to disabling privileged mode and privilege escalation. Gateway
+  and application servers retain only `NET_BIND_SERVICE`; workers, Horizon,
+  and schedulers retain none. Infrastructure images keep their upstream
   bootstrap requirements until each can be proven capability-free separately.
 - Bounded every direct project and artifact-lock YAML read to 1 MiB while
   refusing symbolic links, non-regular files, invalid UTF-8, and path-replacement

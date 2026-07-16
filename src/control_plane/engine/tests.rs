@@ -1187,6 +1187,7 @@ fn managed_containers_explicitly_prohibit_privilege_escalation() {
         Some(vec!["no-new-privileges=true".to_owned()])
     );
     assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
+    assert_eq!(host.cap_add, None);
 }
 
 #[test]
@@ -1752,6 +1753,7 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
 
     assert_eq!(host.network_mode.as_deref(), Some("stackctl"));
     assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
+    assert_eq!(host.cap_add, Some(vec!["NET_BIND_SERVICE".to_owned()]));
     let port_bindings = host.port_bindings.expect("loopback port bindings");
     assert_eq!(
         port_bindings

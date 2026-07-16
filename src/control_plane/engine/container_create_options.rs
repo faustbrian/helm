@@ -1,6 +1,6 @@
 use super::{
-    BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, ManagedResourceMetadata,
-    PortBinding, TmpfsMount, VolumeMount, is_immutable_image_identity,
+    BindMount, ContainerHealthCheck, ContainerRestartPolicy, EngineError, LinuxCapability,
+    ManagedResourceMetadata, PortBinding, TmpfsMount, VolumeMount, is_immutable_image_identity,
     is_valid_container_environment_key,
 };
 use std::collections::BTreeMap;
@@ -27,6 +27,7 @@ pub(crate) struct ContainerCreateOptions {
     image_health_check_disabled: bool,
     restart_policy: Option<ContainerRestartPolicy>,
     linux_capabilities_disabled: bool,
+    linux_capabilities: Vec<LinuxCapability>,
 }
 
 impl ContainerCreateOptions {
@@ -70,6 +71,7 @@ impl ContainerCreateOptions {
             image_health_check_disabled: false,
             restart_policy: None,
             linux_capabilities_disabled: false,
+            linux_capabilities: Vec::new(),
         })
     }
 
@@ -248,6 +250,15 @@ impl ContainerCreateOptions {
         self
     }
 
+    /// Retains one capability after the complete default set is dropped.
+    pub(crate) fn with_linux_capability(mut self, capability: LinuxCapability) -> Self {
+        self.linux_capabilities_disabled = true;
+        if !self.linux_capabilities.contains(&capability) {
+            self.linux_capabilities.push(capability);
+        }
+        self
+    }
+
     pub(crate) fn with_health_check(mut self, health_check: ContainerHealthCheck) -> Self {
         self.health_check = Some(health_check);
         self.image_health_check_disabled = false;
@@ -334,6 +345,10 @@ impl ContainerCreateOptions {
     pub(crate) const fn linux_capabilities_disabled(&self) -> bool {
         self.linux_capabilities_disabled
     }
+
+    pub(crate) fn linux_capabilities(&self) -> &[LinuxCapability] {
+        &self.linux_capabilities
+    }
 }
 
 impl Debug for ContainerCreateOptions {
@@ -364,6 +379,7 @@ impl Debug for ContainerCreateOptions {
                 "linux_capabilities_disabled",
                 &self.linux_capabilities_disabled,
             )
+            .field("linux_capabilities", &self.linux_capabilities)
             .finish()
     }
 }

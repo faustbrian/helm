@@ -13,7 +13,7 @@ use super::{
 use crate::control_plane::engine::{
     ContainerCreateOptions, ContainerDiscovery, ContainerHealth, ContainerLifecycle,
     ContainerState, EngineError, EngineFuture, GatewayContainerRequestOptions, HealthObserver,
-    ImageId, ImageResolver, ImmutableImageReference, ManagedResourceMetadata,
+    ImageId, ImageResolver, ImmutableImageReference, LinuxCapability, ManagedResourceMetadata,
     ManagedResourceMetadataOptions, ObservedContainer, OwnedContainer, PublishedPortBinding,
     PublishedPortDiscovery, ResourceKind, RetentionClass, gateway_container_request,
     reconstruct_owned_container,
@@ -174,7 +174,11 @@ fn production_gateway_request_pins_official_caddy_and_global_ownership() {
     assert_eq!(request.user(), Some("501:20"));
     assert_eq!(
         request.command(),
-        ["run", "--config", "/etc/stackctl/config.json"]
+        ["caddy", "run", "--config", "/etc/stackctl/config.json"]
+    );
+    assert_eq!(
+        request.linux_capabilities(),
+        [LinuxCapability::NetBindService]
     );
     assert_eq!(request.metadata().installation_id(), "install-1");
     assert_eq!(request.metadata().kind(), ResourceKind::Gateway);

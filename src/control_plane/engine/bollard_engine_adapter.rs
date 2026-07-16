@@ -1974,6 +1974,13 @@ fn host_config(options: &ContainerCreateOptions) -> HostConfig {
         cap_drop: options
             .linux_capabilities_disabled()
             .then(|| vec!["ALL".to_owned()]),
+        cap_add: (!options.linux_capabilities().is_empty()).then(|| {
+            options
+                .linux_capabilities()
+                .iter()
+                .map(|capability| capability.engine_name().to_owned())
+                .collect()
+        }),
         network_mode: options.network().map(str::to_owned),
         port_bindings: (!port_bindings.is_empty()).then_some(port_bindings),
         binds: (!binds.is_empty()).then_some(binds),

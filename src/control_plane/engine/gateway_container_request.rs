@@ -1,6 +1,6 @@
 use super::{
     BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
-    GatewayContainerRequestOptions, PortBinding, TmpfsMount,
+    GatewayContainerRequestOptions, LinuxCapability, PortBinding, TmpfsMount,
 };
 use std::time::Duration;
 
@@ -20,6 +20,7 @@ pub(crate) fn gateway_container_request(
     let request =
         ContainerCreateOptions::new(GATEWAY_CONTAINER_NAME, options.image, options.metadata)?
             .without_linux_capabilities()
+            .with_linux_capability(LinuxCapability::NetBindService)
             .with_user(options.user)?
             .with_network(options.network)?
             .with_port_binding(PortBinding::loopback(80, 80)?)
@@ -40,6 +41,7 @@ pub(crate) fn gateway_container_request(
             .with_tmpfs_mount(TmpfsMount::new("/data", GATEWAY_TMPFS_BYTES)?)
             .with_tmpfs_mount(TmpfsMount::new("/tmp", GATEWAY_TMPFS_BYTES)?)
             .with_command(vec![
+                "caddy".to_owned(),
                 "run".to_owned(),
                 "--config".to_owned(),
                 GATEWAY_CONFIG_PATH.to_owned(),

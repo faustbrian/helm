@@ -1,7 +1,7 @@
 use super::{ApplicationContainerRequestOptions, ApplicationHealthCheck};
 use crate::control_plane::engine::{
     BindMount, ContainerCreateOptions, ContainerHealthCheck, ContainerRestartPolicy, EngineError,
-    ResourceKind, RetentionClass,
+    LinuxCapability, ResourceKind, RetentionClass,
 };
 use std::time::Duration;
 
@@ -89,6 +89,7 @@ pub(crate) fn application_container_request(
 
     Ok(request
         .without_linux_capabilities()
+        .with_linux_capability(LinuxCapability::NetBindService)
         .with_health_check(application_health_check)
         .with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }
