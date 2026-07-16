@@ -33,6 +33,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- MySQL-family logical provisioning now retries its bounded client exit while
+  the official image transitions from the temporary initialization server to
+  its final server, then preserves the final exact failure as tenant drift.
 - Immutable public-image pulls now retry a truncated or transient Engine stream
   three times with bounded delay before preserving the final exact failure,
   preventing a single registry transport interruption from aborting setup.

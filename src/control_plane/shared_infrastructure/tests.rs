@@ -6246,6 +6246,56 @@ fn mysql_logical_provisioning_keeps_both_passwords_out_of_command_debug() {
 }
 
 #[test]
+fn mysql_logical_provisioning_retries_the_initialization_server_transition() {
+    let shared = plan_shared_instances(vec![SharedServiceRequest::new(
+        "bill",
+        "database",
+        sql_profile("mysql", "8"),
+    )])
+    .pop()
+    .expect("shared MySQL plan");
+    let instance = MySqlSharedInstancePlan::new(
+        &shared,
+        MySqlSharedInstancePlanOptions {
+            installation_id: "install-1".to_owned(),
+            network_name: "stackctl".to_owned(),
+            schema_version: 8,
+            desired_revision: "sha256:mysql-v1".to_owned(),
+            bootstrap_secret: CredentialSecret::new("mysql-root".to_owned()),
+        },
+    )
+    .expect("MySQL instance");
+    let project = plan_mysql_project_resources(
+        "bill",
+        "database",
+        &instance,
+        CredentialSecret::new("project-secret".to_owned()),
+    )
+    .expect("MySQL project resources");
+    let container = owned_shared_container("mysql-container", "sha256:mysql-8");
+    let executor = RecordingPostgresExecutor {
+        statuses: Arc::new(Mutex::new(VecDeque::from([1, 0]))),
+        ..RecordingPostgresExecutor::default()
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .expect("test runtime");
+
+    runtime
+        .block_on(provision_mysql_logical_resource(
+            &executor,
+            &container,
+            &instance,
+            project.logical(),
+        ))
+        .expect("retry the transient MySQL server transition");
+
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn sql_server_instances_are_private_persistent_and_secret_safe() {
     let shared = plan_shared_instances(vec![SharedServiceRequest::new(
         "bill",
