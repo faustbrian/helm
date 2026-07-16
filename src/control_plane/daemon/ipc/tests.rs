@@ -65,6 +65,7 @@ fn daemon_status_round_trips_structured_discovery_diagnostics() {
             engine_available: false,
             engine_converged: false,
             discovery_diagnostics: vec![diagnostic.clone()],
+            reconciliation_diagnostic: None,
         },
     );
     let event = IpcEventKind::Diagnostics {

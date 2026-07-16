@@ -62,6 +62,7 @@ where
                 engine_available: !resource_health.engine_is_unavailable(),
                 engine_converged: resource_health.engine_is_converged(),
                 discovery_diagnostics: discovery_diagnostics.to_vec(),
+                reconciliation_diagnostic: resource_health.reconciliation_diagnostic().cloned(),
             },
         ),
         IpcPayload::ActivateGatewayCertificate { generation } => {

@@ -7580,7 +7580,7 @@ fn gateway_certificate_activation_validates_the_exact_generation() {
 }
 
 #[test]
-fn daemon_status_returns_current_discovery_diagnostics() {
+fn daemon_status_returns_current_discovery_and_reconciliation_diagnostics() {
     let root = temporary_directory("ipc-daemon-status");
     let store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("open state store");
     let mut control_plane = ControlPlane::new(store);
@@ -7593,6 +7593,15 @@ fn daemon_status_returns_current_discovery_diagnostics() {
     let mut resource_health = ResourceHealthRegistry::default();
     resource_health.mark_engine_unavailable();
     resource_health.record_operational_readiness(false, false);
+    let reconciliation_diagnostic = crate::control_plane::IpcDiagnostic::new(
+        "project_adoption_required",
+        "project 'api' has disabled managed state; explicit adoption is required before reactivation",
+        false,
+    );
+    resource_health.record_reconciliation_failure(
+        reconciliation_diagnostic.code(),
+        reconciliation_diagnostic.message().to_owned(),
+    );
     let request = IpcRequest::new("daemon-status", IpcPayload::DaemonStatus);
 
     let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
@@ -7622,6 +7631,7 @@ fn daemon_status_returns_current_discovery_diagnostics() {
                 engine_available: false,
                 engine_converged: false,
                 discovery_diagnostics: vec![diagnostic],
+                reconciliation_diagnostic: Some(reconciliation_diagnostic),
             },
         )
     );
@@ -10034,6 +10044,7 @@ fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
                 engine_available,
                 engine_converged,
                 discovery_diagnostics,
+                reconciliation_diagnostic,
             },
     } = response.outcome()
     else {
@@ -10042,6 +10053,7 @@ fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
     assert!(!discovery_complete);
     assert!(!engine_available);
     assert!(!engine_converged);
+    assert!(reconciliation_diagnostic.is_none());
     assert_eq!(discovery_diagnostics.len(), 1);
     assert_eq!(discovery_diagnostics[0].code(), "configuration_invalid");
     assert!(

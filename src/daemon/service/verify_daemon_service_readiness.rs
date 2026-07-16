@@ -48,6 +48,7 @@ fn validate_response(outcome: &IpcOutcome) -> Result<()> {
                     engine_available: true,
                     engine_converged: true,
                     discovery_diagnostics,
+                    reconciliation_diagnostic: None,
                 },
         } if discovery_diagnostics.is_empty() => Ok(()),
         IpcOutcome::Success {
@@ -57,6 +58,7 @@ fn validate_response(outcome: &IpcOutcome) -> Result<()> {
                     engine_available,
                     engine_converged,
                     discovery_diagnostics,
+                    reconciliation_diagnostic,
                 },
         } => {
             let mut issues = Vec::new();
@@ -74,6 +76,9 @@ fn validate_response(outcome: &IpcOutcome) -> Result<()> {
                     .iter()
                     .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message())),
             );
+            if let Some(diagnostic) = reconciliation_diagnostic {
+                issues.push(format!("{}: {}", diagnostic.code(), diagnostic.message()));
+            }
             bail!("daemon is not operational: {}", issues.join("; "))
         }
         outcome => bail!("unexpected daemon readiness response: {outcome:?}"),
@@ -125,12 +130,18 @@ mod tests {
 
     #[test]
     fn readiness_rejects_a_responsive_but_unconverged_daemon() {
+        let diagnostic = IpcDiagnostic::new(
+            "project_adoption_required",
+            "project 'api' has disabled managed state; explicit adoption is required",
+            false,
+        );
         let outcome = IpcOutcome::Success {
             result: IpcResult::DaemonStatus {
                 discovery_complete: true,
                 engine_available: true,
                 engine_converged: false,
                 discovery_diagnostics: Vec::new(),
+                reconciliation_diagnostic: Some(diagnostic),
             },
         };
 
@@ -138,6 +149,8 @@ mod tests {
 
         assert!(error.to_string().contains("gateway"));
         assert!(error.to_string().contains("have not converged"));
+        assert!(error.to_string().contains("project_adoption_required"));
+        assert!(error.to_string().contains("explicit adoption is required"));
     }
 
     #[test]
@@ -152,6 +165,7 @@ mod tests {
                     "domain 'api-app.stackctl.localhost' has multiple claimants",
                     false,
                 )],
+                reconciliation_diagnostic: None,
             },
         };
 

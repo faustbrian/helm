@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::control_plane::engine::ContainerHealth;
 
 use super::{ResourceHealth, ResourceHealthRegistryError};
+use crate::control_plane::daemon::ipc::IpcDiagnostic;
 
 /// Non-durable health snapshot keyed by exact Engine resource identity.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -10,6 +11,7 @@ pub(crate) struct ResourceHealthRegistry {
     engine_unavailable: bool,
     discovery_complete: bool,
     engine_converged: bool,
+    reconciliation_diagnostic: Option<IpcDiagnostic>,
     observations: BTreeMap<String, (ResourceHealth, i64)>,
 }
 
@@ -113,6 +115,15 @@ impl ResourceHealthRegistry {
         self.engine_converged
     }
 
+    pub(crate) const fn reconciliation_diagnostic(&self) -> Option<&IpcDiagnostic> {
+        self.reconciliation_diagnostic.as_ref()
+    }
+
+    pub(crate) fn record_reconciliation_failure(&mut self, code: &str, message: String) {
+        self.engine_converged = false;
+        self.reconciliation_diagnostic = Some(IpcDiagnostic::new(code, message, false));
+    }
+
     pub(crate) fn record_operational_readiness(
         &mut self,
         discovery_complete: bool,
@@ -130,6 +141,10 @@ impl ResourceHealthRegistry {
         self.engine_unavailable = true;
         self.engine_converged = false;
         self.observations.clear();
+    }
+
+    pub(crate) fn clear_reconciliation_failure(&mut self) {
+        self.reconciliation_diagnostic = None;
     }
 
     /// Invalidates every observation when the selected Engine adapter is lost.

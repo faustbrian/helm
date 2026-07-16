@@ -19,6 +19,7 @@ pub(crate) enum IpcResult {
         engine_available: bool,
         engine_converged: bool,
         discovery_diagnostics: Vec<IpcDiagnostic>,
+        reconciliation_diagnostic: Option<IpcDiagnostic>,
     },
     /// Confirms an asynchronous operation was accepted.
     Accepted { operation_id: String },

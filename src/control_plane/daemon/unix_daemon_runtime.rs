@@ -474,6 +474,8 @@ impl UnixDaemonRuntime {
         };
         if let Err(error) = validate_project_workload_adoption(execution, &durable_resources) {
             self.engine_reconciliation.complete();
+            self.resource_health
+                .record_reconciliation_failure("project_adoption_required", error.to_string());
             tracing::error!(error = %error, "project workload adoption required");
 
             return;
@@ -1950,6 +1952,7 @@ impl UnixDaemonRuntime {
                     return;
                 }
                 self.resource_health = health_snapshot;
+                self.resource_health.clear_reconciliation_failure();
                 self.scheduled_project_commands = engine_plan.scheduled_commands().to_vec();
                 self.engine_reconciliation.mark_converged();
                 tracing::debug!(

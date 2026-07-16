@@ -8,7 +8,9 @@ use tracing_subscriber::registry::LookupSpan;
 
 use super::entry::LogEntry;
 use super::{LogLevel, Persistence, emit_entry_direct, now_local_timestamp};
+mod default_persistence;
 mod fields;
+use default_persistence::default_persistence;
 use fields::{FieldCollector, parse_context_json};
 
 pub(super) struct LaravelLayer;
@@ -34,7 +36,7 @@ where
             .persistence
             .as_deref()
             .and_then(Persistence::from_str)
-            .unwrap_or(Persistence::Transient);
+            .unwrap_or_else(|| default_persistence(level));
 
         let entry = LogEntry {
             timestamp,

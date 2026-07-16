@@ -1,6 +1,7 @@
 //! Logger initialization helpers.
 
 use time::OffsetDateTime;
+use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::prelude::*;
 
 use super::LoggerState;
@@ -30,6 +31,9 @@ pub(super) fn tracing_fallback_warning(timestamp: OffsetDateTime) -> LogEntry {
 
 fn install_tracing_subscriber() -> bool {
     let layer = LaravelLayer;
-    let subscriber = tracing_subscriber::registry().with(layer);
+    let filter = Targets::new()
+        .with_default(LevelFilter::WARN)
+        .with_target("stackctl", LevelFilter::INFO);
+    let subscriber = tracing_subscriber::registry().with(layer.with_filter(filter));
     tracing::subscriber::set_global_default(subscriber).is_ok()
 }

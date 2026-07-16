@@ -476,6 +476,14 @@ daemon restarts.
 Daemon status also returns live selected-Engine availability. It exits nonzero
 from startup until the first successful Engine connection and after any
 connection loss, while the daemon continues its bounded automatic reconnects.
+If retained project state requires explicit adoption, status and service
+readiness return `project_adoption_required` with the exact project and
+recovery action instead of reporting only that Engine convergence stalled.
+Unannotated daemon warnings and errors are written to bounded private daily
+files under `~/.stackctl/logs`, even when a login service has no attached
+terminal. Stackctl retains the newest seven days and rotates one 10 MiB prior
+segment per day. Stackctl-owned informational events remain visible without
+enabling third-party Engine or HTTP debug traffic.
 Gateway port discovery, lifecycle, and readiness failures classified as Engine
 errors invalidate that exact adapter and retain the due desired plan for the
 same bounded reconnect path; they are not converted into durable route drift.

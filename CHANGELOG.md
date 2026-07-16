@@ -19,6 +19,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Stackctl now filters third-party tracing below warning level and persists
+  unannotated daemon warnings and errors in bounded private daily files under
+  `~/.stackctl/logs`, so login-service failures remain diagnosable without
+  flooding foreground output.
+- Daemon status and login-service readiness now preserve the exact
+  `project_adoption_required` reconciliation diagnostic instead of reducing
+  retained-state activation failures to a generic convergence timeout.
 - Long-running restores and other Engine mutations now make benchmark and
   daemon readiness fail fast instead of blocking IPC on an expensive sample.
   A client that times out before reading its response no longer turns a

@@ -274,6 +274,7 @@ fn handle_daemon_status() -> Result<()> {
                     engine_available: true,
                     engine_converged: true,
                     discovery_diagnostics,
+                    reconciliation_diagnostic: None,
                 },
         } if discovery_diagnostics.is_empty() => {
             output::event(
@@ -291,6 +292,7 @@ fn handle_daemon_status() -> Result<()> {
                     engine_available,
                     engine_converged,
                     discovery_diagnostics,
+                    reconciliation_diagnostic,
                 },
         } => {
             let mut issues = Vec::new();
@@ -316,6 +318,9 @@ fn handle_daemon_status() -> Result<()> {
                     .iter()
                     .map(|diagnostic| format!("{}: {}", diagnostic.code(), diagnostic.message())),
             );
+            if let Some(diagnostic) = reconciliation_diagnostic {
+                issues.push(format!("{}: {}", diagnostic.code(), diagnostic.message()));
+            }
             anyhow::bail!("singleton is not ready: {}", issues.join("; "))
         }
         IpcOutcome::Failure { diagnostics } => {
