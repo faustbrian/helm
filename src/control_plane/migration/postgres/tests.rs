@@ -23,7 +23,7 @@ use crate::control_plane::state::{
     CredentialLifecycle, CredentialRecord, CredentialRecordOptions, EnvironmentLifecycle,
     LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
     ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
-    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore,
+    ProjectRecord, ResourceLifecycle, SqliteStateStore, StateStore, retained_migration_source,
 };
 use futures_util::stream;
 use std::collections::BTreeMap;
@@ -388,7 +388,7 @@ fn postgres_migration_adapter_returns_owned_deterministic_target_state() {
         .build()
         .expect("PostgreSQL migration runtime");
     let checkpoint = backup_checkpoint();
-    let source = logical_resource();
+    let source = migration_source_logical_resource();
     let target = logical_resource();
     let target_credential = project_credential();
     let plan = PostgresLogicalResourcePlan::new(
@@ -450,7 +450,7 @@ fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
     let root = backup_root("migration-execution");
     std::fs::create_dir_all(&root).expect("create PostgreSQL migration root");
     let database_path = root.join("state.sqlite3");
-    let source = logical_resource();
+    let source = migration_source_logical_resource();
     let target = logical_resource();
     let target_credential = project_credential();
     let plan = PostgresLogicalResourcePlan::new(
@@ -498,6 +498,9 @@ fn postgres_migration_adapter_runs_reversibly_before_explicit_retirement() {
     store
         .replace_managed_environment(&rollback_environment())
         .expect("persist source environment");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&source))
+        .expect("persist source logical resource");
     let mut operations = PostgresMigrationOperations::new(&executor, &mut retirement, options)
         .expect("PostgreSQL migration operations");
 
@@ -546,7 +549,7 @@ fn postgres_source_retirement_retains_the_confirmed_logical_source() {
         .expect("PostgreSQL retirement runtime");
     let inventory = adapter_inventory();
     let checkpoint = adapter_cutover_checkpoint();
-    let source = logical_resource();
+    let source = retained_migration_source(&logical_resource(), "migration-bill-database");
     let source_container = owned_container_with_id("postgres-source");
     let administrator = credential();
     let source_credential = project_credential();
@@ -582,7 +585,7 @@ fn postgres_source_retirement_rejects_an_unconfirmed_checkpoint() {
         .expect("PostgreSQL retirement runtime");
     let inventory = adapter_inventory();
     let checkpoint = backup_checkpoint();
-    let source = logical_resource();
+    let source = retained_migration_source(&logical_resource(), "migration-bill-database");
     let source_container = owned_container_with_id("postgres-source");
     let administrator = credential();
     let source_credential = project_credential();
@@ -811,6 +814,20 @@ fn logical_resource() -> LogicalResourceRecord {
         kind: "postgres_database_and_role".to_owned(),
         compatibility_fingerprint: "sha256:postgres-17".to_owned(),
         desired_revision: "sha256:desired".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+}
+
+fn migration_source_logical_resource() -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "source:bill/database".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-17".to_owned(),
+        desired_revision: "sha256:source".to_owned(),
         lifecycle: ResourceLifecycle::Active,
         orphaned_at_unix_seconds: None,
     })

@@ -217,6 +217,11 @@ fn validate(
 ) -> Result<(), MigrationOperationError> {
     let source = options.source_logical_resource;
     let target = options.target_logical_resource;
+    let source_database_name = options
+        .source_environment
+        .values()
+        .get("MONGODB_DATABASE")
+        .map(String::as_str);
     let retained = options.rollback.retained_targets().iter().any(|candidate| {
         candidate.logical_resource_id() == target.logical_resource_id()
             && candidate.shared_resource_id() == target.shared_resource_id()
@@ -228,7 +233,10 @@ fn validate(
         || options.timeout.is_zero()
         || source.kind() != "mongodb_database"
         || target.kind() != "mongodb_database"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || !matches!(
+            source.lifecycle(),
+            ResourceLifecycle::Active | ResourceLifecycle::Retained
+        )
         || target.lifecycle() != ResourceLifecycle::Active
         || source.project_id() != target.project_id()
         || source.service_id() != target.service_id()
@@ -241,7 +249,7 @@ fn validate(
         || options.target_credential.lifecycle() != CredentialLifecycle::Active
         || target.logical_resource_id()
             != format!("{}/{}", target.project_id(), target.service_id())
-        || options.target_plan.database_name() != source.logical_resource_id()
+        || source_database_name != Some(options.target_plan.database_name())
         || options.source_administrator.project_id().is_some()
         || options.source_administrator.service_id() != "mongodb"
         || options.source_administrator.lifecycle() != CredentialLifecycle::Active
@@ -306,9 +314,9 @@ fn validate_retirement(
         || !checkpoint.has_same_identity(inventory)
         || checkpoint.rollback_reference() != inventory.rollback_reference()
         || source.kind() != "mongodb_database"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || source.lifecycle() != ResourceLifecycle::Retained
         || source.project_id() != inventory.project_id()
-        || database_name != Some(source.logical_resource_id())
+        || database_name.is_none()
         || options.source_credential.project_id() != Some(source.project_id())
         || options.source_credential.service_id() != source.service_id()
         || options.source_credential.lifecycle() != CredentialLifecycle::Active
@@ -336,7 +344,16 @@ fn validate_retirement(
 fn retirement_script(
     options: &MongoDbMigrationOperationsOptions<'_>,
 ) -> Result<String, MigrationOperationError> {
-    let database = json_string(options.source_logical_resource.logical_resource_id())?;
+    let database = options
+        .source_environment
+        .values()
+        .get("MONGODB_DATABASE")
+        .ok_or_else(|| {
+            MigrationOperationError::new(
+                "MongoDB source environment does not contain MONGODB_DATABASE",
+            )
+        })
+        .and_then(|database| json_string(database))?;
     let username = json_string(options.source_credential.username())?;
     let administrator = json_string(options.source_administrator.username())?;
     let secret = json_string(options.source_administrator.secret())?;

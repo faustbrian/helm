@@ -49,6 +49,10 @@ All notable changes to this project are documented in this file.
   running container with a failed readiness probe remains running and reports
   its unhealthy state; only a stopped process is started automatically, so a
   slow or broken application cannot enter a daemon-driven restart loop.
+- Reversible database migrations now persist source and target logical
+  ownership independently. Targets remain deterministically staged until
+  verification, cutover atomically promotes the target while retaining the
+  source, and rollback restores the source without an ownership collision.
 - Laravel application health checks now allow a bounded fifteen-second
   framework cold start and run every thirty seconds. This avoids false
   unhealthy replacement loops when a valid Artisan boot exceeds the previous

@@ -18,7 +18,8 @@ use super::{
     ManagedEnvironmentRecord, ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord,
     ProjectAdoptionPlan, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, StateStore,
-    StateStoreError,
+    StateStoreError, active_migration_resource, retained_migration_source, retained_source_id,
+    staged_migration_target, staged_target_id,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1401,7 +1402,8 @@ impl StateStore for SqliteStateStore {
                 detail: "the exact migration project is not registered".to_owned(),
             });
         }
-        persist_logical_resources(&transaction, std::slice::from_ref(target))?;
+        let staged_target = staged_migration_target(target, migration.migration_id());
+        persist_logical_resources(&transaction, std::slice::from_ref(&staged_target))?;
         let stable_credential = persist_credential_if_absent(&transaction, credential)?;
         if stable_credential != *credential {
             return Err(StateStoreError::MigrationTargetCredentialConflict {
@@ -1429,6 +1431,60 @@ impl StateStore for SqliteStateStore {
                 detail: "project, active environment, and cutover checkpoint must match".to_owned(),
             });
         }
+        {
+            let validation = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            persist_migration_record(&validation, migration)?;
+        }
+        let rollback_reference = migration.rollback_reference().ok_or_else(|| {
+            StateStoreError::InvalidMigrationCutover {
+                detail: "cutover migration has no rollback source".to_owned(),
+            }
+        })?;
+        let logical_resources = self.logical_resources()?;
+        let source_matches = logical_resources
+            .iter()
+            .filter(|resource| {
+                resource.project_id() == migration.project_id()
+                    && resource.compatibility_fingerprint()
+                        == migration.source_compatibility_fingerprint()
+                    && resource.shared_resource_id() == rollback_reference
+                    && resource.lifecycle() == ResourceLifecycle::Active
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let source = match source_matches.as_slice() {
+            [source] => source.clone(),
+            _ => {
+                return Err(StateStoreError::InvalidMigrationCutover {
+                    detail: "cutover requires one exact active source logical resource".to_owned(),
+                });
+            }
+        };
+        let target_id = staged_target_id(
+            source.project_id(),
+            source.service_id(),
+            migration.migration_id(),
+        );
+        let target_matches = logical_resources
+            .into_iter()
+            .filter(|resource| {
+                resource.logical_resource_id() == target_id
+                    && resource.project_id() == migration.project_id()
+                    && resource.compatibility_fingerprint()
+                        == migration.target_compatibility_fingerprint()
+                    && resource.lifecycle() == ResourceLifecycle::Retained
+            })
+            .collect::<Vec<_>>();
+        let target = match target_matches.as_slice() {
+            [target] => target.clone(),
+            _ => {
+                return Err(StateStoreError::InvalidMigrationCutover {
+                    detail: "cutover requires one exact staged target logical resource".to_owned(),
+                });
+            }
+        };
         let canonical_path = exact_path(project.canonical_path())?;
         let transaction = self
             .connection
@@ -1447,6 +1503,26 @@ impl StateStore for SqliteStateStore {
         }
 
         replace_project_batch(&transaction, &[(project, canonical_path)])?;
+        let removed_source = transaction.execute(
+            "DELETE FROM logical_resources WHERE logical_resource_id = ?1",
+            [source.logical_resource_id()],
+        )?;
+        let removed_target = transaction.execute(
+            "DELETE FROM logical_resources WHERE logical_resource_id = ?1",
+            [target.logical_resource_id()],
+        )?;
+        if removed_source != 1 || removed_target != 1 {
+            return Err(StateStoreError::InvalidMigrationCutover {
+                detail: "cutover logical ownership changed before commit".to_owned(),
+            });
+        }
+        persist_logical_resources(
+            &transaction,
+            &[
+                retained_migration_source(&source, migration.migration_id()),
+                active_migration_resource(&target),
+            ],
+        )?;
         persist_managed_environment(&transaction, environment)?;
         persist_migration_record(&transaction, migration)?;
         transaction.commit()?;
@@ -1475,6 +1551,52 @@ impl StateStore for SqliteStateStore {
                     .to_owned(),
             });
         }
+        {
+            let validation = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            persist_migration_record(&validation, migration)?;
+        }
+        let [target] = retained_targets else {
+            return Err(StateStoreError::InvalidMigrationRollback {
+                detail: "rollback requires one exact retained target".to_owned(),
+            });
+        };
+        if target.compatibility_fingerprint() != migration.target_compatibility_fingerprint() {
+            return Err(StateStoreError::InvalidMigrationRollback {
+                detail: "rollback target compatibility does not match".to_owned(),
+            });
+        }
+        let logical_resources = self.logical_resources()?;
+        let canonical_id = format!("{}/{}", target.project_id(), target.service_id());
+        let source_retained_id = retained_source_id(
+            target.project_id(),
+            target.service_id(),
+            migration.migration_id(),
+        );
+        let target_staged_id = staged_target_id(
+            target.project_id(),
+            target.service_id(),
+            migration.migration_id(),
+        );
+        let cutover_source = logical_resources.iter().find(|resource| {
+            resource.logical_resource_id() == source_retained_id
+                && resource.compatibility_fingerprint()
+                    == migration.source_compatibility_fingerprint()
+                && resource.lifecycle() == ResourceLifecycle::Retained
+        });
+        let cutover_target = logical_resources.iter().find(|resource| {
+            resource.logical_resource_id() == canonical_id
+                && resource.compatibility_fingerprint()
+                    == migration.target_compatibility_fingerprint()
+                && resource.lifecycle() == ResourceLifecycle::Active
+        });
+        let staged_target = logical_resources.iter().find(|resource| {
+            resource.logical_resource_id() == target_staged_id
+                && resource.compatibility_fingerprint()
+                    == migration.target_compatibility_fingerprint()
+                && resource.lifecycle() == ResourceLifecycle::Retained
+        });
         let canonical_path = exact_path(project.canonical_path())?;
         let transaction = self
             .connection
@@ -1494,7 +1616,36 @@ impl StateStore for SqliteStateStore {
 
         replace_project_batch(&transaction, &[(project, canonical_path)])?;
         persist_managed_environment(&transaction, environment)?;
-        persist_logical_resources(&transaction, retained_targets)?;
+        match (cutover_source, cutover_target, staged_target) {
+            (Some(source), Some(active_target), None) => {
+                let removed_source = transaction.execute(
+                    "DELETE FROM logical_resources WHERE logical_resource_id = ?1",
+                    [source.logical_resource_id()],
+                )?;
+                let removed_target = transaction.execute(
+                    "DELETE FROM logical_resources WHERE logical_resource_id = ?1",
+                    [active_target.logical_resource_id()],
+                )?;
+                if removed_source != 1 || removed_target != 1 {
+                    return Err(StateStoreError::InvalidMigrationRollback {
+                        detail: "rollback logical ownership changed before commit".to_owned(),
+                    });
+                }
+                persist_logical_resources(
+                    &transaction,
+                    &[
+                        active_migration_resource(source),
+                        staged_migration_target(active_target, migration.migration_id()),
+                    ],
+                )?;
+            }
+            (None, None, Some(_)) => {}
+            _ => {
+                return Err(StateStoreError::InvalidMigrationRollback {
+                    detail: "rollback source and target ownership are incomplete".to_owned(),
+                });
+            }
+        }
         persist_migration_record(&transaction, migration)?;
         transaction.commit()?;
 

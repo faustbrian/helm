@@ -228,7 +228,10 @@ fn validate(
         || options.timeout.is_zero()
         || source.kind() != "postgres_database_and_role"
         || target.kind() != "postgres_database_and_role"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || !matches!(
+            source.lifecycle(),
+            ResourceLifecycle::Active | ResourceLifecycle::Retained
+        )
         || target.lifecycle() != ResourceLifecycle::Active
         || source.project_id() != target.project_id()
         || source.service_id() != target.service_id()

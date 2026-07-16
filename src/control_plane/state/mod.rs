@@ -18,6 +18,7 @@ mod logical_resource_record_options;
 mod managed_environment_record;
 mod managed_environment_record_options;
 mod migrate_sqlite_state_schema;
+mod migration_logical_resource;
 mod migration_phase;
 mod migration_record;
 mod migration_record_error;
@@ -56,6 +57,10 @@ pub(crate) use logical_resource_record::LogicalResourceRecord;
 pub(crate) use logical_resource_record_options::LogicalResourceRecordOptions;
 pub(crate) use managed_environment_record::ManagedEnvironmentRecord;
 pub(crate) use managed_environment_record_options::ManagedEnvironmentRecordOptions;
+pub(crate) use migration_logical_resource::{
+    active_migration_resource, retained_migration_source, retained_source_id,
+    staged_migration_target, staged_target_id,
+};
 pub(crate) use migration_phase::MigrationPhase;
 pub(crate) use migration_record::MigrationRecord;
 pub(crate) use migration_record_error::MigrationRecordError;

@@ -133,11 +133,11 @@ where
                     && logical.shared_resource_id() == rollback_reference
                     && logical.compatibility_fingerprint()
                         == checkpoint.source_compatibility_fingerprint()
-                    && logical.lifecycle() == ResourceLifecycle::Active
+                    && logical.lifecycle() == ResourceLifecycle::Retained
             })
             .cloned()
             .collect(),
-        "active source logical resource",
+        "retained source logical resource",
     )?;
     let target_logical = one(
         logical_resources
@@ -350,11 +350,11 @@ where
                     && logical.shared_resource_id() == rollback_reference
                     && logical.compatibility_fingerprint()
                         == checkpoint.source_compatibility_fingerprint()
-                    && logical.lifecycle() == ResourceLifecycle::Active
+                    && logical.lifecycle() == ResourceLifecycle::Retained
             })
             .cloned()
             .collect(),
-        "active source logical resource",
+        "retained source logical resource",
     )?;
     let target_logical = one(
         logical_resources
@@ -565,11 +565,11 @@ where
                     && logical.shared_resource_id() == rollback_reference
                     && logical.compatibility_fingerprint()
                         == checkpoint.source_compatibility_fingerprint()
-                    && logical.lifecycle() == ResourceLifecycle::Active
+                    && logical.lifecycle() == ResourceLifecycle::Retained
             })
             .cloned()
             .collect(),
-        "active source logical resource",
+        "retained source logical resource",
     )?;
     let target_logical = one(
         logical_resources
@@ -791,11 +791,11 @@ where
                     && logical.shared_resource_id() == rollback_reference
                     && logical.compatibility_fingerprint()
                         == checkpoint.source_compatibility_fingerprint()
-                    && logical.lifecycle() == ResourceLifecycle::Active
+                    && logical.lifecycle() == ResourceLifecycle::Retained
             })
             .cloned()
             .collect(),
-        "active source logical resource",
+        "retained source logical resource",
     )?;
     let target_logical = one(
         logical_resources
@@ -984,10 +984,10 @@ fn decision_resource_kind(options: &MigrationDecisionExecutionOptions) -> Result
                     && logical.shared_resource_id() == rollback_reference
                     && logical.compatibility_fingerprint()
                         == checkpoint.source_compatibility_fingerprint()
-                    && logical.lifecycle() == ResourceLifecycle::Active
+                    && logical.lifecycle() == ResourceLifecycle::Retained
             })
             .collect(),
-        "active source logical resource",
+        "retained source logical resource",
     )?;
 
     Ok(source.kind().to_owned())

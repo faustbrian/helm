@@ -8,7 +8,7 @@ use crate::control_plane::state::{
     LogicalResourceRecord, LogicalResourceRecordOptions, ManagedEnvironmentRecord,
     ManagedEnvironmentRecordOptions, MigrationPhase, MigrationRecord, MigrationRecordOptions,
     ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions, ResourceLifecycle,
-    SqliteStateStore, StateStore,
+    SqliteStateStore, StateStore, retained_migration_source, staged_migration_target,
 };
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -64,7 +64,13 @@ fn migration_executes_to_reversible_cutover_without_retiring_the_source() {
         );
         assert_eq!(
             store.logical_resources().expect("owned target"),
-            vec![active_target_logical_resource()]
+            vec![
+                active_target_logical_resource(),
+                retained_migration_source(
+                    &active_source_logical_resource(),
+                    "migration-bill-database",
+                ),
+            ]
         );
         assert_eq!(
             store.credentials().expect("target credential"),
@@ -338,7 +344,13 @@ fn explicit_rollback_retains_proof_and_becomes_terminal() {
         );
         assert_eq!(
             store.logical_resources().expect("retained target"),
-            vec![retained_target_logical_resource()]
+            vec![
+                active_source_logical_resource(),
+                staged_migration_target(
+                    &active_target_logical_resource(),
+                    "migration-bill-database",
+                ),
+            ]
         );
 
         drop(store);
@@ -427,6 +439,20 @@ fn active_target_logical_resource() -> LogicalResourceRecord {
     target_logical_resource(ResourceLifecycle::Active)
 }
 
+fn active_source_logical_resource() -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "source:container/database".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-16".to_owned(),
+        desired_revision: "sha256:source".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
+}
+
 fn retained_target_logical_resource() -> LogicalResourceRecord {
     target_logical_resource(ResourceLifecycle::Retained)
 }
@@ -464,6 +490,9 @@ fn migration_store(database_path: &Path) -> SqliteStateStore {
     store
         .replace_managed_environment(&original_environment())
         .expect("persist original environment");
+    store
+        .upsert_logical_resources(std::slice::from_ref(&active_source_logical_resource()))
+        .expect("persist active source logical resource");
     store
 }
 

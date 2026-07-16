@@ -240,6 +240,11 @@ where
 fn validate(options: &MySqlMigrationOperationsOptions<'_>) -> Result<(), MigrationOperationError> {
     let source = options.source_logical_resource;
     let target = options.target_logical_resource;
+    let source_database_name = options
+        .source_environment
+        .values()
+        .get("DB_DATABASE")
+        .map(String::as_str);
     let expected_kind = match options.flavor {
         MySqlFlavor::MySql => "mysql_database",
         MySqlFlavor::MariaDb => "mariadb_database",
@@ -255,7 +260,10 @@ fn validate(options: &MySqlMigrationOperationsOptions<'_>) -> Result<(), Migrati
         || options.timeout.is_zero()
         || source.kind() != expected_kind
         || target.kind() != expected_kind
-        || source.lifecycle() != ResourceLifecycle::Active
+        || !matches!(
+            source.lifecycle(),
+            ResourceLifecycle::Active | ResourceLifecycle::Retained
+        )
         || target.lifecycle() != ResourceLifecycle::Active
         || source.project_id() != target.project_id()
         || source.service_id() != target.service_id()
@@ -268,7 +276,7 @@ fn validate(options: &MySqlMigrationOperationsOptions<'_>) -> Result<(), Migrati
         || options.target_credential.lifecycle() != CredentialLifecycle::Active
         || target.logical_resource_id()
             != format!("{}/{}", target.project_id(), target.service_id())
-        || options.target_plan.schema_name() != source.logical_resource_id()
+        || source_database_name != Some(options.target_plan.schema_name())
         || options.source_administrator.project_id().is_some()
         || options.source_administrator.username() != "root"
         || options.source_administrator.lifecycle() != CredentialLifecycle::Active
@@ -338,10 +346,9 @@ fn validate_retirement(
         || !checkpoint.has_same_identity(inventory)
         || checkpoint.rollback_reference() != inventory.rollback_reference()
         || source.kind() != expected_kind
-        || source.lifecycle() != ResourceLifecycle::Active
+        || source.lifecycle() != ResourceLifecycle::Retained
         || source.project_id() != inventory.project_id()
         || source.compatibility_fingerprint() != inventory.source_compatibility_fingerprint()
-        || database_name != Some(source.logical_resource_id())
         || !database_name.is_some_and(|database| valid_identifier(database, 64))
         || options.source_credential.project_id() != Some(source.project_id())
         || options.source_credential.service_id() != source.service_id()

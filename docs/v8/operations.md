@@ -322,7 +322,11 @@ require an explicit destructive workflow with the documented backup policy.
 Backups are host-visible Stackctl artifacts with project/resource identity,
 source compatibility fingerprint, checksum, creation time, and restore
 requirements. Migration does not switch routes or environment until restore and
-readiness verification pass. PostgreSQL confirmation terminates source sessions
+readiness verification pass. A target uses a deterministic migration-scoped
+logical identity while it is staged. Cutover atomically moves the verified
+target to the canonical active identity and moves the source to a deterministic
+retained identity; rollback reverses that ownership switch without guessing or
+overwriting either record. PostgreSQL confirmation terminates source sessions
 and disables the source role's login, but retains the source database and role
 as rollback material. Removing retained migration sources requires a separate
 explicit destructive workflow.

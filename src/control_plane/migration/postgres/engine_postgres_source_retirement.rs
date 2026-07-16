@@ -111,7 +111,7 @@ fn validate_source(
         || !checkpoint.has_same_identity(inventory)
         || checkpoint.rollback_reference() != inventory.rollback_reference()
         || source.kind() != "postgres_database_and_role"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || source.lifecycle() != ResourceLifecycle::Retained
         || source.project_id() != inventory.project_id()
         || source.compatibility_fingerprint() != inventory.source_compatibility_fingerprint()
         || options.source_environment.project_id() != source.project_id()

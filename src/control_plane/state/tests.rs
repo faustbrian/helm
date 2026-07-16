@@ -5,7 +5,7 @@ use super::{
     MigrationPhase, MigrationRecord, MigrationRecordOptions, ProjectAdoptionPlan,
     ProjectAdoptionPlanOptions, ProjectRecord, RecoveryPointRecord, RecoveryPointRecordOptions,
     ResourceLifecycle, ResourceRecord, ResourceRecordOptions, ResourceRetention, SqliteStateStore,
-    StateStore,
+    StateStore, retained_migration_source, staged_migration_target,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -660,6 +660,14 @@ fn migration_cutover_replaces_desired_state_and_checkpoint_atomically() {
     store
         .replace_managed_environment(&original_environment)
         .expect("persist original environment");
+    let source = migration_source_logical_resource();
+    let target = logical_resource_record("bill/database", "bill", "database");
+    store
+        .upsert_logical_resources(&[
+            source.clone(),
+            staged_migration_target(&target, "migration-bill"),
+        ])
+        .expect("persist source and staged target");
     for (phase, updated_at) in [
         (MigrationPhase::Inventoried, 10),
         (MigrationPhase::BackupVerified, 11),
@@ -693,6 +701,10 @@ fn migration_cutover_replaces_desired_state_and_checkpoint_atomically() {
     assert_eq!(
         store.migrations().expect("load migration")[0].phase(),
         MigrationPhase::Cutover
+    );
+    assert_eq!(
+        store.logical_resources().expect("load cutover ownership"),
+        vec![target, retained_migration_source(&source, "migration-bill"),]
     );
 
     drop(store);
@@ -2308,6 +2320,20 @@ fn logical_resource_record(
         service_id,
         ResourceLifecycle::Active,
     )
+}
+
+fn migration_source_logical_resource() -> LogicalResourceRecord {
+    LogicalResourceRecord::new(LogicalResourceRecordOptions {
+        logical_resource_id: "bill/database".to_owned(),
+        shared_resource_id: "retained:source-resource".to_owned(),
+        project_id: "bill".to_owned(),
+        service_id: "database".to_owned(),
+        kind: "postgres_database_and_role".to_owned(),
+        compatibility_fingerprint: "sha256:postgres-16".to_owned(),
+        desired_revision: "sha256:source".to_owned(),
+        lifecycle: ResourceLifecycle::Active,
+        orphaned_at_unix_seconds: None,
+    })
 }
 
 fn logical_resource_record_with_lifecycle(

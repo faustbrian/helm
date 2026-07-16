@@ -185,10 +185,13 @@ where
         checkpoint: &'operation MigrationRecord,
     ) -> MigrationFuture<'operation, ()> {
         let validation = validate_retirement(inventory, checkpoint, &self.options);
-        let sql = deletion_sql(
-            self.options.source_logical_resource.logical_resource_id(),
-            self.options.source_credential.username(),
-        );
+        let database_name = self
+            .options
+            .source_environment
+            .values()
+            .get("DB_DATABASE")
+            .cloned();
+        let username = self.options.source_credential.username().to_owned();
         let request = CommandRequest::new(
             vec![
                 SQLCMD_PATH.to_owned(),
@@ -213,6 +216,12 @@ where
         let timeout = self.options.timeout;
         Box::pin(async move {
             validation?;
+            let database_name = database_name.ok_or_else(|| {
+                MigrationOperationError::new(
+                    "SQL Server source environment does not contain DB_DATABASE",
+                )
+            })?;
+            let sql = deletion_sql(&database_name, &username);
             let command = AttachedCommandOptions::new(
                 request?,
                 sql.into_bytes(),
@@ -232,6 +241,11 @@ fn validate(
 ) -> Result<(), MigrationOperationError> {
     let source = options.source_logical_resource;
     let target = options.target_logical_resource;
+    let source_database_name = options
+        .source_environment
+        .values()
+        .get("DB_DATABASE")
+        .map(String::as_str);
     let retained = options.rollback.retained_targets().iter().any(|candidate| {
         candidate.logical_resource_id() == target.logical_resource_id()
             && candidate.shared_resource_id() == target.shared_resource_id()
@@ -243,7 +257,10 @@ fn validate(
         || options.timeout.is_zero()
         || source.kind() != "sqlserver_database"
         || target.kind() != "sqlserver_database"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || !matches!(
+            source.lifecycle(),
+            ResourceLifecycle::Active | ResourceLifecycle::Retained
+        )
         || target.lifecycle() != ResourceLifecycle::Active
         || source.project_id() != target.project_id()
         || source.service_id() != target.service_id()
@@ -256,7 +273,7 @@ fn validate(
         || options.target_credential.lifecycle() != CredentialLifecycle::Active
         || target.logical_resource_id()
             != format!("{}/{}", target.project_id(), target.service_id())
-        || options.target_plan.database_name() != source.logical_resource_id()
+        || source_database_name != Some(options.target_plan.database_name())
         || options.source_administrator.project_id().is_some()
         || options.source_administrator.service_id() != "sqlserver"
         || options.source_administrator.username() != "sa"
@@ -322,9 +339,9 @@ fn validate_retirement(
         || !checkpoint.has_same_identity(inventory)
         || checkpoint.rollback_reference() != inventory.rollback_reference()
         || source.kind() != "sqlserver_database"
-        || source.lifecycle() != ResourceLifecycle::Active
+        || source.lifecycle() != ResourceLifecycle::Retained
         || source.project_id() != inventory.project_id()
-        || database_name != Some(source.logical_resource_id())
+        || database_name.is_none()
         || options.source_credential.project_id() != Some(source.project_id())
         || options.source_credential.service_id() != source.service_id()
         || options.source_credential.lifecycle() != CredentialLifecycle::Active
