@@ -22,11 +22,13 @@ just build
 cargo test -q
 scripts/audit-v8-host-dependencies.sh
 scripts/audit-v8-workflow-actions.sh
+scripts/audit-v8-supply-chain.sh
 git diff --check
 ```
 
-These prove source formatting, compilation, deterministic tests, the host
-dependency boundary, immutable GitHub Action references, and patch hygiene.
+These prove source formatting, compilation, deterministic tests, dependency
+security and policy, the host dependency boundary, immutable GitHub Action
+references, and patch hygiene.
 They do not prove login startup, trust integration, Engine recovery, Linux host
 behavior, or resource efficiency.
 

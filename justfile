@@ -21,6 +21,9 @@ lint:
 audit-v8-lint-policy:
     ./scripts/audit-v8-lint-policy.sh
 
+audit-v8-supply-chain:
+    ./scripts/audit-v8-supply-chain.sh
+
 audit-v8-host-dependencies:
     ./scripts/audit-v8-host-dependencies.sh
 

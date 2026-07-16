@@ -7,12 +7,13 @@ live evidence` means repository behavior exists but the required real platform
 or workload record has not been committed. No row with either pending state may
 be treated as release acceptance.
 
-Snapshot date: 2026-07-15. The local full-suite evidence at the snapshot was
-`cargo test --quiet`: 817 passed, 0 failed, and 22 CI-owned live Engine tests
+Snapshot date: 2026-07-16. The local full-suite evidence at the snapshot was
+`cargo test --quiet`: 835 passed, 0 failed, and 22 CI-owned live Engine tests
 ignored. `just lint` (format plus all-target Clippy with the repository's
 configured severities), `just build`,
 `scripts/audit-v8-host-dependencies.sh`,
-`scripts/audit-v8-workflow-actions.sh`, and `git diff --check` also passed. Those
+`scripts/audit-v8-workflow-actions.sh`,
+`scripts/audit-v8-supply-chain.sh`, and `git diff --check` also passed. Those
 local commands do not substitute for the platform and benchmark artifacts
 identified below.
 

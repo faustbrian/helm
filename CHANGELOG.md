@@ -14,6 +14,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Added an enforced Rust supply-chain gate covering RustSec advisories, yanked
+  dependencies, supported-target duplicate versions, license policy, wildcard
+  dependency requirements, and non-crates.io sources. Audit tool versions are
+  pinned in CI and warnings fail the gate.
 - Replaced the decorative all-Clippy manifest plus crate-wide bypass with an
   enforceable `clippy::all` and explicit safety baseline. Production and test
   builds now deny unused code instead of hiding it, and CI rejects broad lint

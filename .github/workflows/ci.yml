@@ -57,6 +57,24 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features
 
+  supply-chain:
+    name: Dependency Security and Policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Install pinned audit tools
+        run: |
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo install cargo-deny --locked --version 0.20.2
+
+      - name: Audit advisories, licenses, duplicates, and sources
+        run: ./scripts/audit-v8-supply-chain.sh
+
   test:
     name: Tests (${{ matrix.platform }})
     strategy:
