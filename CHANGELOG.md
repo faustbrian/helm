@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Long-running restores and other Engine mutations now make benchmark and
+  daemon readiness fail fast instead of blocking IPC on an expensive sample.
+  A client that times out before reading its response no longer turns a
+  completed request into a daemon reconciliation failure.
 - Destructive MySQL and MariaDB workflow restores now create a verified,
   private safety snapshot before resetting a schema, automatically restore it
   after a rejected dump, and retain it with an exact recovery path if rollback

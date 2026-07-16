@@ -1034,6 +1034,46 @@ fn unix_listener_serves_one_bounded_correlated_request() {
 
 #[cfg(unix)]
 #[test]
+fn unix_listener_keeps_the_daemon_healthy_after_a_client_abandons_its_response() {
+    use super::UnixIpcListener;
+    use std::io::Write;
+    use std::net::Shutdown;
+    use std::os::unix::net::UnixStream;
+    use std::sync::mpsc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock after epoch")
+        .as_nanos();
+    let socket_path = std::env::temp_dir().join(format!("s8-{}-{unique}.sock", std::process::id()));
+    let listener = UnixIpcListener::bind(&socket_path).expect("bind IPC listener");
+    let (dispatched_tx, dispatched_rx) = mpsc::sync_channel(0);
+    let (continue_tx, continue_rx) = mpsc::sync_channel(0);
+    let server = std::thread::spawn(move || {
+        listener
+            .serve_next(|request| {
+                dispatched_tx.send(()).expect("signal dispatch");
+                continue_rx.recv().expect("wait for disconnect");
+                IpcResponse::success(request.request_id(), IpcResult::Pong)
+            })
+            .expect("an abandoned response is not a daemon failure")
+    });
+    let request = IpcRequest::new("abandoned-ping", IpcPayload::Ping);
+    let mut client = UnixStream::connect(&socket_path).expect("connect IPC client");
+    client
+        .write_all(&encode_frame(&request).expect("encode request"))
+        .expect("write request");
+    dispatched_rx.recv().expect("request dispatched");
+    client.shutdown(Shutdown::Both).expect("disconnect client");
+    drop(client);
+    continue_tx.send(()).expect("release response");
+
+    assert_eq!(server.join().expect("join IPC server"), request);
+}
+
+#[cfg(unix)]
+#[test]
 fn unix_listener_rejects_oversized_input_before_dispatch() {
     use super::{UnixIpcListener, frame::MAX_FRAME_BYTES};
     use std::io::Write;

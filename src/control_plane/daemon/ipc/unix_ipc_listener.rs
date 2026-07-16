@@ -100,12 +100,18 @@ impl UnixIpcListener {
         let request = decode_request_frame(&frame)?;
         let response = handler(&request);
         let response_frame = encode_frame(&response)?;
-        stream
-            .write_all(&response_frame)
-            .map_err(|source| self.endpoint_error(source))?;
-        stream
-            .flush()
-            .map_err(|source| self.endpoint_error(source))?;
+        if let Err(source) = stream.write_all(&response_frame) {
+            if !peer_disconnected(&source) {
+                return Err(self.endpoint_error(source));
+            }
+
+            return Ok(request);
+        }
+        if let Err(source) = stream.flush()
+            && !peer_disconnected(&source)
+        {
+            return Err(self.endpoint_error(source));
+        }
 
         Ok(request)
     }
@@ -116,6 +122,16 @@ impl UnixIpcListener {
             source,
         }
     }
+}
+
+fn peer_disconnected(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::NotConnected
+    )
 }
 
 impl Drop for UnixIpcListener {

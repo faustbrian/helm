@@ -271,24 +271,33 @@ impl UnixDaemonRuntime {
             .engine()
             .cloned()
             .map(|engine| EngineImageReferenceResolution::new(&self.engine_runtime, engine));
+        let mutation_in_flight = self.has_active_project_command()
+            || self.has_active_project_backup()
+            || self.has_active_project_restore()
+            || self.has_active_postgres_prune()
+            || self.has_active_migration_decision()
+            || self.has_active_scheduled_commands();
         let mut benchmark_snapshot = self.engine_connection.engine().cloned().map(|engine| {
-            EngineBenchmarkSnapshotProvider::new(
-                &self.engine_runtime,
+            EngineBenchmarkSnapshotProvider::new(super::EngineBenchmarkSnapshotProviderOptions {
+                runtime: &self.engine_runtime,
                 engine,
-                self.global_network_request
+                installation_id: self
+                    .global_network_request
                     .metadata()
                     .installation_id()
                     .to_owned(),
-                self.global_network_request.metadata().schema_version(),
-                self.engine_reconciliation.is_converged()
+                schema_version: self.global_network_request.metadata().schema_version(),
+                convergence_proven: self.engine_reconciliation.is_converged()
                     && !self.scheduler.has_pending_change()
-                    && reconciliation.is_none(),
-            )
+                    && reconciliation.is_none()
+                    && !mutation_in_flight,
+                mutation_in_flight,
+            })
         });
         self.resource_health.record_operational_readiness(
             self.engine_reconciliation.desired_registry().is_some()
                 && self.discovery_diagnostics.is_empty(),
-            self.engine_reconciliation.is_converged(),
+            self.engine_reconciliation.is_converged() && !mutation_in_flight,
         );
         let request = self.listener.try_serve_next(|request| {
             dispatch_daemon_request(DaemonRequestDispatchOptions {
