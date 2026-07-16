@@ -517,10 +517,10 @@ Daemon status also returns live selected-Engine availability. It exits nonzero
 from startup until the first successful Engine connection and after any
 connection loss, while the daemon continues its bounded automatic reconnects.
 Exact retained project state is reactivated during complete discovery. If its
-atomic ownership checks reject the transition, status and service readiness
-return the non-retryable terminal diagnostic immediately instead of waiting
-for the full readiness timeout or reporting only that Engine convergence
-stalled.
+atomic ownership checks reject the transition, daemon status returns the
+non-retryable terminal diagnostic immediately instead of reporting only that
+Engine convergence stalled. Login-service lifecycle checks remain independent
+and report the responsive daemon as running.
 Unannotated daemon warnings and errors are written to bounded private daily
 files under `~/.stackctl/logs`, even when a login service has no attached
 terminal. Stackctl retains the newest seven days and rotates one 10 MiB prior
@@ -532,7 +532,16 @@ same bounded reconnect path; they are not converted into durable route drift.
 An explicit `stackctl daemon reconcile` returns every typed discovery
 diagnostic and exits nonzero when that complete scan is blocked. Its operation
 history records `Accepted` followed by `Failed`, never `Completed`. This does
-not stop background recovery of the last complete validated plan.
+not stop background recovery of the last complete validated plan. It is an
+advanced diagnostic and is not part of normal setup or recovery; the daemon
+already reconciles filesystem and Engine changes automatically.
+
+`stackctl open` waits up to ten minutes for the selected application and
+gateway observation to become healthy. Transient Engine loss, missing
+containers, image startup, health checks, certificate renewal, and route drift
+therefore do not require a second invocation. Retained ownership conflicts,
+logical-resource drift, and destructive replacement requirements remain
+terminal and fail immediately with their explicit diagnostic.
 Privilege-expanding service fields are classified separately as
 `security_approval_blocked`. This includes privileged mode, host networking,
 host bind mounts, device access, added capabilities, and Engine socket access.

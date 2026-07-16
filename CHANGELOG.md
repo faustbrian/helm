@@ -38,6 +38,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- `stackctl open` now waits for its selected application and gateway route to
+  self-heal instead of asking the user to rerun the command during normal
+  startup. Terminal ownership, logical-resource drift, and destructive
+  replacement diagnostics still fail immediately.
 - Failed automatic restores and migrations now retry their exact durable intent
   with increasing delays from one minute to a six-hour ceiling. Transient
   failures recover across rescans and daemon restarts without creating a

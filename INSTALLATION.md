@@ -55,7 +55,6 @@ Then run the one-time control-plane setup:
 stackctl setup --dir ~/Developer
 stackctl daemon service status
 stackctl daemon status
-stackctl daemon reconcile
 ```
 
 The daemon creates a missing project artifact lock through the selected
@@ -69,7 +68,7 @@ image acquisition, and workload convergence continue in the background and
 self-heal after transient Engine or project failures; one broken project does
 not roll back the healthy login daemon.
 
-Wait for the project to converge, then inspect and open it:
+Inspect and open the project:
 
 ```bash
 stackctl status
@@ -77,6 +76,11 @@ stackctl url
 stackctl logs --service app --tail 100
 stackctl open
 ```
+
+`stackctl open` waits for its selected application and gateway route to
+converge, including transient Engine, image-pull, startup, and health-check
+recovery. It returns immediately for terminal ownership or migration conflicts
+instead of asking the user to remember to rerun it.
 
 The main route is deterministic:
 `https://example-app.stackctl.localhost`. Stackctl never invents a suffix to
