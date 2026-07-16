@@ -1701,7 +1701,10 @@ where
         .resources()
         .map_err(|error| error.to_string())?
         .into_iter()
-        .filter(|resource| resource.project_id() == Some(project.project_name()))
+        .filter(|resource| {
+            resource.project_id() == Some(project.project_name())
+                && resource.lifecycle() == ResourceLifecycle::Active
+        })
         .map(|resource| {
             let (health, observed_at) = ipc_resource_health(
                 resource_health.observation(resource.resource_id()),
@@ -1726,7 +1729,10 @@ where
             .logical_resources()
             .map_err(|error| error.to_string())?
             .into_iter()
-            .filter(|resource| resource.project_id() == project.project_name())
+            .filter(|resource| {
+                resource.project_id() == project.project_name()
+                    && resource.lifecycle() == ResourceLifecycle::Active
+            })
             .map(|resource| {
                 let data_lifecycle = match crate::control_plane::retention::resolve_data_lifecycle_strategy(&resource) {
                     Ok(_) => IpcDataLifecycle::LogicalResource,

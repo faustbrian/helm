@@ -42,6 +42,9 @@ All notable changes to this project are documented in this file.
   revoke the source role's login while retaining its database and role as
   rollback material. Confirmation no longer destroys the previous logical
   source.
+- Project status now reports only the active resource for each current service.
+  Retained replacement history remains available through retained-data status
+  instead of appearing as duplicate stale rows in `stackctl ps`.
 - Laravel application health checks now allow a bounded fifteen-second
   framework cold start and run every thirty seconds. This avoids false
   unhealthy replacement loops when a valid Artisan boot exceeds the previous

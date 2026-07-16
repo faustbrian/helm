@@ -8271,6 +8271,19 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
         orphaned_at_unix_seconds: None,
     })
     .with_scope_id("app");
+    let retained_application = ResourceRecord::new(ResourceRecordOptions {
+        resource_id: "container-app-previous".to_owned(),
+        installation_id: "install-1".to_owned(),
+        kind: "project_application".to_owned(),
+        compatibility_fingerprint: "sha256:application-previous".to_owned(),
+        project_id: Some("bill".to_owned()),
+        schema_version: 8,
+        desired_revision: "sha256:previous".to_owned(),
+        retention: ResourceRetention::Persistent,
+        lifecycle: ResourceLifecycle::Retained,
+        orphaned_at_unix_seconds: None,
+    })
+    .with_scope_id("app");
     let logical = crate::control_plane::state::LogicalResourceRecord::new(
         crate::control_plane::state::LogicalResourceRecordOptions {
             logical_resource_id: "bill/database".to_owned(),
@@ -8287,7 +8300,7 @@ fn daemon_project_status_reports_durable_runtime_and_logical_ownership() {
     let mut store = SqliteStateStore::open(&root.join("state.sqlite3")).expect("state store");
     store.replace_project(&project).expect("register project");
     store
-        .upsert_resources(std::slice::from_ref(&application))
+        .upsert_resources(&[application.clone(), retained_application])
         .expect("persist application");
     store
         .upsert_logical_resources(std::slice::from_ref(&logical))
