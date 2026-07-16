@@ -38,13 +38,13 @@ where
                 continue;
             }
         };
-        match artifact_lock_required(&config) {
-            Ok(_) => {}
+        let requires_artifact_lock = match artifact_lock_required(&config) {
+            Ok(required) => required,
             Err(detail) => {
                 issues.push(ProjectDiscoveryIssue::InvalidConfiguration { detail });
                 continue;
             }
-        }
+        };
         match plan_project_registry(std::slice::from_ref(source)) {
             Ok(_) => {}
             Err(error) if error.is_artifact_lock_error() => {}
@@ -53,13 +53,13 @@ where
                 continue;
             }
         }
-        parsed_sources.push((source.clone(), config));
+        parsed_sources.push((source.clone(), config, requires_artifact_lock));
     }
 
     loop {
         let unlocked = parsed_sources
             .iter()
-            .map(|(source, _)| {
+            .map(|(source, _, _)| {
                 crate::control_plane::application::ProjectSource::new(
                     source.canonical_path().to_path_buf(),
                     source.config_path().to_path_buf(),
@@ -78,15 +78,14 @@ where
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>();
         issues.push(plan_issue(error));
-        parsed_sources.retain(|(source, _)| !conflicting_paths.contains(source.canonical_path()));
+        parsed_sources
+            .retain(|(source, _, _)| !conflicting_paths.contains(source.canonical_path()));
     }
 
     let mut pending_locks = Vec::new();
     let mut valid_sources = Vec::new();
-    for (source, config) in parsed_sources {
-        let required = artifact_lock_required(&config)
-            .expect("parsed project artifact requirement was already validated");
-        if required {
+    for (source, config, requires_artifact_lock) in parsed_sources {
+        if requires_artifact_lock {
             let lock_path = source.artifact_lock_path().map_or_else(
                 || source.canonical_path().join(".stackctl.lock.yaml"),
                 std::path::Path::to_path_buf,

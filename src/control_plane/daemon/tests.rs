@@ -7889,7 +7889,7 @@ fn daemon_reconcile_request_publishes_the_complete_watched_registry() {
 }
 
 #[test]
-fn daemon_reconcile_request_fails_with_discovery_diagnostics() {
+fn daemon_reconcile_request_isolates_invalid_project_diagnostics() {
     let root = temporary_directory("ipc-reconciliation-blocked");
     let project = root.join("bill");
     std::fs::create_dir(&project).expect("project directory");
@@ -7925,32 +7925,20 @@ fn daemon_reconcile_request_fails_with_discovery_diagnostics() {
         now_unix_seconds: 10_000,
     });
 
-    let IpcOutcome::Failure { diagnostics } = response.outcome() else {
-        panic!("blocked reconciliation should fail");
-    };
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].code(), "configuration_invalid");
-    assert!(!diagnostics[0].retryable());
-    assert!(diagnostics[0].message().contains(".stackctl.yaml"));
-    assert!(
-        diagnostics[0]
-            .message()
-            .contains("unknown field `environment`")
+    assert_eq!(
+        response,
+        IpcResponse::success(
+            "reconcile-invalid",
+            IpcResult::Reconciled { project_count: 0 },
+        )
     );
-    let expected_message = diagnostics[0].message().to_owned();
 
     let events = event_journal
         .events_after(Some(0))
         .expect("reconciliation events");
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].kind(), &IpcEventKind::Accepted);
-    assert_eq!(
-        events[1].kind(),
-        &IpcEventKind::Failed {
-            code: "reconciliation_blocked".to_owned(),
-            message: expected_message,
-        }
-    );
+    assert_eq!(events[1].kind(), &IpcEventKind::Completed);
 
     drop(control_plane);
     std::fs::remove_dir_all(&root).expect("remove reconciliation fixture");
@@ -10527,7 +10515,7 @@ fn singleton_unix_runtime_restores_automatic_discovery_diagnostics() {
         .expect("daemon iteration");
 
     assert!(
-        !iteration
+        iteration
             .reconciliation()
             .expect("initial reconciliation")
             .was_applied()
