@@ -14,7 +14,7 @@ pub(crate) use canonical_watch_dirs::canonical_watch_dirs;
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -411,8 +411,12 @@ fn run_command(program: &str, args: &[String], allow_failure: bool) -> Result<()
         return Ok(());
     }
 
-    let status = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    if allow_failure {
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+    let status = command
         .status()
         .with_context(|| format!("failed to run {}", program))?;
     if status.success() || allow_failure {
@@ -431,6 +435,8 @@ fn run_status(program: &str, args: &[String]) -> Result<bool> {
 
     Command::new(program)
         .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .with_context(|| format!("failed to run {program}"))
         .map(|status| status.success())

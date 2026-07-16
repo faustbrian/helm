@@ -42,6 +42,8 @@ All notable changes to this project are documented in this file.
 - Track attached commands by Docker's canonical container ID even when the
   command was started through a stable Stackctl container name, preventing
   false ownership loss during gateway reloads.
+- Keep expected service-manager probes and best-effort replacement commands
+  quiet, while preserving failures from commands whose success is required.
 - Keep all per-user daemon state and generated bind-mount inputs under the
   conventional `~/.stackctl` root on macOS and Linux. Shared
   compatibility state paths use the same deterministic 160-bit identity segment
