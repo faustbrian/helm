@@ -175,8 +175,8 @@ All notable changes to this project are documented in this file.
   extension names are no longer restricted to a Stackctl-owned catalog, and
   the custom image publication workflow and artifacts have been removed.
 - Updated every direct Rust dependency to its latest crates.io release,
-  including `futures-util` 0.3.32, `getrandom` 0.4.3, and `zip` 8.6.0, and
-  refreshed all compatible transitive dependencies in the lockfile.
+  including `clap` 4.6.2, `futures-util` 0.3.32, `getrandom` 0.4.3, and `zip`
+  8.6.0, and refreshed all compatible transitive dependencies in the lockfile.
 
 ### Fixed
 
