@@ -38,10 +38,11 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Laravel application health checks now probe the owned `/up` HTTP readiness
-  route instead of repeatedly booting Artisan. This avoids false unhealthy
-  replacement loops when CLI cold starts exceed the Engine timeout while the
-  application is already serving requests.
+- Laravel application health checks now allow a bounded fifteen-second
+  framework cold start and run every thirty seconds. This avoids false
+  unhealthy replacement loops when a valid Artisan boot exceeds the previous
+  three-second timeout without making every app depend on an unshadowed HTTP
+  health route.
 - New project networks use stable project-specific `/24` subnets from a
   Stackctl-owned private pool instead of consuming Docker's large default
   address blocks, allowing whole-root and 40-project reconciliation without

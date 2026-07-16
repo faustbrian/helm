@@ -63,19 +63,18 @@ pub(crate) fn application_container_request(
         request.with_command(options.command)?
     };
 
-    let (health_command, timeout, start_period) = match options.plan.health_check() {
+    let (health_command, interval, timeout, start_period) = match options.plan.health_check() {
         ApplicationHealthCheck::Laravel => (
             vec![
-                "curl".to_owned(),
-                "--fail".to_owned(),
-                "--silent".to_owned(),
-                "--show-error".to_owned(),
-                "--max-time".to_owned(),
-                "3".to_owned(),
-                format!("http://127.0.0.1:{}/up", options.plan.internal_http_port()),
+                "php".to_owned(),
+                "artisan".to_owned(),
+                "about".to_owned(),
+                "--only=environment".to_owned(),
+                "--no-ansi".to_owned(),
             ],
-            Duration::from_secs(5),
             Duration::from_secs(30),
+            Duration::from_secs(15),
+            Duration::from_secs(60),
         ),
         ApplicationHealthCheck::Tcp => (
             vec![
@@ -86,17 +85,13 @@ pub(crate) fn application_container_request(
                     options.plan.internal_http_port()
                 ),
             ],
+            Duration::from_secs(10),
             Duration::from_secs(3),
             Duration::from_secs(15),
         ),
     };
-    let application_health_check = ContainerHealthCheck::new(
-        health_command,
-        Duration::from_secs(10),
-        timeout,
-        start_period,
-        5,
-    )?;
+    let application_health_check =
+        ContainerHealthCheck::new(health_command, interval, timeout, start_period, 5)?;
 
     Ok(request
         .without_linux_capabilities()

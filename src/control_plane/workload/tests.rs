@@ -506,7 +506,7 @@ fn laravel_runtime_environment_bypasses_host_configuration_caches() {
 }
 
 #[test]
-fn laravel_application_health_uses_the_http_readiness_route() {
+fn laravel_application_health_allows_a_bounded_framework_cold_start() {
     let application = resolved_application(concat!(
         "schema_version: 8\nproject: bill\nservices:\n  app:\n",
         "    preset: laravel\n    version: \"8.5\"\n",
@@ -525,17 +525,16 @@ fn laravel_application_health_uses_the_http_readiness_route() {
         health_check.engine_test(),
         [
             "CMD",
-            "curl",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "--max-time",
-            "3",
-            "http://127.0.0.1:8080/up"
+            "php",
+            "artisan",
+            "about",
+            "--only=environment",
+            "--no-ansi"
         ]
     );
-    assert_eq!(health_check.timeout_nanoseconds(), 5_000_000_000);
-    assert_eq!(health_check.start_period_nanoseconds(), 30_000_000_000);
+    assert_eq!(health_check.interval_nanoseconds(), 30_000_000_000);
+    assert_eq!(health_check.timeout_nanoseconds(), 15_000_000_000);
+    assert_eq!(health_check.start_period_nanoseconds(), 60_000_000_000);
 }
 
 #[test]
