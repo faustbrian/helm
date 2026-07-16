@@ -93,6 +93,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Report the live singleton owner PID when foreground and login-service daemons
+  compete, together with exact inspection and stop guidance. Unreadable PID
+  metadata no longer reduces the contention error to an unactionable lock path.
 - Break the fresh-install image-lock deadlock by resolving through the daemon
   when available and using the same typed Engine capability directly only when
   its endpoint is absent. Permission and protocol failures still fail closed.

@@ -186,6 +186,13 @@ is never presented as a healthy login-time daemon. A manager-active process
 must also answer one bounded, correlated IPC probe; an unresponsive singleton
 fails status with the same explicit reinstall guidance.
 
+A competing foreground or login-service daemon fails immediately with the
+bounded owner PID read from the locked lease file. The diagnostic identifies
+`stackctl daemon service status`, the keep-data service-uninstall command, and
+foreground-process termination as distinct inspection and stop paths. Invalid
+or transient PID metadata never weakens the operating-system lock and produces
+the same guidance with `PID unavailable`.
+
 Service installation snapshots an existing regular definition before atomic
 replacement. After manager activation and the immediate running-state check,
 Stackctl requires a bounded, correlated IPC `Ping`/`Pong` from the singleton.

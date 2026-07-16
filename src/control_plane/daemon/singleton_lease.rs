@@ -1,6 +1,6 @@
 use super::SingletonLeaseError;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{Error, ErrorKind, Seek, SeekFrom, Write};
+use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 /// A held OS lock proving this process is the per-user v8 daemon.
@@ -19,6 +19,7 @@ impl SingletonLease {
             Err(TryLockError::WouldBlock) => {
                 return Err(SingletonLeaseError::AlreadyRunning {
                     path: lock_path.to_path_buf(),
+                    owner_pid: read_owner_pid(&mut file),
                 });
             }
             Err(TryLockError::Error(source)) => {
@@ -41,6 +42,21 @@ impl SingletonLease {
 
         Ok(Self { _file: file })
     }
+}
+
+fn read_owner_pid(file: &mut File) -> Option<u32> {
+    const MAX_PID_BYTES: usize = 16;
+
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let mut bytes = Vec::with_capacity(MAX_PID_BYTES);
+    file.take((MAX_PID_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() > MAX_PID_BYTES {
+        return None;
+    }
+
+    std::str::from_utf8(&bytes).ok()?.parse().ok()
 }
 
 fn open_lock_file(lock_path: &Path) -> Result<File, SingletonLeaseError> {

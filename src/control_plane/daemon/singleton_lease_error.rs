@@ -7,7 +7,10 @@ use std::path::PathBuf;
 #[non_exhaustive]
 pub(crate) enum SingletonLeaseError {
     /// Another live process holds the operating-system lock.
-    AlreadyRunning { path: PathBuf },
+    AlreadyRunning {
+        path: PathBuf,
+        owner_pid: Option<u32>,
+    },
     /// The lease file could not be opened, locked, secured, or updated.
     Io {
         path: PathBuf,
@@ -18,13 +21,24 @@ pub(crate) enum SingletonLeaseError {
 impl Display for SingletonLeaseError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AlreadyRunning { path } => {
-                write!(
+            Self::AlreadyRunning { path, owner_pid } => match owner_pid {
+                Some(owner_pid) => write!(
                     formatter,
-                    "another Stackctl daemon owns '{}'",
+                    "another Stackctl daemon owns '{}' (PID {owner_pid}); inspect it with \
+                     `stackctl daemon service status`; stop an installed service with \
+                     `stackctl daemon service uninstall --keep-data`, or terminate foreground \
+                     PID {owner_pid} before retrying",
                     path.display()
-                )
-            }
+                ),
+                None => write!(
+                    formatter,
+                    "another Stackctl daemon owns '{}' (PID unavailable); inspect it with \
+                     `stackctl daemon service status`; stop an installed service with \
+                     `stackctl daemon service uninstall --keep-data`, or terminate the \
+                     foreground daemon before retrying",
+                    path.display()
+                ),
+            },
             Self::Io { path, source } => write!(
                 formatter,
                 "failed to acquire Stackctl daemon lease '{}': {source}",

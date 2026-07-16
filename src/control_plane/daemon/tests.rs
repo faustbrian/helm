@@ -6845,11 +6845,41 @@ fn only_one_daemon_can_hold_a_user_lease() {
     let first = SingletonLease::acquire(&lock_path).expect("first singleton lease");
 
     let error = SingletonLease::acquire(&lock_path).expect_err("second lease must fail");
+    let owner_pid = std::process::id();
 
     assert_eq!(
         error.to_string(),
-        format!("another Stackctl daemon owns '{}'", lock_path.display())
+        format!(
+            "another Stackctl daemon owns '{}' (PID {owner_pid}); inspect it with \
+             `stackctl daemon service status`; stop an installed service with \
+             `stackctl daemon service uninstall --keep-data`, or terminate foreground PID \
+             {owner_pid} before retrying",
+            lock_path.display(),
+        )
     );
+
+    drop(first);
+    remove_lock(&lock_path);
+}
+
+#[test]
+fn competing_daemon_remains_actionable_when_owner_pid_is_unreadable() {
+    let lock_path = temporary_lock_path("invalid-owner");
+    let first = SingletonLease::acquire(&lock_path).expect("first singleton lease");
+    std::fs::write(&lock_path, "not-a-pid").expect("replace advisory owner metadata");
+
+    let error = SingletonLease::acquire(&lock_path).expect_err("second lease must fail");
+
+    assert!(error.to_string().contains("PID unavailable"));
+    assert!(
+        error
+            .to_string()
+            .contains("stackctl daemon service uninstall --keep-data")
+    );
+
+    std::fs::write(&lock_path, "12345678901234567").expect("replace oversized owner metadata");
+    let oversized = SingletonLease::acquire(&lock_path).expect_err("second lease must still fail");
+    assert!(oversized.to_string().contains("PID unavailable"));
 
     drop(first);
     remove_lock(&lock_path);
