@@ -3,7 +3,7 @@
 ## Local state
 
 Stackctl keeps all per-user daemon state, generated container inputs,
-certificates, locks, and local IPC under `~/Stackctl` on macOS and Linux. This
+certificates, locks, and local IPC under `~/.stackctl` on macOS and Linux. This
 single directory is predictable, Docker-shareable, and removable as part of an
 explicit clean uninstall. Project source and persistent Engine volumes remain
 outside it.

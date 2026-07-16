@@ -6,7 +6,7 @@ pub(crate) fn default_unix_daemon_runtime_directory() -> Result<PathBuf, UnixDae
     let home = std::env::var_os("HOME").ok_or_else(|| UnixDaemonRuntimeError::InvalidOptions {
         detail: "HOME is not set".to_owned(),
     })?;
-    Ok(PathBuf::from(home).join("Stackctl"))
+    Ok(PathBuf::from(home).join(".stackctl"))
 }
 
 #[cfg(test)]
@@ -20,7 +20,7 @@ mod tests {
 
         assert_eq!(
             default_unix_daemon_runtime_directory().expect("runtime directory"),
-            home.join("Stackctl")
+            home.join(".stackctl")
         );
     }
 }

@@ -16,7 +16,7 @@ only through typed Engine capabilities.
 ## Clean-install boundary
 
 Installing v8 creates one predictable per-user control-plane state directory at
-`~/Stackctl` and manages only resources bearing its own installation identity.
+`~/.stackctl` and manages only resources bearing its own installation identity.
 Existing external containers, volumes, configuration, routes, certificates,
 and host integrations remain outside its ownership.
 

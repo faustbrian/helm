@@ -43,7 +43,7 @@ All notable changes to this project are documented in this file.
   command was started through a stable Stackctl container name, preventing
   false ownership loss during gateway reloads.
 - Keep all per-user daemon state and generated bind-mount inputs under the
-  predictable, Docker-shareable `~/Stackctl` root on macOS and Linux. Shared
+  conventional `~/.stackctl` root on macOS and Linux. Shared
   compatibility state paths use the same deterministic 160-bit identity segment
   as Engine names, and generated mount paths are installation-scoped across
   clean reinstalls.
