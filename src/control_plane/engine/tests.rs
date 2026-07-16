@@ -1175,7 +1175,8 @@ fn managed_containers_explicitly_prohibit_privilege_escalation() {
         ),
         global_metadata(ResourceKind::ProjectApplication),
     )
-    .expect("container options");
+    .expect("container options")
+    .without_linux_capabilities();
 
     let (_, request) = create_request(&options);
     let host = request.host_config.expect("managed host configuration");
@@ -1185,6 +1186,7 @@ fn managed_containers_explicitly_prohibit_privilege_escalation() {
         host.security_opt,
         Some(vec!["no-new-privileges=true".to_owned()])
     );
+    assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
 }
 
 #[test]
@@ -1749,6 +1751,7 @@ fn gateway_engine_request_has_private_network_loopback_ports_and_read_only_tls()
     let host = body.host_config.expect("gateway host config");
 
     assert_eq!(host.network_mode.as_deref(), Some("stackctl"));
+    assert_eq!(host.cap_drop, Some(vec!["ALL".to_owned()]));
     let port_bindings = host.port_bindings.expect("loopback port bindings");
     assert_eq!(
         port_bindings

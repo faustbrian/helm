@@ -88,6 +88,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Drop the complete default Linux capability set from the gateway, application,
+  worker, Horizon, and scheduler containers in addition to disabling privileged
+  mode and privilege escalation. Infrastructure images keep their upstream
+  bootstrap requirements until each can be proven capability-free separately.
 - Bounded every direct project and artifact-lock YAML read to 1 MiB while
   refusing symbolic links, non-regular files, invalid UTF-8, and path-replacement
   growth. A pure-Rust pre-expansion parser now rejects anchors, aliases, tags,

@@ -88,6 +88,7 @@ pub(crate) fn application_container_request(
     )?;
 
     Ok(request
+        .without_linux_capabilities()
         .with_health_check(application_health_check)
         .with_restart_policy(ContainerRestartPolicy::UnlessStopped))
 }

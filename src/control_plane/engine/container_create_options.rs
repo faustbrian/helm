@@ -26,6 +26,7 @@ pub(crate) struct ContainerCreateOptions {
     health_check: Option<ContainerHealthCheck>,
     image_health_check_disabled: bool,
     restart_policy: Option<ContainerRestartPolicy>,
+    linux_capabilities_disabled: bool,
 }
 
 impl ContainerCreateOptions {
@@ -68,6 +69,7 @@ impl ContainerCreateOptions {
             health_check: None,
             image_health_check_disabled: false,
             restart_policy: None,
+            linux_capabilities_disabled: false,
         })
     }
 
@@ -240,6 +242,12 @@ impl ContainerCreateOptions {
         self
     }
 
+    /// Drops the complete default Linux capability set for this container.
+    pub(crate) const fn without_linux_capabilities(mut self) -> Self {
+        self.linux_capabilities_disabled = true;
+        self
+    }
+
     pub(crate) fn with_health_check(mut self, health_check: ContainerHealthCheck) -> Self {
         self.health_check = Some(health_check);
         self.image_health_check_disabled = false;
@@ -322,6 +330,10 @@ impl ContainerCreateOptions {
     pub(crate) const fn image_health_check_disabled(&self) -> bool {
         self.image_health_check_disabled
     }
+
+    pub(crate) const fn linux_capabilities_disabled(&self) -> bool {
+        self.linux_capabilities_disabled
+    }
 }
 
 impl Debug for ContainerCreateOptions {
@@ -348,6 +360,10 @@ impl Debug for ContainerCreateOptions {
                 &self.image_health_check_disabled,
             )
             .field("restart_policy", &self.restart_policy)
+            .field(
+                "linux_capabilities_disabled",
+                &self.linux_capabilities_disabled,
+            )
             .finish()
     }
 }

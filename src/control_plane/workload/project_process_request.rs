@@ -49,6 +49,7 @@ pub(crate) fn project_process_request(
     .with_environment(options.plan.environment().values().clone())
     .map(|request| {
         request
+            .without_linux_capabilities()
             .without_image_health_check()
             .with_restart_policy(ContainerRestartPolicy::UnlessStopped)
     })

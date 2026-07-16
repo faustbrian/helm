@@ -49,7 +49,7 @@ hostile processes running as the same OS identity.
 | Configuration | Strict YAML, unknown-field rejection, bounded file and collection sizes, no host shell execution, deterministic collision failure | Configuration and daemon registry tests |
 | IPC | User-only directory and `0600` socket, bounded frames, timeouts and queues, typed project/resource ownership checks, secret-free responses | IPC framing, listener, dispatch, queue, and redaction tests |
 | Engine ownership | Exact installation/schema/kind/project/resource labels before adoption, mutation, or deletion | Engine reconstruction, reconciliation, and deletion tests |
-| Containers | No privileged mode, no new privileges, no Engine socket mount, loopback-only gateway publication, immutable resolved images, and one private network per project | Engine request tests plus real private-application, cross-project network-denial, Redis, and PostgreSQL acceptance |
+| Containers | No privileged mode, no new privileges, no default Linux capabilities for user-facing workloads, no Engine socket mount, loopback-only gateway publication, immutable resolved images, and one private network per project | Engine request tests plus real private-application, cross-project network-denial, Redis, and PostgreSQL acceptance |
 | Shared services | Stable per-project credentials and service-native logical isolation; removal revokes only the selected tenant | Shared-service unit and real-Engine isolation/lifecycle tests |
 | TLS | Persistent one-user CA, exact fingerprint trust, private keys, atomic rotation and rollback, wildcard route contract | TLS unit/integration tests; OS and browser behavior remains platform evidence |
 | Supply chain | Locked Rust dependencies, RustSec, license/source/duplicate policy, immutable image resolution, pinned CI actions | `scripts/audit-v8-supply-chain.sh`, image policy tests, workflow audit |
@@ -112,6 +112,21 @@ materializes either project configuration or artifact locks, a pure-Rust event
 pass rejects tags, anchors, and aliases and enforces a depth of 32, 10,000 total
 nodes, 1,000 entries per collection, and 64 KiB per scalar. Focused tests cover
 each boundary, invalid UTF-8, symlinks, and lock-file alias rejection.
+
+### SEC-05: unnecessary default workload capabilities — High, mitigated
+
+Stackctl prohibited privileged containers and enabled `no-new-privileges`, but
+the gateway, application, workers, and schedulers still inherited Docker's
+default Linux capability bounding set. These user-facing processes do not need
+container administration capabilities, and a compromised image should not
+retain them merely because an Engine supplies permissive defaults.
+
+The typed Engine request now has an explicit capability-free policy that maps
+to `CapDrop: [ALL]`. Stackctl applies it to the gateway, project applications,
+workers, Horizon, and scheduler processes. Database and infrastructure images
+retain only the Engine default for now because their upstream entrypoints may
+need to prepare volume ownership before dropping identity; extending the policy
+to them requires per-image real-Engine evidence, not an untested global switch.
 
 ## Review rules
 

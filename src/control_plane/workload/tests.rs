@@ -361,6 +361,7 @@ fn application_plan_materializes_one_private_owned_linux_engine_request() {
     assert_eq!(request.name(), "stackctl-bill-app");
     assert_eq!(request.platform(), Some("linux/arm64"));
     assert_eq!(request.user(), Some("501:20"));
+    assert!(request.linux_capabilities_disabled());
     assert_eq!(request.network(), Some("stackctl-private"));
     assert!(request.port_bindings().is_empty());
     assert_eq!(request.bind_mounts().len(), 1);
@@ -1808,6 +1809,7 @@ fn project_workers_materialize_as_supervised_private_linux_containers() {
     );
     assert_eq!(request.platform(), Some("linux/arm64"));
     assert_eq!(request.user(), Some("501:20"));
+    assert!(request.linux_capabilities_disabled());
     assert_eq!(request.network(), Some("stackctl-private"));
     assert!(request.port_bindings().is_empty());
     assert_eq!(request.bind_mounts()[0].source(), "/work/bill");

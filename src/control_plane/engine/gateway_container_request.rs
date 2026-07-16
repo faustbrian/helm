@@ -19,6 +19,7 @@ pub(crate) fn gateway_container_request(
     let bootstrap_config_path = utf8_path("bootstrap config", &options.bootstrap_config_path)?;
     let request =
         ContainerCreateOptions::new(GATEWAY_CONTAINER_NAME, options.image, options.metadata)?
+            .without_linux_capabilities()
             .with_user(options.user)?
             .with_network(options.network)?
             .with_port_binding(PortBinding::loopback(80, 80)?)
