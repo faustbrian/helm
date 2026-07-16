@@ -63,6 +63,7 @@ pub(crate) enum IpcPayload {
     OpenProjectLogs {
         canonical_path: PathBuf,
         services: Vec<String>,
+        all: bool,
         follow: bool,
         tail: Option<u32>,
     },

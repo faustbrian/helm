@@ -1289,6 +1289,7 @@ where
         IpcPayload::OpenProjectLogs {
             canonical_path,
             services,
+            all,
             follow,
             tail,
         } => {
@@ -1297,6 +1298,7 @@ where
                 request.request_id(),
                 canonical_path,
                 services,
+                *all,
                 *follow,
                 *tail,
             ) {
@@ -1458,6 +1460,7 @@ fn prepare_project_logs<Store>(
     session_id: &str,
     canonical_path: &std::path::Path,
     services: &[String],
+    all: bool,
     follow: bool,
     tail: Option<u32>,
 ) -> Result<ProjectLogRequest, String>
@@ -1546,6 +1549,7 @@ where
         );
         match matches.as_slice() {
             [target] => targets.push(target.clone()),
+            [] if all => continue,
             [] => {
                 return Err(format!(
                     "project '{}' service '{}' has no active owned container",
@@ -1561,6 +1565,12 @@ where
                 ));
             }
         }
+    }
+    if targets.is_empty() {
+        return Err(format!(
+            "project '{}' has no active owned containers with logs",
+            project.project_name()
+        ));
     }
 
     Ok(ProjectLogRequest::new(

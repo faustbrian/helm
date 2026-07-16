@@ -658,6 +658,7 @@ fn project_log_sessions_preserve_exact_services_and_bounded_polling() {
         IpcPayload::OpenProjectLogs {
             canonical_path: PathBuf::from("/work/bill"),
             services: vec!["app".to_owned(), "db".to_owned()],
+            all: false,
             follow: true,
             tail: Some(100),
         },

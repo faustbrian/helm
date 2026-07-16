@@ -8254,7 +8254,7 @@ fn daemon_retained_status_reports_orphaned_projects_without_registry_rows() {
 }
 
 #[test]
-fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
+fn daemon_project_logs_all_skips_declared_services_without_owned_containers() {
     let root = temporary_directory("ipc-project-logs");
     let project_path = root.join("bill");
     std::fs::create_dir(&project_path).expect("project directory");
@@ -8326,7 +8326,8 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
         "logs-42",
         IpcPayload::OpenProjectLogs {
             canonical_path: project_path,
-            services: vec!["app".to_owned(), "db".to_owned()],
+            services: vec!["app".to_owned(), "db".to_owned(), "scheduler".to_owned()],
+            all: true,
             follow: true,
             tail: Some(100),
         },
@@ -8367,6 +8368,45 @@ fn daemon_project_logs_resolve_exact_owned_services_before_opening_a_session() {
     assert_eq!(pending.targets()[1].service(), "db");
     assert_eq!(pending.targets()[1].resource_id(), "postgres-17");
     assert_eq!(pending.targets()[1].project_id(), None);
+
+    let explicit_scheduler = IpcRequest::new(
+        "logs-scheduler-42",
+        IpcPayload::OpenProjectLogs {
+            canonical_path: root.join("bill"),
+            services: vec!["scheduler".to_owned()],
+            all: false,
+            follow: false,
+            tail: Some(100),
+        },
+    );
+    let response = dispatch_daemon_request(DaemonRequestDispatchOptions {
+        control_plane: &mut control_plane,
+        discovery_options: ProjectDiscoveryOptions::bounded_defaults(),
+        request: &explicit_scheduler,
+        event_journal: &mut event_journal,
+        project_commands: &mut project_commands,
+        project_backups: &mut ProjectBackupQueue::default(),
+        postgres_prunes: &mut PostgresPruneQueue::default(),
+        project_restores: &mut ProjectRestoreQueue::default(),
+        migration_decisions: &mut MigrationDecisionQueue::default(),
+        project_logs: &mut project_logs,
+        resource_health: &ResourceHealthRegistry::default(),
+        discovery_diagnostics: &[],
+        benchmark_snapshot: None,
+        image_reference_resolution: None,
+        now_unix_seconds: 10_000,
+    });
+    assert_eq!(
+        response,
+        IpcResponse::failure(
+            "logs-scheduler-42",
+            vec![crate::control_plane::IpcDiagnostic::new(
+                "project_logs_invalid",
+                "project 'bill' service 'scheduler' has no active owned container",
+                false,
+            )],
+        )
+    );
 
     let poll = IpcRequest::new(
         "logs-poll-42",

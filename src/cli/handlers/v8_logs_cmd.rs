@@ -27,6 +27,7 @@ static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 struct V8LogInvocation {
     project_root: PathBuf,
     services: Vec<String>,
+    all: bool,
     follow: bool,
     tail: Option<u32>,
     prefix: bool,
@@ -76,6 +77,7 @@ fn log_invocation(
     Ok(V8LogInvocation {
         project_root: project_root.to_path_buf(),
         services,
+        all: args.all,
         follow: args.follow,
         tail,
         prefix: args.prefix,
@@ -92,6 +94,7 @@ fn execute_log_invocation(invocation: V8LogInvocation) -> Result<()> {
             IpcPayload::OpenProjectLogs {
                 canonical_path: invocation.project_root,
                 services: invocation.services,
+                all: invocation.all,
                 follow: invocation.follow,
                 tail: invocation.tail,
             },
@@ -255,6 +258,7 @@ mod tests {
         .expect("log invocation");
 
         assert_eq!(invocation.services, vec!["app"]);
+        assert!(!invocation.all);
     }
 
     #[test]
@@ -272,6 +276,7 @@ mod tests {
         .expect("log invocation");
 
         assert_eq!(invocation.services, vec!["app", "db"]);
+        assert!(invocation.all);
     }
 
     #[test]

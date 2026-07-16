@@ -180,6 +180,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- `logs --all` now streams every active log-capable project container without
+  failing on declarative scheduler services that intentionally have no
+  continuously owned container. Explicit requests for a non-container service
+  remain strict and actionable.
 - Daemon convergence and automatic workflows now wait until every required
   application health check succeeds. A transient or fatal Laravel bootstrap can
   no longer consume the durable once-per-revision migration operation before
